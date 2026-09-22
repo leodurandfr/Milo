@@ -26,13 +26,27 @@ class AudioSource(Enum):
 class SourceState(Enum):
     """The four states an audio source can be in — all reachable, no other.
 
-    READY and ACTIVE split on whether a session exists, not on whether audio is
-    coming out: a paused radio stays ACTIVE because a station is still tuned.
+    READY and ACTIVE split on whether a SESSION IS LIVE, not on whether audio is
+    coming out: a paused CD stays ACTIVE because the disc is still loaded, and a
+    stream that drops while a station is tuned stays ACTIVE too. `is_playing`
+    is what says whether anything is audible. (The example used to be a paused
+    radio, which is the one source that cannot pause — its play/stop tears the
+    stream down, and there was no such state to describe.)
+
+    READY does NOT mean "nothing to show". A source that stops with something to
+    resume publishes it — the station `resume_playback` would re-tune, the
+    episode and second an auto-stop left, the disc, the saved queue — so its
+    identity survives the stop and only its session does not. Only when there is
+    genuinely nothing to come back to is the payload the inert
+    {is_playing, is_buffering} pair. That is the difference an outside consumer
+    reads to tell "stopped, here is what resumes" from "nothing ever played";
+    before it existed, both were the same empty payload.
+
     "ready" rather than "connected" because nothing connects to Radio, CD or
     the Music Library — they are simply ready to play.
     """
     STARTING = "starting"      # Starting or restarting
-    READY = "ready"            # Engine up, nothing in session
+    READY = "ready"            # No live session; may still carry what resumes
     ACTIVE = "active"          # A session or content exists
     ERROR = "error"            # Not operational (a failed transition)
 

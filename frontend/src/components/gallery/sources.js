@@ -396,19 +396,20 @@ function offline(source, reason, note, metadata = {}) {
 /**
  * A browser source's scenario: the record, plus the browser's own setup.
  *
- * READY or ACTIVE follows the stand-in, because that is what the backend does:
- * all three publish through `emit_connection_state(bool(<the thing in session>))`
- * — a tuned station, a current episode, a non-empty queue — so a favourites grid
- * with no player pane is a READY record. Neither state changes *which component*
- * mounts here (`hasRichDisplay` returns true for these three whatever they
- * carry), which is precisely why every one of them could say `active` and
- * nothing noticed.
+ * READY or ACTIVE follows the stand-in by default, because that is what the
+ * backend does: all three publish through
+ * `emit_connection_state(bool(<the thing in session>))` — a tuned station, a
+ * current episode, a non-empty queue — so a favourites grid with no player
+ * pane is a READY record. Neither state changes *which component* mounts here
+ * (`hasRichDisplay` returns true for these three whatever they carry), which
+ * is precisely why every one of them could say `active` and nothing noticed.
  *
- * It does decide something, though, which is why the pane and the state are one
- * switch rather than two fields: `useSourcePlaybackVisibility` shows the player
- * pane on ACTIVE and hides it on READY. A scenario that drew a pane while
- * sending READY — or the reverse — would be documenting a screen the app cannot
- * produce.
+ * The pane no longer follows the state, so `state` can be set against the
+ * default: `useSourcePlaybackVisibility` shows the pane while the source has
+ * something to draw, and a source that stops with something to resume keeps
+ * its identity in the published metadata. A pane over a READY record is
+ * therefore a real screen — the stopped-but-resumable one — where it used to
+ * be one the app could not produce.
  *
  * `browser.metadata` is for the fields that survive `PlaybackMetadata.split`
  * and reach a decider: radio's `is_buffering` is the only one so far, and it is
@@ -418,8 +419,9 @@ function offline(source, reason, note, metadata = {}) {
  * below stand in for.
  */
 function browsing(source, label, note, browser) {
+  const state = browser.state ?? (browser.player ? 'active' : 'ready');
   return scenario(
-    [stateChanged(source, browser.player ? 'active' : 'ready', browser.metadata ?? {})],
+    [stateChanged(source, state, browser.metadata ?? {})],
     label,
     note,
     browser
@@ -906,7 +908,7 @@ export const SOURCE_PAGES = [
       active(
         'cd',
         'Spinning up the drive',
-        'The window `_preload_track_1` opens on every start with a disc in: reader and mpv are loaded *paused* so a play tap resumes instantly, and while the drive spins up `_is_buffering` alone carries the record into ACTIVE — `is_playing` and `is_paused` are both still false. So the player is on screen with the spinner over the glyph and no bar at all: `_build_metadata` zeroes position and duration until a session is live or paused, and ProgressBar hides itself on a zero duration. Both fields are on the record — at 0 — which is why they are on the fixture too. It settles into the tab below a second later, when the preload parks itself paused.',
+        'The window `_preload_track_1` opens on every start with a disc in: reader and mpv are loaded *paused* so a play tap resumes instantly, and while the drive spins up `_is_buffering` alone carries the record into ACTIVE — `is_playing` and `is_paused` are both still false. So the player is on screen with the spinner over the glyph, and the bar already drawn at 0:00 over track 1’s length: `_build_metadata` publishes position and duration in every state, because they are where a play press would restart and that is what a stopped source has to say. It settles into the tab below a second later, when the preload parks itself paused.',
         {
           ...CD_DISC,
           drive_connected: true,
@@ -917,13 +919,13 @@ export const SOURCE_PAGES = [
           is_buffering: true,
           current_track: 1,
           position: 0,
-          duration: 0
+          duration: 312000
         }
       ),
       ready(
         'cd',
         'Disc ready, not playing',
-        'source_state is still "ready" and the player shows anyway — the CD branch of hasRichDisplay never looks at the state. The backend projects the idle view here: track 1’s title and the disc artist, with position and duration zeroed so the bar stays hidden until a session is live.',
+        'source_state is still "ready" and the player shows anyway — the CD branch of hasRichDisplay never looks at the state. The backend projects the idle view here: track 1’s title and the disc artist, and the bar at 0:00 over track 1’s length — where a play press would start. Nothing animates it: useSourceProgress runs its timer on `is_playing`, so it sits still and says where rather than counting.',
         {
           ...CD_DISC,
           drive_connected: true,
@@ -933,7 +935,7 @@ export const SOURCE_PAGES = [
           album_art_url: musicPlaceholder,
           current_track: 1,
           position: 0,
-          duration: 0
+          duration: 312000
         }
       ),
       ready(
@@ -962,7 +964,7 @@ export const SOURCE_PAGES = [
           is_playing: false,
           current_track: 1,
           position: 0,
-          duration: 0
+          duration: 312000
         }
       ),
       active(
@@ -996,7 +998,7 @@ export const SOURCE_PAGES = [
       active(
         'cd',
         'Paused',
-        'ACTIVE with is_playing false, which is a different record from "Disc ready, not playing" above even though both draw the player: a paused session is still a session (`_is_paused` counts towards the ACTIVE gate) so the backend keeps publishing position and duration, and the bar is drawn and frozen rather than hidden. The idle projection zeroes both, which is what hides it. Auto-stop is armed here too and lands on that idle screen: `_auto_stop_action` releases the drive but keeps `_current_track` and the position, so the disc stays visible and a tap on play resumes the same track.',
+        'ACTIVE with is_playing false, which is a different record from "Disc ready, not playing" above even though both draw the player: a paused session is still a session (`_is_paused` counts towards the ACTIVE gate) while the idle one is not, and `source_state` is the only thing on the record that says so. The bar looks the same in both, drawn and frozen: the idle projection publishes the resume point rather than zeroing it, so the two screens differ by their state and their transport, not by what they draw. Auto-stop is armed here and lands on that idle screen: `_auto_stop_action` releases the drive but keeps `_current_track` and the position, so the disc stays visible and a tap on play resumes the same track.',
         {
           ...CD_DISC,
           drive_connected: true,
@@ -1171,10 +1173,28 @@ export const SOURCE_PAGES = [
         player: {
           // Both halves of the same station: the grid card and the pane resolve
           // their image from one favicon, exactly as RadioSource does through
-          // getFaviconUrl(displayStation.favicon).
+          // getFaviconUrl(radioStore.currentStation.favicon).
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
           track: null,
           isPlaying: true,
+          controls: { favorite: true }
+        }
+      }),
+      browsing('radio', 'Stopped, still tuned', 'The screen a stop leaves: the pane stays, drawn on the station the backend is still publishing as what a play press would re-tune, and the transport shows play rather than stop. The one scenario here whose record is READY *with* a pane — which is why `state` is set against the default. It used to be unreachable: every stop published `{is_playing, is_buffering}` alone, so this component kept its own copy of the station for `auto_stop_delay` and the screen existed only inside that window, never after a reload.', {
+        condition: ['currentStation', 'artwork'],
+        layout: RADIO_HEADER,
+        view: 'radio-favourites',
+        state: 'ready',
+        metadata: { is_playing: false },
+        props: { isPlaying: false, currentStation: RADIO_STATION_WITH_IMAGE },
+        api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
+        prime: [['radio', 'loadStations', true]],
+        player: {
+          station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
+          // The other half of the same rule: the recognised track annotates a
+          // running stream and goes with it, so a stopped station draws none.
+          track: null,
+          isPlaying: false,
           controls: { favorite: true }
         }
       }),
@@ -1266,7 +1286,7 @@ export const SOURCE_PAGES = [
         player: {
           podcastName: 'Le Code a changé',
           episodeName: 'Épisode 214',
-          // Left unset: the source passes displayEpisode.image_url, and with no
+          // Left unset: the source passes currentEpisode.image_url, and with no
           // episode image the shared fallback helper answers with the bundled
           // microphone, which is what an episode with no artwork shows on the unit.
           episodeImage: null,
@@ -1332,7 +1352,7 @@ export const SOURCE_PAGES = [
         view: 'ml-home',
         ...mlSetup({ storages: ML_STORAGE_MIXED, albums: ML_ALBUMS, activeLibraryId: 2 }),
         player: {
-          // What displayTrack projects: title, artist, cover — nothing else
+          // What nowPlaying projects: title, artist, cover — nothing else
           // reaches this player's info block.
           title: 'Says',
           artist: 'Nils Frahm',

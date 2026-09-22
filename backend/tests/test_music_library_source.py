@@ -828,6 +828,40 @@ class TestResume:
         assert source._resume["queue_index"] == 2
 
     @pytest.mark.asyncio
+    async def test_auto_stop_publishes_what_a_play_press_would_reopen(self, source):
+        """READY carries the saved session, not an empty payload.
+
+        The snapshot was private: the state said "engine up, nothing here" and
+        a consumer outside this checkout could not tell it from a library that
+        had never played. It is the same fact the frontend was keeping its own
+        sticky copy of, on a third lifetime.
+        """
+        source._mpv = _mpv_with_props({"time-pos": 30})
+        source._queue = list(TRACKS)
+        source._queue_index = 2
+
+        await source._auto_stop_action()
+        meta = source.metadata
+
+        assert meta["track_id"] == TRACKS[2]["id"]
+        assert meta["title"] == TRACKS[2]["title"]
+        assert meta["queue_index"] == 2
+        assert meta["is_playing"] is False
+        assert meta["position"] == 30_000
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_stop_publishes_nothing_to_resume(self, source):
+        """The other half: stopping on purpose is not an idle timeout, and the
+        payload has to say which of the two happened."""
+        source._mpv = _mpv()
+        source._queue = list(TRACKS)
+        source._queue_index = 2
+
+        await source._handle_stop()
+
+        assert source.metadata == {"is_playing": False, "is_buffering": False}
+
+    @pytest.mark.asyncio
     async def test_explicit_stop_forgets_session(self, source):
         source._mpv = _mpv()
         source._queue = list(TRACKS)
@@ -930,22 +964,76 @@ class TestResume:
         source._mpv.load_playlist.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_a_stale_snapshot_is_not_restored(self, source):
+    async def test_a_stale_snapshot_is_not_reopened_by_itself(self, source):
         """Past RESUME_TTL_S the library opens on nothing, not on a paused track.
 
         The snapshot covers a detour (a source switch, the idle auto-stop), not
-        a later sitting: restored hours afterwards it puts a now-playing on the
+        a later sitting: reopened hours afterwards it puts a now-playing on the
         player for music the user does not remember starting, and the docked
-        player appears with it. Nothing else drops it — it is in memory and read
-        only here — so this check is the only thing standing between the two.
+        player appears with it.
+
+        The age is asked here, on the automatic path, and NOT inside
+        `_restore_resume_session`: a play press reaches that function too, and
+        it presses on a track this source is publishing as its resume identity
+        — refusing it on a clock would fail a button the screen is showing.
         """
+        source._resume = _session(age_s=RESUME_TTL_S + 1)
+
+        assert source._resume_is_fresh() is False
+        assert source._idle_metadata() == {
+            "is_playing": False, "is_buffering": False
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_restore_that_fails_takes_its_own_announcement_back(self, source):
+        """The restore shows the saved track straight away and loads underneath.
+        When the load fails, that ACTIVE has announced a queue that no longer
+        exists — and `_resume` is already consumed, so nothing will re-emit it.
+
+        `_do_start` cleaned up after it; the play-press branch added later did
+        not, and left the screen and the lock screen on a track with nothing
+        behind it. Repaired where it was published, so neither caller has to
+        remember.
+        """
+        source._mpv = _mpv_with_props({"duration": 200})
+        source._mpv.load_playlist = AsyncMock(return_value=False)
+        source._resume = _session()
+
+        assert await source._restore_resume_session() is False
+
+        assert source._queue == []
+        assert source.state == SourceState.READY
+        assert source.metadata == {"is_playing": False, "is_buffering": False}
+
+    @pytest.mark.asyncio
+    async def test_resume_with_nothing_loaded_and_nothing_saved_refuses(self, source):
+        """With no queue and no snapshot there is no end state that makes
+        "Resumed" true, and a client cannot detect a success that did nothing.
+
+        The obvious way to reach it is an explicit Stop, which forgets the
+        snapshot on purpose, followed by the rotary — playback_dispatch sends
+        `resume` and knows no other name. Adding the reopen branch fixed the
+        auto-stop case and left this one reporting success in silence.
+        """
+        source._mpv = _mpv()
+        assert source._queue == []
+        assert source._resume is None
+
+        result = await source.command("resume", {})
+
+        assert result["success"] is False
+        source._mpv.resume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_stale_snapshot_still_answers_a_play_press(self, source):
+        """The other half of the rule above: the press works, the clock doesn't
+        veto it. What is on screen is what resumes."""
         source._mpv = _mpv_with_props({"duration": 200})
         source._resume = _session(age_s=RESUME_TTL_S + 1)
 
-        assert await source._restore_resume_session() is False
+        assert await source._restore_resume_session() is True
         assert source._resume is None
-        assert source._queue == []
-        source._mpv.load_playlist.assert_not_called()
+        source._mpv.load_playlist.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_a_snapshot_within_the_ttl_still_resumes(self, source):

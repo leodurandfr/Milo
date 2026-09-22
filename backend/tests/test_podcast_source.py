@@ -398,6 +398,73 @@ class TestPlaybackMetadata:
         assert metadata["playback_speed"] == 1.5
 
 
+class TestTheCommonFloor:
+    """Podcast fills title/artist/album/album_art_url like every other source.
+
+    It filled none of them, and unlike radio it was in no consumer's fallback
+    either: `core/push/payloads.py` and Milo-iOS both read
+    `title | track_title | station_name`, and podcast publishes `episode_name`.
+    A playing episode therefore reached the lock screen as a session whose
+    every field was null — a card with no track at all. Two copies of one
+    display rule, and both of them missed a source; that is what moving the
+    rule into the producer is for.
+    """
+
+    EPISODE = {
+        "uuid": "e1", "name": "Episode 12", "image_url": "https://cdn/ep.jpg",
+        "podcast": {"uuid": "p1", "name": "Le Code a changé"},
+    }
+
+    def test_a_playing_episode_fills_the_floor(self, podcast_source):
+        podcast_source._current_episode = dict(self.EPISODE)
+        podcast_source._is_playing = True
+
+        meta = podcast_source._build_playback_metadata()
+
+        assert meta["title"] == "Episode 12"
+        assert meta["artist"] == meta["podcast_name"]
+        assert meta["album"] == meta["podcast_name"]
+        assert meta["album_art_url"] == meta["image_url"]
+
+    def test_a_stopped_episode_publishes_where_it_would_resume(self, podcast_source):
+        """An auto-stop leaves an episode and a second to come back to, and
+        both belong in the state — the resume point is what a play press uses,
+        so publishing 0:00 for a source that resumes at 12:34 would be the
+        state disagreeing with the next press."""
+        podcast_source._current_episode = dict(self.EPISODE)
+        podcast_source._position = 754
+        podcast_source._duration = 2100
+        podcast_source._remember_for_resume()
+        podcast_source._current_episode = None
+        podcast_source._position = 0
+        podcast_source._duration = 0
+        podcast_source._is_playing = False
+
+        meta = podcast_source._build_playback_metadata()
+
+        assert meta["episode_uuid"] == "e1"
+        assert meta["title"] == "Episode 12"
+        assert meta["is_playing"] is False
+        assert meta["position"] == 754_000
+        assert meta["duration"] == 2_100_000
+
+    def test_an_episode_that_ended_leaves_nothing_to_resume(self, podcast_source):
+        """The distinction the payload has to carry: a stop is a pause that
+        gave up, an ending is an ending. The frontend flips the finished card
+        to "already listened" off the ending's own keys, and must not also be
+        offered it as the thing a play press resumes."""
+        podcast_source._current_episode = dict(self.EPISODE)
+        podcast_source._remember_for_resume()
+
+        podcast_source._forget_resume()
+        podcast_source._current_episode = None
+
+        assert podcast_source._build_playback_metadata() == {}
+        assert podcast_source._idle_metadata() == {
+            "is_playing": False, "is_buffering": False
+        }
+
+
 class TestEpisodeEndDetection:
     """Test end-of-episode detection in _on_monitor_tick.
 
@@ -666,15 +733,38 @@ class TestTransportOnAnIdleSource:
     """
 
     @pytest.mark.asyncio
-    async def test_resume_without_an_episode_is_a_refusal_not_a_success(self, podcast_source):
-        """There is no end state that makes "Resumed" true with nothing loaded.
-        Same phrasing family as radio's "No station to resume"."""
+    async def test_resume_with_nothing_ever_played_is_a_refusal_not_a_success(
+        self, podcast_source
+    ):
+        """There is no end state that makes "Resumed" true with nothing loaded
+        and nothing to reload. Same phrasing family as radio's "No station to
+        resume"."""
         assert podcast_source._current_episode is None
+        assert podcast_source._last_episode is None
 
         result = await podcast_source.command("resume", {})
 
         assert result["success"] is False
         assert "resume" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resume_after_an_auto_stop_reopens_the_episode(self, podcast_source):
+        """A play press from READY is the case the rotary and the IR remote
+        send, and the only name they know is `resume` — playback_dispatch maps
+        every non-Spotify transport onto it. Refusing here answered "No episode
+        to resume" on a source that was publishing the episode it would resume,
+        for every idle timeout. Goes through the play path, so the position
+        comes from the durable row rather than a second copy of it.
+        """
+        podcast_source._last_episode = {"uuid": "e1", "name": "Episode 12"}
+        podcast_source._handle_play_episode = AsyncMock(
+            return_value={"success": True}
+        )
+
+        result = await podcast_source.command("resume", {})
+
+        assert result["success"] is True
+        assert podcast_source._handle_play_episode.await_args.args[0].episode_uuid == "e1"
 
     @pytest.mark.asyncio
     async def test_seek_with_no_session_answers_a_domain_error(self, podcast_source):

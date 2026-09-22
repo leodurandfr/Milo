@@ -316,7 +316,7 @@ export function useScreensaver() {
     }
 
     if (source === 'podcast') {
-      const episode = podcastStore.displayEpisode;
+      const episode = podcastStore.currentEpisode;
       return {
         mode: 'media',
         sourceType: source,
@@ -329,7 +329,7 @@ export function useScreensaver() {
     }
 
     if (source === 'music_library') {
-      const track = musicLibraryStore.displayTrack;
+      const track = musicLibraryStore.nowPlaying;
       return {
         mode: 'media',
         sourceType: source,

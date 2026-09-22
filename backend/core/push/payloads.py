@@ -66,7 +66,7 @@ def build_attributes(
     """
     metadata = metadata or {}
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    shown = displayed_track(metadata)
+    title = metadata.get("title")
 
     return {
         "id": session_id,
@@ -74,47 +74,16 @@ def build_attributes(
         "elapsedTime": _seconds(metadata.get("position")),
         "timestamp": stamp,
         "currentTrack": {
-            "id": f"{active_source}:{shown['title'] or ''}",
-            "title": shown["title"],
-            "artist": shown["artist"],
-            "album": shown["album"],
+            # Changes with what is displayed: without it the system keeps the
+            # previous artwork and title, having no way to know the content moved.
+            "id": f"{active_source}:{title or ''}",
+            "title": title,
+            "artist": metadata.get("artist"),
+            "album": metadata.get("album"),
             "duration": _seconds(metadata.get("duration")),
-            "artworkURL": shown["artworkURL"],
+            "artworkURL": metadata.get("album_art_url"),
         },
         "devices": [d.to_dict() for d in devices],
-    }
-
-
-def displayed_track(metadata: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
-    """What a lock screen actually shows, whatever source filled the metadata.
-
-    The model defines a common floor — title, artist, album, album_art_url —
-    presented as the contract between sources. Radio does not fill it: those
-    four stay empty and the track travels beside them, in `track_title`,
-    `track_artist`, `station_name` and `favicon`. Reading only the floor sent a
-    push whose every field was null, which on the phone is a session with no
-    track at all — the lock screen went blank on the source that needs it most.
-
-    Named after what it answers rather than after radio, because it names no
-    source: it takes the floor when the floor is there and falls back to the
-    names observed beside it. To delete the day every source fills the floor —
-    this is the cascade Milo-iOS already carries, and duplicating it is exactly
-    what the floor exists to prevent.
-    """
-    metadata = metadata or {}
-
-    def first(*keys: str) -> Optional[str]:
-        for key in keys:
-            value = metadata.get(key)
-            if isinstance(value, str) and value:
-                return value
-        return None
-
-    return {
-        "title": first("title", "track_title", "station_name"),
-        "artist": first("artist", "track_artist"),
-        "album": first("album", "station_name"),
-        "artworkURL": first("album_art_url", "track_artwork", "favicon"),
     }
 
 

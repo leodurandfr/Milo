@@ -366,6 +366,92 @@ class TestConnectionState:
         assert radio_source.state == SourceState.ACTIVE
 
 
+class TestTheCommonFloor:
+    """Radio fills title/artist/album/album_art_url like every other source.
+
+    It used to fill none of them: the track travelled in `track_title` and
+    `track_artist` beside an empty floor, and every generic consumer re-derived
+    which to show — the push layer in `core/push/payloads.py`, Milo-iOS in its
+    own copy of the same cascade. Two copies, and both missed podcast, which
+    reached the lock screen with four null fields. The rule that decides what a
+    one-line consumer shows lives here, in the only place that knows a
+    recognised track annotates a stream rather than replacing it.
+    """
+
+    @staticmethod
+    def _tuned(source, **track):
+        source._station_data = Mock()
+        source._station_data.is_favorite = Mock(return_value=False)
+        source._current_station = {
+            "id": "s1", "name": "FIP Jazz",
+            "favicon": "https://cdn.example/fip.png",
+        }
+        source._is_playing = True
+        source._inband_track = track or None
+
+    def test_a_recognised_track_is_the_title_and_the_station_the_album(
+        self, radio_source
+    ):
+        """The one-line view of a two-layer source: what is playing, on what."""
+        self._tuned(radio_source, title="Snibor", artist="Gil Evans", artwork=None)
+
+        meta = radio_source._build_playback_metadata()
+
+        assert meta["title"] == "Snibor"
+        assert meta["artist"] == "Gil Evans"
+        assert meta["album"] == meta["station_name"]
+        # Both layers stay on the wire: the UI draws them apart.
+        assert meta["track_title"] == "Snibor"
+
+    def test_without_a_track_the_station_is_the_title(self, radio_source):
+        """A stream with no in-band metadata and no Shazam match is still
+        something to show, and the station is what it is."""
+        self._tuned(radio_source)
+
+        meta = radio_source._build_playback_metadata()
+
+        assert meta["title"] == meta["station_name"]
+        assert meta["artist"] is None
+        assert meta["track_title"] is None
+
+    def test_the_cover_falls_back_to_the_station_logo_through_the_proxy(
+        self, radio_source
+    ):
+        """`album_art_url` is the floor, so it has to be fetchable as-is. A
+        station logo is often an external URL behind a WAF that refuses a bare
+        User-Agent, which is what /api/radio/favicon exists for — a client
+        should not have to know that rule to draw a cover."""
+        self._tuned(radio_source)
+
+        meta = radio_source._build_playback_metadata()
+
+        assert meta["album_art_url"].startswith("/api/radio/favicon?url=")
+        # A logo this unit already serves is handed over untouched.
+        radio_source._current_station["favicon"] = "/api/radio/images/7ff7.webp"
+        assert radio_source._build_playback_metadata()["album_art_url"] == (
+            "/api/radio/images/7ff7.webp"
+        )
+
+    def test_a_stopped_station_keeps_the_floor_and_drops_the_track(
+        self, radio_source
+    ):
+        """What a stop publishes: the station a play press would re-tune, and
+        no track. The recognised track annotates a stream that is running —
+        holding it would claim a stopped radio is still on that song."""
+        self._tuned(radio_source, title="Snibor", artist="Gil Evans", artwork=None)
+        radio_source._last_station = radio_source._current_station
+        radio_source._current_station = None
+        radio_source._is_playing = False
+
+        meta = radio_source._build_playback_metadata()
+
+        assert meta["station_id"] == "s1"
+        assert meta["title"] == meta["station_name"]
+        assert meta["is_playing"] is False
+        assert meta["track_title"] is None
+        assert meta["track_artist"] is None
+
+
 class TestPlaybackMetadata:
     """Test playback metadata building."""
 

@@ -588,8 +588,9 @@ class MusicLibrarySource(MpvAudioSource):
             # Resume the previous session (paused) if one was saved when the
             # source was switched away or idle-stopped; otherwise idle on the
             # READY placeholder until the user plays a context.
-            if self._resume and await self._restore_resume_session():
+            if self._resume_is_fresh() and await self._restore_resume_session():
                 return True
+            self._resume = None
             self.emit_connection_state(False)
             return True
 
@@ -805,9 +806,28 @@ class MusicLibrarySource(MpvAudioSource):
         return self.success_response("Paused")
 
     async def _handle_resume(self) -> Dict[str, Any]:
+        """Unpause a live queue, or reopen the one a stop left behind.
+
+        Reopening is what an auto-stop leaves: the queue is gone but the session
+        it published as this source's resume identity is exactly what a play
+        press means. Without it the rotary and the IR remote got "Resumed" back
+        with nothing playing — playback_dispatch sends `resume` here and knows
+        no other name.
+
+        With neither a queue nor a snapshot there is nothing to resume and no
+        end state that makes "Resumed" true, so it refuses rather than reporting
+        a success a client cannot check. Same phrasing family as radio's "No
+        station to resume". That path stayed silent through the first pass of
+        this change, which only stopped it for the snapshot case.
+        """
         if not self._mpv:
             return self.error_response("Music library not active")
-        if not self._is_playing and self._queue:
+        if not self._queue:
+            if not self._resume:
+                return self.error_response("No session to resume")
+            if not await self._restore_resume_session():
+                return self.error_response("No session to resume")
+        if not self._is_playing:
             if not await self._mpv.resume():
                 return self.mpv_refused("resume")
             self._is_playing = True
@@ -910,7 +930,7 @@ class MusicLibrarySource(MpvAudioSource):
         if self._mpv:
             await self._mpv.stop()
         self._reset_playback_state()
-        self.set_state(SourceState.READY, {"is_playing": False, "is_buffering": False})
+        self._update_connection_state()
 
     # =========================================================================
     # MONITOR
@@ -1003,7 +1023,12 @@ class MusicLibrarySource(MpvAudioSource):
         )
 
     async def _on_mpv_disconnect(self) -> None:
-        """Unexpected mpv disconnect during playback: drop the queue state."""
+        """Unexpected mpv disconnect during playback: drop the queue state.
+
+        Snapshotted first, like the idle auto-stop: a link that drops is the
+        case where "play again" is most likely to be the next thing pressed.
+        """
+        await self._capture_resume_session()
         self._reset_playback_state()
 
     async def _sync_position_from_mpv(self) -> None:
@@ -1100,6 +1125,21 @@ class MusicLibrarySource(MpvAudioSource):
     # RESUME-ON-RETURN (in-memory session snapshot)
     # =========================================================================
 
+    def _resume_is_fresh(self) -> bool:
+        """May the saved session be reopened without anyone asking for it?
+
+        Guards the automatic path only (_do_start, and the idle projection it
+        would otherwise keep advertising). Past the TTL the library opens on
+        nothing rather than on whatever was playing hours ago.
+        """
+        if not self._resume:
+            return False
+        age = asyncio.get_event_loop().time() - self._resume["captured_at"]
+        if age > RESUME_TTL_S:
+            self._logger.info("Saved session is %.0fs old — starting fresh", age)
+            return False
+        return True
+
     async def _capture_resume_session(self) -> None:
         """Snapshot the live queue/track/position for resume-on-return.
 
@@ -1133,17 +1173,18 @@ class MusicLibrarySource(MpvAudioSource):
         """Reload the saved session PAUSED at its stored track/position.
 
         Consumes ``self._resume`` (cleared regardless of outcome). Returns False
-        when the snapshot has aged past ``RESUME_TTL_S``, when the catalog isn't
-        ready or when the load fails, so _do_start falls back to the READY
-        placeholder.
+        when the catalog isn't ready or when the load fails, so _do_start falls
+        back to the READY placeholder.
+
+        The age check is NOT here: it answers "may returning to this source
+        resurrect a session by itself", which is a question only _do_start
+        asks. A play press answers a different one — the track is on screen,
+        published as this source's resume identity, and pressing play on
+        something visible must not fail on a clock.
         """
         session = self._resume
         self._resume = None
         if not session or not self._mpv:
-            return False
-        age = asyncio.get_event_loop().time() - session["captured_at"]
-        if age > RESUME_TTL_S:
-            self._logger.info("Saved session is %.0fs old — starting fresh", age)
             return False
         client = await self.get_navidrome_client()
         if client is None:
@@ -1184,6 +1225,17 @@ class MusicLibrarySource(MpvAudioSource):
         self._loading = False
         if not loaded:
             self._reset_playback_state()
+            # The optimistic ACTIVE above is now a lie — it announced a queue
+            # that no longer exists. Repaired here rather than in each caller,
+            # because this is the function that published it: `_do_start` did
+            # clean up after itself, and the play-press branch added later did
+            # not, which left the screen and the lock screen on a track with
+            # nothing behind it and `_resume` already consumed.
+            #
+            # Through `_update_connection_state`, like every other stop here, so
+            # the payload is the same inert pair they publish rather than the
+            # bare {} `emit_connection_state(False)` sends with no typed half.
+            self._update_connection_state()
             return False
 
         self._is_playing = False
@@ -1226,8 +1278,46 @@ class MusicLibrarySource(MpvAudioSource):
         """
         if not self._queue or not (0 <= self._queue_index < len(self._queue)):
             return {}
+        return self._project_queue(
+            self._queue, self._queue_index, self._position, self._duration,
+            self._shuffle, self._is_playing, self._is_buffering,
+        )
 
-        current = self._queue[self._queue_index]
+    def _idle_metadata(self) -> Dict[str, Any]:
+        """A stopped library still has the session a play press would reopen.
+
+        Projected from the saved snapshot rather than the live queue, which
+        `_stop_playback` has already cleared by the time this is read. An
+        explicit Stop, a queue played out and an expired snapshot all leave
+        nothing to resume, and fall back to the pair every player reads.
+        """
+        if not self._resume_is_fresh():
+            return super()._idle_metadata()
+        session = self._resume
+        tracks = session.get("queue") or []
+        if not tracks:
+            return super()._idle_metadata()
+        index = min(session.get("queue_index", 0), len(tracks) - 1)
+        if index < 0:
+            return super()._idle_metadata()
+        return self._project_queue(
+            tracks, index, int(session.get("position") or 0),
+            int(tracks[index].get("duration") or 0),
+            bool(session.get("shuffle")), False, False,
+        )
+
+    def _project_queue(
+        self, tracks: List[Dict[str, Any]], index: int, position: int,
+        duration: int, shuffle: bool, is_playing: bool, is_buffering: bool,
+    ) -> Dict[str, Any]:
+        """One projection, whether the queue is live or saved.
+
+        The two readings differ only in where the numbers come from — a live
+        queue, or the snapshot a stop left — and the payload a client reads must
+        not be able to tell them apart by shape. Writing it twice is how the
+        stopped one would drift a key at a time from the playing one.
+        """
+        current = tracks[index]
         return {
             "title": current.get("title"),
             "artist": current.get("artist"),
@@ -1235,14 +1325,14 @@ class MusicLibrarySource(MpvAudioSource):
             "album_id": current.get("albumId"),
             "artist_id": current.get("artistId"),
             "album_art_url": self._cover_url(current),
-            "position": self._position * 1000,
-            "duration": self._duration * 1000,
-            "is_playing": self._is_playing,
-            "is_buffering": self._is_buffering,
+            "position": position * 1000,
+            "duration": duration * 1000,
+            "is_playing": is_playing,
+            "is_buffering": is_buffering,
             "track_id": current.get("id"),
-            "queue": self._queue,
-            "queue_index": self._queue_index,
-            "shuffle": self._shuffle,
+            "queue": tracks,
+            "queue_index": index,
+            "shuffle": shuffle,
         }
 
     def _update_connection_state(self) -> None:

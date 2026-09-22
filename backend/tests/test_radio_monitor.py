@@ -63,13 +63,15 @@ class TestStreamThatNeverLoads:
 
     @staticmethod
     def _buffering(source):
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
+        station = {"id": "s1", "name": "FIP", "url": "http://x"}
+        source._current_station = station
         source._is_buffering = True
         source._is_playing = False
         source._mpv.is_playing = AsyncMock(return_value=False)
         source._mpv.get_property = AsyncMock(
             side_effect=lambda prop: {"pause": False, "idle-active": True}.get(prop)
         )
+        return station
 
     @pytest.mark.asyncio
     async def test_the_grace_is_five_ticks_and_the_fifth_is_the_one_that_reports(
@@ -98,7 +100,7 @@ class TestStreamThatNeverLoads:
         self, source, state_machine
     ):
         """Leaving the station pinned keeps the player up over a dead stream."""
-        self._buffering(source)
+        station = self._buffering(source)
 
         for _ in range(5):
             await source._on_monitor_tick()
@@ -108,9 +110,20 @@ class TestStreamThatNeverLoads:
         assert source._is_buffering is False
         assert source.state == SourceState.READY
         # `self._metadata = {}` two lines up is inert: `_update_connection_state`
-        # republishes through `emit_connection_state`, which *replaces* the dict
-        # with the disconnected pair. This is what the player actually reads.
-        assert source._metadata == {"is_playing": False, "is_buffering": False}
+        # republishes through `emit_connection_state`, which *replaces* the
+        # dict. This is what the player actually reads.
+        #
+        # READY carries the station the stream failed on, because that is what
+        # a press on Retry would re-tune — the error banner and the state now
+        # say the same thing. Playback is off, and nothing claims a track: the
+        # recognised-track layer belongs to a stream that is running.
+        assert source._metadata["is_playing"] is False
+        assert source._metadata["is_buffering"] is False
+        assert source._metadata["station_id"] == station["id"]
+        assert source._metadata["title"] == station["name"]
+        # Absent rather than null — emit_connection_state drops empty keys on
+        # both halves, and the wire convention is that the two say the same.
+        assert source._metadata.get("track_title") is None
 
     @pytest.mark.asyncio
     async def test_mpv_still_working_on_it_is_not_reported(self, source, state_machine):

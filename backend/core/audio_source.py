@@ -642,9 +642,12 @@ class BaseAudioSource(ABC):
         - ``connected`` selects ACTIVE vs READY.
         - ``playback`` is the typed projection consumed by the shared player
           (None for mute receivers). Its is_playing/is_buffering always emit;
-          on READY they are forced off and the media fields (title/artist/
-          album/album_art_url/position/duration) are dropped so a stale track
-          can't linger.
+          on READY the payload is ``_idle_metadata()`` instead, so the media
+          fields (title/artist/album/album_art_url/position/duration) are
+          dropped by default and a stale track can't linger. A source whose
+          idle view still has something to show overrides ``_idle_metadata()``
+          and publishes its resume projection there — the same hook, and the
+          same definition of "stopped", as ``_publish_idle()``.
         - ``extras`` are source-specific fields (station/episode/disc/device);
           they pass through in both states, so a source that wants device or
           disc status visible while idle includes it (e.g. CD drive state).
@@ -658,12 +661,19 @@ class BaseAudioSource(ABC):
           (`update_source_state`), never merged — an absent key cannot leave a
           stale value behind.
         """
-        if connected:
-            meta: Dict[str, Any] = (
-                playback.model_dump(exclude_none=True) if playback is not None else {}
-            )
-        else:
-            meta = {"is_playing": False, "is_buffering": False} if playback is not None else {}
+        # A mute receiver (playback=None) carries extras and nothing else.
+        meta: Dict[str, Any] = {}
+        if playback is not None:
+            if connected:
+                meta = playback.model_dump(exclude_none=True)
+            else:
+                # Same None-dropping as the extras below and as `exclude_none`
+                # on the typed half: the idle projection is built by a source
+                # that fills every key it knows, and a key present-and-null
+                # says what an absent key says at the cost of a line on the wire.
+                meta = {
+                    k: v for k, v in self._idle_metadata().items() if v is not None
+                }
         if extras:
             meta.update({k: v for k, v in extras.items() if v is not None})
         self.set_state(SourceState.ACTIVE if connected else SourceState.READY, meta)

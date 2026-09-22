@@ -41,9 +41,17 @@ const MetadataSchema = z.object({
   // on cover quality (browser audio ships tiny favicons / app icons).
   album_art_width: z.number().nullable().optional(),
 
-  // Radio-specific
+  // Radio-specific. The station is the identity and survives a stop (it is
+  // what `resume_playback` re-tunes); the track_* layer is the recognised song
+  // annotating a stream that is running, and goes with the stream. Both are
+  // declared because both are read — radioStore draws them apart, and the
+  // common floor above carries the one-line view of the two.
   station_name: z.string().nullable().optional(),
   station_id: z.string().nullable().optional(),
+  favicon: z.string().nullable().optional(),
+  track_title: z.string().nullable().optional(),
+  track_artist: z.string().nullable().optional(),
+  track_artwork: z.string().nullable().optional(),
 
   // Podcast-specific
   episode_uuid: z.string().nullable().optional(),

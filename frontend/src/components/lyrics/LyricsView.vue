@@ -63,7 +63,6 @@ import { useTimer } from '@/composables/useTimer';
 import { markDarkSurface } from '@/composables/useDarkSurface';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
-import { getFaviconUrl } from '@/utils/faviconUrl';
 
 import IconButton from '@/components/ui/IconButton.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -101,16 +100,13 @@ watch(() => lyricsStore.loading, (isLoading) => {
   if (isLoading) contentReady.value = false;
 });
 
-// Radio has no canonical album_art_url: the recognized track's artwork lives
-// under track_artwork, falling back to the station favicon (same fallback as
-// RadioSource.vue's playerArtwork) so the backdrop isn't blank while no track
-// has been recognized yet.
+// One key for every source. Radio used to fill no album_art_url, so this
+// re-derived it — recognised track's artwork, else the station favicon — which
+// is the same rule RadioSource.vue's playerArtwork applies, and the same one
+// the push layer and Milo-iOS each carried a copy of. The source computes it
+// now, which is what makes the backdrop one read instead of a fourth branch.
 const artworkUrl = computed(() => {
-  const m = unifiedStore.systemState.metadata || {};
-  if (activeSource.value === 'radio') {
-    return m.track_artwork || getFaviconUrl(m.favicon) || '';
-  }
-  return m.album_art_url || '';
+  return unifiedStore.systemState.metadata?.album_art_url || '';
 });
 
 // Track identity — refetch on change (a new track, or a mid-stream Shazam hit on

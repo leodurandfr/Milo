@@ -25,8 +25,9 @@
     </template>
 
     <template #player="{ isMobile }">
-      <AudioPlayer v-if="displayStation" :visible="shouldShowNowPlayingLayout" source="radio" :artwork="playerArtwork"
-        :fallback-name="displayStation?.name" :title="playerTitle"
+      <AudioPlayer v-if="station" :visible="shouldShowNowPlayingLayout" source="radio" :artwork="playerArtwork"
+        @after-hide="onAfterHide"
+        :fallback-name="station?.name" :title="playerTitle"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Track info: PlayerInfoText's vertical layout renders identically in the
              desktop sidebar and the mobile expanded sheet — same as podcast/music-library
@@ -39,20 +40,20 @@
              expanded card), so `expanded` skips rendering it there entirely instead
              of emitting always-hidden markup. -->
         <template #info="{ expanded }">
-          <template v-if="displayTrackInfo">
+          <template v-if="track">
             <PlayerInfoText class="vertical-layout"
-              :kicker="displayTrackInfo.artwork ? displayStation?.name : null"
-              :kicker-icon="displayTrackInfo.artwork ? stationArtwork : null"
-              :kicker-fallback-name="displayTrackInfo.artwork ? displayStation?.name : null"
-              :title="displayTrackInfo.title" :secondary="displayTrackInfo.artist" />
+              :kicker="track.artwork ? station?.name : null"
+              :kicker-icon="track.artwork ? stationArtwork : null"
+              :kicker-fallback-name="track.artwork ? station?.name : null"
+              :title="track.title" :secondary="track.artist" />
             <template v-if="!expanded">
-              <p class="player-title text-body horizontal-layout">{{ displayTrackInfo.title }}</p>
-              <p class="player-subtitle text-body horizontal-layout">{{ displayTrackInfo.artist }}</p>
+              <p class="player-title text-body horizontal-layout">{{ track.title }}</p>
+              <p class="player-subtitle text-body horizontal-layout">{{ track.artist }}</p>
             </template>
           </template>
           <template v-else>
-            <PlayerInfoText class="vertical-layout" :title="displayStation?.name" />
-            <p v-if="!expanded" class="player-title text-body horizontal-layout">{{ displayStation?.name }}</p>
+            <PlayerInfoText class="vertical-layout" :title="station?.name" />
+            <p v-if="!expanded" class="player-title text-body horizontal-layout">{{ station?.name }}</p>
           </template>
         </template>
 
@@ -61,8 +62,8 @@
              (AudioPlayer widens the frame and does the overlap/animation when this slot
              is populated). Gated on the track cover: a recognized track without an
              image stays single-image (station) + title/artist text, no overlap. -->
-        <template v-if="isMobile && displayTrackInfo?.artwork" #artwork-badge>
-          <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="displayStation?.name" alt="" />
+        <template v-if="isMobile && track?.artwork" #artwork-badge>
+          <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
         </template>
 
         <template #controls="{ expanded }">
@@ -76,7 +77,7 @@
                 {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') :
                   t('audioSources.radioSource.playRadio') }}
               </Button>
-              <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
+              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
                 @click="handleFavorite" />
             </div>
             <!-- Mobile docked mini-bar only: compact row has no room for a text button +
@@ -97,13 +98,11 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { apiCall } from '@/services/apiCall'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
-import { useSettingsStore } from '@/stores/settingsStore'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
-import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
@@ -120,76 +119,35 @@ import { getFaviconUrl } from '@/utils/faviconUrl'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()
-const settingsStore = useSettingsStore()
 const { t, getCurrentLanguage } = useI18n()
-const timer = useTimer()
 
 // === PLAYBACK VISIBILITY ===
-// radioStore.currentStation goes null the instant the backend reports the
-// source stopped (its metadata drops station_id), which would unmount the
-// player immediately. Snapshot the last station into displayStation so the
-// stopped player can linger and fade out instead of vanishing — cleared once
-// the fade-out animation completes (onFadeOutStart below). Mirrors the podcast
-// store's displayEpisode pattern.
-const displayStation = ref(null)
-const displayTrackInfo = ref(null)
-watch(
-  () => radioStore.currentStation,
-  (station) => {
-    if (!station) return
-    // A different station's metadata invalidates the previous track overlay —
-    // drop it so a stale cover/title can't linger over the new station while it
-    // buffers (before its own track is recognized). Compared against the
-    // snapshot, not the watcher's previous value: currentStation goes null on
-    // stop, so `prev` would be null when the next station arrives.
-    if (station.id !== displayStation.value?.id) displayTrackInfo.value = null
-    displayStation.value = station
-  },
-  { immediate: true }
-)
+// The pane follows the station, and the station survives a stop: the backend
+// publishes the one `resume_playback` would re-tune, so `currentStation` no
+// longer goes null the instant playback ends. The snapshot this component used
+// to keep — displayStation, held for `auto_stop_delay` then cleared 600 ms
+// after the fade — was a copy of that fact on a third lifetime, and the only
+// one of the three that did not survive a page reload.
+//
+// The recognised track needs no such treatment and never did: it annotates a
+// stream that is running, so it goes when the stream goes and the player falls
+// back to the station's own name and logo.
+//
+// Both below are plain reads of the store, not snapshots of it — the names are
+// for the template, which mentions them twenty times over.
+const track = computed(() => radioStore.trackInfo)
 
-// The backend goes straight to 'ready' on a radio stop (no pause/auto-stop
-// window). Keep the last station shown for the configured auto_stop_delay
-// (seconds → ms), resolved at stop-time so it tracks the setting. This is a
-// frontend-only persistence: source_state is already 'ready', so it does not
-// survive a page reload — irrelevant on the kiosk appliance. 0 (auto-stop
-// disabled) hides immediately.
-const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =
-  useSourcePlaybackVisibility('radio', {
-    stoppedLingerMs: () => (settingsStore.audioPlayback.auto_stop_delay || 0) * 1000,
-    onFadeOutStart: () => {
-      // Drop the station once the 600ms CSS fade-out has played — but only if
-      // the player is still meant to be hidden. A stop→replay inside this
-      // window re-shows the player; clearing then would blank a live station.
-      timer.setTimeout(() => {
-        if (!shouldShowNowPlayingLayout.value) {
-          displayStation.value = null
-          displayTrackInfo.value = null
-        }
-      }, 600)
-    }
-  })
+const {
+  isPlaying: isCurrentlyPlaying, isBuffering,
+  shouldShowPlayer: shouldShowNowPlayingLayout,
+  displayed: station, onAfterHide
+} = useSourcePlaybackVisibility('radio', {
+  content: () => radioStore.currentStation
+})
 
-// Mirror displayStation for the recognized track — but only while a track is
-// actually recognized. Unlike the station (which must survive the stop →
-// fade-out window so the player has something to show), a track that is gone
-// must disappear at once: on stop, or when the song is simply no longer
-// recognized while the station keeps playing. Both revert the player to the
-// station's own image/name instead of pinning the last detected song.
-// (ref declared with displayStation so its watch can reset it.)
-watch(
-  () => radioStore.trackInfo,
-  (info) => {
-    displayTrackInfo.value = info
-  },
-  { immediate: true }
-)
-
-// Reactive favorite state for the displayed station: the snapshot itself is
-// frozen during the linger, so derive the heart icon from the live list.
-const displayStationIsFavorite = computed(() =>
-  displayStation.value
-    ? radioStore.favoriteStations.some(s => s.id === displayStation.value.id)
+const stationIsFavorite = computed(() =>
+  station.value
+    ? radioStore.favoriteStations.some(s => s.id === station.value.id)
     : false
 )
 
@@ -207,19 +165,19 @@ const bufferingStationId = computed(() => {
 
 // Station favicon URL — empty when missing; AudioPlayer generates the inline
 // SVG fallback from `:fallback-name` so the font cascades correctly.
-// Reads the displayStation snapshot so it survives the stop → fade-out window.
-const stationArtwork = computed(() => getFaviconUrl(displayStation.value?.favicon))
+const stationArtwork = computed(() => getFaviconUrl(station.value?.favicon))
 
-// Player display: use the snapshotted track info when available (so it survives
-// the stop → fade-out window), fallback to station info.
+// Player display: the recognised track when there is one, the station
+// otherwise — the same two-layer rule the backend applies to fill the common
+// floor, here in the shape this player draws.
 const playerArtwork = computed(() => {
-  if (displayTrackInfo.value?.artwork) return displayTrackInfo.value.artwork
+  if (track.value?.artwork) return track.value.artwork
   return stationArtwork.value
 })
 
 const playerTitle = computed(() => {
-  if (displayTrackInfo.value) return displayTrackInfo.value.title
-  return displayStation.value?.name
+  if (track.value) return track.value.title
+  return station.value?.name
 })
 
 const countryOptions = computed(() => {
@@ -275,6 +233,8 @@ function retrySearch() {
 
 // === PLAYBACK CONTROLS ===
 async function playStation(stationId) {
+  // The live station, not the latched one: this is a tap in the grid, and
+  // during the player's leave the latch still names the station on its way out.
   if (radioStore.currentStation?.id === stationId && isCurrentlyPlaying.value) {
     await radioStore.stopPlayback()
   } else {
@@ -285,16 +245,16 @@ async function playStation(stationId) {
 async function handlePlayPause() {
   if (isCurrentlyPlaying.value) {
     await radioStore.stopPlayback()
-  } else if (displayStation.value) {
-    // During the stopped-linger window currentStation is already null —
-    // resume the station still shown in the player.
-    await radioStore.playStation(displayStation.value.id)
+  } else if (station.value) {
+    // Re-tune the station the state is publishing — a stopped radio keeps it,
+    // which is what `resume_playback` would use on the backend side too.
+    await radioStore.playStation(station.value.id)
   }
 }
 
 async function handleFavorite() {
-  if (displayStation.value) {
-    await radioStore.toggleFavorite(displayStation.value.id)
+  if (station.value) {
+    await radioStore.toggleFavorite(station.value.id)
   }
 }
 

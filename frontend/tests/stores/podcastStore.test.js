@@ -38,7 +38,6 @@ describe('podcastStore', () => {
       store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
 
       expect(store.currentEpisode.uuid).toBe('ep1');
-      expect(store.displayEpisode.uuid).toBe('ep1');
       expect(store.pendingEpisodeUuid).toBeNull();
     });
 
@@ -82,9 +81,11 @@ describe('podcastStore', () => {
 
       store.handleSourceEvent(sourceEvent({ is_playing: false, is_buffering: false }));
 
+      // The inert pair alone: nothing loaded AND nothing to resume. A stop
+      // that can be resumed republishes `current_episode`, and takes the
+      // branch above — which is what keeps the player on screen without this
+      // store holding a copy of what it just lost.
       expect(store.currentEpisode).toBeNull();
-      // displayEpisode still belongs to the player's fade-out, which clears it.
-      expect(store.displayEpisode.uuid).toBe('ep1');
     });
 
     it('applies a playback speed change pushed by the backend', () => {
@@ -119,14 +120,16 @@ describe('podcastStore', () => {
       expect(progress.duration).toBe(60);
     });
 
-    it('preserves displayEpisode through the fade-out, until explicitly cleared', () => {
+    it('drops the episode the moment it ends', () => {
       store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
 
       store.handleSourceEvent(sourceEvent({ episode_ended: true, episode_uuid: 'ep1' }));
-      expect(store.displayEpisode.uuid).toBe('ep1');
 
-      store.clearDisplayEpisode();
-      expect(store.displayEpisode).toBeNull();
+      // An ending is not a stop. The backend publishes no resume identity
+      // beside episode_ended, and the player goes with it — where an auto-stop
+      // keeps both. This store used to hold the episode past the ending, for
+      // the length of a fade the component had to time itself.
+      expect(store.currentEpisode).toBeNull();
     });
 
     it('ignores every other field carried by the episode_ended event', () => {
@@ -334,19 +337,29 @@ describe('podcastStore', () => {
       await store.resync();
 
       expect(store.currentEpisode.uuid).toBe('ep2');
-      expect(store.displayEpisode.uuid).toBe('ep2');
       expect(store.playbackSpeed).toBe(1.5);
     });
 
-    it('drops an episode that stopped while the tab was backgrounded', async () => {
+    it('drops an episode that ended while the tab was backgrounded', async () => {
       store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
       healMirror({ is_playing: false });
 
       await store.resync();
 
       expect(store.currentEpisode).toBeNull();
-      // The player owns displayEpisode until its fade-out ends.
-      expect(store.displayEpisode.uuid).toBe('ep1');
+    });
+
+    it('keeps an episode that only stopped while the tab was backgrounded', async () => {
+      // The two used to be indistinguishable here: every stop published the
+      // inert pair, so a tab returning from an auto-stop saw exactly what it
+      // saw after an ending. An auto-stop now republishes the episode it would
+      // reopen, so the player comes back on the thing a press resumes.
+      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+      healMirror({ current_episode: EPISODE('ep1'), is_playing: false });
+
+      await store.resync();
+
+      expect(store.currentEpisode.uuid).toBe('ep1');
     });
 
     it('leaves the slice alone when podcast is not the active source', async () => {

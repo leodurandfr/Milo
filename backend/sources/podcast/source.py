@@ -69,6 +69,15 @@ class PodcastSource(MpvAudioSource):
         self._current_episode: Optional[Dict[str, Any]] = None
         self._position = 0
         self._duration = 0
+        # What a play press would bring back once nothing is loaded: the
+        # episode the last stop left behind, at the second it left it. Set by
+        # every stop that is not an ending, cleared by the ending (an episode
+        # played to the end is not resumed, it is finished). In memory only —
+        # the durable row is podcast_data's playback_progress, which is what
+        # `_handle_play_episode` re-reads; these are its published projection.
+        self._last_episode: Optional[Dict[str, Any]] = None
+        self._last_position = 0
+        self._last_duration = 0
         self._playback_speed = 1.0
         self._loading = False  # Guards monitor tick during stream loading
 
@@ -86,6 +95,45 @@ class PodcastSource(MpvAudioSource):
         self._position = 0
         self._duration = 0
         self._loading = False
+
+    @property
+    def _displayed_episode(self) -> Optional[Dict[str, Any]]:
+        """The episode this source is about: loaded, or last loaded.
+
+        `_current_episode` says a session is live; `_last_episode` says what a
+        play would bring back. Two facts, not two spellings — everything that
+        only needs "which episode" reads this.
+        """
+        return self._current_episode or self._last_episode
+
+    def _idle_metadata(self) -> Dict[str, Any]:
+        """A stopped podcast still has an episode to resume, so publish the
+        full projection (same reason the CD keeps a loaded disc visible).
+
+        An episode that ended cleared the resume slot, and nothing played at
+        all never filled it; both leave the projection empty and fall back to
+        the pair every player reads.
+        """
+        projection = self._build_playback_metadata()
+        return projection if projection else super()._idle_metadata()
+
+    def _remember_for_resume(self) -> None:
+        """Hand the live episode over to the resume slot. Called by every stop
+        that leaves something to come back to."""
+        if self._current_episode:
+            self._last_episode = self._current_episode
+            self._last_position = self._position
+            self._last_duration = self._duration
+
+    def _forget_resume(self) -> None:
+        """Nothing to come back to. One caller: the end of an episode.
+
+        A fresh `play_episode` needs no call — `_current_episode` shadows the
+        slot while it is set, and the next stop overwrites it.
+        """
+        self._last_episode = None
+        self._last_position = 0
+        self._last_duration = 0
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
@@ -343,12 +391,27 @@ class PodcastSource(MpvAudioSource):
             return self.error_response(str(e))
 
     async def _handle_resume(self) -> Dict[str, Any]:
-        """Resume playback."""
-        # Without an episode there is nothing to resume and no end state that
-        # makes "Resumed" true — the old code fell through the guard below and
-        # reported success while the player stayed silent, which a client cannot
-        # detect at all. Same phrasing family as radio's "No station to resume".
+        """Resume playback — unpause a live session, or reload a stopped one.
+
+        The second branch is what an auto-stop leaves behind: nothing is loaded
+        any more, but the episode the source published as its resume identity
+        is exactly what a play press means. Without it the rotary and the IR
+        remote answered "No episode to resume" after every idle timeout —
+        playback_dispatch sends `resume` to this source and knows no other
+        name. Goes through the play path so the position comes from the same
+        durable row a fresh play would read, rather than a second one.
+
+        Without an episode at all there is nothing to resume and no end state
+        that makes "Resumed" true — the old code fell through the guard below
+        and reported success while the player stayed silent, which a client
+        cannot detect at all. Same phrasing family as radio's "No station to
+        resume".
+        """
         if not self._current_episode:
+            if self._last_episode:
+                return await self._handle_play_episode(
+                    PlayEpisodeParams(episode_uuid=self._last_episode['uuid'])
+                )
             return self.error_response("No episode to resume")
 
         try:
@@ -406,14 +469,13 @@ class PodcastSource(MpvAudioSource):
                 await self._mpv.stop()
 
             self._stop_progress_save()
+            self._remember_for_resume()
             self._current_episode = None
             self._is_playing = False
             self._is_buffering = False
             self._position = 0
             self._duration = 0
-            self._metadata = {"is_playing": False, "is_buffering": False}
-
-            self.set_state(SourceState.READY, self._metadata)
+            self._update_connection_state()
 
             return self.success_response("Playback stopped")
 
@@ -457,25 +519,40 @@ class PodcastSource(MpvAudioSource):
         convention used by the other audio sources (Spotify, AirPlay, CD) and
         by broadcast_position_update. Internal state stays in seconds.
         """
-        if not self._current_episode:
+        episode = self._displayed_episode
+        if not episode:
             return {}
 
+        live = self._current_episode is not None
+        position = self._position if live else self._last_position
+        duration = self._duration if live else self._last_duration
+        podcast_name = episode.get('podcast', {}).get('name')
+
         metadata = {
-            "episode_uuid": self._current_episode.get('uuid'),
-            "episode_name": self._current_episode.get('name'),
-            "description": self._current_episode.get('description'),
-            "image_url": self._current_episode.get('image_url'),
-            "position": self._position * 1000,
-            "duration": self._duration * 1000,
+            "episode_uuid": episode.get('uuid'),
+            "episode_name": episode.get('name'),
+            "description": episode.get('description'),
+            "image_url": episode.get('image_url'),
+            "position": position * 1000,
+            "duration": duration * 1000,
             "is_playing": self._is_playing,
             "is_buffering": self._is_buffering,
             "playback_speed": self._playback_speed,
-            "current_episode": self._current_episode,
+            "current_episode": episode,
+            # The cross-source floor every generic consumer reads (lock screen,
+            # widget, shared player). Podcast filled none of it, and reaches
+            # those consumers through no fallback either — a playing episode
+            # published a card with four null fields. Computed here so no
+            # client has to re-derive it; see core/push/payloads.py.
+            "title": episode.get('name'),
+            "artist": podcast_name,
+            "album": podcast_name,
+            "album_art_url": episode.get('image_url'),
         }
 
-        if 'podcast' in self._current_episode:
-            metadata['podcast_name'] = self._current_episode['podcast'].get('name')
-            metadata['podcast_uuid'] = self._current_episode['podcast'].get('uuid')
+        if 'podcast' in episode:
+            metadata['podcast_name'] = podcast_name
+            metadata['podcast_uuid'] = episode['podcast'].get('uuid')
 
         return metadata
 
@@ -530,6 +607,7 @@ class PodcastSource(MpvAudioSource):
             await self._save_progress()
         self._is_playing = False
         self._is_buffering = False
+        self._remember_for_resume()
         self._current_episode = None
         self._position = 0
         self._duration = 0
@@ -615,6 +693,10 @@ class PodcastSource(MpvAudioSource):
                 self._logger.error(f"Failed to persist episode completion: {e}")
 
             self._stop_progress_save()
+            # An episode played to the end is finished, not paused: it leaves
+            # no resume identity behind, which is what tells this READY from
+            # the one an auto-stop publishes.
+            self._forget_resume()
             self._current_episode = None
             self._is_playing = False
             self._is_buffering = False

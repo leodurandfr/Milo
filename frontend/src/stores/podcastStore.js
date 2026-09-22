@@ -12,7 +12,6 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === PLAYBACK STATE ===
   const currentEpisode = ref(null);
-  const displayEpisode = ref(null); // Preserved during fade-out animation
   const playbackSpeed = ref(1.0);
   // Canonical list fetched from backend (GET /api/podcast/playback-speeds).
   // Safe fallback used until the first successful fetch.
@@ -150,11 +149,10 @@ export const usePodcastStore = defineStore('podcast', () => {
         });
       }
 
-      // Clear currentEpisode immediately (for state consistency)
+      // An episode that ended leaves nothing to resume, and the backend says
+      // so by publishing no resume identity beside episode_ended. The player
+      // goes with it.
       currentEpisode.value = null;
-
-      // DON'T clear displayEpisode yet - preserve metadata during fade-out animation
-      // The parent component will call clearDisplayEpisode() after animation completes
 
       // RETURN EARLY - don't process any other updates from this event
       return;
@@ -163,18 +161,16 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Update episode metadata (only if NOT an episode_ended event)
     if (metadata.current_episode) {
       currentEpisode.value = metadata.current_episode;
-      displayEpisode.value = metadata.current_episode;
 
       // Clear pending state - WebSocket has confirmed playback
       if (pendingEpisodeUuid.value === metadata.current_episode.uuid) {
         pendingEpisodeUuid.value = null;
       }
     } else if (!metadata.episode_uuid) {
-      // Idle payload: every stop that is not a natural end — auto-stop after
-      // pause, explicit stop, mpv gone — publishes {is_playing, is_buffering}
-      // alone. episode_ended is the only episode-less payload carrying a uuid,
-      // and it returned above, so an absent uuid means no episode is loaded.
-      // displayEpisode stays: the player owns it until its fade-out ends.
+      // Nothing loaded and nothing to resume: the source published the inert
+      // pair alone. A stop that CAN be resumed publishes `current_episode`
+      // like a playing one does and takes the branch above — which is what
+      // keeps the player on screen without this store holding a copy.
       currentEpisode.value = null;
     }
     // Backend emits position/duration in milliseconds (wire convention shared
@@ -498,16 +494,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     apiError.value = false;
   }
 
-  // Clear display metadata after fade-out animation completes
-  function clearDisplayEpisode() {
-    displayEpisode.value = null;
-  }
-
   // === RETURN ===
   // The subscriptions list is one half of what a missed delta costs. The other
   // is the now-playing slice: _applyMetadata is its only writer and
   // source/state_changed its only trigger, so a tab backgrounded across an
-  // episode change comes back with the mirror healed and displayEpisode still
+  // episode change comes back with the mirror healed and currentEpisode still
   // on the previous episode. App.vue resyncs unifiedStore first and alone, so
   // its snapshot is the freshly fetched one — re-applying it here needs no
   // second request and reuses the very entry point boot feeds.
@@ -522,7 +513,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     resync,
     // State
     currentEpisode,
-    displayEpisode,
     playbackSpeed,
     playbackSpeeds,
     pendingEpisodeUuid,
@@ -556,7 +546,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     loadSettings,
     handleInitialMetadata,
     handleSourceEvent,
-    clearDisplayEpisode,
 
     // Pending state helper
     isEpisodePending,

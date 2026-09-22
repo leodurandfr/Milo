@@ -456,18 +456,28 @@ class TestMetadataAndState:
         assert meta["disc_present"] is False
         assert meta["cache_ready"] is False
 
-    def test_build_metadata_idle_projection_hides_progress(self, source):
+    def test_build_metadata_idle_projection_keeps_the_resume_point(self, source):
+        """A stopped disc publishes where a play press would restart.
+
+        `_auto_stop_action` releases the drive but keeps _current_track and
+        _track_position on purpose, and `_handle_resume`'s idle branch restarts
+        from exactly them. Zeroing them here published a resume point of 0:00
+        for a source that would resume at 0:42 — the state disagreeing with
+        what the next press does.
+        """
         source._current_disc = DISC
         source._tracks = TRACKS
         source._current_track = 1
+        source._track_position = 42.5
         source._is_playing = False
         source._is_paused = False
 
         meta = source._build_metadata()
 
         assert meta["title"] == "One"
-        assert meta["position"] == 0
-        assert meta["duration"] == 0
+        assert meta["is_playing"] is False
+        assert meta["position"] == 42500
+        assert meta["duration"] == 200000
 
     def test_build_metadata_playing_projection_shows_progress(self, source):
         source._current_disc = DISC

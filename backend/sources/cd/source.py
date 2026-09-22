@@ -1154,19 +1154,22 @@ class CdSource(MpvAudioSource):
 
             # Now-playing projection consumed by AudioPlayerFull. Always the
             # current track's title (default track 1) + the disc artist — never
-            # the album standing in as the title. Position/duration are only
-            # published once a session is live/paused (incl. preload), so the
-            # progress bar stays hidden until the track is ready to play.
-            session_active = self._is_playing or self._is_paused
+            # the album standing in as the title.
+            #
+            # Position/duration ride along in READY too, because that is the
+            # point `_auto_stop_action` kept and `_handle_resume` will restart
+            # from: the resume point is part of what a stopped source would
+            # bring back, and publishing it is the whole reason this payload
+            # survives READY. Nothing animates it — useSourceProgress runs its
+            # timer on `is_playing`, so the bar sits still and says where.
             metadata.update({
                 "album": self._current_disc.album,
                 "artist": self._current_disc.artist,
                 "album_art_url": self._current_disc.cover_url,
                 "title": playing_track.title if playing_track
                 else self._current_disc.album,
-                "position": int(self._track_position * 1000) if session_active else 0,
-                "duration": int((playing_track.duration if playing_track else 0) * 1000)
-                if session_active else 0,
+                "position": int(self._track_position * 1000),
+                "duration": int((playing_track.duration if playing_track else 0) * 1000),
             })
 
         return metadata

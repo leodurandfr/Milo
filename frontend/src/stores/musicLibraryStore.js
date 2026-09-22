@@ -234,13 +234,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     };
   });
 
-  // Sticky copy preserved through the player's fade-out: the backend clears the
-  // queue metadata the instant it drops to READY, so binding the docked
-  // player straight to nowPlaying would blank its artwork/title mid-fade. The
-  // component clears this once the fade completes (mirrors podcast displayEpisode).
-  const displayTrack = ref(null);
-  watch(nowPlaying, (np) => { if (np) displayTrack.value = np; }, { immediate: true });
-  function clearDisplayTrack() { displayTrack.value = null; }
+
 
   // =========================================================================
   // FAVORITES — starred songs behind the virtual "Liked Songs" playlist
@@ -1047,8 +1041,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
     // Now playing
     nowPlaying,
-    displayTrack,
-    clearDisplayTrack,
     queue,
     queueIndex,
     shuffle,

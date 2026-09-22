@@ -46,7 +46,6 @@ from backend.core.push.models import PushTokenKind
 from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
-    displayed_track,
     now_playing_payload,
     widget_payload,
 )
@@ -119,6 +118,8 @@ class PushService:
         self._session_renewed_at: float = 0.0
         self._session_cleared_at: float = 0.0
         self._idle_since: float = 0.0
+        # The card last sent, and the source it was built under. Only read when
+        # the state cannot answer — see `_publish_paused`.
         self._last_attributes: Optional[Dict[str, Any]] = None
         self._last_source: Optional[str] = None
         self._widget_signature: Optional[tuple] = None
@@ -173,13 +174,23 @@ class PushService:
           identical — see its docstring for what acting on the first idle cycle
           cost.
 
-        A report is different evidence, and that is the whole justification for
-        ending here without waiting out the grace: it only arrives while the app
-        is running, which is the one condition under which a card that turns out
-        to have been closed too early can be reopened and claim the screen —
+        A report is different evidence, and that is the justification for ending
+        here without waiting out the grace: it only arrives while the app is
+        running, which is the one condition under which a card that turns out to
+        have been closed too early can be reopened and claim the screen —
         `RemoteMediaSession.requestToBecomeSystemPrimary` is the app's to call
         and nobody else's. When the app is not running, no report arrives and
         the grace still governs, untouched.
+
+        **What that argument turns on is the card being empty**, which it no
+        longer always is. A source that stops with something to resume publishes
+        it, so an idle state now comes in two kinds and they want opposite
+        answers: a card with nothing behind it is closed at once, as before,
+        while one still naming what a play press would bring back is held and
+        left to the grace — closing it would put the phone back to the very
+        "nothing ever played" this state exists to tell apart. The evidence a
+        report carries is about the DEVICE; which of the two this is comes from
+        the state, and only the state can say.
 
         Sends at most one push per report, and at most one per session in each
         direction: `_session_id` is the guard, set by the `start` and cleared by
@@ -189,6 +200,7 @@ class PushService:
         Nothing during `transitioning` — that is the beat of a source change,
         and closing on it would drop the card and raise it again at every
         switch.
+
         """
         if not self._apns.available or self._state_machine is None:
             return
@@ -205,7 +217,11 @@ class PushService:
                     await self._start_session(state)
                 return
 
-            if self._session_device() == device_id:
+            if self._session_device() != device_id:
+                return
+            if self._displays_something(state):
+                await self._consider_ending(state)
+            else:
                 await self._end_session()
 
     def _device_can_be_started(self, device_id: str) -> bool:
@@ -338,41 +354,61 @@ class PushService:
         the card holds its place and tells the truth while the next source
         starts.
 
-        **Which track it holds depends on whether the source moved.** A gap
-        INSIDE a source is a gap: a station change stops one stream before
-        starting the next, and the track that comes back is usually the one that
-        was there, so holding it is the least flicker. A gap that arrives with
-        ANOTHER source selected — or with none at all — is not a gap in that
-        track, it is a track that is no longer loaded anywhere. Measured
-        2026-09-20: radio → spotify at 13:07:56, one push at 13:07:57, and the
-        Lock Screen kept the radio track, paused, with the transport of a source
-        that had nothing to play, for the whole five minutes of the grace. The
-        attributes are therefore rebuilt from the new state, which empties
-        `currentTrack` — the card stays, and shows nothing rather than a lie.
+        **The track it holds comes from the state wherever the state has one.**
+        A source that stopped with something to resume publishes what it would
+        resume, so the card is rebuilt from it: a station change holds the
+        station that was there, which is the least flicker, and a source change
+        shows the new source's own idle identity. Both used to be guessed from
+        the copy below, and the guess was measured wrong once (radio → spotify,
+        2026-09-20: the Lock Screen kept the radio track, paused, under a source
+        that had nothing to play, for the whole grace).
+
+        **The copy survives for the sources whose state cannot answer.** Only
+        the four mpv sources override `_idle_metadata()`; the receivers —
+        AirPlay, DLNA, Qobuz, Bluetooth — and Spotify/Tidal publish the inert
+        pair alone when their sender goes, so rebuilding from that state gives
+        a card with every field null, which on the phone is a media card with
+        nothing in it. An AirPlay sender that disconnects and comes straight
+        back is the ordinary case, and blanking through it is worse than
+        holding what was there. Scoped to the SAME source, because a track
+        belonging to a source nobody selected any more is the lie above.
+
+        To delete the day every source publishes an idle identity. Until then
+        this is the only memory those six have, and it is a stand-in for a gap
+        in their producers rather than a second home for a fact the state
+        already carries.
 
         Ending instead of emptying would be the wrong trade and it has been
         measured: a session opened afterwards by a push has never been in the
         foreground, so it cannot ask to be system primary, and nothing comes
         back until the app is relaunched. See `_consider_ending`.
 
-        The timestamp is deliberately not refreshed when the track is held:
-        paused is paused, and iOS extrapolates from it only while playing.
+        Rebuilding refreshes the timestamp, where holding the copy keeps the old
+        one. Harmless either way: `isPlaying` is forced off below, and iOS
+        extrapolates a position from the timestamp only while playing. This also
+        fires once per idle window — the second consideration onwards returns
+        early in `_consider_ending` — so a fresh stamp costs no extra push.
         """
-        if self._last_attributes is None:
+        if self._session_id is None:
             return
         target = self._registry.token_for_session(self._session_id)
         if target is None:
             return
 
-        if str(state.get("active_source") or "none") == self._last_source:
+        holds_over = (
+            self._last_attributes is not None
+            and not self._displays_something(state)
+            and str(state.get("active_source") or "none") == self._last_source
+        )
+        if holds_over:
             attributes = {**self._last_attributes, "isPlaying": False}
         else:
             attributes = await self._build_attributes(self._session_id, state)
-        # Forced on both branches, never read off the state. This function has
-        # one thing to say and a source that is not active can still carry
-        # `is_playing` — Bluetooth's AVRCP feed publishes a transport whether or
-        # not BlueALSA calls the source active — which would put a card the
-        # music has left back into playing, with a position iOS extrapolates.
+        # Forced, never read off the state. This function has one thing to say
+        # and a source that is not active can still carry `is_playing` —
+        # Bluetooth's AVRCP feed publishes a transport whether or not BlueALSA
+        # calls the source active — which would put a card the music has left
+        # back into playing, with a position iOS extrapolates.
         attributes["isPlaying"] = False
 
         await self._send_all(
@@ -565,11 +601,10 @@ class PushService:
         logger.info(f"Now Playing session {session_id} ended")
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Build, and keep a copy: `_publish_paused` re-sends the last one.
+        """Project the published state into the attributes the card draws.
 
-        The source is kept beside it, because that is what tells a gap in the
-        track being played from a track that belongs to a source nobody
-        selected any more — see `_publish_paused`.
+        Keeps a copy, for the one case the state cannot answer — see
+        `_publish_paused`.
         """
         self._last_source = str(state.get("active_source") or "none")
         self._last_attributes = build_attributes(
@@ -640,17 +675,23 @@ class PushService:
     def _signature(state: Dict[str, Any]) -> tuple:
         """What a widget draws, read the same way the lock screen reads it.
 
-        Through the floor alone, radio has no title and no artist: every station
-        looked identical here and a station change spent no push, so the widget
-        kept the previous one until its own timeline came round.
+        Through a floor radio left empty, every station looked identical here
+        and a station change spent no push, so the widget kept the previous one
+        until its own timeline came round. The sources fill the floor now, so
+        this reads it directly instead of through a cascade.
+
+        `source_state` stays, though `is_playing` may look like it says the same
+        thing. Dropping it was tried and put back: the only vendored iOS model
+        is `MiloWidgetData`, which carries volume alone, so the widget's own
+        view code is not in this repo and what it draws cannot be read from
+        here. A saved push is not worth a bet on a surface nobody can see.
         """
         metadata = state.get("metadata") or {}
-        shown = displayed_track(metadata)
         return (
             state.get("active_source"),
             state.get("source_state"),
-            shown["title"],
-            shown["artist"],
+            metadata.get("title"),
+            metadata.get("artist"),
             metadata.get("is_playing"),
         )
 
@@ -681,6 +722,20 @@ class PushService:
         if delivered:
             await self._registry.mark_pushed(delivered)
         return bool(delivered)
+
+    @staticmethod
+    def _displays_something(state: Dict[str, Any]) -> bool:
+        """Would the card drawn from this state name anything at all?
+
+        Read off `title`, because that is the field the card leads with and the
+        one `build_attributes` projects — asking a second question of a second
+        field is how "the lock screen shows a session" and "the state says there
+        is one" come to disagree. Every source fills it whenever it has
+        something to show, playing or stopped-and-resumable; the inert
+        {is_playing, is_buffering} pair is what an ending publishes.
+        """
+        metadata = state.get("metadata") or {}
+        return bool(metadata.get("title"))
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:

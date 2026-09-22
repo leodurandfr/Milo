@@ -44,11 +44,21 @@ async function seedFavorites(store, stations) {
 
 /** Put the unified store into "radio is playing X" without touching the network. */
 function playingRadio(metadata) {
+  publishRadio('active', metadata);
+}
+
+/** The same, for a radio that stopped: still selected, no session, and the
+ *  station the backend says a play press would re-tune. */
+function stoppedRadio(metadata) {
+  publishRadio('ready', { is_playing: false, ...metadata });
+}
+
+function publishRadio(sourceState, metadata) {
   useUnifiedAudioStore().updateState({
     data: {
       full_state: {
         active_source: 'radio',
-        source_state: 'active',
+        source_state: sourceState,
         transitioning: false,
         multiroom_enabled: false,
         equalizer_effects_enabled: false,
@@ -135,6 +145,20 @@ describe('radioStore', () => {
     it('is null when no track has been recognised', () => {
       playingRadio({ station_id: 's1' });
 
+      expect(store.trackInfo).toBeNull();
+    });
+
+    it('drops the recognised track when the station stops, and keeps the station', () => {
+      // The two layers part company on a stop. The station is the identity and
+      // the backend republishes it — it is what `resume_playback` re-tunes, and
+      // what keeps the player on screen without the component snapshotting it.
+      // The recognised song annotates a stream that is running; holding it
+      // would claim a stopped radio is still on that track.
+      playingRadio({ station_id: 's1', station_name: 'FIP', track_title: 'So What' });
+
+      stoppedRadio({ station_id: 's1', station_name: 'FIP' });
+
+      expect(store.currentStation).toMatchObject({ id: 's1', name: 'FIP' });
       expect(store.trackInfo).toBeNull();
     });
 

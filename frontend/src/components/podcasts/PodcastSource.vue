@@ -49,6 +49,7 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
+        @after-hide="onAfterHide"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" swipe-enabled
         @swipe-next="seekForward" @swipe-prev="seekBackward">
         <!-- Track info: podcast name kicker + episode title, in the shared
@@ -114,7 +115,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useSourceProgress } from '@/composables/useSourceProgress'
-import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
@@ -147,19 +147,17 @@ const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? nu
 const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef })
 
-// Playback state + player visibility (shared logic via composable).
-// Visibility follows the backend's source_state transitions — when the backend
-// auto-stops after `audio.auto_stop_delay`, source_state flips to
-// 'ready' and the player fades out. clearDisplayEpisode runs once the fade
-// animation is done so the artwork stays visible during the fade.
-const timer = useTimer()
-
-const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowPlayerLayout } =
-  useSourcePlaybackVisibility('podcast', {
-    onFadeOutStart: () => {
-      timer.setTimeout(() => podcastStore.clearDisplayEpisode(), 600)
-    }
-  })
+// The pane follows the episode, and the episode survives a stop: an auto-stop
+// publishes the one a play press would reopen, at the second it stopped. An
+// ending publishes no resume identity, so the player goes with it. The store's
+// sticky displayEpisode was a copy of that fact for the length of a fade.
+const {
+  isPlaying: isCurrentlyPlaying, isBuffering,
+  shouldShowPlayer: shouldShowPlayerLayout,
+  displayed: episode, onAfterHide
+} = useSourcePlaybackVisibility('podcast', {
+  content: () => podcastStore.currentEpisode
+})
 
 // Live position with 100ms local interpolation between backend syncs.
 // Reads position/duration (in ms) from unifiedStore.systemState.metadata —
@@ -288,19 +286,19 @@ async function playEpisode(episode) {
 
 // ===== Player controls and data (moved from PodcastPlayer.vue) =====
 
-// Episode artwork - use displayEpisode for fade-out animation preservation
+// Episode artwork — the backend keeps the episode through a stop
 const episodeImage = computed(() => {
-  return podcastStore.displayEpisode?.image_url || podcastPlaceholder
+  return episode.value?.image_url || podcastPlaceholder
 })
 
-// Episode name - use displayEpisode for fade-out animation preservation
+// Episode name — same source of truth, no local copy
 const episodeName = computed(() => {
-  return podcastStore.displayEpisode?.name || t('podcasts.noEpisode')
+  return episode.value?.name || t('podcasts.noEpisode')
 })
 
-// Podcast name - use displayEpisode for fade-out animation preservation
+// Podcast name — same source of truth, no local copy
 const podcastName = computed(() => {
-  return podcastStore.displayEpisode?.podcast?.name || ''
+  return episode.value?.podcast?.name || ''
 })
 
 // Speed control — canonical list owned by backend, fetched at mount time

@@ -7,6 +7,7 @@ cannot be observed from this side: Apple throttles an app that pushes too
 often, and the degradation outlives the code change that caused it.
 """
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -34,12 +35,26 @@ PLAYING = {
                  "position": 1000, "is_playing": True},
 }
 STOPPED = {"active_source": "none", "source_state": "inactive", "metadata": {}}
-# A gap INSIDE the playing source: still selected, nothing coming out of it.
-# What a station change looks like between two streams.
+# A gap INSIDE the playing source: still selected, nothing coming out of it,
+# and nothing it would resume. What a source with no idle identity looks like.
 READY = {"active_source": "spotify", "source_state": "ready", "metadata": {}}
+# A stop that left something behind: the mpv sources publish what a play press
+# would bring back, so the card can hold the truth instead of a private copy
+# of the last thing it was told.
+RESUMABLE = {
+    "active_source": "radio", "source_state": "ready",
+    "metadata": {"is_playing": False, "title": "FIP Jazz", "album": "FIP Jazz",
+                 "album_art_url": "/api/radio/images/7ff7.webp",
+                 "station_id": "s1", "station_name": "FIP Jazz"},
+}
 # What a source change leaves behind: ANOTHER source selected, nothing playing
 # under it, no metadata. The card sat on the previous source's track, paused.
 SWITCHED = {"active_source": "radio", "source_state": "ready", "metadata": {}}
+
+
+def past_the_grace(service):
+    """Age the idle window so the next consideration is the one that ends it."""
+    service._idle_since = time.time() - SESSION_IDLE_GRACE_S - 1
 
 
 def tok(kind, value, session_id=None, device_id="phone-1"):
@@ -367,9 +382,39 @@ class TestSourceTransitions:
     ):
         """Holding the session through the gap is what keeps the card on screen,
         but on its own it left the card claiming the source was still playing —
-        nothing is published while the state reads idle. Between two stations
-        the track that comes back is usually the one that was there, so holding
-        it is the least flicker."""
+        nothing is published while the state reads idle.
+
+        The held track is read off the published state, not off a private copy
+        of the last attributes. That is the whole point of a source publishing
+        what it would resume: the card shows the station a play press brings
+        back, and the same fact stops being stored twice with two lifetimes.
+        """
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(RESUMABLE)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["update"]
+        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
+        assert attributes["isPlaying"] is False
+        assert attributes["currentTrack"]["title"] == RESUMABLE["metadata"]["title"]
+
+    async def test_a_gap_under_a_source_that_says_nothing_keeps_its_track(
+        self, service, registry, apns
+    ):
+        """The other half, and the reason the copy of the last card survives.
+
+        Only the four mpv sources publish an idle identity. A receiver whose
+        sender goes — AirPlay disconnecting and coming straight back is the
+        ordinary case — publishes the inert pair alone, so a card rebuilt from
+        that state has every field null, which on the phone is a media card
+        with nothing in it. Blanking through a two-second gap is worse than
+        holding what was there.
+        """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
@@ -379,10 +424,28 @@ class TestSourceTransitions:
 
         await service._publish()
 
-        assert sent_events(apns) == ["update"]
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
         assert attributes["isPlaying"] is False
-        assert attributes["currentTrack"]["title"] == "T"
+        assert attributes["currentTrack"]["title"] == PLAYING["metadata"]["title"]
+
+    async def test_a_gap_under_ANOTHER_source_does_not_keep_the_track(
+        self, service, registry, apns
+    ):
+        """What scopes the hold above. Measured 2026-09-20: radio → spotify,
+        and the Lock Screen kept the radio track, paused, under a source that
+        had nothing to play, for the whole grace. A track belonging to a source
+        nobody selected any more is a lie, not a gap."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(SWITCHED)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
+        assert attributes["currentTrack"]["title"] is None
 
     async def test_a_source_change_empties_the_card_it_keeps(
         self, service, registry, apns
@@ -533,7 +596,11 @@ class TestDeviceReport:
         """The reported failure. `source_state` leaves `active` on a source
         change and the card has nothing behind it, but only Milō can say so —
         and from the bus alone it must first wait out `SESSION_IDLE_GRACE_S`,
-        because a gap looks the same."""
+        because a gap looks the same. A device report is the evidence that
+        licenses closing at once, and it stays that way for a card naming
+        nothing: what the state added is the OTHER kind of idle, pinned by
+        `test_a_report_on_a_stopped_source_does_not_close_what_resumes`.
+        """
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(SWITCHED)
         apns.send.reset_mock()
@@ -559,13 +626,45 @@ class TestDeviceReport:
         """The app reports every couple of seconds. A second `end` addresses a
         session that no longer exists, and spends budget saying it."""
         await self._held(service, registry)
-        service.machine.get_current_state.return_value = dict(READY)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        apns.send.reset_mock()
         await service.align_session_to_playback("phone-1")
+        assert sent_events(apns) == ["end"]
         apns.send.reset_mock()
 
         await service.align_session_to_playback("phone-1")
 
         assert sent_events(apns) == []
+
+    async def test_a_report_on_a_stopped_source_does_not_close_what_resumes(
+        self, service, registry, apns
+    ):
+        """The assertion that keeps the two paths from drifting apart again.
+
+        A source that stopped with something to resume is idle, not finished.
+        Closing it would put the phone back to the "nothing ever played" this
+        state exists to tell apart — so the card is held, showing what a play
+        press would bring back, and the grace governs the ending as it does on
+        the bus. The empty card keeps its prompt close, next door.
+        """
+        await self._held(service, registry)
+        service.machine.get_current_state.return_value = dict(RESUMABLE)
+        apns.send.reset_mock()
+
+        await service.align_session_to_playback("phone-1")
+
+        assert service._session_id is not None
+        assert sent_events(apns) == ["update"]
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == RESUMABLE["metadata"]["title"]
+
+        # Held, not kept: the grace still ends it.
+        past_the_grace(service)
+        apns.send.reset_mock()
+        await service.align_session_to_playback("phone-1")
+
+        assert service._session_id is None
+        assert sent_events(apns) == ["end"]
 
     async def test_nothing_closes_during_a_transition(self, service, registry, apns):
         """`transitioning` is the beat of a source change. Closing on it would
@@ -801,32 +900,28 @@ class TestDeviceReboot:
 
 
 class TestRadioMetadata:
-    """Radio leaves the common floor empty and carries the track beside it."""
+    """Radio fills the common floor like every other source.
+
+    It did not: the four floor fields stayed empty and the track travelled
+    beside them in `track_title`/`station_name`, so this layer re-derived what
+    to show — and so did Milo-iOS, in its own copy. The derivation now lives in
+    the source (see test_radio_source.py::TestTheCommonFloor), which is what
+    lets this layer read `title`/`artist` straight and what fixed podcast, a
+    source neither copy of the cascade covered.
+    """
 
     RADIO = {
         "active_source": "radio", "source_state": "active",
-        "metadata": {"is_playing": True, "station_name": "FIP Jazz",
-                     "track_title": "Snibor", "track_artist": "Gil Evans",
-                     "favicon": "/api/radio/images/7ff7.webp"},
+        "metadata": {"is_playing": True, "title": "Snibor",
+                     "artist": "Gil Evans", "album": "FIP Jazz",
+                     "album_art_url": "/api/radio/images/7ff7.webp",
+                     "station_name": "FIP Jazz", "track_title": "Snibor",
+                     "track_artist": "Gil Evans"},
     }
 
-    async def test_a_station_reaches_the_lock_screen(self, service, registry, apns):
-        """Reading `title` alone sent a push whose every field was null, which
-        on the phone is a session with no track at all."""
-        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
-        service.machine.get_current_state.return_value = dict(self.RADIO)
-
-        await service._publish()
-
-        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
-        assert track["title"] == "Snibor"
-        assert track["artist"] == "Gil Evans"
-        assert track["album"] == "FIP Jazz"
-        assert track["artworkURL"] == "/api/radio/images/7ff7.webp"
-
     async def test_a_station_change_spends_a_widget_push(self, service, registry, apns):
-        """Through the floor alone every station looked identical, so the
-        widget signature never moved and the change cost no push — and the
+        """Through a floor radio left empty every station looked identical, so
+        the widget signature never moved and the change cost no push — and the
         widget kept the old station until its own timeline came round."""
         registry.held["widget"] = tok(PushTokenKind.WIDGET, "widget")
         service.machine.get_current_state.return_value = dict(self.RADIO)
@@ -834,12 +929,32 @@ class TestRadioMetadata:
         apns.send.reset_mock()
         service.machine.get_current_state.return_value = {
             **self.RADIO,
-            "metadata": {**self.RADIO["metadata"], "track_title": "Blues For Pablo"},
+            "metadata": {**self.RADIO["metadata"],
+                         "title": "Blues For Pablo", "track_title": "Blues For Pablo"},
         }
 
         await service._publish()
 
         assert [c.args[0].token for c in apns.send.await_args_list] == ["widget"]
+
+    async def test_a_stopped_station_still_draws_a_card(self, service, registry, apns):
+        """What the whole change is for, at this layer: a source that stopped
+        with something to resume reaches the lock screen as itself, paused —
+        not as a session with four null fields, which on the phone is no track
+        at all."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(self.RADIO)
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(RESUMABLE)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == RESUMABLE["metadata"]["title"]
+        assert track["artworkURL"] == RESUMABLE["metadata"]["album_art_url"]
 
 
 class TestWidgetCadence:

@@ -45,7 +45,7 @@
 
       <!-- Docked player -->
       <template #player>
-        <AudioPlayer :visible="shouldShowPlayer" source="music_library"
+        <AudioPlayer :visible="shouldShowPlayer" source="music_library" @after-hide="onAfterHide"
           :artwork="playerArtwork"
           :title="playerTitle"
           :is-playing="isPlaying" :is-loading="isBuffering" swipe-enabled
@@ -110,7 +110,6 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
 import { useSourceProgress } from '@/composables/useSourceProgress';
-import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
@@ -130,7 +129,6 @@ import AddToPlaylistModal from './AddToPlaylistModal.vue';
 
 const store = useMusicLibraryStore();
 const { t } = useI18n();
-const timer = useTimer();
 
 // Opening the library always lands on Albums. The tab is store state so it
 // survives navigating into an album and back — which also makes it outlive this
@@ -159,24 +157,26 @@ watch([() => store.disconnectedStorage, currentView], ([gone, view]) => {
   if (gone && scopedViews.includes(view)) reset();
 });
 
-// Player visibility follows backend source_state (active → shown, ready →
-// hidden). Clear the sticky display track only after the fade-out completes so
-// the artwork/title survive the animation.
-const { isPlaying, isBuffering, shouldShowPlayer } =
-  useSourcePlaybackVisibility('music_library', {
-    onFadeOutStart: () => {
-      timer.setTimeout(() => store.clearDisplayTrack(), 600);
-    },
-  });
+// The pane follows the queue, and the queue survives an idle auto-stop: the
+// backend publishes the saved session a play press would reopen. An explicit
+// stop and a queue played out publish nothing to resume, so the player goes
+// with them. The store's sticky displayTrack was a copy of that fact for the
+// length of a fade.
+const {
+  isPlaying, isBuffering, shouldShowPlayer,
+  displayed: nowPlaying, onAfterHide,
+} = useSourcePlaybackVisibility('music_library', {
+  content: () => store.nowPlaying,
+});
 
 // Live position with local interpolation (ms).
 const { duration: durationMs, currentPosition: positionMs, progressPercentage: livePercent, seekTo } =
   useSourceProgress('music_library');
 
-// === Player display (sticky through fade-out) ===
-const playerTitle = computed(() => store.displayTrack?.title || '');
-const playerArtist = computed(() => store.displayTrack?.artist || '');
-const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
+// === Player display ===
+const playerTitle = computed(() => nowPlaying.value?.title || '');
+const playerArtist = computed(() => nowPlaying.value?.artist || '');
+const playerArtwork = computed(() => nowPlaying.value?.albumArtUrl || null);
 
 // === Header title per view ===
 const currentTitle = computed(() => {
@@ -215,12 +215,12 @@ function openLikedSongs() {
 // From the docked player's artwork/artist-line clicks — only the currently
 // displayed track's ids are known here (no album/artist track counts).
 function openPlayerAlbum() {
-  const albumId = store.displayTrack?.albumId;
-  if (albumId) openAlbum({ id: albumId, name: store.displayTrack.album });
+  const albumId = nowPlaying.value?.albumId;
+  if (albumId) openAlbum({ id: albumId, name: nowPlaying.value.album });
 }
 function openPlayerArtist() {
-  const artistId = store.displayTrack?.artistId;
-  if (artistId) openArtist({ id: artistId, name: store.displayTrack.artist });
+  const artistId = nowPlaying.value?.artistId;
+  if (artistId) openArtist({ id: artistId, name: nowPlaying.value.artist });
 }
 function goToSearch() {
   push('search');

@@ -92,12 +92,21 @@ On connect the client receives a `full_state` snapshot, then incremental deltas.
 | State | Meaning |
 |---|---|
 | `starting` | The transition to this source is under way |
-| `ready` | Engine up, nothing in session |
-| `active` | A session or content exists — a *paused* radio is still `active` |
+| `ready` | No live session — but the payload may still carry what a play press would resume |
+| `active` | A session or content exists — a *paused* CD is still `active` |
 | `error` | The source is not operational |
 
 `ready` rather than `connected`: nothing connects to Radio, CD or the Music Library. The split
-between `ready` and `active` is "is there a session", not "is audio coming out".
+between `ready` and `active` is "is there a session", not "is audio coming out" — `is_playing`
+answers the second.
+
+**`ready` does not mean "nothing to show".** A source that stops with something to resume
+publishes it under the same keys it uses while playing: the station `resume_playback` would
+re-tune, the episode and second an auto-stop left, the loaded disc, the saved queue. Only when
+there is genuinely nothing to come back to — an episode played to the end, an explicit Stop, a
+source that never played — is the payload the inert `{is_playing, is_buffering}` pair. That is
+what lets a consumer tell "stopped, here is what resumes" from "nothing ever played"; both used
+to be the same empty payload.
 
 The word "error" covers two different facts, and they travel on two different mechanisms — never
 both, so neither can be mistaken for the other:
