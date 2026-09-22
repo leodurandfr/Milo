@@ -436,6 +436,12 @@ import os
 import time
 from unittest.mock import AsyncMock, Mock, patch
 
+from backend.core.models.ws_events import (
+    SourceError,
+    SourceErrorCleared,
+    SourceErrorReason,
+)
+
 from backend.sources.airplay.metadata_reader import MetadataReader as _Reader
 from backend.sources.airplay.source import (
     AIRPLAY_SAMPLE_RATE,
@@ -646,6 +652,153 @@ class TestConnectionEvents:
         await feed(_item("ssnc", "snam", "Mac mini de Léo".encode()))
         assert source._client_name == "Mac mini de Léo"
         assert source._device_connected is True
+
+
+class TestTheDaemonDyingUnderTheSession:
+    """A `disc` comes *from* shairport-sync, so a daemon killed outright never
+    sends one — and `Restart=always` brings the unit back within seconds under
+    a process that announces nothing about the session it never had.
+
+    Measured on the unit 2026-09-22: SIGKILL at 17:20:51, restart at 17:20:57,
+    audio back — and the source sat ACTIVE on "Pavilion" with is_playing true
+    and a playhead frozen at 396000/396000 while the ALSA loopback read
+    `closed`. Permanently: IDLE_STATES excludes ACTIVE so the 12 h sweep never
+    reclaims it, and the auto-stop timer is armed only by `pfls`/`pend`. It
+    reached AudioPlayerFull and the iPhone lock screen.
+    """
+
+    @staticmethod
+    async def _a_pid_that_has_exited() -> int:
+        """A real pid, really gone — reaped, so /proc no longer carries it."""
+        proc = await asyncio.create_subprocess_exec("true")
+        await proc.wait()
+        return proc.pid
+
+    @staticmethod
+    def _with_daemon(source, pid):
+        source._service_manager = Mock()
+        source._service_manager.main_pid = AsyncMock(return_value=pid)
+
+    async def test_a_dead_daemon_drops_the_session_and_says_so(self, wired):
+        source, feed = wired
+        self._with_daemon(source, await self._a_pid_that_has_exited())
+        source.broadcast_error = Mock()
+        await feed(_item("ssnc", "conn", b"192.168.1.42"),
+                   _bundle(RTP_A, "Says"),
+                   _picture(RTP_A, _cover("navy")),
+                   _item("ssnc", "pbeg"))
+        assert source._device_connected is True
+
+        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
+            source._start_position_ticker()
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                if not source._device_connected:
+                    break
+            source._cancel_position_ticker()
+
+        assert source._device_connected is False
+        assert source._is_playing is False
+        assert not {"title", "artist", "album", "album_art_url"} & set(source._metadata)
+        assert source.get_artwork() is None
+        source.broadcast_error.assert_called_once_with(
+            SourceErrorReason.STREAM_DISCONNECTED
+        )
+
+    async def test_a_stopped_source_forgets_which_daemon_it_was_watching(self, wired):
+        """A pid kept across a source stop is a pid that will be dead when the
+        source comes back — and the ticker would read that as the *new*
+        session's daemon having died, tearing down audible playback with a
+        banner. `_reset_playback_state` runs on every `_do_start`.
+        """
+        source, feed = wired
+        self._with_daemon(source, await self._a_pid_that_has_exited())
+        await feed(_item("ssnc", "conn", b"192.168.1.42"))
+        assert source._daemon_pid is not None
+
+        source._reset_playback_state()
+
+        assert source._daemon_pid is None
+
+    async def test_a_session_that_never_saw_conn_is_still_watched(self, wired):
+        """`conn` is not guaranteed first, or at all.
+
+        Three other messages open a session — a metadata bundle, the client
+        name, a play state — and each sets `_device_connected`. If only `conn`
+        recorded the daemon, a session opened by any of them would be watched
+        against the pid the previous session left behind.
+        """
+        source, feed = wired
+        self._with_daemon(source, os.getpid())
+
+        await feed(_bundle(RTP_A, "Says"))
+
+        assert source._device_connected is True
+        assert source._daemon_pid == os.getpid()
+
+    async def test_a_reconnect_takes_the_banner_down(self, wired):
+        """This source raises exactly one error, and it is the one above.
+
+        Nothing else clears it: AirPlay had no `broadcast_error` at all before
+        the guard, so the banner it raises had no answering event and would
+        have sat over a sender that came back fine.
+        """
+        source, feed = wired
+        source.state_machine = Mock()
+        broadcast = source.state_machine.broadcast
+        self._with_daemon(source, await self._a_pid_that_has_exited())
+        await feed(_item("ssnc", "conn", b"192.168.1.42"), _item("ssnc", "pbeg"))
+
+        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
+            source._start_position_ticker()
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                if not source._device_connected:
+                    break
+            source._cancel_position_ticker()
+        assert SourceError in [type(c.args[0]) for c in broadcast.call_args_list]
+
+        self._with_daemon(source, os.getpid())
+        await feed(_item("ssnc", "conn", b"192.168.1.42"))
+
+        assert SourceErrorCleared in [type(c.args[0]) for c in broadcast.call_args_list]
+
+    async def test_a_living_daemon_is_left_alone(self, wired):
+        """The complement, and the one that matters most: this runs on every
+        tick of a healthy session, so a guard that fired wrongly would tear the
+        session down every POSITION_TICK_SECONDS."""
+        source, feed = wired
+        self._with_daemon(source, os.getpid())
+        source.broadcast_error = Mock()
+        await feed(_item("ssnc", "conn", b"192.168.1.42"),
+                   _bundle(RTP_A, "Says"),
+                   _item("ssnc", "pbeg"),
+                   _progress(0, 30, 300))
+
+        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
+            source._start_position_ticker()
+            await asyncio.sleep(0.15)
+            source._cancel_position_ticker()
+
+        assert source._device_connected is True
+        assert source._metadata.get("title") == "Says"
+        source.broadcast_error.assert_not_called()
+
+    async def test_a_source_that_cannot_name_its_daemon_claims_nothing(self, wired):
+        """A dev host injects no systemd manager. Failing open is the rule:
+        an unanswerable question is not evidence the session died."""
+        source, feed = wired  # no _service_manager wired
+        source.broadcast_error = Mock()
+        await feed(_item("ssnc", "conn", b"192.168.1.42"), _item("ssnc", "pbeg"))
+        assert source._daemon_pid is None
+
+        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
+            source._start_position_ticker()
+            await asyncio.sleep(0.1)
+            source._cancel_position_ticker()
+
+        assert source._device_connected is True
+        source.broadcast_error.assert_not_called()
 
 
 class TestProgress:

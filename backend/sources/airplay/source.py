@@ -34,6 +34,7 @@ from typing import Dict, Any, Optional, Tuple
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.shared.artwork import decode_artwork_dimensions
 from backend.shared.decorators import handle_errors
@@ -131,6 +132,9 @@ class AirPlaySource(BaseAudioSource):
         self._device_connected = False
         self._client_name: Optional[str] = None
         self._connected_ip: Optional[str] = None
+        # The shairport-sync process the live session belongs to. A session is
+        # the daemon's, not the pipe's: see _daemon_still_holds_the_session.
+        self._daemon_pid: Optional[int] = None
 
         # Artwork served via dedicated endpoint, and held apart from _metadata
         # so it is merged in at publish time rather than written through it.
@@ -164,6 +168,10 @@ class AirPlaySource(BaseAudioSource):
         self._device_connected = False
         self._client_name = None
         self._connected_ip = None
+        # With the session, not after it: a pid kept across a source stop is a
+        # pid that will be dead when the source comes back, and the ticker
+        # would read that as the *new* session's daemon having died.
+        self._daemon_pid = None
         self._cancel_position_ticker()
         self._position_ms = 0
         self._duration_ms = 0
@@ -279,7 +287,7 @@ class AirPlaySource(BaseAudioSource):
         self._metadata["is_playing"] = self._is_playing
 
         self._update_progress_metadata()
-        self._device_connected = True
+        await self._mark_session_live()
         self._update_connection_state()
 
     async def _on_play_state(self, state: str) -> None:
@@ -292,7 +300,7 @@ class AirPlaySource(BaseAudioSource):
         """
         if state == "play":
             self._is_playing = True
-            self._device_connected = True
+            await self._mark_session_live()
             # Resume ageing from wherever the frozen snapshot left off.
             if self._position_at is None and self._duration_ms > 0:
                 self._position_at = asyncio.get_running_loop().time()
@@ -354,7 +362,7 @@ class AirPlaySource(BaseAudioSource):
     async def _on_client_name(self, name: str) -> None:
         """Handle client name from pipe (X-Apple-Client-Name)."""
         self._client_name = name
-        self._device_connected = True
+        await self._mark_session_live()
         self._update_connection_state()
 
     async def _on_connection(self, state: str, client_ip: Optional[str] = None) -> None:
@@ -377,7 +385,7 @@ class AirPlaySource(BaseAudioSource):
         if state == "connected":
             self._logger.info(f"AirPlay client connected (IP: {client_ip})")
             self._connected_ip = client_ip
-            self._device_connected = True
+            await self._mark_session_live()
             self._cancel_pause_timer()
             self._update_connection_state()
         elif state == "disconnected":
@@ -392,14 +400,68 @@ class AirPlaySource(BaseAudioSource):
                 )
                 return
             self._logger.info(f"AirPlay client disconnected (IP: {client_ip})")
-            self._connected_ip = None
-            self._cancel_pause_timer()
-            self._device_connected = False
-            self._is_playing = False
-            self._metadata = {}
-            self._client_name = None
-            self._clear_artwork()
-            self._update_connection_state()
+            self._drop_session()
+
+    def _drop_session(self) -> None:
+        """Forget the live session and publish READY.
+
+        The body of a `disc`, reachable from two places: the sender saying
+        goodbye, and the daemon dying without the chance to say it on the
+        sender's behalf. One definition, because "no session" has to mean the
+        same thing whichever way it was reached — a second spelling is how one
+        of them comes to leave the cover or the client name behind.
+        """
+        self._connected_ip = None
+        self._cancel_pause_timer()
+        self._device_connected = False
+        self._is_playing = False
+        self._metadata = {}
+        self._client_name = None
+        self._daemon_pid = None
+        self._clear_artwork()
+        self._update_connection_state()
+
+    async def _mark_session_live(self) -> None:
+        """A sender is on air — and this is whose daemon the session belongs to.
+
+        Four messages can be the first sign of a session: `conn`, a metadata
+        bundle, the client name, or a play state. `conn` is not guaranteed to
+        come first or at all, which is why the other three set the flag too —
+        so the daemon identity has to be recorded by all four, or a session
+        that opened without `conn` would be watched against whatever pid the
+        previous one left behind. Read once per session rather than per
+        message: `_daemon_pid` is cleared with the session, and only a cleared
+        one is filled.
+        """
+        self._device_connected = True
+        if self._daemon_pid is None:
+            self._daemon_pid = await self._service_main_pid()
+
+    async def _daemon_still_holds_the_session(self) -> bool:
+        """Is the shairport-sync that opened this session still running?
+
+        The gap this closes, measured on the unit 2026-09-22. A `disc` is the
+        only thing that ends an AirPlay session, and it comes *from*
+        shairport-sync — so a daemon killed outright never sends one. The unit
+        carries `Restart=always`, so audio came back 5 s later under a new
+        process, but that process knows nothing of the old session and
+        announces nothing: no `conn`, no `disc`, no metadata. The source sat
+        ACTIVE on "Pavilion" with `is_playing: true` and a playhead frozen at
+        396000/396000 while the ALSA loopback read `closed` — and stayed there,
+        because IDLE_STATES excludes ACTIVE so the 12 h sweep never reclaims it
+        and the auto-stop timer is armed only by `pfls`/`pend`, which were
+        never coming. It reached the screen, and an APNs push put it on the
+        lock screen too. Only a source switch cleared it.
+
+        The pipe cannot answer this: shairport-sync closes the metadata FIFO
+        between sessions (checked — with the unit active and no sender, it
+        holds no descriptor on it), so a writer going away is an ordinary
+        end-of-session, not a death. The daemon's identity can, and systemd
+        already tracks it.
+        """
+        if self._daemon_pid is None:
+            return True
+        return os.path.exists(f"/proc/{self._daemon_pid}")
 
     async def _on_progress(self, start: int, current: int, end: int) -> None:
         """Handle progress update from pipe reader (RTP frames at 44100Hz).
@@ -452,12 +514,30 @@ class AirPlaySource(BaseAudioSource):
         async def tick():
             while True:
                 await asyncio.sleep(POSITION_TICK_SECONDS)
-                if not self._is_playing or self._duration_ms <= 0:
-                    continue
-                self._update_progress_metadata()
-                self.broadcast_position_update(
-                    self._metadata["position"], self._duration_ms
-                )
+                try:
+                    if self._device_connected and not (
+                        await self._daemon_still_holds_the_session()
+                    ):
+                        self._logger.error(
+                            "shairport-sync died under the session (pid %s is gone) "
+                            "— dropping it; reconnect from the sender",
+                            self._daemon_pid,
+                        )
+                        # State first: broadcast_error carries full_state, so
+                        # the banner must not arrive with a record still
+                        # claiming the track is running.
+                        self._drop_session()
+                        self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
+                        continue
+
+                    if not self._is_playing or self._duration_ms <= 0:
+                        continue
+                    self._update_progress_metadata()
+                    self.broadcast_position_update(
+                        self._metadata["position"], self._duration_ms
+                    )
+                except Exception as e:
+                    self._logger.error(f"Position tick failed: {e}")
 
         self._position_task = asyncio.create_task(tick())
 
@@ -481,6 +561,13 @@ class AirPlaySource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on device connection."""
+        # A live session is the answer to the only error this source raises —
+        # the daemon dying under the previous one. Without this the banner
+        # would outlive its cause and sit over a sender that reconnected fine;
+        # a no-op when no error is active, so it costs nothing on the path it
+        # is not for. Same shape as radio's, for the same reason.
+        if self._device_connected:
+            self.broadcast_error_cleared()
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
         # The cover is published for the track it was stamped for, and the

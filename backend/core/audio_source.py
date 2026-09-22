@@ -596,6 +596,25 @@ class BaseAudioSource(ABC):
             self._logger.error(f"Failed to check if service '{name}' is active: {e}")
             return False
 
+    async def _service_main_pid(self) -> Optional[int]:
+        """The pid of this source's daemon, or None when it cannot be named.
+
+        For a source whose *session* belongs to a daemon rather than to a link:
+        `Restart=` puts a unit back to active within seconds of a crash under a
+        new process that knows nothing of the old session, so "is the unit up"
+        is not the question. None on any failure — a dev host injects no
+        manager, and a source that cannot name its daemon must claim nothing
+        rather than declare the session dead.
+        """
+        if not self.service_name:
+            return None
+
+        try:
+            return await self._service_manager.main_pid(self.service_name)
+        except Exception as e:
+            self._logger.warning(f"Could not read the main pid of {self.service_name}: {e}")
+            return None
+
     async def probe_service_active(self) -> Optional[bool]:
         """Whether this source's unit is still up, or None when it cannot be told.
 

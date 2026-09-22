@@ -191,6 +191,40 @@ class SystemdServiceManager:
             return None
         return stdout.decode().strip() == "active"
 
+    async def main_pid(self, service: str) -> Optional[int]:
+        """The unit's current main process, or None when there is none to name.
+
+        What it is for: a source that tracks a *session* held by a daemon needs
+        to know the daemon is still the one it opened that session with. The
+        unit being `active` does not answer it — `Restart=` brings a unit back
+        active within seconds of a crash, under a new process that knows
+        nothing of the session, which is exactly how AirPlay came to hold a
+        track nobody was playing (measured 2026-09-22: SIGKILL, restart 5 s
+        later, and the source sat ACTIVE on a frozen playhead indefinitely).
+        The pid is the identity `is_active` cannot carry.
+
+        0 means the unit has no main process right now (stopped, or between a
+        crash and its restart) and is reported as None, like an unreadable
+        probe: both mean "there is no daemon here holding anything".
+        """
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "show", service, "--property=MainPID", "--value",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), IS_ACTIVE_TIMEOUT)
+        except asyncio.TimeoutError:
+            if proc.returncode is None:
+                proc.kill()
+            self.logger.error(f"Timeout reading MainPID for {service}")
+            return None
+
+        raw = stdout.decode().strip()
+        if not raw.isdigit():
+            return None
+        return int(raw) or None
+
     async def is_active(self, service: str) -> bool:
         """Whether the unit is known to be active — an unreadable probe is not.
 
