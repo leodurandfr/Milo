@@ -369,61 +369,85 @@ class TestTheVolumeLockTimeouts:
 
 
 class TestTheAutoStopReload:
-    """`BaseAudioSource`'s pause timer, which every source inherits."""
+    """`BaseAudioSource`'s pause timer, which every source inherits.
+
+    Observed where it lands: the default auto-stop restarts the source's unit,
+    so what systemd was asked to do, and when on a clock the test moves, is the
+    whole outcome.
+    """
 
     @pytest.fixture
-    def source(self):
+    def clock(self, monkeypatch):
+        from backend.core import audio_source
+        from backend.tests.golden.harness import AsyncioProxy, VirtualClock
+
+        clock = VirtualClock()
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+        return clock
+
+    @pytest.fixture
+    def stored(self):
+        """settings.json as the source reads it; a test edits it like Settings does."""
+        return {"audio.auto_stop_delay": 600}
+
+    @pytest.fixture
+    async def source(self, stored):
         from backend.core.audio_source import BaseAudioSource
 
         class _Source(BaseAudioSource):
             async def _do_start(self):
-                return True
+                return await self._start_service()
 
         settings = Mock()
-        settings.get_setting = AsyncMock(return_value=None)
+        settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: stored.get(key))
         state_machine = Mock()
         state_machine.broadcast = AsyncMock()
         state_machine.update_source_state = AsyncMock()
-        return _Source(
+        systemd = Mock()
+        systemd.start = AsyncMock(return_value=True)
+        systemd.stop = AsyncMock(return_value=True)
+        source = _Source(
             source_id="probe",
             service_name="milo-probe.service",
             state_machine=state_machine,
-            systemd_manager=Mock(),
+            systemd_manager=systemd,
             settings_service=settings,
         )
+        yield source
+        await source.shutdown()
 
-    async def test_a_shorter_delay_restarts_a_running_timer(self, source):
+    @staticmethod
+    def _restarts(source):
+        return [c for c in source._service_manager.mock_calls if c[0] in ("start", "stop")]
+
+    async def test_a_shorter_delay_restarts_a_running_timer(self, source, stored, clock):
         """The setting is changed while a source is paused. Leaving the old timer
         running means the change takes effect one auto-stop later — i.e. after
         the very stop it was meant to retime."""
-        source.auto_stop_enabled = True
-        source.auto_stop_delay = 600.0
-        source._start_pause_timer()
-        first = source._pause_timer
-        assert first is not None
-
-        source.auto_stop_delay = 10.0
         await source.reload_auto_stop_config()
+        source._start_pause_timer()   # what every source does on a pause
 
-        assert source._pause_timer is not None, "the timer was cancelled and not restarted"
-        assert source._pause_timer is not first
-        await asyncio.gather(first, return_exceptions=True)
-        assert first.cancelled()
-        source._cancel_pause_timer()
+        stored["audio.auto_stop_delay"] = 10
+        await source.reload_auto_stop_config()
+        await clock.advance(9.9)
+        assert self._restarts(source) == [], "the new delay was not the one armed"
 
-    async def test_disabling_auto_stop_cancels_the_running_timer(self, source):
+        await clock.advance(0.1)
+
+        # Stop then start, both to the end: the stop disarms the pause timer
+        # from inside the auto-stop it runs, and must not cut that auto-stop.
+        assert [c[0] for c in self._restarts(source)] == ["stop", "start"]
+
+    async def test_disabling_auto_stop_cancels_the_running_timer(self, source, stored, clock):
         """Otherwise turning it off in Settings still stops the music once."""
-        source.auto_stop_enabled = True
-        source.auto_stop_delay = 600.0
-        source._start_pause_timer()
-        timer = source._pause_timer
-
-        source.auto_stop_enabled = False
         await source.reload_auto_stop_config()
+        source._start_pause_timer()
 
-        assert source._pause_timer is None
-        await asyncio.gather(timer, return_exceptions=True)
-        assert timer.cancelled()
+        stored["audio.auto_stop_delay"] = 0
+        await source.reload_auto_stop_config()
+        await clock.advance(3600)
+
+        assert self._restarts(source) == []
 
     async def test_an_unreadable_auto_stop_setting_leaves_the_declared_default(
         self, source, caplog
@@ -440,20 +464,43 @@ class TestTheAutoStopReload:
         assert any("Auto-stop settings load failed" in r.message for r in caplog.records)
 
     async def test_a_failing_auto_stop_does_not_kill_the_timer_task_silently(
-        self, source, caplog
+        self, stored, clock, caplog
     ):
         """The stop it triggers reaches the state machine and the source's own
-        `_do_stop`; an exception there would surface as a task that vanished,
-        with the source left paused forever and nothing said."""
-        source.auto_stop_enabled = True
-        source.auto_stop_delay = 0.0
-        source._on_auto_stop = AsyncMock(side_effect=RuntimeError("mpv is gone"))
+        `_do_stop`; an exception there must be said, and must cost that one
+        auto-stop — not the source's mailbox, which would leave every later
+        pause playing on forever with nothing said."""
+        from backend.core.audio_source import BaseAudioSource
 
-        with caplog.at_level(logging.ERROR, logger=source._logger.name):
+        class _Failing(BaseAudioSource):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.attempts = 0
+
+            async def _do_start(self):
+                return True
+
+            async def _on_auto_stop(self):
+                self.attempts += 1
+                raise RuntimeError("mpv is gone")
+
+        settings = Mock()
+        settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: stored.get(key))
+        source = _Failing(source_id="probe", service_name="milo-probe.service",
+                          settings_service=settings)
+        await source.reload_auto_stop_config()
+        try:
+            with caplog.at_level(logging.ERROR, logger=source._logger.name):
+                source._start_pause_timer()
+                await clock.advance(source.auto_stop_delay)
+
+            assert any("Auto-stop failed" in r.message for r in caplog.records)
+
             source._start_pause_timer()
-            await asyncio.gather(source._pause_timer, return_exceptions=True)
-
-        assert any("Auto-stop failed" in r.message for r in caplog.records)
+            await clock.advance(source.auto_stop_delay)
+            assert source.attempts == 2, "the next pause no longer reached the auto-stop"
+        finally:
+            await source.shutdown()
 
     async def test_an_unhandled_command_is_refused_by_name(self, source):
         """The ABC's default arm. `command()` validates against `COMMANDS`

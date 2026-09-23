@@ -26,11 +26,14 @@ What breaks when they fail:
   is rather than where the last periodic tick left it.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, Mock
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
+from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library.libraries import NavidromeLibraryService
 from backend.sources.music_library.source import MusicLibrarySource
+from backend.tests.golden.harness import settle
+from backend.tests.test_mpv_sessions import LibraryRig
 
 NAS = "/media/milo/nas-leo-d7992dfe"
 KEY = "/media/milo/IPOD"
@@ -260,82 +263,110 @@ class TestOnlyOurOwnLibrariesAreManaged:
 # =============================================================================
 
 class TestRefreshMetadata:
+    """Driven the way the consumer drives it: `refresh_active_metadata` (the
+    WebSocket handshake, GET /api/audio/state) on a real state machine, mpv
+    simulated as measured."""
+
+    TRACK = {"id": "s-1", "title": "Track", "duration": 240}
 
     @pytest.fixture
-    def playing(self, source):
-        """A source mid-track, as a client reconnecting would find it."""
-        source._queue = [{"id": "s-1", "title": "Track", "duration": 240}]
-        source._queue_index = 0
-        source._position = 10
-        source._duration = 240
-        source._is_playing = True
-        source._mpv = MagicMock()
-        source._mpv.is_connected = True
-        source._mpv.get_property = AsyncMock(return_value=None)
-        return source
+    def rig(self, monkeypatch):
+        rig = LibraryRig(monkeypatch)
+        rig.mpv.durations["id=s-1&"] = 240.0
+        return rig
 
-    def _properties(self, source, **values):
-        source._mpv.get_property = AsyncMock(side_effect=lambda name: values.get(name))
+    async def _playing(self, rig):
+        await rig.select()
+        await rig.command("play_context", {"tracks": [self.TRACK]})
+        await rig.tick()
 
-    async def test_the_live_playhead_replaces_the_last_tick(self, playing):
+    @staticmethod
+    def _count_reads(rig):
+        reads = []
+        real = rig.mpv.get_property
+
+        async def counted(name, timeout=None):
+            reads.append(name)
+            return await real(name, timeout)
+
+        rig.mpv.get_property = counted
+        return reads
+
+    async def test_the_live_playhead_replaces_the_last_tick(self, rig):
         """The periodic sync is seconds old; a client that reconnects mid-track
         would otherwise draw the bar where it was at the last tick."""
-        self._properties(playing, **{"time-pos": 97.4, "duration": 240.0, "pause": False})
+        await self._playing(rig)
+        rig.mpv.playhead(97.4)
+        assert rig.state()["metadata"]["position"] == 0
 
-        assert await playing.refresh_metadata() is True
-        assert playing._position == 97
-        assert playing._duration == 240
-        assert playing._metadata["position"] == 97000
-        assert playing._metadata["duration"] == 240000
+        assert await rig.machine.refresh_active_metadata() is True
 
-    async def test_mpvs_pause_is_trusted_over_the_cached_flag(self, playing):
-        """A reconnect can race a pause still in flight, and mpv is the one that
-        knows: the handshake is exactly when the two can disagree."""
-        self._properties(playing, **{"time-pos": 12.0, "pause": True})
+        data = rig.state()["metadata"]
+        assert data["position"] == 97000
+        assert data["duration"] == 240000
 
-        await playing.refresh_metadata()
+    async def test_a_pause_mpv_announced_is_what_the_handshake_hands_out(self, rig):
+        """mpv is the one that knows: a pause it announced (whoever asked for
+        it) is what a reconnecting client is given, not a playing track."""
+        await self._playing(rig)
+        await rig.mpv.set_property("pause", True)
+        await settle()
 
-        assert playing._is_playing is False
-        assert playing._metadata["is_playing"] is False
+        await rig.machine.refresh_active_metadata()
 
-    async def test_a_buffering_stream_keeps_its_own_playing_flag(self, playing):
+        assert rig.state()["metadata"]["is_playing"] is False
+
+    async def test_a_buffering_stream_keeps_its_own_playing_flag(self, rig, monkeypatch):
         """mpv reports pause=False before the stream is actually up, so trusting
         it while buffering makes a track that has not started look like it is
         playing — and the progress bar run ahead of the sound."""
-        playing._is_buffering = True
-        playing._is_playing = False
-        self._properties(playing, **{"time-pos": 0.0, "pause": False})
+        monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 60.0)
+        rig.mpv.auto_open = False
+        await rig.select()
+        await rig.command("play_context", {"tracks": [self.TRACK]})
 
-        await playing.refresh_metadata()
+        await rig.machine.refresh_active_metadata()
 
-        assert playing._is_playing is False
+        data = rig.state()["metadata"]
+        assert data["is_playing"] is False
+        assert data["is_buffering"] is True
 
-    async def test_properties_mpv_cannot_answer_leave_the_last_known_values(
-        self, playing
-    ):
+    async def test_properties_mpv_cannot_answer_leave_the_last_known_values(self, rig):
         """mpv answers None between tracks; overwriting with it would show 0:00
         of 0:00 on a track that is playing."""
-        self._properties(playing)
+        await self._playing(rig)
+        rig.mpv.playhead(10)
+        await rig.machine.refresh_active_metadata()
+        rig.mpv.position = None
+        rig.mpv.durations.clear()
+        rig.mpv.default_duration = None
 
-        assert await playing.refresh_metadata() is True
-        assert (playing._position, playing._duration) == (10, 240)
-        assert playing._is_playing is True
+        assert await rig.machine.refresh_active_metadata() is True
 
-    async def test_nothing_is_read_when_the_queue_is_empty(self, playing):
-        playing._queue = []
+        data = rig.state()["metadata"]
+        assert (data["position"], data["duration"]) == (10000, 240000)
+        assert data["is_playing"] is True
 
-        assert await playing.refresh_metadata() is False
-        playing._mpv.get_property.assert_not_called()
+    async def test_nothing_is_read_when_nothing_plays(self, rig):
+        """No session, no playhead to hand out: the handshake must not wait on
+        mpv for nothing."""
+        await rig.select()
+        reads = self._count_reads(rig)
 
-    async def test_nothing_is_read_when_mpv_is_gone(self, playing):
-        playing._mpv = None
+        assert await rig.machine.refresh_active_metadata() is False
+        assert reads == []
 
-        assert await playing.refresh_metadata() is False
+    async def test_nothing_is_read_when_mpv_is_gone(self, rig):
+        """The source is not started: there is no mpv to ask."""
+        assert await rig.source.refresh_metadata() is False
 
-    async def test_nothing_is_read_over_a_dead_ipc_link(self, playing):
+    async def test_nothing_is_read_over_a_dead_ipc_link(self, rig):
         """A get_property on a disconnected socket is what the handshake would
         block on."""
-        playing._mpv.is_connected = False
+        await self._playing(rig)
+        await rig.mpv.dies()
+        await settle()
+        reads = self._count_reads(rig)
 
-        assert await playing.refresh_metadata() is False
-        playing._mpv.get_property.assert_not_called()
+        assert await rig.machine.refresh_active_metadata() is False
+        assert reads == []

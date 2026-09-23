@@ -9,44 +9,44 @@ going after ten minutes.
 They matter because every one of them is the difference between a failure the
 user can see and a screen that lies:
 
-* a **resume that fails** must clear the queue, or the now-playing screen draws
-  a track list over an mpv that has nothing loaded;
+* a **resume that fails** must take back the ACTIVE it announced, or the
+  now-playing screen draws a playing track over an mpv that has nothing loaded;
 * a **reconcile that fails** must schedule its retry, or every storage space
   keeps a null library id for the rest of the session and the frontend drops
   them all — an empty library, no message;
 * a **transport command that raises** must answer the failure rather than let
   the exception reach the route as a 500 the UI cannot explain.
 
-Nothing here spawns or connects: `MpvController` is replaced, the mount helper
-is wired to explode, and `shares.request_scan` is stubbed — `_do_start` spawns
-that rescan as a background task, and left real it has been measured reaching
-this appliance's live Navidrome after the test ended.
+Nothing here spawns or connects: `MpvController` is replaced (by a Mock for the
+start arms, by the measured simulation of `LibraryRig` for playback), the mount
+helper is wired to explode, and `shares.request_scan` is stubbed — `_do_start`
+spawns that rescan as a background task, and left real it has been measured
+reaching this appliance's live Navidrome after the test ended.
 """
-
-import asyncio
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+from backend.sources.music_library import source as library_module
 from backend.sources.music_library import storage as storage_mod
 from backend.sources.music_library.libraries import NavidromeLibraryService
 from backend.sources.music_library.navidrome_client import ScanRequest, ScanStatus
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.sources.music_library.storage import StorageManager
-
-TRACKS = [
-    {"id": "s1", "title": "One", "duration": 100},
-    {"id": "s2", "title": "Two", "duration": 200},
-]
+from backend.tests.golden.harness import settle
+from backend.tests.golden.test_old_wire_music_library import FakeNavidrome
+from backend.tests.test_mpv_sessions import LibraryRig
+from backend.tests.test_music_library_source import (
+    TRACKS, NoCredFile, lengths, loads_since, meta, play,
+)
 
 
 def _mpv(**overrides):
     mpv = Mock()
     mpv.is_connected = True
     mpv.connect = AsyncMock(return_value=True)
-    mpv.load_playlist = AsyncMock(return_value=True)
-    mpv.set_playlist_pos = AsyncMock(return_value=True)
-    mpv.replace_playlist_tail = AsyncMock(return_value=True)
+    mpv.subscribe = Mock()
+    mpv.observe = AsyncMock(return_value=1)
     mpv.seek = AsyncMock(return_value=True)
     mpv.pause = AsyncMock(return_value=True)
     mpv.resume = AsyncMock(return_value=True)
@@ -67,9 +67,40 @@ def source():
     )
     src._start_service_and_wait = AsyncMock(return_value=True)
     src._load_auto_stop_config = AsyncMock()
-    src._start_monitor = Mock()
     src.shares.request_scan = AsyncMock()
     return src
+
+
+class ClosableNavidrome(FakeNavidrome):
+    """The client as `invalidate_navidrome_client` closes it."""
+
+    async def close(self):
+        return None
+
+
+@pytest.fixture
+def rig(monkeypatch):
+    """Playback on a real state machine with mpv simulated (LibraryRig)."""
+    rig = LibraryRig(monkeypatch)
+    monkeypatch.setattr(library_module, "NavidromeClient", ClosableNavidrome)
+    lengths(rig, TRACKS)
+    return rig
+
+
+@pytest.fixture
+def idle_rig(monkeypatch):
+    """The same, with a pause timeout that ends a paused session at once."""
+    rig = LibraryRig(monkeypatch, settings={"audio.auto_stop_delay": 1})
+    monkeypatch.setattr(library_module, "NavidromeClient", ClosableNavidrome)
+    lengths(rig, TRACKS)
+    return rig
+
+
+async def catalog_goes_away(rig, monkeypatch):
+    """The routes' auth-rejection path drops the client, and the cred file is
+    gone when the next request tries to rebuild it."""
+    monkeypatch.setattr(library_module, "NavidromeClient", NoCredFile)
+    await rig.source.invalidate_navidrome_client()
 
 
 # =============================================================================
@@ -120,83 +151,97 @@ class TestDoStart:
 
 
 class TestResumeThatCannotBeRestored:
+    """A saved queue the next open, or a play press, cannot reopen."""
 
-    def _session(self, **overrides):
-        session = {
-            "queue": list(TRACKS), "queue_unshuffled": list(TRACKS),
-            "queue_index": 0, "position": 0, "shuffle": False,
-            # Fresh: this class is about the arms that fail *inside* a restore,
-            # so nothing here must trip the staleness guard first.
-            "captured_at": asyncio.get_event_loop().time(),
-        }
-        session.update(overrides)
-        return session
+    async def test_a_restore_the_catalog_cannot_serve_loads_nothing(self, rig, monkeypatch):
+        """Every entry's URL comes from the Navidrome client; without one the
+        queue would be loaded as a list of dead URLs. What is kept is the
+        saved queue: the open shows it, and a press once the catalog is back
+        reopens it. Breaks: mpv handed unplayable URLs, or the resume view
+        (frontend player, Milo-Mac) lost to a catalog that was briefly away."""
+        await rig.select()
+        await play(rig, start_index=1)
+        await rig.tick()
+        await rig.leave()
+        await catalog_goes_away(rig, monkeypatch)
+        mark = len(rig.mpv.sent)
 
-    async def test_a_saved_session_is_consumed_even_when_it_cannot_be_restored(
-        self, source
-    ):
-        """Kept, it would be retried on every open — the same failure, for ever.
+        await rig.select()
 
-        The catalog is asserted *unasked* rather than the return value alone:
-        without the `self._mpv` half of the guard the restore runs on to the
-        load, blows up on None, and lands in the same `except` — so a False and
-        a consumed session are what both versions produce."""
-        source._resume = self._session()
-        source._mpv = None
+        assert loads_since(rig, mark) == []
+        assert rig.state()["source_state"] == "ready"
+        assert meta(rig)["track_id"] == "s2"
 
-        assert await source._restore_resume_session() is False
-        assert source._resume is None
-        source.get_navidrome_client.assert_not_awaited()
+        monkeypatch.setattr(library_module, "NavidromeClient", ClosableNavidrome)
+        result = await rig.command("resume")
 
-    async def test_an_empty_saved_queue_restores_nothing(self, source):
-        source._mpv = _mpv()
-        source._resume = self._session(queue=[])
+        assert result["success"] is True
+        assert rig.state()["source_state"] == "active"
+        assert meta(rig)["track_id"] == "s2"
 
-        assert await source._restore_resume_session() is False
+    async def test_an_mpv_that_cannot_be_reached_reopens_nothing(self, idle_rig):
+        """mpv gone when the press comes (crashed, systemd not done bringing it
+        back): the press answers the failure and the saved queue stays for the
+        next one. Breaks: the rotary's press answered OK over silence, or the
+        resume view erased by a failure that was not the queue's."""
+        await idle_rig.select()
+        await play(idle_rig)
+        await idle_rig.tick()
+        await idle_rig.command("pause")           # idle timeout: the resume view
+        idle_rig.mpv.connect = AsyncMock(return_value=False)
+        await idle_rig.mpv.dies()
+        await settle()
+        mark = len(idle_rig.mpv.sent)
 
-    async def test_a_catalog_that_is_not_ready_cannot_build_stream_urls(self, source):
-        """Every entry's URL comes from the client; without one the queue would
-        be loaded as a list of empty strings."""
-        source._mpv = _mpv()
-        source.get_navidrome_client = AsyncMock(return_value=None)
-        source._resume = self._session()
+        result = await idle_rig.command("resume")
 
-        assert await source._restore_resume_session() is False
-        source._mpv.load_playlist.assert_not_awaited()
+        assert result["success"] is False
+        assert loads_since(idle_rig, mark) == []
+        assert idle_rig.state()["source_state"] == "ready"
+        assert meta(idle_rig)["track_id"] == "s1"
 
-    async def test_a_load_that_mpv_refuses_leaves_no_queue_behind(self, source):
-        """The state is written *before* the load so the restored track shows at
-        once; the reset is what undoes it. Without it the now-playing screen
-        draws a track list over an mpv holding nothing."""
-        source._mpv = _mpv(load_playlist=AsyncMock(return_value=False))
-        source._resume = self._session()
+    async def test_a_restore_mpv_refuses_takes_its_own_announcement_back(self, idle_rig):
+        """The restore shows the saved track at once and loads underneath. When
+        mpv refuses the load, that ACTIVE announced a queue with nothing behind
+        it. Breaks: the screen and the lock screen (Milo-iOS) stay on a playing
+        track over silence, with no banner."""
+        await idle_rig.select()
+        await play(idle_rig)
+        await idle_rig.tick()
+        await idle_rig.command("pause")
+        idle_rig.mpv.loadfile = AsyncMock(return_value=None)
+        mark = len(idle_rig.recorder.envelopes)
 
-        assert await source._restore_resume_session() is False
-        assert source._queue == []
-        assert source._loading is False
+        result = await idle_rig.command("resume")
 
-    async def test_a_load_that_raises_leaves_no_queue_behind(self, source):
-        source._mpv = _mpv(load_playlist=AsyncMock(side_effect=RuntimeError("ipc gone")))
-        source._resume = self._session()
+        assert result["success"] is False
+        announced = [
+            e["data"]["full_state"]["source_state"]
+            for e in idle_rig.recorder.envelopes[mark:]
+            if e["type"] == "state_changed"
+        ]
+        assert announced == ["active", "ready"]
+        assert idle_rig.state()["metadata"]["is_playing"] is False
+        assert idle_rig.errors() == ["playback_failed"]
 
-        assert await source._restore_resume_session() is False
-        assert source._queue == []
-        assert source._loading is False
+    async def test_a_load_that_raises_is_ended_by_the_loading_watchdog(self, idle_rig):
+        """A controller call that raises mid-load leaves a session that never
+        heard a file open. The command answers the failure, and the loading
+        watchdog ends that session with a banner. Breaks: a restore stuck
+        LOADING for ever — a buffering spinner nothing will stop."""
+        await idle_rig.select()
+        await play(idle_rig)
+        await idle_rig.tick()
+        await idle_rig.command("pause")
+        idle_rig.mpv.loadfile = AsyncMock(side_effect=RuntimeError("ipc gone"))
 
-    async def test_a_restored_session_comes_back_paused_at_its_position(self, source):
-        """The whole point: reopening the library shows where you were, stopped,
-        rather than starting to play in a room nobody asked."""
-        mpv = _mpv()
-        mpv.get_property = AsyncMock(return_value=100)
-        source._mpv = mpv
-        source._resume = self._session(queue_index=1, position=42)
+        result = await idle_rig.command("resume")
+        await settle()
 
-        assert await source._restore_resume_session() is True
-
-        assert source._is_playing is False
-        assert source._queue_index == 1
-        mpv.pause.assert_awaited_once()
-        mpv.seek.assert_awaited_once_with(42)
+        assert result["success"] is False
+        assert idle_rig.state()["source_state"] == "ready"
+        assert idle_rig.state()["metadata"]["is_buffering"] is False
+        assert idle_rig.errors() == ["playback_failed"]
 
 
 # =============================================================================
@@ -204,100 +249,109 @@ class TestResumeThatCannotBeRestored:
 # =============================================================================
 
 class TestTransportFailsWithAnAnswer:
+    """A controller call that raises reaches the base's command boundary,
+    which answers the failure; the queue on screen must not have moved."""
 
     @pytest.fixture
-    def playing(self, source):
-        source._mpv = _mpv()
-        source._queue = list(TRACKS)
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 1
-        source._is_playing = True
-        return source
+    async def playing(self, rig):
+        await rig.select()
+        await play(rig, start_index=1)
+        await rig.tick()
+        return rig
 
     async def test_a_seek_over_a_dead_link_answers_the_failure(self, playing):
-        """The behaviour, not the arm: `_handle_seek`'s own `except Exception`
-        is measured redundant with `BaseAudioSource.command`, which already
-        catches, logs at ERROR and answers `error_response(str(e))` — and unlike
-        its two siblings below it restores no state, so no test can separate the
-        two. Its siblings earn their keep by resetting `_loading`, which is what
-        those tests assert."""
-        playing._mpv.seek = AsyncMock(side_effect=RuntimeError("ipc gone"))
+        """Breaks: the route answers a 500 the UI cannot explain, or the bar
+        jumps to a second mpv never went to."""
+        playing.mpv.seek = AsyncMock(side_effect=RuntimeError("ipc gone"))
 
         result = await playing.command("seek", {"position_ms": 5000})
 
         assert result["success"] is False
+        assert meta(playing)["position"] == 0
 
     async def test_a_track_switch_over_a_dead_link_answers_the_failure(self, playing):
-        playing._queue_index = 0  # `next` at the last entry never reaches mpv
-        playing._mpv.set_playlist_pos = AsyncMock(side_effect=RuntimeError("ipc gone"))
+        """Breaks: the player moves to the next track over mpv still playing
+        the current one."""
+        playing.mpv.play_index = AsyncMock(side_effect=RuntimeError("ipc gone"))
 
-        result = await playing.command("next", {})
-
-        assert result["success"] is False
-        assert playing._loading is False, "a failed switch left the source loading"
-
-    async def test_a_restart_over_a_dead_link_answers_the_failure(self, playing):
-        """`prev` near the start of a track restarts it rather than stepping
-        back; that is the arm the exception falls in."""
-        playing._position = 0
-        playing._queue_index = 0
-        playing._mpv.seek = AsyncMock(side_effect=RuntimeError("ipc gone"))
-
-        result = await playing.command("prev", {})
+        result = await playing.command("next")
 
         assert result["success"] is False
+        assert meta(playing)["queue_index"] == 1
+        assert meta(playing)["is_playing"] is True
+
+    async def test_a_restart_over_a_dead_link_answers_the_failure(self, rig):
+        """`prev` near the start of the first track restarts it rather than
+        stepping back; that is the arm the exception falls in."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        rig.mpv.seek = AsyncMock(side_effect=RuntimeError("ipc gone"))
+
+        result = await rig.command("prev")
+
+        assert result["success"] is False
+        assert meta(rig)["track_id"] == "s1"
+        assert meta(rig)["is_playing"] is True
 
     async def test_a_shuffle_toggle_over_a_dead_link_answers_the_failure(self, playing):
-        playing._mpv.replace_playlist_tail = AsyncMock(side_effect=RuntimeError("ipc"))
+        """Breaks: shuffle reported on over a queue that was never reordered."""
+        playing.mpv.remove_entry = AsyncMock(side_effect=RuntimeError("ipc"))
 
         result = await playing.command("set_shuffle", {"shuffle": True})
 
         assert result["success"] is False
-        assert playing._loading is False
-        assert playing._shuffle is False, "shuffle was reported on over a failed reorder"
+        assert meta(playing)["shuffle"] is False, "shuffle was reported on over a failed reorder"
+        assert [t["id"] for t in meta(playing)["queue"]] == ["s1", "s2", "s3"]
 
-    async def test_a_reorder_mpv_refuses_leaves_the_queue_as_it_was(self, playing):
+    async def test_a_reorder_mpv_refuses_leaves_the_queue_as_it_was(self, rig):
         """The queue is only rewritten after mpv accepted the new tail; writing
         it first would leave Milō's list and mpv's playlist disagreeing, and the
         next track would be the wrong one.
 
-        Driven shuffle-OFF and from a three-entry queue on purpose: it is the
+        Driven shuffle-OFF from a three-entry queue on purpose: it is the
         deterministic direction (the tail is the pristine order minus what has
-        played), and it is the only shape where the rewritten queue actually
-        differs from the current one — with the playhead on the last entry the
-        tail is empty and `head + tail` reproduces the queue exactly, so the
-        regression would be invisible."""
-        s1, s2, s3 = ({"id": f"s{n}", "duration": 100} for n in (1, 2, 3))
-        playing._queue_unshuffled = [s1, s2, s3]
-        playing._queue = [s2, s3, s1]
-        playing._queue_index = 0
-        playing._shuffle = True
-        playing._mpv.replace_playlist_tail = AsyncMock(return_value=False)
+        played), and with the playhead on the first entry the rewritten queue
+        differs from the current one — on the last entry the tail is empty and
+        a regression would be invisible."""
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        await rig.tick()
+        rig.mpv.accept = False
 
-        result = await playing.command("set_shuffle", {"shuffle": False})
+        result = await rig.command("set_shuffle", {"shuffle": False})
 
         assert result["success"] is False
-        assert playing._queue == [s2, s3, s1]
-        assert playing._shuffle is True
+        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s3", "s2"]
+        assert meta(rig)["shuffle"] is True
 
-    async def test_shuffle_needs_the_catalog_to_rebuild_the_tail(self, playing):
-        """Every reordered entry needs a fresh stream URL."""
-        playing.get_navidrome_client = AsyncMock(return_value=None)
+    async def test_shuffle_needs_the_catalog_to_rebuild_the_tail(self, playing, monkeypatch):
+        """Every reordered entry needs a fresh stream URL. Breaks: the tail is
+        removed from mpv and nothing put back — the queue ends after this
+        track."""
+        await catalog_goes_away(playing, monkeypatch)
+        mark = len(playing.mpv.sent)
 
         result = await playing.command("set_shuffle", {"shuffle": True})
 
         assert result["success"] is False
-        playing._mpv.replace_playlist_tail.assert_not_awaited()
+        assert playing.mpv.sent[mark:] == []
 
-    async def test_transport_on_an_empty_queue_is_refused_not_crashed(self, playing):
-        playing._queue = []
+    async def test_transport_on_an_empty_queue_is_refused_not_crashed(self, rig):
+        """With nothing playing, a session command is refused once, at the
+        command boundary. Breaks: the rotary or a stale UI reaches mpv (or an
+        index into an empty queue) and the route answers 500."""
+        await rig.select()
+        mark = len(rig.mpv.sent)
 
         for command, payload in (
-            ("seek", {"position_ms": 1000}), ("prev", {}),
+            ("seek", {"position_ms": 1000}), ("prev", {}), ("pause", None),
             ("next", None), ("set_shuffle", {"shuffle": True}),
         ):
-            result = await playing.command(command, payload)
+            result = await rig.command(command, payload)
             assert result["success"] is False, command
+        assert rig.mpv.sent[mark:] == []
 
 
 # =============================================================================

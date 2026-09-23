@@ -289,8 +289,12 @@ def _source_ast(source_id):
         and (node.module or "").startswith(f"backend.sources.{source_id}")
         for alias in node.names
     }
-    classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
-    assert classes, f"{source_id}/source.py declares no class — the extractor is broken"
+    # By name, not by position: a module on the session model declares its
+    # Session subclass first.
+    classes = [
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name.endswith("Source")
+    ]
+    assert len(classes) == 1, f"{source_id}/source.py: no single {{Name}}Source class — the extractor is broken"
     return classes[0], package_names
 
 

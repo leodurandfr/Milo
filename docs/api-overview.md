@@ -46,7 +46,7 @@ else is the static SPA).
 per-source command route would only add a second failure contract to keep in sync. A source
 router therefore holds what is *not* a command: catalog browsing, favorites, binary/proxied
 artwork. The two exceptions are documented in [CLAUDE.md](../CLAUDE.md) § *Audio sources*:
-a route that composes several commands in one request (`/api/radio/play`, `/api/podcast/play`)
+a route that composes several commands in one request (`/api/radio/play`)
 and a route Milo-Mac pins.
 
 So Bluetooth, Mac, Spotify and Tidal have no router at all; Qobuz's only surface is the

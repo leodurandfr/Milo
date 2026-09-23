@@ -963,28 +963,6 @@ class TestLinkOwnership:
         await controller.disconnect()
         await restarted.stop()
 
-    async def test_the_priming_pause_survives_a_stale_link(self, tmp_path):
-        """load_playlist loads paused so entry 0 cannot blip before the jump to
-        start_index; on a stale link a pause sent before the re-attach is lost
-        and the queue loads unpaused — audibly, with no error anywhere."""
-        controller, fake = await self._connected(tmp_path)
-        await fake.stop()
-
-        restarted = FakeMpv(fake.path)
-        await restarted.start()
-        await _settle()
-
-        urls = [f"http://example.test/{n}" for n in range(3)]
-        assert await controller.load_playlist(urls, start_index=2) is True
-
-        paused = _first(restarted.received, "set_property")
-        loaded = _first(restarted.received, "loadfile")
-        assert restarted.received[paused] == ["set_property", "pause", True]
-        assert paused < loaded
-
-        await controller.disconnect()
-        await restarted.stop()
-
     async def test_reads_after_the_link_dies_do_not_reopen_it(self, tmp_path):
         """A read that reconnects can succeed against the *fresh idle* mpv
         systemd restarts: the rest of the tick then answers from it, which is how
@@ -1087,18 +1065,6 @@ class TestPropertyReads:
         fake.replies = {}
         fake.properties["volume"] = 12.0
         assert await controller.get_property("volume") == 12.0
-
-    async def test_is_playing_is_the_existence_of_a_playhead(self, live_mpv):
-        """playback-time exists from the first decoded frame and stays at 0 for a
-        buffer's worth of it: `> 0` calls a just-started stream stopped."""
-        controller, fake = live_mpv
-        fake.properties["playback-time"] = 0.0
-
-        assert await controller.is_playing() is True
-        assert fake.received == [["get_property", "playback-time"]]
-
-        fake.properties["playback-time"] = None
-        assert await controller.is_playing() is False
 
     async def test_metadata_keys_are_lowercased_and_values_are_strings(self, live_mpv):
         controller, fake = live_mpv
@@ -1235,89 +1201,43 @@ class TestStreamOptions:
         await controller.disconnect()
         await fake.stop()
 
+    async def test_the_options_are_sent_only_when_the_scope_changes(self, tmp_path):
+        """A Music Library queue appends one entry per track: re-sending
+        unchanged options doubled the round-trips before the first sound. They
+        go out again when the scope flips, and on every new link (a new mpv
+        starts from its launch options)."""
+        fake = FakeMpv(tmp_path / "ipc.sock")
+        fake.properties["stream-lavf-o"] = {"reconnect": "1"}
+        await fake.start()
+        controller = MpvController(ipc_socket_path=fake.path)
+        await controller.connect(timeout=2.0, retry_delay=0.1)
+        fake.received.clear()
+
+        for n in range(3):
+            await controller.loadfile(f"http://nav.test/{n}.flac", mode="append")
+        await controller.loadfile("https://example.invalid/live.m3u8", mode="replace")
+        await controller.loadfile("http://example.invalid/icecast.mp3", mode="replace")
+
+        sets = [f[2] for f in fake.received if f[:2] == ["set_property", "stream-lavf-o"]]
+        assert sets == [{"reconnect": "1"}, "", {"reconnect": "1"}]
+        await controller.disconnect()
+        await fake.stop()
+
 
 class TestPlaylist:
-    """The gapless queue: what a load, a jump and a re-shuffle put on the socket."""
+    """The gapless queue: a jump and a removal are one frame each, by index."""
 
-    async def test_set_playlist_pos_jumps_by_index(self, live_mpv):
+    async def test_play_index_starts_an_entry_by_index(self, live_mpv):
         controller, fake = live_mpv
-        assert await controller.set_playlist_pos(3) is True
-        assert fake.received == [["set_property", "playlist-pos", 3]]
+        assert await controller.play_index(3) is True
+        assert fake.received == [["playlist-play-index", 3]]
 
-    async def test_replacing_the_tail_leaves_the_head_and_appends_in_order(self, live_mpv):
-        """Removal runs from the end down so the indices it walks do not shift,
-        and the entry playing is never reloaded — the live shuffle stays
-        inaudible."""
+    async def test_remove_entry_removes_one_entry_by_index(self, live_mpv):
         controller, fake = live_mpv
-        fake.properties["playlist-count"] = 5
+        assert await controller.remove_entry(2) is True
+        assert fake.received == [["playlist-remove", 2]]
 
-        assert await controller.replace_playlist_tail(
-            2, ["http://example.test/x", "http://example.test/y"]
-        ) is True
-
-        assert fake.received == [
-            ["get_property", "playlist-count"],
-            ["playlist-remove", 4],
-            ["playlist-remove", 3],
-            ["playlist-remove", 2],
-            ["loadfile", "http://example.test/x", "append"],
-            ["loadfile", "http://example.test/y", "append"],
-        ]
-
-    async def test_an_unreadable_playlist_removes_nothing(self, live_mpv):
+    async def test_a_refused_jump_answers_false(self, live_mpv):
         controller, fake = live_mpv
-        fake.properties["playlist-count"] = None
-
-        assert await controller.replace_playlist_tail(2, ["http://example.test/x"]) is False
-        assert fake.received == [["get_property", "playlist-count"]]
-
-    async def test_an_empty_queue_is_refused_without_a_round_trip(self, live_mpv):
-        controller, fake = live_mpv
-
-        assert await controller.load_playlist([]) is False
-        assert fake.received == []
-
-    async def test_a_down_link_with_no_mpv_refuses_the_queue(self, tmp_path):
-        controller = MpvController(ipc_socket_path=str(tmp_path / "gone.sock"))
-
-        assert await controller.load_playlist(["http://a.invalid/1.mp3"]) is False
-
-    async def test_a_first_entry_that_will_not_load_aborts_the_queue(self, live_mpv):
-        """Appending onto a failed head plays entry 1 while Milō's index says 0."""
-        controller, fake = live_mpv
-        fake.fail_commands = {"loadfile"}
-
-        assert await controller.load_playlist(
-            ["http://a.invalid/1.mp3", "http://a.invalid/2.mp3"]
-        ) is False
-        assert len([f for f in fake.received if f[0] == "loadfile"]) == 1
-
-    async def test_one_lost_append_does_not_abort_the_rest_of_the_queue(
-        self, live_mpv, caplog, short_command_timeout
-    ):
-        """One unreachable entry must cost that track, not the album."""
-        controller, fake = live_mpv
-        fake.silent_urls = {"http://a.invalid/2.mp3"}
-
-        with caplog.at_level(logging.WARNING):
-            assert await controller.load_playlist([
-                "http://a.invalid/1.mp3", "http://a.invalid/2.mp3", "http://a.invalid/3.mp3",
-            ]) is True
-
-        assert ["loadfile", "http://a.invalid/3.mp3", "append"] in fake.received
-        assert "playlist append failed for an entry" in caplog.text
-
-    async def test_one_lost_tail_append_is_logged_and_the_rest_go_on(
-        self, live_mpv, caplog, short_command_timeout
-    ):
-        controller, fake = live_mpv
-        fake.properties["playlist-count"] = 3
-        fake.silent_urls = {"http://a.invalid/x.mp3"}
-
-        with caplog.at_level(logging.WARNING):
-            assert await controller.replace_playlist_tail(
-                1, ["http://a.invalid/x.mp3", "http://a.invalid/y.mp3"]
-            ) is True
-
-        assert ["loadfile", "http://a.invalid/y.mp3", "append"] in fake.received
-        assert "playlist tail append failed for an entry" in caplog.text
+        fake.fail_commands = {"playlist-play-index"}
+        assert await controller.play_index(9) is False

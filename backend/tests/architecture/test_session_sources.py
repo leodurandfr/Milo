@@ -14,7 +14,9 @@ import pytest
 
 SOURCES = Path(__file__).resolve().parents[2] / "sources"
 POLICIES = ("IDLE_POLICY", "REROUTE", "RESUME_POLICY", "SESSION_DAEMON")
-RETIRED_FLAGS = ("_is_playing", "_is_buffering", "_device_connected")
+# The booleans the session replaces, and the session itself: a source opens
+# and ends it through open_session()/end_session(), never by assignment.
+RETIRED_FLAGS = ("_is_playing", "_is_buffering", "_device_connected", "_session")
 SOURCE_BASES = ("BaseAudioSource", "MpvAudioSource")
 
 
@@ -94,6 +96,117 @@ def test_the_rule_bites_on_a_migrated_module():
     assert any("writes self._is_playing" in p for p in problems)
 
 
+def test_the_rule_bites_on_a_session_assigned_by_hand():
+    by_hand = MIGRATED_BUT_INCOMPLETE.replace("self._is_playing = True", "self._session = None")
+    assert any("writes self._session" in p for p in session_violations(ast.parse(by_hand)))
+
+
 def test_a_module_not_yet_migrated_owes_nothing():
     legacy = MIGRATED_BUT_INCOMPLETE.replace("class RadioSession(Session):\n    pass\n", "")
     assert session_violations(ast.parse(legacy)) == []
+
+
+# === What a migrated source declares, read off the class ===
+
+def _migrated_classes():
+    """Every source class whose module is on the session model, imported."""
+    import importlib
+    found = []
+    for path in _source_modules():
+        tree = ast.parse(path.read_text())
+        if not session_violations_scope(tree):
+            continue
+        module = importlib.import_module(f"backend.sources.{path.parent.name}.source")
+        for cls in (c for c in tree.body if isinstance(c, ast.ClassDef)):
+            if set(_base_names(cls)) & set(SOURCE_BASES):
+                found.append(getattr(module, cls.name))
+    return found
+
+
+def session_violations_scope(tree: ast.Module) -> bool:
+    """Whether a module is on the session model (defines a Session subclass)."""
+    return any(
+        "Session" in name or name.endswith("Session")
+        for c in tree.body if isinstance(c, ast.ClassDef)
+        for name in _base_names(c)
+    )
+
+
+def test_migrated_sources_are_found():
+    """Non-trivial first: phase 1 migrated Radio, Podcast and Music Library."""
+    names = {cls.__name__ for cls in _migrated_classes()}
+    assert {"RadioSource", "PodcastSource", "MusicLibrarySource"} <= names
+
+
+@pytest.mark.parametrize("cls", _migrated_classes(), ids=lambda c: c.__name__)
+def test_every_end_reason_is_decided(cls):
+    """A session ends for a named reason, and the source's resume policy says,
+    for each reason, whether what it played is kept or forgotten — never both,
+    never neither (an undecided reason would keep a stale point by accident)."""
+    from backend.core.models.session import EndReason
+    policy = cls.RESUME_POLICY
+    assert policy is not None
+    assert not policy.capture_on & policy.forget_on
+    assert set(EndReason) - (policy.capture_on | policy.forget_on) == set()
+
+
+@pytest.mark.parametrize("cls", _migrated_classes(), ids=lambda c: c.__name__)
+def test_every_command_declares_its_scope(cls):
+    """The scope decides whether a command runs with no session; a command
+    without one would silently skip the refusal the base applies."""
+    assert set(cls.COMMAND_SCOPES) == set(cls.COMMANDS)
+
+
+CALLBACK_POSTS = ("_post", "_post_feed", "_post_result", "_submit")
+
+
+def callbacks_that_touch_state(tree: ast.Module) -> list[str]:
+    """Methods handed to another component as a callback (`on_*=self._m`, or
+    `.subscribe(self._m)`) whose body never posts to the mailbox: they run on
+    someone else's task and would touch the source from there."""
+    methods = {
+        f.name: f for c in tree.body if isinstance(c, ast.ClassDef)
+        for f in c.body if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    handed = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        values = [kw.value for kw in node.keywords if kw.arg and kw.arg.startswith("on_")]
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "subscribe":
+            values += node.args
+        for value in values:
+            if (isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
+                    and value.value.id == "self"):
+                handed.add(value.attr)
+    problems = []
+    for name in sorted(handed):
+        body = methods.get(name)
+        if body is None:
+            continue
+        posts = any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr in CALLBACK_POSTS
+            for n in ast.walk(body)
+        )
+        if not posts:
+            problems.append(f"{name} is a callback and does not post")
+    return problems
+
+
+@pytest.mark.parametrize("path", [
+    p for p in _source_modules() if session_violations_scope(ast.parse(p.read_text()))
+] + [SOURCES.parent / "shared" / "mpv_audio_source.py"], ids=lambda p: p.parent.name)
+def test_callbacks_post_to_the_mailbox(path):
+    assert callbacks_that_touch_state(ast.parse(path.read_text())) == []
+
+
+def test_the_callback_rule_bites():
+    drifted = """
+class RadioSource(MpvAudioSource):
+    def _do_start(self):
+        self._shazam = Shazam(on_track_changed=self._on_track)
+    async def _on_track(self, track):
+        self._update_connection_state()
+"""
+    assert callbacks_that_touch_state(ast.parse(drifted)) == ["_on_track is a callback and does not post"]

@@ -1,20 +1,34 @@
 # backend/tests/test_music_library_source.py
-"""Unit tests for MusicLibrarySource playback + queue (P1-6).
+"""MusicLibrarySource playback + queue (P1-6), driven through the outside world.
 
-Covers the play_context → gapless mpv playlist path, transport commands
+Covers the play_context → gapless mpv queue path, transport commands
 (pause/resume/next/prev/seek/play_index/set_shuffle/stop), the now-playing WS
 metadata projection (title/artist/album/art + queue/index/shuffle), the live
-shuffle toggle, resume-on-return, the monitor's gapless auto-advance +
-end-of-queue detection, and the whole-catalog album walk the alphabetical grid
-is paged from. mpv IPC and the Navidrome client are mocked — no service, socket,
-or daemon is touched.
+shuffle toggle, resume-on-return, the gapless advance and end of queue as mpv
+announces them, the scrobble accounting Navidrome's play history is built from,
+and the whole-catalog album walk the alphabetical grid is paged from.
+
+Playback runs on `LibraryRig` (tests/test_mpv_sessions.py): a real
+AudioStateMachine, mpv simulated as measured (tests/mpv_sim.py), a fake
+Navidrome that records scrobbles, a fake storage layer. Assertions read what
+reaches the outside: the published state, the error banners, what mpv was
+sent, what Navidrome was told, and the command's answer.
 """
 import asyncio
-import pytest
+from dataclasses import replace
 from unittest.mock import AsyncMock, Mock, patch
 
-from backend.core.models.audio_state import SourceState
-from backend.sources.music_library.source import RESUME_TTL_S, MusicLibrarySource
+import pytest
+
+from backend.core import audio_source
+from backend.shared.mpv_audio_source import MpvAudioSource
+from backend.sources.music_library import source as library_module
+from backend.sources.music_library.source import MusicLibrarySource
+from backend.tests.golden.harness import AsyncioProxy, settle
+from backend.tests.golden.test_old_wire_music_library import FakeNavidrome
+from backend.tests.test_mpv_sessions import WATCHDOG_S, LibraryRig
+
+_real_sleep = asyncio.sleep
 
 
 @pytest.fixture
@@ -24,7 +38,8 @@ def config():
 
 @pytest.fixture
 def source(config):
-    """MusicLibrarySource with a mocked service manager and Navidrome client.
+    """MusicLibrarySource with a mocked service manager and Navidrome client,
+    for the catalog half, which never touches mpv.
 
     The StorageManager is constructed (cheap, fail-open — no udev touched) but
     never initialized, so no monitor thread starts.
@@ -36,7 +51,6 @@ def source(config):
     src._service_manager.stop = AsyncMock(return_value=True)
     src._service_manager.is_active = AsyncMock(return_value=True)
 
-    # Navidrome client: stream_url at play time, scrobble for the play history.
     src.get_navidrome_client = AsyncMock(
         return_value=Mock(
             stream_url=lambda song_id: f"http://nav/stream/{song_id}",
@@ -46,36 +60,6 @@ def source(config):
     return src
 
 
-def _mpv(**overrides):
-    """An mpv mock with async transport methods and a get_property stub."""
-    mpv = Mock()
-    mpv.is_connected = True
-    mpv.load_playlist = AsyncMock(return_value=True)
-    mpv.set_playlist_pos = AsyncMock(return_value=True)
-    mpv.seek = AsyncMock(return_value=True)
-    mpv.pause = AsyncMock(return_value=True)
-    mpv.resume = AsyncMock(return_value=True)
-    mpv.stop = AsyncMock(return_value=True)
-    mpv.disconnect = AsyncMock(return_value=True)
-    mpv.set_property = AsyncMock(return_value=True)
-    mpv.replace_playlist_tail = AsyncMock(return_value=True)
-    mpv.get_property = AsyncMock(return_value=None)
-    for key, value in overrides.items():
-        setattr(mpv, key, value)
-    return mpv
-
-
-def _mpv_with_props(props):
-    """An mpv mock whose get_property reads from a dict (monitor-tick tests)."""
-    mpv = _mpv()
-
-    async def _get(name):
-        return props.get(name)
-
-    mpv.get_property = AsyncMock(side_effect=_get)
-    return mpv
-
-
 TRACKS = [
     {"id": "s1", "title": "One", "artist": "DP", "album": "Disc", "coverArt": "al1", "duration": 100},
     {"id": "s2", "title": "Two", "artist": "DP", "album": "Disc", "coverArt": "al1", "duration": 200},
@@ -83,19 +67,60 @@ TRACKS = [
 ]
 
 
-def _session(age_s=0.0, **overrides):
-    """A resume snapshot as _capture_resume_session writes it, aged by `age_s`."""
-    session = {
-        "queue": list(TRACKS),
-        "queue_unshuffled": list(TRACKS),
-        "queue_index": 0,
-        "queue_library_id": None,
-        "position": 0,
-        "shuffle": False,
-        "captured_at": asyncio.get_event_loop().time() - age_s,
-    }
-    session.update(overrides)
-    return session
+def url(song_id):
+    """The stream URL the (fake) Navidrome client hands mpv for a song."""
+    return FakeNavidrome().stream_url(song_id)
+
+
+def lengths(rig, tracks):
+    """mpv reports each file's length once open — the same as its tags here."""
+    for track in tracks:
+        rig.mpv.durations[f"id={track['id']}&"] = float(track["duration"])
+
+
+@pytest.fixture
+def rig(monkeypatch):
+    """The library on a real state machine, pause timeout at 120 s (never
+    fires unless a test asks)."""
+    rig = LibraryRig(monkeypatch)
+    lengths(rig, TRACKS)
+    return rig
+
+
+@pytest.fixture
+def idle_rig(monkeypatch):
+    """The same, with a pause timeout short enough to end a paused session
+    inside the step that paused it."""
+    rig = LibraryRig(monkeypatch, settings={"audio.auto_stop_delay": 1})
+    lengths(rig, TRACKS)
+    return rig
+
+
+async def play(rig, tracks=TRACKS, start_index=0, **extra):
+    return await rig.command(
+        "play_context", {"tracks": tracks, "start_index": start_index, **extra}
+    )
+
+
+def meta(rig):
+    return rig.state()["metadata"]
+
+
+def sent_since(rig, mark):
+    return rig.mpv.sent[mark:]
+
+
+def loads_since(rig, mark):
+    return [c for c in sent_since(rig, mark) if c[0] == "loadfile"]
+
+
+class NoCredFile:
+    """Navidrome's cred file is not there (provisioning not done, or rotated
+    away): no client can be built."""
+
+    @classmethod
+    def from_cred_file(cls, *a, **k):
+        return None
 
 
 class TestCompliance:
@@ -106,364 +131,441 @@ class TestCompliance:
         for cmd in ("play_context", "play_index", "pause", "resume", "next", "prev", "seek", "stop"):
             assert cmd in source.COMMANDS
 
-class TestPlayContext:
-    @pytest.mark.asyncio
-    async def test_builds_gapless_queue(self, source):
-        source._mpv = _mpv()
 
-        result = await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
+class TestPlayContext:
+
+    async def test_builds_gapless_queue(self, rig):
+        """One mpv playlist of per-id stream URLs, started at the picked entry.
+        Breaks: the player (frontend, Milo-Mac) shows a queue mpv is not
+        playing, or the gapless advance has no next entry to step to."""
+        await rig.select()
+        mark = len(rig.mpv.sent)
+
+        result = await play(rig)
 
         assert result["success"] is True
-        assert source._queue == TRACKS
-        assert source._queue_index == 0
-        assert source._is_playing is True
-        assert source.state == SourceState.ACTIVE
-        # One native playlist built from the per-id stream URLs, starting at 0.
-        urls, start = source._mpv.load_playlist.await_args.args
-        assert urls == [f"http://nav/stream/{t['id']}" for t in TRACKS]
-        assert start == 0
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["queue"] == TRACKS
+        assert state["metadata"]["queue_index"] == 0
+        assert state["metadata"]["is_playing"] is True
+        sent = sent_since(rig, mark)
+        assert [c[1] for c in sent if c[0] == "loadfile"] == [url(t["id"]) for t in TRACKS]
+        assert all(c[2] == "append" for c in sent if c[0] == "loadfile")
+        assert sent[-1] == ("play_index", 0)
 
-    @pytest.mark.asyncio
-    async def test_start_index_respected(self, source):
-        source._mpv = _mpv()
+    async def test_start_index_respected(self, rig):
+        """Tapping the third row of an album plays the third track. Breaks:
+        the album always starts from its first track."""
+        await rig.select()
 
-        await source.command("play_context", {"tracks": TRACKS, "start_index": 2})
+        await play(rig, start_index=2)
 
-        assert source._queue_index == 2
-        assert source._duration == 300
-        assert source._mpv.load_playlist.await_args.args[1] == 2
+        assert ("play_index", 2) in rig.mpv.sent[-2:]
+        assert meta(rig)["queue_index"] == 2
+        assert meta(rig)["track_id"] == "s3"
+        assert meta(rig)["duration"] == 300_000
 
-    @pytest.mark.asyncio
-    async def test_shuffle_keeps_picked_track_first(self, source):
-        source._mpv = _mpv()
+    async def test_shuffle_keeps_picked_track_first(self, rig):
+        """Shuffle play from a row keeps that row's track first and shuffles the
+        rest behind it. Breaks: the track the user tapped is not what plays."""
+        await rig.select()
 
-        # Deterministic shuffle: freeze the order so only the pick-to-front move shows.
+        # Deterministic shuffle: only the pick-to-front move shows.
         with patch("backend.sources.music_library.source.random.shuffle", lambda seq: None):
-            await source.command(
-                "play_context", {"tracks": TRACKS, "start_index": 1, "shuffle": True}
-            )
+            await play(rig, start_index=1, shuffle=True)
 
-        assert source._shuffle is True
-        assert source._queue[0] == TRACKS[1]          # picked track pinned first
-        assert source._queue_index == 0
-        assert source._mpv.load_playlist.await_args.args[1] == 0
+        assert meta(rig)["shuffle"] is True
+        assert meta(rig)["queue"][0] == TRACKS[1]
+        assert meta(rig)["queue_index"] == 0
+        assert ("play_index", 0) in rig.mpv.sent[-2:]
 
-    @pytest.mark.asyncio
-    async def test_missing_id_rejected(self, source):
-        source._mpv = _mpv()
-        result = await source.command("play_context", {"tracks": [{"title": "x"}]})
+    async def test_missing_id_rejected(self, rig):
+        """A track with no id has no stream URL. Breaks: mpv is handed a queue
+        with a hole in it (the frontend's play button then answers 200)."""
+        await rig.select()
+        mark = len(rig.mpv.sent)
+
+        result = await rig.command("play_context", {"tracks": [{"title": "x"}]})
+
         assert result["success"] is False
-        source._mpv.load_playlist.assert_not_called()
+        assert loads_since(rig, mark) == []
 
-    @pytest.mark.asyncio
-    async def test_requires_active_mpv(self, source):
-        source._mpv = None
-        result = await source.command("play_context", {"tracks": TRACKS})
-        assert result["success"] is False
+    async def test_requires_active_mpv(self, rig):
+        """A play with the source not started answers a failure. Breaks: the
+        route reports success over a library that plays nothing."""
+        result = await play(rig)
 
-    @pytest.mark.asyncio
-    async def test_requires_catalog(self, source):
-        source._mpv = _mpv()
-        source.get_navidrome_client = AsyncMock(return_value=None)
-        result = await source.command("play_context", {"tracks": TRACKS})
         assert result["success"] is False
+        assert rig.mpv.sent == []
 
-    @pytest.mark.asyncio
-    async def test_load_failure_resets_to_ready(self, source):
-        source._mpv = _mpv(load_playlist=AsyncMock(return_value=False))
-        result = await source.command("play_context", {"tracks": TRACKS})
+    async def test_requires_catalog(self, rig, monkeypatch):
+        """No Navidrome client (cred file missing) means no stream URL for any
+        track. Breaks: a queue of dead URLs loaded, and a play answered OK."""
+        monkeypatch.setattr(library_module, "NavidromeClient", NoCredFile)
+        await rig.select()
+        mark = len(rig.mpv.sent)
+
+        result = await play(rig)
+
         assert result["success"] is False
-        assert source._queue == []
-        assert source.state == SourceState.READY
+        assert loads_since(rig, mark) == []
+
+    async def test_load_failure_resets_to_ready(self, rig):
+        """mpv refusing the queue ends the session it opened, with a banner.
+        Breaks: the screen (and the lock screen via Milo-iOS) keeps an ACTIVE
+        track with nothing loaded behind it."""
+        await rig.select()
+        rig.mpv.accept = False
+
+        result = await play(rig)
+
+        assert result["success"] is False
+        assert rig.state()["source_state"] == "ready"
+        assert rig.errors() == ["playback_failed"]
 
 
 class TestAPausedQueueReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another context must disarm
-    it before anything is awaited.
+    it before anything is awaited (E49).
 
     What breaks when this fails: a timer that expires while the new playlist is
-    loading stops mpv and clears the queue under it — the play then reports
-    success and publishes a track that is not playing, and the resume snapshot
-    the auto-stop saves is the queue that was never heard.
+    loading stops mpv under it — the play then reports success and publishes a
+    track that is not playing, and the resume point the auto-stop saves is the
+    queue that was never heard.
     """
 
-    @pytest.mark.asyncio
-    async def test_the_new_playlist_is_not_stopped_while_it_loads(self, source, monkeypatch):
-        """The pause timer's clock is held open until the new playlist is
-        loading, then let expire: an expiry landing mid-load is the case."""
-        from backend.core import audio_source
-        from backend.tests.golden.harness import AsyncioProxy
-
+    async def test_the_new_playlist_is_not_stopped_while_it_loads(self, monkeypatch):
+        """The pause timer's clock is held until the new playlist is loading,
+        then let run out: an expiry landing mid-load is the case."""
+        rig = LibraryRig(monkeypatch)            # pause timeout 120 s
+        lengths(rig, TRACKS)
         delay_over = asyncio.Event()
 
         async def pause_timer_clock(delay, *a, **k):
-            await delay_over.wait()
+            if delay > 1.0:
+                await delay_over.wait()
+            else:
+                await _real_sleep(0)
 
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(pause_timer_clock))
-        source._mpv = _mpv()
-        await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
-        source.auto_stop_enabled = True
-        await source.command("pause", {})
+        await rig.select()
+        await play(rig)
+        await rig.command("pause")               # the pause timer is armed
+        assert meta(rig)["is_playing"] is False
 
-        loading = asyncio.Event()
-        loaded = asyncio.Event()
+        loading, loaded = asyncio.Event(), asyncio.Event()
+        real_loadfile = rig.mpv.loadfile
 
-        async def _slow_playlist(urls, start_index):
-            loading.set()
-            await loaded.wait()
-            return True
+        async def slow_loadfile(stream, **kwargs):
+            if not loading.is_set():
+                loading.set()
+                await loaded.wait()
+            return await real_loadfile(stream, **kwargs)
 
-        source._mpv.load_playlist = AsyncMock(side_effect=_slow_playlist)
+        rig.mpv.loadfile = slow_loadfile
         second = asyncio.create_task(
-            source.command("play_context", {"tracks": TRACKS, "start_index": 2})
+            rig.source.command("play_context", {"tracks": TRACKS, "start_index": 2})
         )
         await loading.wait()
-        delay_over.set()                    # the pause's delay runs out now
-        for _ in range(5):
-            await asyncio.sleep(0)
+        delay_over.set()                         # the pause's delay runs out now
+        await settle()
         loaded.set()
 
         assert (await second)["success"] is True
-        for _ in range(20):
-            await asyncio.sleep(0)
-        source._mpv.stop.assert_not_awaited()
+        await settle()
+        last_start = max(i for i, c in enumerate(rig.mpv.sent) if c[0] == "play_index")
+        assert ("stop",) not in rig.mpv.sent[last_start:]
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["track_id"] == "s3"
+        assert state["metadata"]["is_playing"] is True
 
 
 class TestTransport:
-    async def _play(self, source):
-        source._mpv = _mpv()
-        await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
-        return source
 
-    @pytest.mark.asyncio
-    async def test_pause(self, source):
-        await self._play(source)
-        result = await source.command("pause", {})
+    async def _play(self, rig, start_index=0):
+        await rig.select()
+        await play(rig, start_index=start_index)
+        await rig.tick()
+
+    async def test_pause(self, rig):
+        """Breaks: the pause button (UI, rotary, IR) leaves the music running,
+        or the player drops to READY instead of showing the paused track."""
+        await self._play(rig)
+
+        result = await rig.command("pause")
+
         assert result["success"] is True
-        assert source._is_playing is False
-        assert source.state == SourceState.ACTIVE  # queue still loaded → paused
-        source._mpv.pause.assert_awaited_once()
+        assert rig.mpv.paused is True
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["is_playing"] is False
 
-    @pytest.mark.asyncio
-    async def test_resume(self, source):
-        await self._play(source)
-        source._is_playing = False
-        result = await source.command("resume", {})
+    async def test_resume(self, rig):
+        """Breaks: play after pause stays silent, or the button stays on play."""
+        await self._play(rig)
+        await rig.command("pause")
+
+        result = await rig.command("resume")
+
         assert result["success"] is True
-        assert source._is_playing is True
-        source._mpv.resume.assert_awaited_once()
+        assert rig.mpv.paused is False
+        assert meta(rig)["is_playing"] is True
 
-    @pytest.mark.asyncio
-    async def test_seek(self, source):
-        await self._play(source)
-        result = await source.command("seek", {"position_ms": 42000})
+    async def test_seek(self, rig):
+        """The progress bar's drag, in ms on the wire, seconds to mpv. Breaks:
+        a seek lands 1000× off, or the bar snaps back to where it was."""
+        await self._play(rig)
+
+        result = await rig.command("seek", {"position_ms": 42000})
+
         assert result["success"] is True
-        assert source._position == 42
-        source._mpv.seek.assert_awaited_with(42)
+        assert ("seek", 42) in rig.mpv.sent
+        assert meta(rig)["position"] == 42_000
 
-    @pytest.mark.asyncio
-    async def test_next(self, source):
-        await self._play(source)
-        result = await source.command("next", {})
+    async def test_next(self, rig):
+        """Breaks: the next button leaves the track playing, or the player
+        shows the next track over mpv still playing the current one."""
+        await self._play(rig)
+
+        result = await rig.command("next")
+
         assert result["success"] is True
-        assert source._queue_index == 1
-        source._mpv.set_playlist_pos.assert_awaited_with(1)
+        assert ("play_index", 1) in rig.mpv.sent[-2:]
+        assert meta(rig)["queue_index"] == 1
+        assert meta(rig)["track_id"] == "s2"
 
-    @pytest.mark.asyncio
-    async def test_next_at_end_is_noop(self, source):
-        await self._play(source)
-        source._queue_index = len(TRACKS) - 1
-        result = await source.command("next", {})
+    async def test_next_at_end_is_noop(self, rig):
+        """Breaks: next on the last track errors in the UI, or restarts it."""
+        await self._play(rig, start_index=2)
+        mark = len(rig.mpv.sent)
+
+        result = await rig.command("next")
+
         assert result["success"] is True
-        assert source._queue_index == len(TRACKS) - 1
-        source._mpv.set_playlist_pos.assert_not_called()
+        assert sent_since(rig, mark) == []
+        assert meta(rig)["track_id"] == "s3"
 
-    @pytest.mark.asyncio
-    async def test_prev_restarts_current_when_past_threshold(self, source):
-        await self._play(source)
-        source._queue_index = 1
-        source._mpv.get_property = AsyncMock(return_value=5)  # 5s in → restart
-        result = await source.command("prev", {})
+    async def test_prev_restarts_current_when_past_threshold(self, rig):
+        """Past 3 s, prev restarts the track (Spotify feel). Breaks: prev
+        mid-track jumps back an entire track."""
+        await self._play(rig, start_index=1)
+        rig.mpv.playhead(5)
+        mark = len(rig.mpv.sent)
+
+        result = await rig.command("prev")
+
         assert result["success"] is True
-        assert source._queue_index == 1
-        source._mpv.seek.assert_awaited_with(0)
-        source._mpv.set_playlist_pos.assert_not_called()
+        assert ("seek", 0) in sent_since(rig, mark)
+        assert not [c for c in sent_since(rig, mark) if c[0] == "play_index"]
+        assert meta(rig)["track_id"] == "s2"
 
-    @pytest.mark.asyncio
-    async def test_prev_steps_back_when_early(self, source):
-        await self._play(source)
-        source._queue_index = 1
-        source._mpv.get_property = AsyncMock(return_value=1)  # 1s in → previous track
-        result = await source.command("prev", {})
+    async def test_prev_steps_back_when_early(self, rig):
+        """Within 3 s, prev steps to the previous entry. Breaks: a double press
+        of prev never reaches the previous track."""
+        await self._play(rig, start_index=1)
+        rig.mpv.playhead(1)
+
+        result = await rig.command("prev")
+
         assert result["success"] is True
-        assert source._queue_index == 0
-        source._mpv.set_playlist_pos.assert_awaited_with(0)
+        assert ("play_index", 0) in rig.mpv.sent[-2:]
+        assert meta(rig)["track_id"] == "s1"
 
-    @pytest.mark.asyncio
-    async def test_play_index(self, source):
-        await self._play(source)
-        result = await source.command("play_index", {"index": 2})
+    async def test_play_index(self, rig):
+        """The queue view's row tap. Breaks: tapping a row plays another."""
+        await self._play(rig)
+
+        result = await rig.command("play_index", {"index": 2})
+
         assert result["success"] is True
-        assert source._queue_index == 2
-        source._mpv.set_playlist_pos.assert_awaited_with(2)
+        assert ("play_index", 2) in rig.mpv.sent[-2:]
+        assert meta(rig)["track_id"] == "s3"
 
-    @pytest.mark.asyncio
-    async def test_play_index_out_of_range(self, source):
-        await self._play(source)
-        result = await source.command("play_index", {"index": 9})
+    async def test_play_index_out_of_range(self, rig):
+        """Breaks: a stale queue view's tap reaches mpv with an index it lacks."""
+        await self._play(rig)
+        mark = len(rig.mpv.sent)
+
+        result = await rig.command("play_index", {"index": 9})
+
         assert result["success"] is False
+        assert sent_since(rig, mark) == []
 
-    @pytest.mark.asyncio
-    async def test_stop_clears_queue(self, source):
-        await self._play(source)
-        result = await source.command("stop", {})
+    async def test_stop_clears_queue(self, rig):
+        """Breaks: Stop leaves the player's queue on screen or mpv playing."""
+        await self._play(rig)
+
+        result = await rig.command("stop")
+
         assert result["success"] is True
-        assert source._queue == []
-        assert source._is_playing is False
-        assert source.state == SourceState.READY
-        source._mpv.stop.assert_awaited_once()
+        assert ("stop",) in rig.mpv.sent
+        assert rig.mpv.current is None
+        state = rig.state()
+        assert state["source_state"] == "ready"
+        assert state["metadata"] == {"is_playing": False, "is_buffering": False}
 
 
 class TestMetadata:
-    def test_empty_without_queue(self, source):
-        assert source._build_playback_metadata() == {}
 
-    def test_now_playing_projection(self, source):
-        source._queue = TRACKS
-        source._queue_index = 1
-        source._position = 60
-        source._duration = 200
-        source._is_playing = True
-        source._shuffle = True
+    async def test_nothing_played_publishes_the_inert_pair(self, rig):
+        """An opened library with nothing to resume is READY with the pair
+        every player reads. Breaks: a stale track (or no is_playing key at
+        all) on the shared player and on Milo-Mac."""
+        await rig.select()
 
-        meta = source._build_playback_metadata()
+        state = rig.state()
+        assert state["source_state"] == "ready"
+        assert state["metadata"] == {"is_playing": False, "is_buffering": False}
 
-        assert meta["title"] == "Two"
-        assert meta["artist"] == "DP"
-        assert meta["album"] == "Disc"
-        assert meta["album_art_url"] == "/api/music-library/cover/al1"
+    async def test_now_playing_projection(self, rig):
+        """The now-playing record the shared AudioPlayer, Milo-Mac and Milo-iOS
+        read. Breaks: wrong art/title, a bar in seconds instead of ms, or a
+        queue view that does not match what plays."""
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: None):
+            await play(rig, start_index=1, shuffle=True)
+        await rig.command("seek", {"position_ms": 60_000})
+
+        data = meta(rig)
+
+        assert data["title"] == "Two"
+        assert data["artist"] == "DP"
+        assert data["album"] == "Disc"
+        assert data["album_art_url"] == "/api/music-library/cover/al1"
         # position/duration in ms (shared wire convention)
-        assert meta["position"] == 60000
-        assert meta["duration"] == 200000
-        assert meta["queue"] == TRACKS
-        assert meta["queue_index"] == 1
-        assert meta["shuffle"] is True
+        assert data["position"] == 60_000
+        assert data["duration"] == 200_000
+        assert data["queue"] == [TRACKS[1], TRACKS[0], TRACKS[2]]
+        assert data["queue_index"] == 0
+        assert data["shuffle"] is True
         # `repeat` was removed (dead scaffolding) — it must not reappear.
-        assert "repeat" not in meta
-        assert meta["track_id"] == "s2"
+        assert "repeat" not in data
+        assert data["track_id"] == "s2"
 
     def test_cover_url_falls_back_to_album_id(self, source):
         assert source._cover_url({"albumId": "ab9"}) == "/api/music-library/cover/ab9"
         assert source._cover_url({}) is None
 
-    def test_state_ready_without_queue(self, source):
-        source._queue = []
-        source._update_connection_state()
-        assert source.state == SourceState.READY
 
-    def test_state_active_with_queue(self, source):
-        source._queue = TRACKS
-        source._queue_index = 0
-        source._update_connection_state()
-        assert source.state == SourceState.ACTIVE
+class TestMpvMovesTheQueue:
+    """What mpv announces — start-file, end-file by entry id — is what moves
+    the queue. Nothing polls it."""
 
+    async def test_gapless_auto_advance(self, rig):
+        """mpv steps to the next entry by itself. Breaks: the player keeps the
+        finished track's title over the next one, for the rest of the queue."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        plays = len([c for c in rig.mpv.sent if c[0] == "play_index"])
 
-class TestMonitor:
-    @pytest.mark.asyncio
-    async def test_queue_finished_on_idle(self, source):
-        source._queue = list(TRACKS)
-        source._queue_index = 2
-        source._loading = False
-        source._mpv = _mpv_with_props({"idle-active": True})
+        await rig.mpv.ends("eof")
+        await settle()
 
-        await source._on_monitor_tick()
+        data = meta(rig)
+        assert data["track_id"] == "s2"
+        assert data["queue_index"] == 1
+        assert data["duration"] == 200_000
+        assert data["is_playing"] is True
+        assert len([c for c in rig.mpv.sent if c[0] == "play_index"]) == plays
 
-        assert source._queue == []
-        assert source.state == SourceState.READY
+    async def test_queue_finished_when_the_last_entry_ends(self, rig):
+        """Breaks: a played-out album stays ACTIVE on its last track, or ends
+        with an error banner; `queue_ended` is what the frontend's queue view
+        reads to close."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
 
-    @pytest.mark.asyncio
-    async def test_gapless_auto_advance(self, source):
-        source._queue = list(TRACKS)
-        source._queue_index = 0
-        source._loading = False
-        source._is_playing = True
-        source._mpv = _mpv_with_props(
-            {"idle-active": False, "playlist-pos": 1, "time-pos": 2, "duration": 200, "pause": False}
-        )
+        await rig.mpv.ends("eof")
+        await settle()
 
-        await source._on_monitor_tick()
+        state = rig.state()
+        assert state["source_state"] == "ready"
+        assert state["metadata"]["queue_ended"] is True
+        assert rig.errors() == []
 
-        assert source._queue_index == 1
-        assert source._duration == 200
+    async def test_a_track_that_cannot_be_read_is_skipped(self, rig):
+        """One unreadable file mid-queue: mpv skips it and the queue plays on.
+        Breaks: one bad file ends the album, or the player shows the bad
+        track's title over the next one."""
+        rig.mpv.broken["id=s2&"] = "loading failed"
+        await rig.select()
+        await play(rig)
+        await rig.tick()
 
-    @pytest.mark.asyncio
-    async def test_tick_noop_without_queue(self, source):
-        source._queue = []
-        source._mpv = _mpv_with_props({"idle-active": True})
-        # No queue → guarded out before any end-of-queue handling.
-        await source._on_monitor_tick()
-        assert source.state == SourceState.READY
+        await rig.mpv.ends("eof")
+        await settle()
 
-    @pytest.mark.asyncio
-    async def test_buffering_clears_when_playhead_moves(self, source):
-        source._queue = list(TRACKS)
-        source._queue_index = 0
-        source._loading = False
-        source._is_playing = True
-        source._is_buffering = True
-        source._mpv = _mpv_with_props(
-            {"idle-active": False, "playlist-pos": 0, "time-pos": 3, "duration": 100, "pause": False}
-        )
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["track_id"] == "s3"
+        assert rig.errors() == []
 
-        await source._on_monitor_tick()
+    async def test_buffering_until_mpv_opens_the_file(self, rig, monkeypatch):
+        """A track that has not started is buffering, not playing. Breaks: the
+        progress bar runs ahead of silence while the NAS spins up."""
+        monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 60.0)
+        rig.mpv.auto_open = False
+        await rig.select()
+        await play(rig)
+        assert meta(rig)["is_buffering"] is True
+        assert meta(rig)["is_playing"] is False
 
-        assert source._is_buffering is False
+        await rig.mpv.opens()
+        await settle()
+
+        assert meta(rig)["is_buffering"] is False
+        assert meta(rig)["is_playing"] is True
 
 
 class TestSetShuffle:
     """Live shuffle toggle: reorders only the upcoming tracks (current keeps
-    playing), rebuilding the mpv tail in place."""
+    playing), rebuilding mpv's entries after the current one in place."""
 
-    @pytest.mark.asyncio
-    async def test_toggle_on_rebuilds_tail_keeps_head(self, source):
-        source._mpv = _mpv()
-        source._queue = list(TRACKS)
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 0
-        source._shuffle = False
+    async def test_toggle_on_rebuilds_tail_keeps_head(self, rig):
+        """Breaks: toggling shuffle restarts or cuts the track playing, or the
+        queue view disagrees with the order mpv will play."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        playing = rig.mpv.current
+        mark = len(rig.mpv.sent)
 
         # No-op shuffle so the mechanics show without randomness.
         with patch("backend.sources.music_library.source.random.shuffle", lambda seq: None):
-            result = await source.command("set_shuffle", {"shuffle": True})
+            result = await rig.command("set_shuffle", {"shuffle": True})
 
         assert result["success"] is True
-        assert source._shuffle is True
-        assert source._queue[0]["id"] == "s1"  # current/head untouched
-        keep, urls = source._mpv.replace_playlist_tail.await_args.args
-        assert keep == 1  # everything from index+1 is the rebuilt tail
-        assert urls == ["http://nav/stream/s2", "http://nav/stream/s3"]
+        assert meta(rig)["shuffle"] is True
+        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s2", "s3"]
+        assert rig.mpv.current is playing
+        assert not [c for c in sent_since(rig, mark) if c[0] in ("stop", "play_index")]
+        assert [e.url for e in rig.mpv.playlist] == [url("s1"), url("s2"), url("s3")]
 
-    @pytest.mark.asyncio
-    async def test_toggle_off_restores_original_order(self, source):
-        source._mpv = _mpv()
-        # A shuffled queue whose pristine order is TRACKS.
-        source._queue = [TRACKS[0], TRACKS[2], TRACKS[1]]
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 0
-        source._shuffle = True
+    async def test_toggle_off_restores_original_order(self, rig):
+        """Breaks: shuffle off keeps the shuffled order, and the next track
+        mpv plays is not the one the queue view shows next."""
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s3", "s2"]
+        await rig.tick()
 
-        result = await source.command("set_shuffle", {"shuffle": False})
+        result = await rig.command("set_shuffle", {"shuffle": False})
 
         assert result["success"] is True
-        assert source._shuffle is False
-        # Head (s1) kept; tail restored to pristine order s2, s3.
-        assert [t["id"] for t in source._queue] == ["s1", "s2", "s3"]
-        keep, urls = source._mpv.replace_playlist_tail.await_args.args
-        assert keep == 1
-        assert urls == ["http://nav/stream/s2", "http://nav/stream/s3"]
+        assert meta(rig)["shuffle"] is False
+        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s2", "s3"]
+        assert [e.url for e in rig.mpv.playlist] == [url("s1"), url("s2"), url("s3")]
 
-    @pytest.mark.asyncio
-    async def test_toggle_off_keeps_a_track_the_queue_lists_twice(self, source):
+        await rig.mpv.ends("eof")               # the gapless advance after it
+        await settle()
+        assert meta(rig)["track_id"] == "s2"
+
+    async def test_toggle_off_keeps_a_track_the_queue_lists_twice(self, rig):
         """A repeated track id must survive shuffle OFF, minus the played copies.
 
         The pristine order was consumed by set membership, so a queue holding the
@@ -473,113 +575,71 @@ class TestSetShuffle:
         """
         reprise = dict(TRACKS[0], title="One (reprise)")
         pristine = [TRACKS[0], TRACKS[1], reprise, TRACKS[2]]
-        source._mpv = _mpv()
-        # Shuffled: the first copy of s1 has played, everything else is upcoming.
-        source._queue = [TRACKS[0], TRACKS[2], reprise, TRACKS[1]]
-        source._queue_unshuffled = pristine
-        source._queue_index = 0
-        source._shuffle = True
+        await rig.select()
+        # Shuffled: the first copy of s1 plays, everything else is upcoming.
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, tracks=pristine, shuffle=True)
+        assert [t["title"] for t in meta(rig)["queue"]] == ["One", "Three", "One (reprise)", "Two"]
+        await rig.tick()
 
-        result = await source.command("set_shuffle", {"shuffle": False})
+        result = await rig.command("set_shuffle", {"shuffle": False})
 
         assert result["success"] is True
         # One copy of s1 played, so exactly one is dropped — the second returns
         # to its pristine place between s2 and s3.
-        assert [t["id"] for t in source._queue] == ["s1", "s2", "s1", "s3"]
-        assert source._queue[2]["title"] == "One (reprise)"
-        _, urls = source._mpv.replace_playlist_tail.await_args.args
-        assert urls == [
-            "http://nav/stream/s2", "http://nav/stream/s1", "http://nav/stream/s3",
+        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s2", "s1", "s3"]
+        assert meta(rig)["queue"][2]["title"] == "One (reprise)"
+        assert [e.url for e in rig.mpv.playlist] == [
+            url("s1"), url("s2"), url("s1"), url("s3"),
         ]
 
-    @pytest.mark.asyncio
-    async def test_noop_when_already_in_target_state(self, source):
-        source._mpv = _mpv()
-        source._queue = list(TRACKS)
-        source._shuffle = False
+    async def test_noop_when_already_in_target_state(self, rig):
+        """Breaks: a repeated toggle rebuilds mpv's playlist for nothing."""
+        await rig.select()
+        await play(rig)
+        mark = len(rig.mpv.sent)
 
-        result = await source.command("set_shuffle", {"shuffle": False})
+        result = await rig.command("set_shuffle", {"shuffle": False})
 
         assert result["success"] is True
-        source._mpv.replace_playlist_tail.assert_not_called()
-        assert source._shuffle is False
+        assert sent_since(rig, mark) == []
+        assert meta(rig)["shuffle"] is False
 
-    @pytest.mark.asyncio
-    async def test_requires_active_queue(self, source):
-        source._mpv = _mpv()
-        source._queue = []
-        result = await source.command("set_shuffle", {"shuffle": True})
+    async def test_requires_active_queue(self, rig):
+        """Breaks: a toggle with nothing playing answers success and moves
+        nothing, and the UI's shuffle button lies."""
+        await rig.select()
+        mark = len(rig.mpv.sent)
+
+        result = await rig.command("set_shuffle", {"shuffle": True})
+
         assert result["success"] is False
-        source._mpv.replace_playlist_tail.assert_not_called()
+        assert sent_since(rig, mark) == []
 
 
-async def _drain_scrobbles():
-    """Let the fire-and-forget scrobble tasks finish.
-
-    They are spawned unawaited on purpose — playback must never wait on
-    Navidrome — so a test that asserts on them has to run them.
-    """
-    tasks = [t for t in asyncio.all_tasks() if "scrobble" in t.get_name()]
-    if tasks:
-        await asyncio.gather(*tasks)
+async def navidrome(rig):
+    return await rig.source.get_navidrome_client()
 
 
-def _submissions(client):
+def submissions(client):
     """The calls that actually count a play (``submission=True``)."""
-    return [
-        call for call in client.scrobble.await_args_list
-        if call.kwargs.get("submission") is True
-    ]
+    return [song for song, submission in client.scrobbles if submission]
 
 
-def _now_playings(client):
-    return [
-        call for call in client.scrobble.await_args_list
-        if call.kwargs.get("submission") is False
-    ]
+def now_playings(client):
+    return [song for song, submission in client.scrobbles if not submission]
 
 
-async def _listen(source, seconds, from_position=None):
-    """Run monitor ticks worth `seconds` of listening, playhead advancing.
+async def pass_starts(rig):
+    """The first tick of a pass, where its listening is measured from."""
+    await rig.tick()
 
-    Listening is credited from how far the playhead moved, so a pass needs one
-    baseline tick before anything can be counted — this helper supplies it
-    whenever the source has no baseline yet (the first call after a track
-    change), exactly as the real monitor's first tick of a track does. What the
-    caller asks for is therefore what gets credited.
-    """
-    if from_position is not None:
-        start = float(from_position)
-    elif source._last_tick_position is not None:
-        # Pick up one tick past where the last call left the playhead, so a pass
-        # split across two calls is one continuous listen.
-        start = source._last_tick_position + source.MONITOR_TICK_S
-    else:
-        start = float(source._position)
 
-    props = {
-        "idle-active": False,
-        "playlist-pos": source._queue_index,
-        "time-pos": start,
-        "duration": source._duration,
-        "pause": False,
-    }
-    mpv = _mpv()
-
-    async def _get(name):
-        return props.get(name)
-
-    mpv.get_property = AsyncMock(side_effect=_get)
-    source._mpv = mpv
-
-    ticks = int(seconds / source.MONITOR_TICK_S)
-    if source._last_tick_position is None:
-        ticks += 1
-    for _ in range(ticks):
-        await source._on_monitor_tick()
-        props["time-pos"] += source.MONITOR_TICK_S
-        props["playlist-pos"] = source._queue_index
-    await _drain_scrobbles()
+async def listen(rig, seconds):
+    """`seconds` of sound: one tick a second, the playhead moving with it."""
+    for _ in range(seconds):
+        rig.mpv.playhead((rig.mpv.position or 0) + 1)
+        await rig.tick()
 
 
 class TestScrobble:
@@ -596,184 +656,164 @@ class TestScrobble:
         return {"id": song_id, "title": song_id, "artist": "DP",
                 "album": "Disc", "duration": duration}
 
-    async def _play(self, source, tracks, start_index=0):
-        source._mpv = _mpv()
-        await source.command(
-            "play_context", {"tracks": tracks, "start_index": start_index}
-        )
-        await _drain_scrobbles()
-        return await source.get_navidrome_client()
+    async def _play(self, rig, tracks, start_index=0):
+        lengths(rig, tracks)
+        await rig.select()
+        await play(rig, tracks=tracks, start_index=start_index)
+        await pass_starts(rig)
+        return await navidrome(rig)
 
-    @pytest.mark.asyncio
-    async def test_the_play_counts_only_once_past_half_the_track(self, source):
+    async def test_the_play_counts_only_once_past_half_the_track(self, rig):
         """Half the track is the Last.fm threshold Navidrome applies. Submitting
         early inflates the history; submitting on every later tick multiplies the
         play count of whatever the user left running."""
-        client = await self._play(source, [self._track("s1", 200)])
+        client = await self._play(rig, [self._track("s1", 200)])
 
-        await _listen(source, 99)
-        assert _submissions(client) == []
+        await listen(rig, 99)
+        assert submissions(client) == []
 
-        await _listen(source, 1)
-        assert len(_submissions(client)) == 1
-        assert _submissions(client)[0].args[0] == "s1"
+        await listen(rig, 1)
+        assert submissions(client) == ["s1"]
 
         # Still one after the rest of the track: the flag is not re-armed.
-        await _listen(source, 200)
-        assert len(_submissions(client)) == 1
+        await listen(rig, 100)
+        assert submissions(client) == ["s1"]
 
-    @pytest.mark.asyncio
-    async def test_a_long_track_counts_at_four_minutes_not_at_half(self, source):
+    async def test_a_long_track_counts_at_four_minutes_not_at_half(self, rig):
         """The threshold is the *earlier* of the two, which is the only thing
         that makes a 40-minute live set ever count."""
-        client = await self._play(source, [self._track("s1", 2400)])
+        client = await self._play(rig, [self._track("s1", 2400)])
 
-        await _listen(source, 239)
-        assert _submissions(client) == []
+        await listen(rig, 239)
+        assert submissions(client) == []
 
-        await _listen(source, 1)
-        assert len(_submissions(client)) == 1
+        await listen(rig, 1)
+        assert submissions(client) == ["s1"]
 
-    @pytest.mark.asyncio
-    async def test_a_track_under_thirty_seconds_never_counts(self, source):
+    async def test_a_track_under_thirty_seconds_never_counts(self, rig):
         """Interludes and jingles are excluded by the same rule — an album full
         of them would otherwise dominate ``type=frequent``."""
-        client = await self._play(source, [self._track("skit", 20)])
+        client = await self._play(rig, [self._track("skit", 20)])
 
-        await _listen(source, 60)
+        await listen(rig, 20)
 
-        assert _submissions(client) == []
+        assert submissions(client) == []
 
-    @pytest.mark.asyncio
-    async def test_seeking_forward_is_not_listening(self, source):
+    async def test_seeking_forward_is_not_listening(self, rig):
         """The threshold is measured in seconds actually played. Read off the
         playhead instead, a single drag to the end of the track would count a
         play of a track nobody heard."""
-        client = await self._play(source, [self._track("s1", 60)])
-        await _listen(source, 5)
+        client = await self._play(rig, [self._track("s1", 60)])
+        await listen(rig, 5)
 
-        await source.command("seek", {"position_ms": 55_000})
-        await _listen(source, 1, from_position=56.0)
+        await rig.command("seek", {"position_ms": 55_000})
+        assert meta(rig)["position"] == 55_000   # the playhead did jump
+        await listen(rig, 1)
 
-        assert source._position == 56          # the playhead did jump
-        assert _submissions(client) == []      # the listening did not
+        assert submissions(client) == []         # the listening did not
 
-        await _listen(source, 24)
-        assert len(_submissions(client)) == 1
+        await listen(rig, 24)
+        assert submissions(client) == ["s1"]
 
-    @pytest.mark.asyncio
-    async def test_the_same_track_twice_in_a_queue_counts_twice(self, source):
+    async def test_the_same_track_twice_in_a_queue_counts_twice(self, rig):
         """The flag belongs to a pass, not to a song id: an album with a reprise
         or a hand-built playlist can hold the same id twice, and the second
         listen is a second play."""
         track = self._track("s1", 60)
-        client = await self._play(source, [track, dict(track)])
+        client = await self._play(rig, [track, dict(track)])
 
-        await _listen(source, 35)
-        assert len(_submissions(client)) == 1
+        await listen(rig, 35)
+        assert submissions(client) == ["s1"]
 
-        # mpv stepped to the second entry on its own (gapless auto-advance).
-        source._mpv = _mpv_with_props({
-            "idle-active": False, "playlist-pos": 1,
-            "time-pos": 1.0, "duration": 60, "pause": False,
-        })
-        await source._on_monitor_tick()
-        await _drain_scrobbles()
-        await _listen(source, 35)
+        await rig.mpv.ends("eof")                # gapless: the second entry starts
+        await settle()
+        await pass_starts(rig)
+        await listen(rig, 35)
 
-        assert len(_submissions(client)) == 2
+        assert submissions(client) == ["s1", "s1"]
 
-    @pytest.mark.asyncio
-    async def test_a_track_switch_re_arms_the_threshold(self, source):
+    async def test_a_track_switch_re_arms_the_threshold(self, rig):
         """`next` mid-track must not carry the accumulated seconds over, nor
         leave the flag set so the new track never counts."""
-        client = await self._play(
-            source, [self._track("s1", 200), self._track("s2", 200)]
-        )
-        await _listen(source, 99)
+        client = await self._play(rig, [self._track("s1", 200), self._track("s2", 200)])
+        await listen(rig, 99)
 
-        await source.command("next", {})
-        await _drain_scrobbles()
-        await _listen(source, 1)
+        await rig.command("next")
+        await pass_starts(rig)
+        await listen(rig, 1)
 
         # 99 + 1 would have crossed the threshold had the counter carried over.
-        assert _submissions(client) == []
+        assert submissions(client) == []
 
-        await _listen(source, 99)
-        assert [call.args[0] for call in _submissions(client)] == ["s2"]
+        await listen(rig, 99)
+        assert submissions(client) == ["s2"]
 
-    @pytest.mark.asyncio
-    async def test_replaying_a_track_after_a_stop_counts_again(self, source):
-        client = await self._play(source, [self._track("s1", 60)])
-        await _listen(source, 30)
-        assert len(_submissions(client)) == 1
+    async def test_replaying_a_track_after_a_stop_counts_again(self, rig):
+        """Breaks: the second listen of a track after an explicit Stop is lost
+        from the play count."""
+        client = await self._play(rig, [self._track("s1", 60)])
+        await listen(rig, 30)
+        assert submissions(client) == ["s1"]
 
-        await source.command("stop", {})
-        await self._play(source, [self._track("s1", 60)])
-        await _listen(source, 30)
+        await rig.command("stop")
+        await play(rig, tracks=[self._track("s1", 60)])
+        await pass_starts(rig)
+        await listen(rig, 30)
 
-        assert len(_submissions(client)) == 2
+        assert submissions(client) == ["s1", "s1"]
 
-    @pytest.mark.asyncio
-    async def test_the_start_of_a_track_is_announced_without_counting_it(self, source):
+    async def test_the_start_of_a_track_is_announced_without_counting_it(self, rig):
         """`submission=false` is what shows the track as now playing in
-        Navidrome; it must never be the call that counts the play."""
-        client = await self._play(source, [self._track("s1", 200),
-                                           self._track("s2", 200)])
-        assert [call.args[0] for call in _now_playings(client)] == ["s1"]
+        Navidrome; it must never be the call that counts the play — and it is
+        sent once per start, not per event mpv sends about it."""
+        client = await self._play(rig, [self._track("s1", 200), self._track("s2", 200)])
+        assert now_playings(client) == ["s1"]
 
-        await source.command("next", {})
-        await _drain_scrobbles()
+        await rig.command("next")
 
-        assert [call.args[0] for call in _now_playings(client)] == ["s1", "s2"]
-        assert _submissions(client) == []
+        assert now_playings(client) == ["s1", "s2"]
+        assert submissions(client) == []
 
-    @pytest.mark.asyncio
-    async def test_a_stalled_stream_is_not_listening(self, source):
+    async def test_a_stalled_stream_is_not_listening(self, rig):
         """A frozen playhead with mpv still reporting `pause` False is what a
         dead share or a cache-starved stream looks like. Crediting the ticks
         would count a play of silence."""
-        client = await self._play(source, [self._track("s1", 60)])
-        source._mpv = _mpv_with_props({
-            "idle-active": False, "playlist-pos": 0,
-            "time-pos": 3.0, "duration": 60, "pause": False,
-        })
+        client = await self._play(rig, [self._track("s1", 60)])
+        rig.mpv.playhead(3.0)
 
-        for _ in range(200):
-            await source._on_monitor_tick()
-        await _drain_scrobbles()
+        await rig.tick(200)
 
-        assert _submissions(client) == []
+        assert submissions(client) == []
 
-    @pytest.mark.asyncio
-    async def test_restarting_the_track_with_prev_is_a_second_play(self, source):
+    async def test_restarting_the_track_with_prev_is_a_second_play(self, rig):
         """Prev past the restart threshold replays the track in place instead of
-        stepping back, so it never reaches _switch_to_index. Left out, the whole
-        replay counts for nothing — and a Prev pressed mid-track would carry its
-        listened seconds into the new pass."""
-        client = await self._play(source, [self._track("s1", 60)])
-        await _listen(source, 30)
-        assert len(_submissions(client)) == 1
+        stepping back. Left out, the whole replay counts for nothing — and a
+        Prev pressed mid-track would carry its listened seconds into the new
+        pass."""
+        client = await self._play(rig, [self._track("s1", 60)])
+        await listen(rig, 30)
+        assert submissions(client) == ["s1"]
 
-        await source.command("prev", {})
-        await _drain_scrobbles()
-        await _listen(source, 30)
+        await rig.command("prev")
+        await pass_starts(rig)
+        await listen(rig, 30)
 
-        assert len(_submissions(client)) == 2
-        assert len(_now_playings(client)) == 2
+        assert submissions(client) == ["s1", "s1"]
+        assert now_playings(client) == ["s1", "s1"]
 
-    @pytest.mark.asyncio
-    async def test_a_refusing_navidrome_never_reaches_the_music(self, source):
+    async def test_a_refusing_navidrome_never_reaches_the_music(self, rig):
         """Listening history is bookkeeping: a sidecar that is down, slow or
         refusing costs a log line, not a gap in playback."""
-        client = await self._play(source, [self._track("s1", 60)])
+        client = await self._play(rig, [self._track("s1", 60)])
         client.scrobble = AsyncMock(side_effect=RuntimeError("navidrome down"))
 
-        await _listen(source, 40)
+        await listen(rig, 40)
 
-        assert source.state == SourceState.ACTIVE
-        assert source._is_playing is True
-        assert source._queue_index == 0
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["is_playing"] is True
+        assert state["metadata"]["track_id"] == "s1"
+        assert rig.errors() == []
 
 
 class TestMergedAlbumCache:
@@ -816,308 +856,223 @@ class TestMergedAlbumCache:
 
 
 class TestResume:
-    """Resume-on-return: snapshot on source-switch / idle auto-stop, restore
-    PAUSED on the next activation; forget it on explicit Stop / queue end."""
+    """Resume-on-return: a queue left by a source switch or the idle timeout
+    comes back on the next activation, paused at its track and second; an
+    explicit Stop, a queue played out and a storage that left forget it."""
 
-    @pytest.mark.asyncio
-    async def test_capture_snapshots_live_session(self, source):
-        source._mpv = _mpv_with_props({"time-pos": 42})
-        source._queue = list(TRACKS)
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 1
-        source._shuffle = True
+    async def test_a_return_reopens_the_queue_paused_at_its_second(self, rig):
+        """Breaks: coming back to the library after a detour to the radio loses
+        the album, or starts it playing in a room nobody asked, or from 0:00.
+        The second rides on the load itself (E57: a seek before the file is
+        open is refused)."""
+        await rig.select()
+        await play(rig, start_index=1)
+        rig.mpv.playhead(60)
+        await rig.tick()
+        await rig.leave()
+        mark = len(rig.mpv.sent)
 
-        await source._capture_resume_session()
+        await rig.select()
 
-        assert source._resume is not None
-        assert source._resume["queue"] == TRACKS
-        assert source._resume["queue_index"] == 1
-        assert source._resume["position"] == 42  # live playhead, not the last tick
-        assert source._resume["shuffle"] is True
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["track_id"] == "s2"
+        assert state["metadata"]["queue_index"] == 1
+        assert state["metadata"]["position"] == 60_000
+        assert state["metadata"]["is_playing"] is False
+        sent = sent_since(rig, mark)
+        assert ("set_property", "pause", True) in sent
+        assert [c[3] for c in sent if c[0] == "loadfile"] == [None, 60, None]
+        assert sent[-1] == ("play_index", 1)
+        assert not [c for c in sent if c[0] == "seek"]
 
-    @pytest.mark.asyncio
-    async def test_capture_without_queue_keeps_the_saved_session(self, source):
-        """Capturing with nothing loaded must not forget an earlier snapshot.
+    async def test_a_return_keeps_the_shuffled_order(self, rig):
+        """A shuffled queue comes back in the order it was playing, flagged
+        shuffled. Breaks: the return plays a different upcoming order than the
+        queue view showed, or the shuffle button reads off."""
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        await rig.command("next")
+        await rig.tick()
+        await rig.leave()
 
-        The idle auto-stop saves a session and then empties the queue, so the
-        source switch that follows captures again on an empty queue — clearing
-        there loses the session the auto-stop just took.
-        """
-        source._mpv = _mpv()
-        source._queue = []
-        saved = {"queue": list(TRACKS), "queue_index": 1, "position": 30}
-        source._resume = saved
-        await source._capture_resume_session()
-        assert source._resume is saved
+        await rig.select()
 
-    @pytest.mark.asyncio
-    async def test_auto_stop_then_source_switch_keeps_the_session(self, source):
+        data = meta(rig)
+        assert [t["id"] for t in data["queue"]] == ["s1", "s3", "s2"]
+        assert data["queue_index"] == 1
+        assert data["track_id"] == "s3"
+        assert data["shuffle"] is True
+        assert [e.url for e in rig.mpv.playlist] == [url("s1"), url("s3"), url("s2")]
+
+    async def test_the_idle_timeout_publishes_what_a_play_press_would_reopen(self, idle_rig):
+        """READY carries the saved queue, not an empty payload. Breaks: a
+        consumer outside this checkout (Milo-Mac, Milo-iOS) cannot tell a paused
+        detour from a library that never played, and the frontend has to keep
+        its own sticky copy."""
+        await idle_rig.select()
+        await play(idle_rig, start_index=2)
+        idle_rig.mpv.playhead(30)
+        await idle_rig.tick()
+
+        await idle_rig.command("pause")          # the idle timeout ends the session
+
+        state = idle_rig.state()
+        assert state["source_state"] == "ready"
+        data = state["metadata"]
+        assert data["track_id"] == "s3"
+        assert data["title"] == "Three"
+        assert data["queue_index"] == 2
+        assert data["is_playing"] is False
+        assert data["position"] == 30_000
+
+    async def test_idle_timeout_then_source_switch_keeps_the_queue(self, idle_rig):
         """The documented resume case, end to end: pause long enough for the idle
-        auto-stop, then switch to another source — coming back must still resume.
-        """
-        source._mpv = _mpv_with_props({"time-pos": 30})
-        source._queue = list(TRACKS)
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 2
+        timeout, then switch to another source — coming back must still reopen
+        the queue where it was. Breaks: the switch, finding no session, erases
+        the one the timeout saved."""
+        await idle_rig.select()
+        await play(idle_rig, start_index=2)
+        idle_rig.mpv.playhead(30)
+        await idle_rig.tick()
+        await idle_rig.command("pause")
+        await idle_rig.leave()
+        mark = len(idle_rig.mpv.sent)
 
-        await source._auto_stop_action()       # idle timeout: saves, clears queue
-        await source._do_stop()                # user switches to another source
+        await idle_rig.select()
 
-        assert source._resume is not None
-        assert source._resume["queue_index"] == 2
-        assert source._resume["position"] == 30
+        reopened = loads_since(idle_rig, mark)
+        assert [c[3] for c in reopened] == [None, None, 30]
+        assert meta(idle_rig)["track_id"] == "s3"
+        assert meta(idle_rig)["position"] == 30_000
 
-    @pytest.mark.asyncio
-    async def test_auto_stop_saves_session(self, source):
-        source._mpv = _mpv_with_props({"time-pos": 30})
-        source._queue = list(TRACKS)
-        source._queue_index = 2
+    async def test_an_explicit_stop_leaves_nothing_to_resume(self, rig):
+        """Stopping on purpose is not a detour. Breaks: the payload cannot tell
+        the two apart, and the next open reopens a queue the user stopped."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
 
-        await source._auto_stop_action()
+        await rig.command("stop")
+        assert meta(rig) == {"is_playing": False, "is_buffering": False}
 
-        assert source.state == SourceState.READY
-        assert source._resume is not None
-        assert source._resume["queue_index"] == 2
+        await rig.leave()
+        mark = len(rig.mpv.sent)
+        await rig.select()
 
-    @pytest.mark.asyncio
-    async def test_auto_stop_publishes_what_a_play_press_would_reopen(self, source):
-        """READY carries the saved session, not an empty payload.
+        assert loads_since(rig, mark) == []
+        assert rig.state()["source_state"] == "ready"
+        assert "track_id" not in meta(rig)
 
-        The snapshot was private: the state said "engine up, nothing here" and
-        a consumer outside this checkout could not tell it from a library that
-        had never played. It is the same fact the frontend was keeping its own
-        sticky copy of, on a third lifetime.
-        """
-        source._mpv = _mpv_with_props({"time-pos": 30})
-        source._queue = list(TRACKS)
-        source._queue_index = 2
+    async def test_a_played_out_queue_leaves_nothing_to_resume(self, rig):
+        """Breaks: reopening the library puts the last track of an album that
+        finished long ago back on the player."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        await rig.mpv.ends("eof")
+        await settle()
 
-        await source._auto_stop_action()
-        meta = source.metadata
+        await rig.leave()
+        mark = len(rig.mpv.sent)
+        await rig.select()
 
-        assert meta["track_id"] == TRACKS[2]["id"]
-        assert meta["title"] == TRACKS[2]["title"]
-        assert meta["queue_index"] == 2
-        assert meta["is_playing"] is False
-        assert meta["position"] == 30_000
+        assert loads_since(rig, mark) == []
+        assert "track_id" not in meta(rig)
 
-    @pytest.mark.asyncio
-    async def test_an_explicit_stop_publishes_nothing_to_resume(self, source):
-        """The other half: stopping on purpose is not an idle timeout, and the
-        payload has to say which of the two happened."""
-        source._mpv = _mpv()
-        source._queue = list(TRACKS)
-        source._queue_index = 2
+    async def test_a_new_context_retires_the_saved_queue(self, idle_rig):
+        """A fresh play supersedes the saved queue before it loads. Breaks: a
+        new play mpv refuses leaves the screen offering the queue the user
+        just replaced."""
+        await idle_rig.select()
+        await play(idle_rig, start_index=2)
+        await idle_rig.tick()
+        await idle_rig.command("pause")          # idle timeout: the resume view
+        assert meta(idle_rig)["track_id"] == "s3"
+        idle_rig.mpv.accept = False
 
-        await source._handle_stop()
+        result = await play(idle_rig, tracks=[TRACKS[0]])
 
-        assert source.metadata == {"is_playing": False, "is_buffering": False}
+        assert result["success"] is False
+        assert idle_rig.state()["source_state"] == "ready"
+        assert meta(idle_rig).get("track_id") != "s3"
 
-    @pytest.mark.asyncio
-    async def test_explicit_stop_forgets_session(self, source):
-        source._mpv = _mpv()
-        source._queue = list(TRACKS)
-        source._resume = {"stale": True}
+    async def test_a_resumed_queue_still_knows_which_key_it_came_from(self, rig):
+        """Capture → restore → the storage-gone end must still fire. Breaks: a
+        queue reopened after a detour is attributed to no storage space, and
+        pulling its key leaves mpv skipping silently through unreachable
+        tracks instead of ending the session."""
+        await rig.select()
+        await play(rig, library_id=3)
+        await rig.tick()
+        await rig.leave()
+        await rig.select()
+        assert rig.state()["source_state"] == "active"
 
-        await source.command("stop", {})
+        await rig.key_pulled()
 
-        assert source.state == SourceState.READY
-        assert source._resume is None
+        assert rig.state()["source_state"] == "ready"
+        assert "track_id" not in meta(rig)
 
-    @pytest.mark.asyncio
-    async def test_queue_finished_forgets_session(self, source):
-        source._resume = {"stale": True}
-        await source._handle_queue_finished()
-        assert source._resume is None
+    async def test_a_storage_gone_end_leaves_nothing_to_resume(self, rig):
+        """The storage-gone end must not save the queue it just condemned.
+        Breaks: replugging the key and reopening the library restores a
+        now-playing whose load then fails, titles scrolling over silence."""
+        await rig.select()
+        await play(rig, library_id=3)
+        await rig.tick()
+        await rig.key_pulled()
+        assert "track_id" not in meta(rig)
 
-    @pytest.mark.asyncio
-    async def test_new_context_forgets_session(self, source):
-        source._mpv = _mpv()
-        source._resume = {"stale": True}
-        await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
-        assert source._resume is None
+        for entry in rig.shares.entries:          # the key comes back
+            entry["mounted"] = True
+        await rig.shares.on_storages_changed()
+        await rig.leave()
+        mark = len(rig.mpv.sent)
+        await rig.select()
 
-    @pytest.mark.asyncio
-    async def test_restore_loads_paused_at_saved_position(self, source):
-        source._mpv = _mpv_with_props({"duration": 200})
-        source._resume = _session(queue_index=1, position=60)
+        assert loads_since(rig, mark) == []
+        assert "track_id" not in meta(rig)
 
-        ok = await source._restore_resume_session()
+    async def test_a_stale_resume_point_is_not_reopened_by_itself(self, monkeypatch):
+        """Past its TTL the library opens on nothing, not on a paused track.
+        Breaks: reopened hours later, a now-playing appears for music the user
+        does not remember starting, and the docked player with it."""
+        monkeypatch.setattr(
+            MusicLibrarySource, "RESUME_POLICY",
+            replace(MusicLibrarySource.RESUME_POLICY, ttl_s=WATCHDOG_S),
+        )
+        rig = LibraryRig(monkeypatch)
+        await rig.select()
+        await play(rig, start_index=1)
+        await rig.tick()
+        await rig.leave()
+        mark = len(rig.mpv.sent)
 
-        assert ok is True
-        assert source._queue == TRACKS
-        assert source._queue_index == 1
-        assert source._is_playing is False          # restored PAUSED
-        assert source.state == SourceState.ACTIVE    # active but paused
-        source._mpv.load_playlist.assert_awaited()
-        source._mpv.pause.assert_awaited()
-        source._mpv.seek.assert_awaited_with(60)
-        assert source._resume is None                # consumed
+        await rig.select()
 
-    @pytest.mark.asyncio
-    async def test_a_resumed_queue_still_knows_which_key_it_came_from(self, source):
-        """Capture → restore → the storage-gone guard must still fire.
+        assert loads_since(rig, mark) == []
+        assert rig.state()["source_state"] == "ready"
+        assert "track_id" not in meta(rig)
 
-        `_stop_if_storage_gone` returns early on a queue attributed to no space,
-        so a snapshot that drops `queue_library_id` disarms it for the whole
-        resumed session: the user unplugs the key and gets a silent
-        fast-forward through unreachable tracks instead of a stop. Driven
-        end-to-end rather than asserting the dict key, since the round trip is
-        what broke — the capture and the restore are two separate sites.
-        """
-        source._mpv = _mpv_with_props({"time-pos": 10, "duration": 200})
-        source._queue = list(TRACKS)
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 1
-        source._queue_library_id = 3
-
-        await source._capture_resume_session()
-        source._reset_playback_state()
-        assert await source._restore_resume_session() is True
-
-        source.state_machine = Mock()
-        source.state_machine.update_source_state = AsyncMock()
-        await source._stop_if_storage_gone([{"library_id": 3, "mounted": False}])
-
-        assert source._queue == []
-
-    @pytest.mark.asyncio
-    async def test_a_storage_gone_stop_leaves_nothing_to_resume(self, source):
-        """The storage-gone stop must not snapshot the queue it just condemned.
-
-        `_do_stop` captures a resume session for every stop it sees, and this
-        is a caller its docstring did not anticipate. Left in place, reopening
-        the library restores a now-playing pointing at an absent device: the
-        titles scroll silently for a second or two before the load fails.
-        """
-        source._mpv = _mpv_with_props({"time-pos": 10})
-        source._queue = list(TRACKS)
-        source._queue_unshuffled = list(TRACKS)
-        source._queue_index = 1
-        source._queue_library_id = 3
-        source.state_machine = Mock()
-        source.state_machine.update_source_state = AsyncMock()
-
-        await source._stop_if_storage_gone([{"library_id": 3, "mounted": False}])
-
-        assert source._queue == []
-        assert source._resume is None
-
-    @pytest.mark.asyncio
-    async def test_restore_fails_without_catalog(self, source):
-        source._mpv = _mpv()
-        source.get_navidrome_client = AsyncMock(return_value=None)
-        source._resume = _session()
-
-        ok = await source._restore_resume_session()
-
-        assert ok is False
-        assert source._resume is None
-        source._mpv.load_playlist.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_a_stale_snapshot_is_not_reopened_by_itself(self, source):
-        """Past RESUME_TTL_S the library opens on nothing, not on a paused track.
-
-        The snapshot covers a detour (a source switch, the idle auto-stop), not
-        a later sitting: reopened hours afterwards it puts a now-playing on the
-        player for music the user does not remember starting, and the docked
-        player appears with it.
-
-        The age is asked here, on the automatic path, and NOT inside
-        `_restore_resume_session`: a play press reaches that function too, and
-        it presses on a track this source is publishing as its resume identity
-        — refusing it on a clock would fail a button the screen is showing.
-        """
-        source._resume = _session(age_s=RESUME_TTL_S + 1)
-
-        assert source._resume_is_fresh() is False
-        assert source._idle_metadata() == {
-            "is_playing": False, "is_buffering": False
-        }
-
-    @pytest.mark.asyncio
-    async def test_a_restore_that_fails_takes_its_own_announcement_back(self, source):
-        """The restore shows the saved track straight away and loads underneath.
-        When the load fails, that ACTIVE has announced a queue that no longer
-        exists — and `_resume` is already consumed, so nothing will re-emit it.
-
-        `_do_start` cleaned up after it; the play-press branch added later did
-        not, and left the screen and the lock screen on a track with nothing
-        behind it. Repaired where it was published, so neither caller has to
-        remember.
-        """
-        source._mpv = _mpv_with_props({"duration": 200})
-        source._mpv.load_playlist = AsyncMock(return_value=False)
-        source._resume = _session()
-
-        assert await source._restore_resume_session() is False
-
-        assert source._queue == []
-        assert source.state == SourceState.READY
-        assert source.metadata == {"is_playing": False, "is_buffering": False}
-
-    @pytest.mark.asyncio
-    async def test_resume_with_nothing_loaded_and_nothing_saved_refuses(self, source):
-        """With no queue and no snapshot there is no end state that makes
+    async def test_resume_with_nothing_playing_and_nothing_saved_refuses(self, rig):
+        """With no queue and no saved one there is no end state that makes
         "Resumed" true, and a client cannot detect a success that did nothing.
 
         The obvious way to reach it is an explicit Stop, which forgets the
-        snapshot on purpose, followed by the rotary — playback_dispatch sends
-        `resume` and knows no other name. Adding the reopen branch fixed the
-        auto-stop case and left this one reporting success in silence.
+        saved queue on purpose, followed by the rotary — playback_dispatch
+        sends `resume` and knows no other name.
         """
-        source._mpv = _mpv()
-        assert source._queue == []
-        assert source._resume is None
+        await rig.select()
+        await play(rig)
+        await rig.command("stop")
+        mark = len(rig.mpv.sent)
 
-        result = await source.command("resume", {})
+        result = await rig.command("resume")
 
         assert result["success"] is False
-        source._mpv.resume.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_a_stale_snapshot_still_answers_a_play_press(self, source):
-        """The other half of the rule above: the press works, the clock doesn't
-        veto it. What is on screen is what resumes."""
-        source._mpv = _mpv_with_props({"duration": 200})
-        source._resume = _session(age_s=RESUME_TTL_S + 1)
-
-        assert await source._restore_resume_session() is True
-        assert source._resume is None
-        source._mpv.load_playlist.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_a_snapshot_within_the_ttl_still_resumes(self, source):
-        """The detour the TTL exists to allow: gone a while, but not a sitting."""
-        source._mpv = _mpv_with_props({"duration": 200})
-        source._resume = _session(age_s=RESUME_TTL_S - 1, queue_index=1)
-
-        assert await source._restore_resume_session() is True
-        assert source._queue_index == 1
-
-    @pytest.mark.asyncio
-    async def test_do_start_restores_saved_session(self, source):
-        source._resume = _session()
-        source._start_service_and_wait = AsyncMock(return_value=True)
-        source._load_auto_stop_config = AsyncMock()
-        source._start_monitor = Mock()
-        # This repo is checked out ON the appliance, and _do_start spawns the
-        # open-the-library rescan as a background task. Left real, it raced the
-        # end of the test and reached the live Navidrome on 127.0.0.1:4533 —
-        # measured, intermittently, in a full run. TestRescanOnOpen already
-        # stubs it for the same reason.
-        source.shares.request_scan = AsyncMock()
-        mpv = _mpv_with_props({"duration": 100})
-        mpv.connect = AsyncMock(return_value=True)
-
-        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
-            ok = await source._do_start()
-
-        assert ok is True
-        assert source.state == SourceState.ACTIVE
-        assert source._is_playing is False  # resumed paused, not auto-playing
-        mpv.load_playlist.assert_awaited()
+        assert sent_since(rig, mark) == []
 
 
 class TestRescanOnOpen:
@@ -1130,45 +1085,37 @@ class TestRescanOnOpen:
     slow so a sleeping NAS is not woken 24 times a day.
     """
 
-    @staticmethod
-    def _ready(source):
-        source._start_service_and_wait = AsyncMock(return_value=True)
-        source._load_auto_stop_config = AsyncMock()
-        source._start_monitor = Mock()
-        source.shares.request_scan = AsyncMock()
-        mpv = _mpv_with_props({})
-        mpv.connect = AsyncMock(return_value=True)
-        return mpv
+    async def test_opening_the_library_requests_a_rescan(self, rig):
+        """Breaks: music copied onto the NAS stays invisible until the
+        scheduled pass."""
+        await rig.select()
 
-    @pytest.mark.asyncio
-    async def test_opening_the_library_requests_a_rescan(self, source):
-        mpv = self._ready(source)
-        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
-            assert await source._do_start() is True
-        await asyncio.sleep(0)  # let the spawned task reach its await
-        await source._bg.cancel_all()
-        source.shares.request_scan.assert_awaited_once()
+        assert rig.shares.scan_requests == 1
 
-    @pytest.mark.asyncio
-    async def test_a_wedged_catalog_cannot_delay_the_source(self, source):
+    async def test_a_wedged_catalog_cannot_delay_the_source(self, rig):
         """The scan is spawned, not awaited. A Navidrome that never answers must
         cost the user nothing — the source is up for playback either way, and the
         request is the layer below's problem (it defers on a busy scanner)."""
-        mpv = self._ready(source)
-        never = asyncio.Event()
-        source.shares.request_scan = AsyncMock(side_effect=lambda: never.wait())
+        released = asyncio.Event()
 
-        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
-            ok = await asyncio.wait_for(source._do_start(), timeout=1)
+        async def never_answers():
+            await released.wait()
 
-        assert ok is True
-        await source._bg.cancel_all()
+        rig.shares.request_scan = never_answers
+
+        await rig.select()
+
+        assert rig.state()["source_state"] == "ready"
+        assert (await play(rig))["success"] is True
+        released.set()
+        await settle()
 
     @pytest.mark.asyncio
     async def test_a_failed_start_asks_for_nothing(self, source):
         """No mpv, no library on screen — nothing to refresh for."""
-        self._ready(source)
         source._start_service_and_wait = AsyncMock(return_value=False)
+        source._load_auto_stop_config = AsyncMock()
+        source.shares.request_scan = AsyncMock()
 
         assert await source._do_start() is False
         source.shares.request_scan.assert_not_awaited()
@@ -1179,85 +1126,130 @@ class TestMpvRefusesTheTransportCommand:
     debug level.
 
     If these fail, a transport command the daemon never took is answered with
-    `success` and the source flips its own flags: the UI draws a play button
-    over a track that is still playing, or moves its now-playing to a track mpv
-    never switched to.
+    `success` and the source publishes a change that did not happen: the UI
+    draws a play button over a track that is still playing, or moves its
+    now-playing to a track mpv never switched to.
     """
 
-    async def _playing(self, source, paused=False):
-        """A loaded queue (paused through the pause command when asked), then
-        an mpv that refuses every transport command.
-
-        The refusal is installed after the setup so the setup itself still
-        succeeds, and the state_machine/_bg spy is attached last so only the
-        refused command's broadcasts are observed.
-        """
-        source._mpv = _mpv()
-        await source.command("play_context", {"tracks": TRACKS, "start_index": 1})
+    async def _playing(self, rig, paused=False):
+        """A queue playing track 2 (paused through the pause command when
+        asked), then an mpv that refuses every command."""
+        await rig.select()
+        await play(rig, start_index=1)
+        await rig.tick()
         if paused:
-            await source.command("pause", {})
-        source._mpv.pause = AsyncMock(return_value=False)
-        source._mpv.resume = AsyncMock(return_value=False)
-        source._mpv.seek = AsyncMock(return_value=False)
-        source._mpv.set_playlist_pos = AsyncMock(return_value=False)
-        source.state_machine = Mock()
-        source._bg = Mock()
-        source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
-        return source
+            await rig.command("pause")
+        rig.mpv.accept = False
+        return len(rig.recorder.envelopes)
 
-    @pytest.mark.asyncio
-    async def test_pause_refused_keeps_the_track_playing(self, source):
-        await self._playing(source)
+    async def test_pause_refused_keeps_the_track_playing(self, rig):
+        published = await self._playing(rig)
 
-        result = await source.command("pause", {})
+        result = await rig.command("pause")
 
         assert result["success"] is False
-        assert source._is_playing is True
-        source._bg.spawn.assert_not_called()
+        assert meta(rig)["is_playing"] is True
+        assert len(rig.recorder.envelopes) == published
 
-    @pytest.mark.asyncio
-    async def test_resume_refused_keeps_the_track_paused(self, source):
-        await self._playing(source, paused=True)
+    async def test_resume_refused_keeps_the_track_paused(self, rig):
+        published = await self._playing(rig, paused=True)
 
-        result = await source.command("resume", {})
-
-        assert result["success"] is False
-        assert source._is_playing is False
-        source._bg.spawn.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_seek_refused_keeps_the_position(self, source):
-        await self._playing(source)
-        source._position = 12
-
-        result = await source.command("seek", {"position_ms": 42000})
+        result = await rig.command("resume")
 
         assert result["success"] is False
-        assert source._position == 12
-        source._bg.spawn.assert_not_called()
+        assert meta(rig)["is_playing"] is False
+        assert len(rig.recorder.envelopes) == published
 
-    @pytest.mark.asyncio
-    async def test_track_switch_refused_keeps_the_queue_index(self, source):
-        """next/play_index/prev-to-previous all land in _switch_to_index."""
-        await self._playing(source)
+    async def test_seek_refused_keeps_the_position(self, rig):
+        published = await self._playing(rig)
+        before = meta(rig)["position"]
 
-        result = await source.command("next", {})
+        result = await rig.command("seek", {"position_ms": 42000})
 
         assert result["success"] is False
-        assert source._queue_index == 1
-        assert source._loading is False  # the switch cleared its own guard
-        source._bg.spawn.assert_not_called()
+        assert meta(rig)["position"] == before
+        assert len(rig.recorder.envelopes) == published
 
-    @pytest.mark.asyncio
-    async def test_prev_restart_refused_keeps_the_playhead(self, source):
+    async def test_track_switch_refused_keeps_the_queue_index(self, rig):
+        """next/play_index/prev-to-previous all land in the same switch."""
+        published = await self._playing(rig)
+
+        result = await rig.command("next")
+
+        assert result["success"] is False
+        assert meta(rig)["queue_index"] == 1
+        assert meta(rig)["is_playing"] is True
+        assert len(rig.recorder.envelopes) == published
+
+    async def test_prev_restart_refused_keeps_the_playhead(self, rig):
         """Past the threshold, prev restarts the current track in place."""
-        await self._playing(source)
-        source._mpv.get_property = AsyncMock(return_value=5)  # 5s in → restart
-        source._position = 5
+        await rig.select()
+        await play(rig, start_index=1)
+        rig.mpv.playhead(5)
+        await rig.command("seek", {"position_ms": 5000})
+        rig.mpv.accept = False
+        published = len(rig.recorder.envelopes)
 
-        result = await source.command("prev", {})
+        result = await rig.command("prev")
 
         assert result["success"] is False
-        assert source._position == 5
-        assert source._queue_index == 1
-        source._bg.spawn.assert_not_called()
+        assert meta(rig)["position"] == 5000
+        assert meta(rig)["queue_index"] == 1
+        assert len(rig.recorder.envelopes) == published
+
+
+# === A reorder mpv refuses partway ===
+
+async def test_a_reorder_refused_halfway_still_ends_the_queue(rig):
+    """mpv refusing one removal of a reorder left the session listing entries
+    mpv no longer held: the queue never ended, ACTIVE over an idle mpv."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.remove_entry
+    calls = []
+
+    async def refuse_second(index):
+        calls.append(index)
+        if len(calls) == 2:
+            return False                     # mpv's reply lost (timeout)
+        return await real(index)
+
+    rig.mpv.remove_entry = refuse_second
+    result = await rig.command("set_shuffle", {"shuffle": True})
+    assert result["success"] is False
+
+    await rig.mpv.ends("eof")               # s1 ends, mpv moves on
+    await settle()
+    await rig.mpv.ends("eof")               # the last entry mpv still holds
+    await settle()
+
+    assert rig.mpv.current is None           # mpv is idle: nothing plays
+    assert rig.state()["source_state"] == "ready"
+
+
+async def test_a_reorder_whose_append_is_refused_keeps_the_now_playing_true(rig):
+    """mpv refusing one append of a reorder: the session must not name a track
+    other than the one mpv plays next (the now-playing on screen and the lock
+    screen)."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.loadfile
+    calls = []
+
+    async def refuse_second(stream, **kw):
+        calls.append(stream)
+        if len(calls) == 2:
+            return None
+        return await real(stream, **kw)
+
+    rig.mpv.loadfile = refuse_second
+    result = await rig.command("set_shuffle", {"shuffle": True})
+    assert result["success"] is False
+
+    await rig.mpv.ends("eof")               # s1 ends, mpv starts what it holds next
+    await settle()
+
+    playing_url = rig.mpv.current.url
+    assert f"id={meta(rig)['track_id']}&" in playing_url

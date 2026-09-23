@@ -9,7 +9,7 @@ from backend.shared import mpv_audio_source
 from backend.sources.music_library import source as library_module
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import (
-    AsyncioProxy, FakeMpv, TickGate, Wire, check_recording, instant_short_sleep,
+    AsyncioProxy, EventMpv, TickGate, Wire, check_recording, instant_short_sleep,
     make_settings, make_state_machine, make_systemd, settle,
 )
 
@@ -91,43 +91,13 @@ class FakeShares:
         raise AttributeError(f"FakeShares has no '{name}' — add it")
 
 
-class PlaylistMpv(FakeMpv):
-    """FakeMpv plus the native playlist the library drives.
-
-    Opening an entry resets the playhead and makes its length known, as mpv
-    does once the file is open.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(**{"playlist-pos": -1, "playlist-count": 0})
-        self.playlist = []
-
-    def _open(self, index):
-        song_id = self.playlist[index].split("id=")[1].split("&")[0]
-        self.props.update({
-            "playlist-pos": index, "idle-active": False, "core-idle": False,
-            "time-pos": 0, "playback-time": 0, "duration": LENGTHS[song_id],
-        })
-
-    async def load_playlist(self, urls, start_index=0):
-        if not self.accept:
-            return False
-        self.playlist = list(urls)
-        self.props["playlist-count"] = len(urls)
-        self._open(start_index)
-        self.props["pause"] = False
-        return True
-
-    async def set_playlist_pos(self, index):
-        if not self.accept:
-            return False
-        self._open(index)
-        return True
-
-    async def replace_playlist_tail(self, keep_count, urls):
-        self.playlist = self.playlist[:keep_count] + list(urls)
-        self.props["playlist-count"] = len(self.playlist)
-        return self.accept
+def PlaylistMpv():
+    """The event mpv, with each file's length known once it opens (LENGTHS)."""
+    mpv = EventMpv()
+    mpv.default_duration = None
+    for song_id, seconds in LENGTHS.items():
+        mpv.durations[f"id={song_id}&"] = seconds
+    return mpv
 
 
 class Library:
@@ -136,11 +106,10 @@ class Library:
     def __init__(self, monkeypatch, settings=None):
         self.mpv = PlaylistMpv()
         self.gate = TickGate()
+        self._next_event = None
         monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
-        # The resume seek polls mpv with 0.2 s sleeps against a 2 s deadline.
-        monkeypatch.setattr(library_module, "asyncio", AsyncioProxy(instant_short_sleep))
         monkeypatch.setattr(library_module, "NavidromeClient", FakeNavidrome)
         monkeypatch.setattr(library_module, "NetworkShareService", FakeShares)
         self.machine, recorder = make_state_machine()
@@ -173,23 +142,30 @@ class Library:
         await self.command("play_context", data)
 
     async def tick(self, times=1):
-        await self.gate.tick(times)
+        for _ in range(times):
+            if self._next_event is not None:
+                event, self._next_event = self._next_event, None
+                await event()
+            await self.mpv.time_passes()
+            await settle()                   # what mpv said is handled first
+            await self.gate.tick()
 
     def playhead(self, seconds):
-        self.mpv.props["time-pos"] = seconds
-        self.mpv.props["playback-time"] = seconds
+        self.mpv.position = seconds
 
     def mpv_moves_on(self):
         """Gapless: mpv steps to the next playlist entry by itself."""
-        self.mpv._open(self.mpv.props["playlist-pos"] + 1)
-        self.playhead(0.4)
+        async def moves_on():
+            await self.mpv.ends("eof")
+            await self.mpv.opens()
+            self.playhead(0.4)
+        self._next_event = moves_on
 
     def queue_played_out(self):
-        """keep-open=no + --idle=yes: past the last entry mpv unloads and idles."""
-        self.mpv.props.update({
-            "idle-active": True, "playlist-pos": -1, "time-pos": None,
-            "playback-time": None, "duration": None,
-        })
+        """Past the last entry mpv ends it and idles."""
+        async def played_out():
+            await self.mpv.ends("eof")
+        self._next_event = played_out
 
     async def key_pulled(self):
         """The USB watcher sees the key leave and calls the storages hook."""

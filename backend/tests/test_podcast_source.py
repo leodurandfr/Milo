@@ -1,15 +1,14 @@
 # backend/tests/test_podcast_source.py
 """
-Unit tests for PodcastSource (features/podcast/source.py).
+Unit tests for PodcastSource (sources/podcast/source.py).
 
-Tests cover:
-- BaseAudioSource compliance
-- Lifecycle (start, stop, restart)
-- Status format
-- Command handling (play, pause, seek, speed)
-- Data service operations
+The command surface, the published episode record and how an episode ends,
+driven through the outside world: MpvSim for mpv (tests/mpv_sim.py), a real
+AudioStateMachine for the wire and an in-memory progress file, through the
+PodcastRig of test_mpv_sessions.py. What mpv announces is the truth; nothing
+here reads or writes the source's private fields. The data service and a few
+construction checks keep their direct tests.
 """
-import asyncio
 import json
 
 import pytest
@@ -18,7 +17,11 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
 from backend.core.models.audio_state import SourceState
+from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.shared.persistence import SchemaVersionMismatch
+from backend.tests.golden.harness import settle
+from backend.tests.golden.test_old_wire_podcast import EPISODE_A, SHOW
+from backend.tests.test_mpv_sessions import PodcastRig
 
 
 @pytest.fixture
@@ -49,6 +52,34 @@ def podcast_source(config):
     return source
 
 
+@pytest.fixture
+def rig(monkeypatch):
+    """PodcastSource on a real state machine, mpv simulated, time in steps."""
+    return PodcastRig(monkeypatch)
+
+
+@pytest.fixture
+def auto_stop_rig(monkeypatch):
+    """The same, with a 1 s auto-stop: a pause ends the session inside settle()."""
+    return PodcastRig(monkeypatch, settings={"audio.auto_stop_delay": 1})
+
+
+@pytest.fixture
+def slow_watchdog(monkeypatch, rig):
+    """A loading watchdog that does not fire during the test, for scenarios
+    that hold a session in LOADING on purpose. Takes `rig` so it lands after
+    the rig's own (short) watchdog."""
+    monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 60.0, raising=False)
+
+
+def meta(rig) -> dict:
+    return rig.state()["metadata"]
+
+
+def published(rig) -> int:
+    return len(rig.recorder.envelopes)
+
+
 class TestPodcastSourceConfig:
     """Test PodcastSource configuration."""
 
@@ -68,29 +99,17 @@ class TestPodcastSourceConfig:
 class TestPodcastSourceLifecycle:
     """Test PodcastSource lifecycle methods."""
 
-    @pytest.mark.asyncio
-    async def test_start_success(self, podcast_source):
-        """Test successful start."""
-        # Mock dependencies
-        with patch.object(podcast_source, '_start_service', return_value=True):
-            with patch('backend.sources.podcast.source.PodcastDataService') as mock_data_class:
-                mock_data = AsyncMock()
-                mock_data.get_setting = AsyncMock(return_value=1.0)
-                mock_data_class.return_value = mock_data
+    async def test_start_success(self, rig):
+        """Selecting Podcast starts its unit and settles READY with nothing
+        loaded. If it fails, the podcast screen (frontend PodcastSource.vue)
+        opens on an error card instead of the browser."""
+        await rig.select()
 
-                with patch('backend.sources.podcast.source.PodcastCatalog') as mock_api_class:
-                    mock_api = AsyncMock()
-                    mock_api_class.return_value = mock_api
-
-                    with patch('backend.shared.mpv_audio_source.MpvController') as mock_mpv_class:
-                        mock_mpv = Mock()
-                        mock_mpv.connect = AsyncMock(return_value=True)
-                        mock_mpv.is_connected = True
-                        mock_mpv_class.return_value = mock_mpv
-
-                        result = await podcast_source.start()
-
-        assert result is True
+        state = rig.state()
+        assert state["active_source"] == "podcast"
+        assert state["source_state"] == "ready"
+        rig.systemd.start.assert_awaited_with("milo-podcast.service")
+        assert rig.mpv.is_connected
 
     @pytest.mark.asyncio
     async def test_start_mpv_connection_failure(self, podcast_source):
@@ -119,15 +138,11 @@ class TestPodcastSourceLifecycle:
     @pytest.mark.asyncio
     async def test_stop_success(self, podcast_source):
         """Test successful stop."""
-        # Setup mocked state
         podcast_source._mpv = Mock()
         podcast_source._mpv.disconnect = AsyncMock()
         podcast_source._podcast_api = Mock()
         podcast_source._podcast_api.close = AsyncMock()
         podcast_source._podcast_data = Mock()
-        podcast_source._monitor_task = None
-        podcast_source._progress_save_task = None
-        podcast_source._current_episode = None
 
         with patch.object(podcast_source, '_stop_service', return_value=True):
             result = await podcast_source.stop()
@@ -136,100 +151,93 @@ class TestPodcastSourceLifecycle:
 
 
 class TestPodcastSourceCommands:
-    """Test PodcastSource command handling."""
+    """The five commands, as POST /api/audio/control/podcast and
+    POST /api/podcast/play deliver them (frontend podcastStore.js)."""
 
-    @pytest.mark.asyncio
-    async def test_play_episode_command(self, podcast_source):
-        """Test play_episode command."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.load_stream = AsyncMock(return_value=True)
-        podcast_source._mpv.get_property = AsyncMock(return_value=False)
-        podcast_source._mpv.set_property = AsyncMock()
-        podcast_source._mpv.is_playing = AsyncMock(return_value=False)
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
-        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
-        podcast_source._podcast_api = Mock()
-        podcast_source._podcast_api.get_episode = AsyncMock(return_value={
-            "uuid": "test-uuid",
-            "name": "Test Episode",
-            "audio_url": "http://stream.url",
-            "duration": 3600
-        })
+    async def test_play_episode_command(self, rig):
+        """play_episode loads the catalogue's audio URL and the episode plays
+        once mpv says sound started. If it fails, a tap on an episode card does
+        nothing audible."""
+        await rig.select()
 
-        result = await podcast_source.command("play_episode", {"episode_uuid": "test-uuid"})
+        result = await rig.play(EPISODE_A)
 
         assert result["success"] is True
+        assert [load[1] for load in rig.loads()] == [EPISODE_A["audio_url"]]
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["is_playing"] is True
+        assert rig.episode() == EPISODE_A["uuid"]
 
-    @pytest.mark.asyncio
-    async def test_pause_command(self, podcast_source):
-        """Test pause command."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.pause = AsyncMock()
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
-        podcast_source._is_playing = True
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+    async def test_pause_command(self, rig):
+        """A pause stops mpv, publishes the paused state and writes the second
+        the owner stopped at to the progress file. If it fails, the player keeps
+        a pause button over silence, or the in-progress queue (podcastStore's
+        resume row) reopens the episode at an older second."""
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(300)
 
-        result = await podcast_source.command("pause", {})
-
-        assert result["success"] is True
-        assert podcast_source._is_playing is False
-
-    @pytest.mark.asyncio
-    async def test_resume_command(self, podcast_source):
-        """Test resume command."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.resume = AsyncMock()
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
-        podcast_source._is_playing = False
-
-        result = await podcast_source.command("resume", {})
+        result = await rig.command("pause")
 
         assert result["success"] is True
-        assert podcast_source._is_playing is True
+        assert rig.mpv.paused is True
+        assert meta(rig)["is_playing"] is False
+        assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 300
 
-    @pytest.mark.asyncio
-    async def test_seek_command(self, podcast_source):
-        """Test seek command."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.seek = AsyncMock()
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+    async def test_resume_command(self, rig):
+        """resume unpauses the live episode and the player shows it playing
+        again. If it fails, the play button of the player (and the rotary's
+        play/pause) leaves a paused episode silent."""
+        await rig.select()
+        await rig.play(EPISODE_A)
+        await rig.command("pause")
 
-        result = await podcast_source.command("seek", {"position": 300})
+        result = await rig.command("resume")
 
         assert result["success"] is True
-        assert podcast_source._position == 300
+        assert rig.mpv.paused is False
+        assert meta(rig)["is_playing"] is True
 
-    @pytest.mark.asyncio
-    async def test_auto_stop_clears_playback(self, podcast_source):
-        """The pause-timeout stop saves progress and drops the episode.
+    async def test_seek_command(self, rig):
+        """A seek moves mpv, publishes the new position and saves it. If it
+        fails, the progress bar (useSourceProgress.seekTo) snaps back, or the
+        next resume starts where the owner was before the seek."""
+        await rig.select()
+        await rig.play(EPISODE_A)
 
-        Driven through _auto_stop_action(), the only remaining entry point:
-        there is no user-facing stop command (the UI has no stop button).
-        """
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.stop = AsyncMock()
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
-        podcast_source._position = 300
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
-        podcast_source._progress_save_task = None
+        result = await rig.command("seek", {"position": 300})
 
-        await podcast_source._auto_stop_action()
+        assert result["success"] is True
+        assert ("seek", 300) in rig.mpv.sent
+        assert meta(rig)["position"] == 300_000
+        assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 300
 
-        assert podcast_source._current_episode is None
-        assert podcast_source._is_playing is False
-        podcast_source._podcast_data.update_playback_progress.assert_awaited()
+    async def test_auto_stop_clears_playback(self, auto_stop_rig):
+        """The pause timeout ends the session: mpv is stopped, the second is
+        saved, and the episode is not marked listened. If it fails, a paused
+        episode holds mpv for good, or a long pause drops the episode out of the
+        in-progress queue (get_in_progress_episodes) as if finished."""
+        rig = auto_stop_rig
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(300)
+        await rig.tick()
+        rig.mpv.playhead(305)
+
+        await rig.command("pause")               # the 1 s idle timeout fires
+        await settle()
+
+        assert rig.state()["source_state"] == "ready"
+        assert ("stop",) in rig.mpv.sent
+        assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 305
+        assert rig.data.completed == []
 
     @pytest.mark.asyncio
     async def test_set_speed_command(self, podcast_source):
         """Test set_speed command."""
         podcast_source._mpv = Mock()
         podcast_source._mpv.set_property = AsyncMock()
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
         podcast_source._podcast_data = Mock()
         podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
 
@@ -243,7 +251,6 @@ class TestPodcastSourceCommands:
         """Test set_speed with invalid value rounds to nearest."""
         podcast_source._mpv = Mock()
         podcast_source._mpv.set_property = AsyncMock()
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
         podcast_source._podcast_data = Mock()
         podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
 
@@ -251,6 +258,20 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is True
         assert podcast_source._playback_speed == 1.25  # Nearest valid
+
+    async def test_set_speed_during_playback_reaches_mpv(self, rig):
+        """A speed set while an episode plays changes mpv's speed now, is
+        stored, and is published. If it fails, the speed menu (PodcastPlayer)
+        shows 1.5x over an episode still playing at 1x."""
+        await rig.select()
+        await rig.play(EPISODE_A)
+
+        result = await rig.command("set_speed", {"speed": 1.5})
+
+        assert result["success"] is True
+        assert rig.mpv.speed == 1.5
+        assert rig.data.settings["playback_speed"] == 1.5
+        assert meta(rig)["playback_speed"] == 1.5
 
 class TestPodcastDataService:
     """Test PodcastDataService."""
@@ -339,21 +360,9 @@ class TestConnectionState:
 
     def test_update_state_no_episode(self, podcast_source):
         """Test state is READY with no episode."""
-        podcast_source._current_episode = None
         podcast_source._update_connection_state()
 
         assert podcast_source.state == SourceState.READY
-
-    def test_update_state_with_episode(self, podcast_source):
-        """Test state is ACTIVE with episode."""
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
-        podcast_source._is_playing = True
-        podcast_source._position = 60
-        podcast_source._duration = 3600
-        podcast_source._podcast_data = Mock()
-        podcast_source._update_connection_state()
-
-        assert podcast_source.state == SourceState.ACTIVE
 
 
 class TestPlaybackMetadata:
@@ -361,38 +370,29 @@ class TestPlaybackMetadata:
 
     def test_build_metadata_no_episode(self, podcast_source):
         """Test metadata is empty with no episode."""
-        podcast_source._current_episode = None
-
         metadata = podcast_source._build_playback_metadata()
 
         assert metadata == {}
 
-    def test_build_metadata_with_episode(self, podcast_source):
-        """Test metadata includes episode info."""
-        podcast_source._current_episode = {
-            "uuid": "test-uuid",
-            "name": "Test Episode",
-            "description": "Test description",
-            "image_url": "http://image.url",
-            "podcast": {
-                "uuid": "podcast-uuid",
-                "name": "Test Podcast"
-            }
-        }
-        podcast_source._is_playing = True
-        podcast_source._is_buffering = False
-        podcast_source._position = 120
-        podcast_source._duration = 3600
-        podcast_source._playback_speed = 1.5
+    async def test_build_metadata_with_episode(self, rig):
+        """The record a playing episode publishes: its identity, the show, the
+        playhead and length in milliseconds (the shared wire convention), the
+        transport pair and the speed. If it fails, the podcast player
+        (podcastStore / AudioPlayer.vue) draws the wrong episode, a bar off by a
+        factor of 1000, or the wrong speed."""
+        await rig.select()
+        await rig.command("set_speed", {"speed": 1.5})
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(120)
+        await rig.machine.refresh_active_metadata()
 
-        metadata = podcast_source._build_playback_metadata()
-
-        assert metadata["episode_uuid"] == "test-uuid"
-        assert metadata["episode_name"] == "Test Episode"
-        assert metadata["podcast_name"] == "Test Podcast"
-        # position/duration emitted in milliseconds (shared wire convention).
-        assert metadata["position"] == 120000
-        assert metadata["duration"] == 3600000
+        metadata = meta(rig)
+        assert metadata["episode_uuid"] == EPISODE_A["uuid"]
+        assert metadata["episode_name"] == EPISODE_A["name"]
+        assert metadata["podcast_name"] == SHOW["name"]
+        assert metadata["podcast_uuid"] == SHOW["uuid"]
+        assert metadata["position"] == 120_000
+        assert metadata["duration"] == 1_800_000
         assert metadata["is_playing"] is True
         assert metadata["is_buffering"] is False
         assert metadata["playback_speed"] == 1.5
@@ -410,240 +410,164 @@ class TestTheCommonFloor:
     rule into the producer is for.
     """
 
-    EPISODE = {
-        "uuid": "e1", "name": "Episode 12", "image_url": "https://cdn/ep.jpg",
-        "podcast": {"uuid": "p1", "name": "Le Code a changé"},
-    }
+    async def test_a_playing_episode_fills_the_floor(self, rig):
+        """If it fails, the lock screen and the Milo-iOS widget show a session
+        with no title while an episode plays."""
+        await rig.select()
+        await rig.play(EPISODE_A)
 
-    def test_a_playing_episode_fills_the_floor(self, podcast_source):
-        podcast_source._current_episode = dict(self.EPISODE)
-        podcast_source._is_playing = True
+        metadata = meta(rig)
+        assert metadata["title"] == EPISODE_A["name"]
+        assert metadata["artist"] == SHOW["name"]
+        assert metadata["album"] == SHOW["name"]
+        assert metadata["album_art_url"] == EPISODE_A["image_url"]
 
-        meta = podcast_source._build_playback_metadata()
-
-        assert meta["title"] == "Episode 12"
-        assert meta["artist"] == meta["podcast_name"]
-        assert meta["album"] == meta["podcast_name"]
-        assert meta["album_art_url"] == meta["image_url"]
-
-    def test_a_stopped_episode_publishes_where_it_would_resume(self, podcast_source):
+    async def test_a_stopped_episode_publishes_where_it_would_resume(self, auto_stop_rig):
         """An auto-stop leaves an episode and a second to come back to, and
         both belong in the state — the resume point is what a play press uses,
         so publishing 0:00 for a source that resumes at 12:34 would be the
-        state disagreeing with the next press."""
-        podcast_source._current_episode = dict(self.EPISODE)
-        podcast_source._position = 754
-        podcast_source._duration = 2100
-        podcast_source._remember_for_resume()
-        podcast_source._current_episode = None
-        podcast_source._position = 0
-        podcast_source._duration = 0
-        podcast_source._is_playing = False
+        state disagreeing with the next press. The length is mpv's (2100 s),
+        not the feed's (1800 s). If it fails, the idle podcast view
+        (podcastStore's resume card) offers the wrong episode or second."""
+        rig = auto_stop_rig
+        rig.mpv.durations["daily-0921"] = 2100
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(754)
+        await rig.tick()
 
-        meta = podcast_source._build_playback_metadata()
+        await rig.command("pause")               # the 1 s idle timeout fires
+        await settle()
 
-        assert meta["episode_uuid"] == "e1"
-        assert meta["title"] == "Episode 12"
-        assert meta["is_playing"] is False
-        assert meta["position"] == 754_000
-        assert meta["duration"] == 2_100_000
+        state = rig.state()
+        assert state["source_state"] == "ready"
+        metadata = state["metadata"]
+        assert metadata["episode_uuid"] == EPISODE_A["uuid"]
+        assert metadata["title"] == EPISODE_A["name"]
+        assert metadata["is_playing"] is False
+        assert metadata["position"] == 754_000
+        assert metadata["duration"] == 2_100_000
 
-    def test_an_episode_that_ended_leaves_nothing_to_resume(self, podcast_source):
+    async def test_an_episode_that_ended_leaves_nothing_to_resume(self, rig):
         """The distinction the payload has to carry: a stop is a pause that
         gave up, an ending is an ending. The frontend flips the finished card
         to "already listened" off the ending's own keys, and must not also be
-        offered it as the thing a play press resumes."""
-        podcast_source._current_episode = dict(self.EPISODE)
-        podcast_source._remember_for_resume()
+        offered it as the thing a play press resumes. If it fails, the rotary's
+        play press restarts an episode the owner just finished."""
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(1790)
+        await rig.tick()
 
-        podcast_source._forget_resume()
-        podcast_source._current_episode = None
+        await rig.mpv.ends("eof")
+        await settle()
 
-        assert podcast_source._build_playback_metadata() == {}
-        assert podcast_source._idle_metadata() == {
-            "is_playing": False, "is_buffering": False
-        }
+        metadata = meta(rig)
+        assert metadata["episode_ended"] is True
+        assert "current_episode" not in metadata
+        assert "title" not in metadata
+        result = await rig.command("resume")
+        assert result["success"] is False
+        assert len(rig.loads()) == 1
 
 
 class TestEpisodeEndDetection:
-    """Test end-of-episode detection in _on_monitor_tick.
+    """An episode ends when mpv says its own entry ended, and why.
 
-    mpv runs with keep-open=no + --idle=yes, so at EOF it unloads the file and
-    returns to idle: playback-time → None and idle-active → True. Detection must
-    key off idle-active (authoritative) rather than a position-vs-duration
-    heuristic, which breaks whenever the reported duration overshoots the real
-    end-of-audio (common with VBR podcast MP3s / early-terminated HTTP streams).
+    mpv's `end-file` carries the reason and the entry id; only `eof` on the
+    session's own entry, after sound was heard, is an episode listened to the
+    end. A position-vs-duration heuristic breaks whenever the reported
+    duration overshoots the real end of audio (VBR podcast MP3s,
+    early-terminated HTTP streams), and a transient stall is not an end.
     """
 
-    def _mpv_with_props(self, props):
-        mpv = Mock()
-        mpv.is_connected = True
+    async def test_episode_ends_on_eof_even_if_position_short_of_duration(self, rig):
+        """EOF returns to READY and persists completion even when the last
+        observed position is far short of the reported duration — the original
+        'stuck at the end' bug. A final progress row is written (so a short clip
+        has one), then the explicit completion mark. If it fails, the episode
+        stays in the in-progress queue (get_in_progress_episodes) and its card
+        never reads "already listened"."""
+        rig.mpv.durations["daily-0921"] = 3600   # over-reported
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(3000)                   # real end of audio
+        await rig.tick()
 
-        async def _get(name):
-            return props.get(name)
+        await rig.mpv.ends("eof")
+        await settle()
 
-        mpv.get_property = AsyncMock(side_effect=_get)
-        return mpv
+        state = rig.state()
+        assert state["source_state"] == "ready"
+        assert state["metadata"]["completed"] is True
+        assert state["metadata"]["episode_uuid"] == EPISODE_A["uuid"]
+        assert rig.data.completed == [EPISODE_A["uuid"]]
+        assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 3000
 
-    @pytest.mark.asyncio
-    async def test_episode_ends_on_idle_even_if_position_short_of_duration(self, podcast_source):
-        """EOF (mpv idle) returns to READY and persists completion even when the
-        last observed position is far short of the reported duration — the original
-        'stuck at the end' bug. The explicit mark_episode_completed forces the
-        'already listened' state despite the position-vs-duration heuristic failing
-        on the over-reported duration."""
-        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
-        podcast_source._is_playing = True
-        podcast_source._loading = False
-        podcast_source._position = 3000   # real end of audio
-        podcast_source._duration = 3600   # over-reported duration
-        podcast_source._progress_save_task = None
-        podcast_source._mpv = self._mpv_with_props(
-            {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
-        )
+    async def test_a_stall_mid_episode_does_not_end_it(self, rig, slow_watchdog):
+        """mpv's cache running dry (paused-for-cache) mid-stream shows the
+        spinner and ends nothing; when the stream comes back it plays on, with
+        no command sent to mpv. If it fails, a network hiccup marks the episode
+        listened or stops it, and the player (AudioPlayer.vue) loses it."""
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(1800)
+        await rig.tick()
+        sent_before = len(rig.mpv.sent)
 
-        await podcast_source._on_monitor_tick()
+        await rig.mpv.stalls()
+        await settle()
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["is_buffering"] is True
 
-        assert podcast_source._current_episode is None
-        assert podcast_source._is_playing is False
-        assert podcast_source.state == SourceState.READY
-        # Final row is saved (so a short clip has a row), then forced completed.
-        assert podcast_source._podcast_data.update_playback_progress.await_count == 1
-        podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
+        await rig.mpv.recovers()
+        await settle()
+        assert meta(rig)["is_playing"] is True
+        assert rig.data.completed == []
+        assert len(rig.mpv.sent) == sent_before
 
-    @pytest.mark.asyncio
-    async def test_transient_position_none_does_not_end_episode(self, podcast_source):
-        """A momentary playback-time=None during a mid-stream cache stall (file
-        still loaded → idle-active False) must NOT be mistaken for EOF."""
-        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
-        podcast_source._is_playing = True
-        podcast_source._loading = False
-        podcast_source._position = 1800
-        podcast_source._duration = 3600
-        podcast_source._mpv = self._mpv_with_props(
-            {"playback-time": None, "duration": None, "pause": False, "idle-active": False}
-        )
+    async def test_an_eof_before_any_sound_is_a_failed_load(self, rig, slow_watchdog):
+        """mpv can end an entry with `eof` before it ever played (a server
+        answering an empty body or an HTML page): nothing was heard, so it is a
+        failed load, not a finished episode. If it fails, an episode that never
+        played is marked "already listened" and leaves the queue, with no
+        banner (App.vue's source error)."""
+        rig.mpv.auto_open = False
+        await rig.select()
+        await rig.play(EPISODE_A)
 
-        await podcast_source._on_monitor_tick()
+        await rig.mpv.ends("eof")
+        await settle()
 
-        assert podcast_source._current_episode is not None
-        assert podcast_source._is_playing is True
-
-    @pytest.mark.asyncio
-    async def test_idle_active_during_loading_does_not_end_episode(self, podcast_source):
-        """idle-active is True while mpv is still in the load window (before
-        _loading is cleared). The _loading guard must return early so the EOF
-        path can't fire prematurely — protects against a future refactor moving
-        _loading = False ahead of the stream actually playing."""
-        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
-        podcast_source._is_playing = False
-        podcast_source._loading = True
-        podcast_source._mpv = self._mpv_with_props(
-            {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
-        )
-
-        await podcast_source._on_monitor_tick()
-
-        assert podcast_source._current_episode is not None
-
-    @pytest.mark.asyncio
-    async def test_normal_end_returns_to_ready(self, podcast_source):
-        """Well-behaved file: position reaches duration, mpv idles → READY."""
-        podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
-        podcast_source._is_playing = True
-        podcast_source._loading = False
-        podcast_source._position = 3599
-        podcast_source._duration = 3600
-        podcast_source._progress_save_task = None
-        podcast_source._mpv = self._mpv_with_props(
-            {"playback-time": None, "duration": None, "pause": False, "idle-active": True}
-        )
-
-        await podcast_source._on_monitor_tick()
-
-        assert podcast_source._current_episode is None
-        assert podcast_source.state == SourceState.READY
-        podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
-
-
-class TestSwitchingEpisodesGuardsTheOutgoingOne:
-    """The _loading guard must be armed before mpv is stopped.
-
-    `await self._mpv.stop()` makes mpv idle while _is_playing and
-    _current_episode still point at the outgoing episode. A 1 Hz monitor tick
-    landing there used to read that as EOF and mark_episode_completed() the
-    outgoing uuid — dropping it from the in-progress queue. Nothing looks
-    wrong on screen: the new episode's state is written a few lines later.
-    """
-
-    @pytest.mark.asyncio
-    async def test_a_tick_during_the_stop_does_not_complete_the_outgoing_episode(
-        self, podcast_source
-    ):
-        entered_stop = asyncio.Event()
-        release_stop = asyncio.Event()
-
-        async def gated_stop():
-            entered_stop.set()
-            await release_stop.wait()
-
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.stop = gated_stop
-        podcast_source._mpv.load_stream = AsyncMock(return_value=True)
-        # What mpv reports once stopped: file unloaded, back to idle.
-        podcast_source._mpv.get_property = AsyncMock(side_effect=lambda name: {
-            "playback-time": None, "duration": None,
-            "pause": False, "idle-active": True,
-        }.get(name))
-        podcast_source._mpv.set_property = AsyncMock()
-        podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
-        podcast_source._podcast_api = Mock()
-        podcast_source._podcast_api.get_episode = AsyncMock(return_value={
-            "uuid": "incoming", "name": "Incoming", "audio_url": "http://s", "duration": 1200,
-        })
-
-        podcast_source._current_episode = {"uuid": "outgoing", "name": "Outgoing"}
-        podcast_source._is_playing = True
-        podcast_source._loading = False
-        podcast_source._position = 300
-        podcast_source._duration = 1800
-
-        play = asyncio.create_task(
-            podcast_source._handle_play_episode(Mock(episode_uuid="incoming"))
-        )
-        await asyncio.wait_for(entered_stop.wait(), timeout=1)
-
-        await podcast_source._on_monitor_tick()
-
-        podcast_source._podcast_data.mark_episode_completed.assert_not_awaited()
-        assert podcast_source._current_episode is not None
-
-        release_stop.set()
-        result = await asyncio.wait_for(play, timeout=1)
-        podcast_source._stop_progress_save()
-
-        assert result["success"] is True
-        assert podcast_source._current_episode["uuid"] == "incoming"
-        assert podcast_source._loading is False
+        assert rig.data.completed == []
+        assert rig.errors() == ["stream_load_failed"]
+        assert rig.state()["source_state"] == "ready"
+        assert rig.episode() == EPISODE_A["uuid"]
 
 
 class TestProperties:
     """Test public properties."""
 
-    def test_is_playing_property(self, podcast_source):
-        """Test is_playing property."""
-        podcast_source._is_playing = True
-        assert podcast_source.is_playing is True
+    async def test_is_playing_property(self, rig, slow_watchdog):
+        """`is_playing` is what the rotary and the IR remote's play/pause press
+        reads (hardware/playback_dispatch.py): an episode still loading counts
+        as playing (the press means "stop that", E42), a paused one does not.
+        If it fails, a press on a buffering episode resumes instead of pausing,
+        or a press on a paused one pauses it again."""
+        rig.mpv.auto_open = False
+        await rig.select()
+        assert rig.source.is_playing is False
 
-    def test_position_property(self, podcast_source):
-        """Test position property."""
-        podcast_source._position = 120
-        assert podcast_source.position == 120
+        await rig.play(EPISODE_A)
+        assert rig.source.is_playing is True     # loading
 
-    def test_duration_property(self, podcast_source):
-        """Test duration property."""
-        podcast_source._duration = 3600
-        assert podcast_source.duration == 3600
+        await rig.mpv.opens()
+        await settle()
+        assert rig.source.is_playing is True
+
+        await rig.command("pause")
+        assert rig.source.is_playing is False
 
     def test_playback_speed_property(self, podcast_source):
         """Test playback_speed property."""
@@ -656,69 +580,63 @@ class TestMpvRefusesTheTransportCommand:
     debug level.
 
     If these fail, a pause/resume/seek/speed the daemon never took is answered
-    with `success`, the source flips its own flags and broadcasts them: the UI
+    with `success`, the source publishes a state mpv does not have: the UI
     draws a play button over an episode that is still playing, and the progress
     saved on that pause is written for a stream that kept advancing.
     """
 
-    @pytest.fixture
-    def refusing(self, podcast_source):
-        """A playing episode over an mpv that refuses every transport command."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.pause = AsyncMock(return_value=False)
-        podcast_source._mpv.resume = AsyncMock(return_value=False)
-        podcast_source._mpv.seek = AsyncMock(return_value=False)
-        podcast_source._mpv.set_property = AsyncMock(return_value=False)
-        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
-        podcast_source._is_playing = True
-        podcast_source._position = 300
-        podcast_source._playback_speed = 1.0
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
-        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
-        # Broadcasts go through set_state -> _bg.spawn; spy it so "nothing was
-        # published" is observable, and close the coroutine so none leaks.
-        podcast_source.state_machine = Mock()
-        podcast_source._bg = Mock()
-        podcast_source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
-        return podcast_source
+    async def _playing(self, rig):
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(300)
+        await rig.tick()
 
-    @pytest.mark.asyncio
-    async def test_pause_refused_keeps_the_episode_playing(self, refusing):
-        result = await refusing.command("pause", {})
+    async def test_pause_refused_keeps_the_episode_playing(self, rig):
+        await self._playing(rig)
+        rig.mpv.accept = False
+        before = published(rig)
+
+        result = await rig.command("pause")
 
         assert result["success"] is False
-        assert refusing._is_playing is True
-        refusing._podcast_data.update_playback_progress.assert_not_called()
-        refusing._bg.spawn.assert_not_called()
+        assert meta(rig)["is_playing"] is True
+        assert rig.data.progress == {}
+        assert published(rig) == before
 
-    @pytest.mark.asyncio
-    async def test_resume_refused_keeps_the_episode_paused(self, refusing):
-        refusing._is_playing = False
+    async def test_resume_refused_keeps_the_episode_paused(self, rig):
+        await self._playing(rig)
+        await rig.command("pause")
+        rig.mpv.accept = False
+        before = published(rig)
 
-        result = await refusing.command("resume", {})
-
-        assert result["success"] is False
-        assert refusing._is_playing is False
-        refusing._bg.spawn.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_seek_refused_keeps_the_position(self, refusing):
-        result = await refusing.command("seek", {"position": 42})
+        result = await rig.command("resume")
 
         assert result["success"] is False
-        assert refusing._position == 300
-        refusing._podcast_data.update_playback_progress.assert_not_called()
-        refusing._bg.spawn.assert_not_called()
+        assert meta(rig)["is_playing"] is False
+        assert published(rig) == before
 
-    @pytest.mark.asyncio
-    async def test_set_speed_refused_keeps_the_speed_unpersisted(self, refusing):
-        result = await refusing.command("set_speed", {"speed": 1.5})
+    async def test_seek_refused_keeps_the_position(self, rig):
+        await self._playing(rig)
+        rig.mpv.accept = False
+        before = published(rig)
+
+        result = await rig.command("seek", {"position": 42})
 
         assert result["success"] is False
-        assert refusing._playback_speed == 1.0
-        refusing._podcast_data.set_setting.assert_not_called()
-        refusing._bg.spawn.assert_not_called()
+        assert rig.data.progress == {}
+        assert published(rig) == before
+
+    async def test_set_speed_refused_keeps_the_speed_unpersisted(self, rig):
+        await self._playing(rig)
+        rig.mpv.accept = False
+        before = published(rig)
+
+        result = await rig.command("set_speed", {"speed": 1.5})
+
+        assert result["success"] is False
+        assert rig.data.settings["playback_speed"] == 1.0
+        assert meta(rig)["playback_speed"] == 1.0
+        assert published(rig) == before
 
 
 class TestTransportOnAnIdleSource:
@@ -739,32 +657,34 @@ class TestTransportOnAnIdleSource:
         """There is no end state that makes "Resumed" true with nothing loaded
         and nothing to reload. Same phrasing family as radio's "No station to
         resume"."""
-        assert podcast_source._current_episode is None
-        assert podcast_source._last_episode is None
-
         result = await podcast_source.command("resume", {})
 
         assert result["success"] is False
         assert "resume" in result["error"].lower()
 
-    @pytest.mark.asyncio
-    async def test_resume_after_an_auto_stop_reopens_the_episode(self, podcast_source):
+    async def test_resume_after_an_auto_stop_reopens_the_episode(self, auto_stop_rig):
         """A play press from READY is the case the rotary and the IR remote
         send, and the only name they know is `resume` — playback_dispatch maps
         every non-Spotify transport onto it. Refusing here answered "No episode
         to resume" on a source that was publishing the episode it would resume,
-        for every idle timeout. Goes through the play path, so the position
-        comes from the durable row rather than a second copy of it.
-        """
-        podcast_source._last_episode = {"uuid": "e1", "name": "Episode 12"}
-        podcast_source._handle_play_episode = AsyncMock(
-            return_value={"success": True}
-        )
+        for every idle timeout. It goes through the play path, so the second
+        comes from the progress file and rides on the load."""
+        rig = auto_stop_rig
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(305)
+        await rig.command("pause")               # the 1 s idle timeout fires
+        await settle()
+        assert rig.state()["source_state"] == "ready"
 
-        result = await podcast_source.command("resume", {})
+        result = await rig.command("resume")
 
         assert result["success"] is True
-        assert podcast_source._handle_play_episode.await_args.args[0].episode_uuid == "e1"
+        url, _mode, start_s = rig.loads()[-1][1:4]
+        assert (url, start_s) == (EPISODE_A["audio_url"], 305)
+        state = rig.state()
+        assert state["source_state"] == "active"
+        assert state["metadata"]["is_playing"] is True
 
     @pytest.mark.asyncio
     async def test_seek_with_no_session_answers_a_domain_error(self, podcast_source):

@@ -7,10 +7,9 @@ import pytest
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.shared import mpv_audio_source
-from backend.sources.podcast import source as podcast_module
 from backend.sources.podcast.source import PodcastSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, FakeMpv, TickGate, Wire, check_recording, instant_short_sleep,
+    AsyncioProxy, EventMpv, TickGate, Wire, check_recording, instant_short_sleep,
     make_settings, make_state_machine, make_systemd, settle,
 )
 
@@ -96,14 +95,12 @@ class Podcast:
     """Adapter: how each outside-world stimulus reaches PodcastSource today."""
 
     def __init__(self, monkeypatch, settings=None):
-        self.mpv = FakeMpv()
+        self.mpv = EventMpv()
         self.gate = TickGate()
+        self._ending = False
         monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
-        # The resume seek polls mpv with 0.2/0.3 s sleeps; the 10 s progress-save
-        # loop still waits for real and is cancelled by every stop.
-        monkeypatch.setattr(podcast_module, "asyncio", AsyncioProxy(instant_short_sleep))
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         settings_service = make_settings(settings)
@@ -133,9 +130,17 @@ class Podcast:
 
     async def play(self, episode):
         await self.command("play_episode", {"episode_uuid": episode["uuid"]})
+        await self.mpv.time_passes()         # mpv opens the file
+        await settle()
 
     async def tick(self, times=1):
-        await self.gate.tick(times)
+        for _ in range(times):
+            if self._ending:
+                self._ending = False
+                await self.mpv.ends("eof")
+            await self.mpv.time_passes()
+            await settle()                   # what mpv said is handled first
+            await self.gate.tick()
 
     def playhead(self, seconds, duration=None):
         """mpv is playing the loaded file at `seconds` (duration as mpv knows it)."""
@@ -149,11 +154,8 @@ class Podcast:
         self.mpv.props["pause"] = True
 
     def file_ended(self):
-        """keep-open=no: mpv unloads the file at EOF and goes idle."""
-        self.mpv.props.update({
-            "idle-active": True, "playback-time": None, "time-pos": None,
-            "duration": None,
-        })
+        """The file plays out: mpv's end-file eof, seen by the next tick."""
+        self._ending = True
 
 
 @pytest.fixture

@@ -70,6 +70,17 @@ describe('podcastStore', () => {
       });
     });
 
+    it('keeps the episode across a state-only change (multiroom reroute)', () => {
+      // The reroute publishes STARTING with metadata=null: a state change that
+      // says nothing about the episode. Read as "no episode", it blanked the
+      // player for the whole reroute (E02).
+      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+
+      store.handleSourceEvent(sourceEvent(null));
+
+      expect(store.currentEpisode.uuid).toBe('ep1');
+    });
+
     it('drops the current episode when the source goes idle without one', () => {
       // Every stop that is not a natural end — auto-stop after pause, explicit
       // stop, mpv gone — publishes {is_playing, is_buffering} and nothing else.
@@ -384,15 +395,9 @@ describe('podcastStore', () => {
       expect(store.pendingEpisodeUuid).toBe('ep1');
     });
 
-    it('clears the pending flag and throws when the request fails', async () => {
-      apiCall.post.mockResolvedValueOnce(fail('Episode unavailable'));
-
-      await expect(store.play('ep1')).rejects.toThrow('Episode unavailable');
-      expect(store.pendingEpisodeUuid).toBeNull();
-    });
-
-    it('clears the pending flag when the backend answers success: false', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: false }));
+    it('clears the pending flag and throws when the command fails', async () => {
+      // The generic control route answers a refused play_episode with a 400.
+      apiCall.post.mockResolvedValueOnce(fail('Failed to load stream', 400));
 
       await expect(store.play('ep1')).rejects.toThrow();
       expect(store.pendingEpisodeUuid).toBeNull();

@@ -20,6 +20,9 @@ import pytest
 from backend.core.models.audio_state import SourceState
 from backend.sources.music_library.disc_merge import build_merged_id
 from backend.sources.music_library.source import MusicLibrarySource
+from backend.tests.golden.harness import settle
+from backend.tests.golden.test_old_wire_music_library import ALBUM
+from backend.tests.test_mpv_sessions import LibraryRig
 
 
 # === storages() =============================================================
@@ -126,51 +129,43 @@ async def test_unplugged_key_keeps_its_entry_and_its_library():
 
 # === a storage space that disappears ========================================
 
-async def test_unplugging_the_key_being_played_publishes_ready():
-    """The stop a yanked key triggers has to reach the screen.
+async def test_unplugging_the_key_being_played_publishes_ready(monkeypatch):
+    """The end a yanked key triggers has to reach the screen, before the
+    storages push that follows it.
 
-    ``stop()`` clears the source but publishes nothing (it is also the reroute
-    path), while the MusicLibraryStoragesChanged that ``broadcast_storages``
-    sends right after carries full_state — so without the publish the client is
-    handed a state still saying the track plays, and nothing corrects it.
+    MusicLibraryStoragesChanged carries full_state, and musicLibraryStore
+    applies it — so if the session's end is published after it (or not at
+    all), the client is handed a state still saying the track plays, and
+    nothing corrects it.
     """
-    source = MusicLibrarySource(config={})
-    source._service_manager = AsyncMock()
-    source.state_machine = MagicMock()
-    source.state_machine.update_source_state = AsyncMock()
-    source.state_machine.broadcast = AsyncMock()
-    source._shares = MagicMock()
-    source._shares.storages_with_stats = AsyncMock(
-        return_value=[{"library_id": 3, "mounted": False}]
-    )
-    source._shares.scan_state = MagicMock(return_value={})
-    source._queue = [{"id": "s1"}]
-    source._queue_library_id = 3
+    rig = LibraryRig(monkeypatch)
+    await rig.select()
+    await rig.command("play_context", {"tracks": ALBUM, "library_id": 3})
+    await rig.tick()
 
-    await source.broadcast_storages()
+    await rig.key_pulled()
 
-    source.state_machine.update_source_state.assert_awaited_once()
-    _, state, metadata = source.state_machine.update_source_state.await_args.args
-    assert state is SourceState.READY
-    assert metadata["is_playing"] is False
+    pushed = [e for e in rig.recorder.envelopes if e["type"] == "storages_changed"]
+    carried = pushed[-1]["data"]["full_state"]
+    assert carried["source_state"] == SourceState.READY.value
+    assert carried["metadata"]["is_playing"] is False
+    assert "track_id" not in carried["metadata"]
 
 
-async def test_a_storage_still_mounted_stops_nothing():
-    source = MusicLibrarySource(config={})
-    source.state_machine = MagicMock()
-    source.state_machine.update_source_state = AsyncMock()
-    source.state_machine.broadcast = AsyncMock()
-    source._shares = MagicMock()
-    source._shares.storages_with_stats = AsyncMock(
-        return_value=[{"library_id": 3, "mounted": True}]
-    )
-    source._shares.scan_state = MagicMock(return_value={})
-    source._queue = [{"id": "s1"}]
-    source._queue_library_id = 3
+async def test_a_storage_still_mounted_stops_nothing(monkeypatch):
+    """A storages event for a key that is still mounted (a scan poll, another
+    key plugged in) must not end the session playing from it."""
 
-    await source.broadcast_storages()
+    library = LibraryRig(monkeypatch)
+    await library.select()
+    await library.play_album(library_id=3)
+    await library.tick()
 
-    source.state_machine.update_source_state.assert_not_called()
+    await library.shares.on_storages_changed()
+    await settle()
+
+    assert library.state()["source_state"] == "active"
+    assert library.state()["metadata"]["is_playing"] is True
 
 
 # === library reconcile ======================================================

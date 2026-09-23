@@ -1082,40 +1082,6 @@
    },
    {
     "category": "source",
-    "type": "error",
-    "origin": "radio",
-    "data": {
-     "source": "radio",
-     "reason": "stream_load_failed",
-     "full_state": {
-      "active_source": "radio",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "FIP",
-       "album": "FIP",
-       "album_art_url": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
-       "station_id": "fip",
-       "station_name": "FIP",
-       "station_url": "http://stream.example/fip.mp3",
-       "country": "France",
-       "genre": "eclectic",
-       "favicon": "https://img.example/fip.png",
-       "bitrate": 128,
-       "codec": "MP3",
-       "is_favorite": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
     "type": "state_changed",
     "origin": "radio",
     "data": {
@@ -1137,6 +1103,40 @@
       "album": "FIP",
       "album_art_url": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png"
      },
+     "full_state": {
+      "active_source": "radio",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "station_id": "fip",
+       "station_name": "FIP",
+       "station_url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3",
+       "is_favorite": true,
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "FIP",
+       "album": "FIP",
+       "album_art_url": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "reason": "stream_load_failed",
      "full_state": {
       "active_source": "radio",
       "source_state": "ready",

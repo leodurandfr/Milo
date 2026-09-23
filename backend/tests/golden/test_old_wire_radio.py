@@ -10,7 +10,7 @@ from backend.shared import mpv_audio_source
 from backend.sources.radio import source as radio_module
 from backend.sources.radio.source import RadioSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, FakeMpv, TickGate, Wire, check_recording, instant_short_sleep,
+    AsyncioProxy, EventMpv, TickGate, Wire, check_recording, instant_short_sleep,
     make_settings, make_state_machine, make_systemd, settle,
 )
 
@@ -68,7 +68,7 @@ class Radio:
     """Adapter: how each outside-world stimulus reaches RadioSource today."""
 
     def __init__(self, monkeypatch, settings=None):
-        self.mpv = FakeMpv()
+        self.mpv = EventMpv()
         self.gate = TickGate()
         monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))
@@ -113,10 +113,13 @@ class Radio:
         await settle()
 
     async def tick(self, times=1):
-        await self.gate.tick(times)
+        for _ in range(times):
+            await self.mpv.time_passes()
+            await settle()                   # what mpv said is handled first
+            await self.gate.tick()
 
     async def stream_title(self, title):
-        self.mpv.props["metadata"] = {"icy-title": title}
+        self.mpv.metadata = {"icy-title": title}
 
     async def shazam_hears(self, track):
         self.source._shazam.current_track = track

@@ -12,13 +12,12 @@ Provides REST API for:
 - Settings (podcast-specific settings)
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
-from backend.api.route_helpers import api_error_handler, run_source_command
+from backend.api.route_helpers import api_error_handler
 from typing import Dict, Any
 import logging
 
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.podcast.models import (
-    PlayEpisodeRequest,
     SubscribeRequest,
 )
 from backend.sources.podcast.source import PodcastSource
@@ -230,33 +229,11 @@ async def get_episode(
         return episode
 
 
-# === Playback Routes ===
+# === Playback ===
 #
-# Only the composite lives here. pause/resume/seek/set_speed are plain commands
-# and go through POST /api/audio/control/podcast like every other source's.
-
-@router.post("/play")
-async def play_episode(
-    request: PlayEpisodeRequest,
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Play an episode, resuming at `position` when one is carried.
-
-    Two commands in one request: the resume seek must not be a second
-    round-trip, or the episode audibly starts at 0:00 first.
-    """
-    result = await run_source_command(
-        source, "play_episode", {"episode_uuid": request.episode_uuid}, "Play"
-    )
-
-    # If position specified, seek to it
-    if request.position is not None and request.position > 0:
-        await run_source_command(
-            source, "seek", {"position": request.position}, "Seek"
-        )
-
-    return result
-
+# Every playback command, play_episode included, goes through
+# POST /api/audio/control/podcast like every other source's: none composes two
+# commands any more (the start position rides on play_episode's load).
 
 @router.get("/playback-speeds")
 async def get_playback_speeds() -> Dict[str, Any]:

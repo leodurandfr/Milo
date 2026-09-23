@@ -17,19 +17,24 @@ import asyncio
 from backend.core.models.ws_events import SourceErrorReason
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 from urllib.parse import quote, urlparse
 
 from pydantic import BaseModel
 
+from backend.core.audio_source import Result
 from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.session import (
+    CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
+)
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
-from backend.shared.mpv_audio_source import MpvAudioSource
+from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.radio.browser_api import RadioBrowserAPI
 
 # In-band metadata polling (primary now-playing source). The monitor ticks
@@ -121,15 +126,59 @@ def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
     return {"title": title, "artist": artist, "artwork": None}
 
 
+@dataclass(eq=False)
+class RadioSession(MpvSession):
+    """One station tuned: from the tune to a named end.
+
+    The in-band title, the Shazam arbitration and the cover being resolved
+    all belong to it, so ending the session is what clears them.
+    """
+    station: Dict[str, Any] = field(default_factory=dict)
+    inband_track: Optional[Dict[str, Any]] = None
+    inband_seen: bool = False           # the station emits in-band → no Shazam
+    inband_poll_ticks: int = 0
+    empty_inband_polls: int = 0         # in-band-empty polls since the sound started
+    inband_empty_streak: int = 0        # consecutive empty polls once in-band was seen
+    shazam_candidate: bool = False      # the station qualifies for the Shazam fallback
+    recognition_enabled: bool = True    # the per-station now-playing gate
+
+
 class RadioSource(MpvAudioSource):
     """
     Radio audio source using MPV.
 
-    Family C (active player): controlled from Milō's UI. Extends MpvAudioSource
-    (BaseAudioSource subclass) — implements playback and station commands.
+    Family C (active player): controlled from Milō's UI. A session is one
+    station tuned; mpv says when its sound starts and why it ends. A live
+    stream has no normal end, so any end after the first sound is a lost
+    stream, and every end but that keeps the station to re-tune.
     """
 
     NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
+
+    IDLE_POLICY = IdlePolicy.AUTO_STOP
+    REROUTE = ReroutePolicy.RESTART_AND_RESTORE
+    RESUME_POLICY = ResumePolicy(
+        # A live stream never ends normally (its end is STREAM_LOST), so EOF is
+        # unreachable; every reachable end keeps the station.
+        capture_on=frozenset(EndReason) - {EndReason.EOF},
+        forget_on=frozenset({EndReason.EOF}),
+    )
+    SESSION_DAEMON = False
+
+    COMMANDS = {
+        "play_station": PlayStationParams,
+        "stop": None,
+        "resume_playback": None,
+        "next": None,
+        "prev": None,
+    }
+    COMMAND_SCOPES = {
+        "play_station": CommandScope.CONTENT,
+        "stop": CommandScope.RESUME,
+        "resume_playback": CommandScope.RESUME,
+        "next": CommandScope.RESUME,
+        "prev": CommandScope.RESUME,
+    }
 
     def __init__(
         self,
@@ -164,30 +213,7 @@ class RadioSource(MpvAudioSource):
         # their artist/title via the iTunes Search API.
         self._artwork = ArtworkResolver(self._settings_service)
 
-        # State
-        self._metadata: Dict[str, Any] = {}
-        self._current_station: Optional[Dict[str, Any]] = None
-        self._last_station: Optional[Dict[str, Any]] = None
-        # Serializes next/prev: the step reads _current_station, and
-        # _handle_play_station only writes it after awaiting mpv. Two presses
-        # arriving inside that window would both compute the same target and
-        # collapse into one station moved.
-        self._step_lock = asyncio.Lock()
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
-        self._buffering_ticks: int = 0
-
-        # In-band metadata (primary title source). Shazam is the fallback,
-        # started only when in-band stays empty (see _poll_inband_metadata).
-        self._inband_track: Optional[Dict[str, Any]] = None
-        self._inband_seen: bool = False        # station emits in-band → suppress Shazam
-        self._inband_poll_ticks: int = 0
-        self._empty_inband_ticks: int = 0      # in-band-empty polls since play start
-        self._inband_empty_streak: int = 0     # consecutive empty polls after in-band seen
-        self._shazam_candidate: bool = False   # station qualifies for Shazam fallback
-        # Per-station now-playing gate ("Reconnaissance des morceaux de cette
-        # station"). When a station is opted out, NO track is shown — neither
-        # in-band metadata NOR Shazam. Set per play in _handle_play_station.
-        self._recognition_enabled: bool = True
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:
@@ -196,90 +222,70 @@ class RadioSource(MpvAudioSource):
         self._logger.info("Radio station data initialized")
         return await super().initialize()
 
-    def _reset_playback_state(self) -> None:
-        super()._reset_playback_state()
-        self._last_station = self._current_station or self._last_station
-        self._current_station = None
-        self._reset_inband_state()
-
     @property
     def _displayed_station(self) -> Optional[Dict[str, Any]]:
-        """The station this source is about: tuned, or last tuned.
-
-        One expression, one place. `_current_station` and `_last_station` are
-        two facts, not two spellings of one — the first says a session is live
-        (so a stream that drops while tuned stays ACTIVE and the mpv-disconnect
-        fallback can still fire), the second says what a play would bring back.
-        Everything that only needs "which station" reads this.
-        """
-        return self._current_station or self._last_station
+        """The station this source is about: tuned, or the one a play re-tunes."""
+        if isinstance(self._session, RadioSession):
+            return self._session.station
+        point = self._resume_point
+        return point.content if point is not None else None
 
     def _idle_metadata(self) -> Dict[str, Any]:
         """A stopped radio still has a station to re-tune, so publish the full
         projection (same reason the CD keeps a loaded disc visible).
 
-        Nothing ever tuned this session — a disconnect before the first play —
-        has nothing to resume, and falls back to the pair every player reads.
-        The projection is empty in exactly that case, never partially filled.
+        Nothing ever tuned — a disconnect before the first play — has nothing
+        to resume, and falls back to the pair every player reads.
         """
         projection = self._build_playback_metadata()
         return projection if projection else super()._idle_metadata()
 
-    def _reset_inband_state(self) -> None:
-        """Clear in-band metadata / Shazam-arbitration state between stations."""
-        self._inband_track = None
-        self._inband_seen = False
-        self._inband_poll_ticks = 0
-        self._empty_inband_ticks = 0
-        self._inband_empty_streak = 0
-        self._shazam_candidate = False
+    def _resume_content(self, session: RadioSession):
+        return session.station.get("id") or "", 0, session.station
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
         try:
-            # 1. Start service
             if not await self._start_service_and_wait():
                 return False
 
-            # 2. Ensure station data is initialized (initialize() self-guards
-            #    on its own loaded flag, so calling it twice is a no-op)
+            # initialize() self-guards on its own loaded flag
             await self._station_data.initialize()
 
-            # 3. Create Shazam recognition service
             self._shazam = ShazamRecognitionService(
                 settings_service=self._settings_service,
                 on_track_changed=self._on_shazam_track_changed
             )
 
-            # 4. Connect to MPV IPC
             if not await self._attach_mpv():
                 return False
-
-            # 5. Reset state and load auto-stop config
-            self._reset_playback_state()
+            await self._listen_to_mpv()
             await self._load_auto_stop_config()
 
-            # 6. Start monitor task
-            self._start_monitor()
-
-            # 7. Update state
+            point = self._resume_point
+            if point is not None and point.reason is EndReason.REROUTE:
+                # A multiroom toggle comes back in the phase it left.
+                if point.phase is not Phase.PAUSED:
+                    await self._tune(point.content)
+                    return True
             self._update_connection_state()
-
             return True
 
         except Exception as e:
             self._logger.error(f"Start failed: {e}")
+            await self.end_session(EndReason.LOAD_FAILED)
             await self._cleanup()
             return False
 
+    async def _do_stop(self) -> bool:
+        await self.end_session(EndReason.SOURCE_SWITCH)
+        await self._cleanup()
+        return await self._stop_service()
 
-    COMMANDS = {
-        "play_station": PlayStationParams,
-        "stop": None,
-        "resume_playback": None,
-        "next": None,
-        "prev": None,
-    }
+    async def _do_release(self) -> bool:
+        await self.end_session(EndReason.REROUTE)
+        await self._cleanup()
+        return await self._stop_service()
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Radio-specific commands."""
@@ -300,151 +306,101 @@ class RadioSource(MpvAudioSource):
     # === Command Handlers ===
 
     async def _handle_play_station(self, params: PlayStationParams) -> Dict[str, Any]:
-        """Play a radio station with fallback to alternative URLs."""
+        """Play a radio station: favorite data first, then what the caller
+        sent, then the directory."""
         station_id = params.station_id
 
         try:
-            # Get station with fallback chain: local favorite → provided → API
             station = None
-            provided_station = params.station
-
-            # 1. Try local data for favorites
             if self._station_data.is_favorite(station_id):
                 station = self._station_data.get_favorite_metadata_local(station_id)
-
-            # 2. Fallback to provided station
-            if not station and provided_station:
-                station = provided_station
-
-            # 3. Fallback to API
+            if not station and params.station:
+                station = params.station
             if not station:
                 station = await self._radio_api.get_station_by_id(station_id)
-
             if not station:
                 return self.error_response(f"Station {station_id} not found")
-
-            station_name = station.get('name', 'Unknown')
-            primary_url = station.get('url')
-
-            self._logger.info(f"Playing station: {station_name}")
 
             # Increment Radio Browser counter (fire and forget)
             self._bg.spawn(
                 self._radio_api.increment_station_clicks(station_id),
                 label="increment_station_clicks",
             )
-
-            # Stop current playback before switching stations
-            if self._shazam:
-                await self._shazam.stop()
-            if self._mpv and self._is_playing:
-                await self._mpv.stop()
-                self._is_playing = False
-
-            # Update state: buffering in progress (broadcast immediately for responsive UI)
-            self._reset_inband_state()
-            self._current_station = station
-            self._is_buffering = True
-            self._buffering_ticks = 0
-            self._metadata = self._build_playback_metadata()
-            self._update_connection_state()
-
-            if not await self._load_stream(primary_url):
-                self._is_buffering = False
-                self._last_station = self._current_station or self._last_station
-                self._current_station = None
-                error_msg = f"Unable to load stream: {station_name}"
-                self._logger.error(error_msg)
-                self.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
-                return self.error_response(error_msg)
-
-            # Per-station now-playing gate: when the station is opted out via
-            # ManageStation, show no track at all (neither in-band nor Shazam).
-            self._recognition_enabled = self._station_data.is_station_shazam_enabled(
-                station_id
-            )
-
-            # In-band metadata (polled by the monitor) is the primary title
-            # source. Shazam is a fallback started only if in-band stays empty
-            # past the grace period — see _poll_inband_metadata. It additionally
-            # requires the global Shazam toggle (in-band needs neither).
-            self._shazam_candidate = bool(
-                self._shazam
-                and self._recognition_enabled
-                and await self._shazam.is_enabled()
-            )
-
-            return self.success_response(f"Loading {station_name}", station=station)
+            return await self._tune(station)
 
         except Exception as e:
             self._logger.error(f"Station playback error: {e}")
-            self._is_buffering = False
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response(str(e))
 
-    async def _load_stream(self, url: str) -> bool:
-        """Hand a stream URL to mpv.
+    async def _tune(self, station: Dict[str, Any]) -> Dict[str, Any]:
+        """Open a session on `station` and hand its URL to mpv.
 
-        False means mpv refused the command, not that the stream is bad: mpv
-        acknowledges `loadfile` before it has opened anything. A dead stream is
-        caught later, by the buffering timeout in the monitor.
+        mpv answering the load says nothing about the stream: its sound
+        starting (playback-restart) or its end (end-file) are what tell.
         """
-        if not self._mpv:
-            self._logger.error("MPV not connected, cannot load stream")
-            return False
-        success = await self._mpv.load_stream(url)
-        if not success:
-            self._logger.debug(f"mpv load_stream failed for: {url[:80]}")
-        return success
+        station_name = station.get('name', 'Unknown')
+        self._logger.info(f"Playing station: {station_name}")
 
-    async def _auto_stop_action(self) -> None:
-        """Stop playback in place after pause/silence timeout."""
-        await self._handle_stop_playback()
+        # Replaced, not stopped: the next load replaces the entry in mpv.
+        await self.end_session(EndReason.USER_STOP)
+        session = RadioSession(phase=Phase.LOADING, station=station)
+        session.recognition_enabled = self._station_data.is_station_shazam_enabled(
+            station.get('id')
+        )
+        self.open_session(session)
+        self._update_connection_state()
+
+        async def load():
+            if await self._mpv_ready() and await self._set_mpv_pause(False):
+                return await self._mpv.loadfile(station.get('url'), mode="replace")
+            return None
+
+        entry = await self._attempt(load)
+        if entry is None:
+            await self._end_playback(EndReason.LOAD_FAILED, detail="mpv refused the load")
+            return self.error_response(f"Unable to load stream: {station_name}")
+        session.entry = entry
+        session.link = self._mpv.link
+
+        # In-band metadata (polled while sound plays) is the primary title
+        # source. Shazam is a fallback started only if in-band stays empty past
+        # the grace period, and needs the global toggle too.
+        session.shazam_candidate = bool(
+            self._shazam
+            and session.recognition_enabled
+            and await self._shazam.is_enabled()
+        )
+        return self.success_response(f"Loading {station_name}", station=station)
+
+    async def _content_finished(self, session: RadioSession) -> None:
+        """A live stream has no normal end: mpv's `eof` after the first sound
+        is the server going away (measured: a killed server ends in `eof`)."""
+        await self._end_playback(EndReason.STREAM_LOST, detail="the stream ended")
+
+    async def _session_ended(self, session: RadioSession, reason: EndReason) -> None:
+        """Shazam listens to the session's stream: it stops with it (E44)."""
+        if self._shazam:
+            await self._shazam.stop()
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
-        """Stop playback and reset to READY state."""
-        try:
-            self._is_playing = False
-            self._is_buffering = False
-            # Stop is an explicit user action — drop any pending pause timer
-            # (mpv's pause property can stay True after `stop`).
-            self._handle_pause_change(False)
-
-            if self._shazam:
-                await self._shazam.stop()
-
-            # Guarded like the shazam call above, and like music_library's stop:
-            # `_mpv` is None before the first play and again after `_cleanup`,
-            # which is exactly the state a client sends `stop` from. Unguarded,
-            # the AttributeError was caught by `command()` and served as
-            # HTTP 400 "'NoneType' object has no attribute 'stop'" — a crash
-            # wearing a client error's clothes, which Milo-iOS could only tell
-            # from a real refusal by matching "NoneType" in the string.
-            # Stop is idempotent: nothing playing already is the end state asked
-            # for, so this reports success rather than inventing a failure.
+        """Stop playback; the station stays to re-tune. Idempotent: nothing
+        playing is already the end state asked for."""
+        if self._session is not None:
             if self._mpv:
                 await self._mpv.stop()
-
-            self._last_station = self._current_station or self._last_station
-            self._current_station = None
-            self._update_connection_state()
-
-            return self.success_response("Playback stopped")
-
-        except Exception as e:
-            return self.error_response(str(e))
+            await self.end_session(EndReason.USER_STOP)
+        self._update_connection_state()
+        return self.success_response("Playback stopped")
 
     async def _handle_resume_playback(self) -> Dict[str, Any]:
-        """Resume playback of the last station."""
-        if not self._last_station:
+        """Re-tune the station on screen: the live one, or the one kept."""
+        station = self._displayed_station
+        if not station:
             return self.error_response("No station to resume")
-
-        station_id = self._last_station.get('id', '')
-        if not station_id:
+        if not station.get('id'):
             return self.error_response("Last station has no id, cannot resume")
-        return await self._handle_play_station(
-            PlayStationParams(station_id=station_id, station=self._last_station)
-        )
+        return await self._tune(station)
 
     async def _handle_step_favorite(self, offset: int) -> Dict[str, Any]:
         """Play the favorite station `offset` places from the current one.
@@ -453,29 +409,33 @@ class RadioSource(MpvAudioSource):
         list instead — that is what the rotary, the IR remote and the iOS lock
         screen send. The list wraps. A station played from a search is not in
         it and has no neighbor, so stepping enters the list at its first
-        entry (next) or its last (prev); when nothing is tuned the last station
-        stands in, so a press after `stop` resumes the walk where it left off.
+        entry (next) or its last (prev); when nothing is tuned the kept
+        station stands in, so a press after `stop` resumes the walk where it
+        left off.
         """
-        async with self._step_lock:
-            favorites = self._station_data.favorite_ids
-            if not favorites:
-                return self.error_response("No favorite station to step to")
+        favorites = self._station_data.favorite_ids
+        if not favorites:
+            return self.error_response("No favorite station to step to")
 
-            station = self._displayed_station
-            current_id = station.get('id') if station else None
+        station = self._displayed_station
+        current_id = station.get('id') if station else None
 
-            if current_id in favorites:
-                index = (favorites.index(current_id) + offset) % len(favorites)
-            else:
-                index = 0 if offset > 0 else len(favorites) - 1
+        if current_id in favorites:
+            index = (favorites.index(current_id) + offset) % len(favorites)
+        else:
+            index = 0 if offset > 0 else len(favorites) - 1
 
-            station_id = favorites[index]
-            if station_id == current_id and self._is_playing:
-                # Single favorite: re-tuning the station already playing would
-                # only cost a re-buffer.
-                return self.success_response("Already on the only favorite station")
+        station_id = favorites[index]
+        if (
+            station_id == current_id
+            and self._session is not None
+            and self._session.phase is Phase.PLAYING
+        ):
+            # Single favorite: re-tuning the station already playing would
+            # only cost a re-buffer.
+            return self.success_response("Already on the only favorite station")
 
-            return await self._handle_play_station(PlayStationParams(station_id=station_id))
+        return await self._handle_play_station(PlayStationParams(station_id=station_id))
 
     # === Helpers ===
 
@@ -522,8 +482,11 @@ class RadioSource(MpvAudioSource):
 
     def _resolve_track(self) -> Optional[Dict[str, Any]]:
         """Current now-playing track: in-band metadata is primary, Shazam fallback."""
-        if self._inband_track:
-            return self._inband_track
+        session = self._session
+        if not isinstance(session, RadioSession):
+            return None
+        if session.inband_track:
+            return session.inband_track
         return self._shazam.current_track if self._shazam else None
 
     @staticmethod
@@ -536,11 +499,6 @@ class RadioSource(MpvAudioSource):
     def _build_playback_metadata(self) -> Dict[str, Any]:
         """The station projection — the tuned one, or the one a play would re-tune.
 
-        Built from `_displayed_station` rather than `_current_station` so a
-        stopped radio still publishes what `resume_playback` would bring back.
-        Nothing tells them apart but `is_playing`, which is what says whether
-        audio is coming out; `source_state` says whether a session is live.
-
         The recognised track is deliberately absent when nothing is tuned: it
         annotates a stream that is running, and the identity a stopped radio
         carries is the station.
@@ -549,8 +507,9 @@ class RadioSource(MpvAudioSource):
         if not station:
             return {}
 
-        track = self._resolve_track() if self._current_station else None
+        track = self._resolve_track()
         station_name = station.get('name')
+        is_playing, is_buffering = self._flags(self._session.phase if self._session else None)
 
         return {
             "station_id": station.get('id'),
@@ -564,8 +523,8 @@ class RadioSource(MpvAudioSource):
             "is_favorite": self._station_data.is_favorite(
                 station.get('id')
             ) if self._station_data else False,
-            "is_playing": self._is_playing,
-            "is_buffering": self._is_buffering,
+            "is_playing": is_playing,
+            "is_buffering": is_buffering,
             # The cross-source floor every generic consumer reads (lock screen,
             # widget, shared player). Radio has two layers and this is the
             # one-line view of them: the recognised track when there is one,
@@ -584,157 +543,103 @@ class RadioSource(MpvAudioSource):
             "track_artwork": track["artwork"] if track else None
         }
 
-    def _update_connection_state(self) -> None:
-        """Update state based on playback."""
-        if self._current_station and self._is_playing:
-            self.broadcast_error_cleared()
+    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
+        """The source's one publish site."""
         self.emit_connection_state(*self._connection_state())
 
     def _connection_state(self):
         core, extras = PlaybackMetadata.split(self._build_playback_metadata())
-        return bool(self._current_station), core, extras
+        return self._session is not None, core, extras
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
         """React to global Shazam toggle change."""
         if not self._shazam:
             return True
+        # Applied in the actor: it reads and writes the live session.
+        await self._submit(Result(lambda: self._apply_shazam_setting(enabled)))
+        return True
 
+    async def _apply_shazam_setting(self, enabled: bool) -> None:
+        session = self._session
         if enabled:
             # Re-arm the fallback only if the playing station is not opted out.
             # In-band metadata stays primary; if in-band has already taken over
-            # (or is present), leave Shazam off — otherwise the monitor's grace
-            # logic starts it once in-band stays empty.
-            if self._current_station and self._is_playing:
-                station_id = self._current_station.get('id')
-                stream_url = self._current_station.get('url')
+            # (or is present), leave Shazam off — otherwise the grace logic
+            # starts it once in-band stays empty.
+            if isinstance(session, RadioSession) and session.phase is Phase.PLAYING:
+                station_id = session.station.get('id')
+                stream_url = session.station.get('url')
                 if stream_url and self._station_data.is_station_shazam_enabled(station_id):
-                    if self._inband_seen or self._inband_track:
-                        self._shazam_candidate = False
+                    if session.inband_seen or session.inband_track:
+                        session.shazam_candidate = False
                     else:
-                        self._shazam_candidate = True
-                        self._empty_inband_ticks = 0
+                        session.shazam_candidate = True
+                        session.empty_inband_polls = 0
         else:
-            # Stop recognition loop and clear track info
-            self._shazam_candidate = False
+            if isinstance(session, RadioSession):
+                session.shazam_candidate = False
             await self._shazam.stop()
 
-        return True
-
     async def _on_shazam_track_changed(self, track) -> None:
-        """Callback from ShazamRecognitionService when a new track is detected."""
-        if self._current_station and self._is_playing:
-            self._metadata = self._build_playback_metadata()
+        """Callback from ShazamRecognitionService (its own task): posted."""
+        session = self._session
+        if session is not None:
+            self._post_result(self._republish_track, token=session)
+
+    async def _republish_track(self) -> None:
+        if self._session is not None and self._session.phase is Phase.PLAYING:
             self._update_connection_state()
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
-        self._stop_monitor()
-
         if self._shazam:
             await self._shazam.stop()
             self._shazam = None
+        await self._detach_mpv()
 
-        if self._mpv:
-            await self._mpv.disconnect()
-            self._mpv = None
+    # === While sound plays ===
 
-        # Note: station_data and radio_api persist for API access when radio is inactive
-        self._reset_playback_state()
+    async def _on_playing_tick(self, session: RadioSession) -> None:
+        await self._poll_inband_metadata(session)
 
-    # === Monitor hooks ===
-
-    async def _on_mpv_disconnect(self) -> None:
-        """Handle unexpected mpv disconnect."""
-        self._is_playing = False
-        self._is_buffering = False
-        # The hand-off every other stop path makes: a link that drops is the
-        # case where "play again" is most likely to be the next thing pressed,
-        # and without it `resume_playback` answers "No station to resume".
-        self._last_station = self._current_station or self._last_station
-        self._current_station = None
-        self._metadata = {}
-
-    async def _on_monitor_tick(self) -> None:
-        """Check playback state transitions."""
-        was_playing = self._is_playing
-        self._is_playing = await self._mpv.is_playing()
-
-        # Auto-stop on mpv pause edges. Radio doesn't expose a pause
-        # control in the UI, so this is mostly defensive — but it keeps
-        # behavior uniform with the other mpv sources if mpv ever pauses.
-        if self._current_station:
-            pause_state = await self._mpv.get_property("pause")
-            if pause_state is not None:
-                self._handle_pause_change(bool(pause_state))
-
-        if self._is_playing and not was_playing:
-            # Started playing - buffering complete
-            self._is_buffering = False
-            self._metadata = self._build_playback_metadata()
-            self._update_connection_state()
-
-        elif not self._is_playing and was_playing:
-            self._metadata = self._build_playback_metadata()
-            self._update_connection_state()
-
-        elif self._is_buffering and not self._is_playing:
-            # Give mpv time to start loading before checking for failure.
-            # idle-active is briefly True between loadfile and actual stream load.
-            self._buffering_ticks += 1
-            if self._buffering_ticks >= 5:
-                idle = await self._mpv.get_property("idle-active")
-                if idle:
-                    station_name = self._current_station.get('name', 'Unknown') if self._current_station else 'Unknown'
-                    self._logger.info(f"Stream load failed for {station_name} (mpv returned to idle)")
-                    self._is_buffering = False
-                    self._last_station = self._current_station or self._last_station
-                    self._current_station = None
-                    self._metadata = {}
-                    self.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
-                    self._update_connection_state()
-
-        if self._current_station and self._is_playing:
-            await self._poll_inband_metadata()
-
-    async def _poll_inband_metadata(self) -> None:
+    async def _poll_inband_metadata(self, session: RadioSession) -> None:
         """Read mpv in-band metadata; it is the primary now-playing source.
 
         In-band metadata (ICY StreamTitle / HLS tags) is instant and exact when
         present, so it overrides Shazam: the first in-band title shuts any
         running Shazam loop down. When in-band stays empty past a short grace
         period, Shazam starts as the fallback (metadata-less streams like
-        Radio France). Polled every _INBAND_POLL_TICKS monitor ticks.
+        Radio France). Polled every _INBAND_POLL_TICKS ticks of sound.
 
         Skipped entirely when the station is opted out of now-playing — the
         per-station gate must suppress in-band titles too, not just Shazam.
         """
-        if not self._recognition_enabled:
+        if not session.recognition_enabled:
             return
 
-        self._inband_poll_ticks += 1
-        if self._inband_poll_ticks < _INBAND_POLL_TICKS:
+        session.inband_poll_ticks += 1
+        if session.inband_poll_ticks < _INBAND_POLL_TICKS:
             return
-        self._inband_poll_ticks = 0
+        session.inband_poll_ticks = 0
 
         metadata = await self._mpv.get_metadata()
         track = _parse_inband_track(metadata)
 
         if track:
-            self._empty_inband_ticks = 0
-            self._inband_empty_streak = 0
-            if not self._inband_seen:
-                self._inband_seen = True
+            session.empty_inband_polls = 0
+            session.inband_empty_streak = 0
+            if not session.inband_seen:
+                session.inband_seen = True
                 # In-band wins over Shazam — shut the fallback down.
                 if self._shazam and self._shazam.is_running:
                     await self._shazam.stop()
-            if self._track_key(track) != self._track_key(self._inband_track):
-                self._inband_track = track
-                self._metadata = self._build_playback_metadata()
+            if self._track_key(track) != self._track_key(session.inband_track):
+                session.inband_track = track
                 self._update_connection_state()
-                # In-band carries no artwork — resolve a cover off the monitor
+                # In-band carries no artwork — resolve a cover off the actor
                 # (iTunes Search), then patch it in if the track is still up.
-                self._bg.spawn(
-                    self._resolve_inband_artwork(track),
+                self._session_bg.spawn(
+                    self._resolve_inband_artwork(session, track),
                     label="inband_artwork",
                 )
             return
@@ -742,60 +647,59 @@ class RadioSource(MpvAudioSource):
         # In-band empty this poll. A brief gap between tracks is normal, so keep
         # the last title for a few polls; clear it only after sustained silence
         # (ad/talk/dead air) so in-band can't leave a phantom title pinned.
-        if self._inband_seen:
-            if self._inband_track is not None:
-                self._inband_empty_streak += 1
-                if self._inband_empty_streak >= _INBAND_STALE_CLEAR_POLLS:
-                    self._inband_track = None
-                    self._inband_empty_streak = 0
-                    self._metadata = self._build_playback_metadata()
+        if session.inband_seen:
+            if session.inband_track is not None:
+                session.inband_empty_streak += 1
+                if session.inband_empty_streak >= _INBAND_STALE_CLEAR_POLLS:
+                    session.inband_track = None
+                    session.inband_empty_streak = 0
                     self._update_connection_state()
             return
 
         # Never seen in-band for this station → count toward the Shazam grace,
         # then start the fallback once (candidacy is consumed to avoid re-arming).
-        self._empty_inband_ticks += 1
+        session.empty_inband_polls += 1
         if (
-            self._shazam_candidate
+            session.shazam_candidate
             and self._shazam
             and not self._shazam.is_running
-            and self._empty_inband_ticks * _INBAND_POLL_TICKS >= _SHAZAM_GRACE_TICKS
+            and session.empty_inband_polls * _INBAND_POLL_TICKS >= _SHAZAM_GRACE_TICKS
         ):
-            stream_url = self._current_station.get('url') if self._current_station else None
+            stream_url = session.station.get('url')
             if stream_url:
-                self._shazam_candidate = False
-                # Preroll probe (ffprobe) runs off the monitor to avoid stalling
-                # playback-state checks for up to ~10 s.
-                self._bg.spawn(
-                    self._start_shazam_fallback(stream_url),
+                session.shazam_candidate = False
+                # The preroll probe (ffprobe) runs off the actor: up to ~10 s.
+                self._session_bg.spawn(
+                    self._start_shazam_fallback(session, stream_url),
                     label="shazam_fallback_start",
                 )
 
-    async def _resolve_inband_artwork(self, track: Dict[str, Any]) -> None:
-        """Resolve cover art for an in-band track and patch it in if still current.
-
-        Runs off the monitor (spawned via `_bg`). The artwork is applied only
-        when `track` is still the live in-band track — a newer title that
-        arrived during the lookup must not be overwritten with a stale cover.
-        """
+    async def _resolve_inband_artwork(self, session: RadioSession, track: Dict[str, Any]) -> None:
+        """Resolve cover art for an in-band track, applied if still current."""
         artwork = await self._artwork.resolve(
             track.get("artist", ""), track.get("title", "")
         )
         if not artwork:
             return
-        if self._inband_track is track and self._current_station and self._is_playing:
-            track["artwork"] = artwork
-            self._metadata = self._build_playback_metadata()
-            self._update_connection_state()
 
-    async def _start_shazam_fallback(self, stream_url: str) -> None:
+        async def apply() -> None:
+            if session.inband_track is track and session.phase is Phase.PLAYING:
+                track["artwork"] = artwork
+                self._update_connection_state()
+
+        self._post_result(apply, token=session)
+
+    async def _start_shazam_fallback(self, session: RadioSession, stream_url: str) -> None:
         """Detect preroll and start Shazam, unless in-band appeared meanwhile."""
         if not self._shazam:
             return
         preroll = await self._detect_preroll(stream_url)
-        # Station may have changed / in-band arrived during the probe.
-        if self._current_station and self._is_playing and not self._inband_seen:
-            await self._shazam.start(stream_url, preroll_skip=preroll)
+
+        async def apply() -> None:
+            if self._shazam and session.phase is Phase.PLAYING and not session.inband_seen:
+                await self._shazam.start(stream_url, preroll_skip=preroll)
+
+        self._post_result(apply, token=session)
 
     # === Public API ===
 
@@ -808,4 +712,3 @@ class RadioSource(MpvAudioSource):
     def radio_api(self) -> Optional[RadioBrowserAPI]:
         """Get RadioBrowser API client."""
         return self._radio_api
-

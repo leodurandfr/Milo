@@ -12,32 +12,81 @@ Features:
 - Resume from last position
 - PodcastCatalog for discovery and feed reading
 """
-import asyncio
 from backend.core.models.ws_events import SourceErrorReason
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
 
 from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.session import (
+    CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
+)
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
-from backend.shared.mpv_audio_source import MpvAudioSource
+from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.podcast.podcast_catalog import PodcastCatalog
 
 VALID_PLAYBACK_SPEEDS: list[float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
+# A position saved on disk is resumed only past this many seconds.
+RESUME_MIN_POSITION_S = 10
+
+# Seconds of sound between two progress saves.
+PROGRESS_SAVE_TICKS = 10
+
+
+@dataclass(eq=False)
+class PodcastSession(MpvSession):
+    """One episode loaded, from the play to a named end."""
+    episode: Dict[str, Any] = field(default_factory=dict)
 
 
 class PodcastSource(MpvAudioSource):
     """
     Podcast audio source using MPV.
 
-    Family C (active player): controlled from Milō's UI. Extends MpvAudioSource
-    (BaseAudioSource subclass) — implements playback and data commands.
+    Family C (active player): controlled from Milō's UI. A session is one
+    episode; mpv says when its sound starts and why it ends, and only its own
+    `eof` makes an episode "listened" (E47, E48). What any other end leaves is
+    the episode to resume, at its second; the progress file stays the
+    authority on where a resume starts.
     """
 
     NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
+
+    IDLE_POLICY = IdlePolicy.AUTO_STOP
+    REROUTE = ReroutePolicy.RESTART_AND_RESTORE
+    RESUME_POLICY = ResumePolicy(
+        capture_on=frozenset({
+            EndReason.USER_STOP, EndReason.IDLE_TIMEOUT, EndReason.SOURCE_SWITCH,
+            EndReason.REROUTE, EndReason.DAEMON_DIED, EndReason.STREAM_LOST,
+            # An episode that would not open stays to listen (the doc).
+            EndReason.LOAD_FAILED,
+        }),
+        # Played to the end: finished, not paused. The rest cannot happen here.
+        forget_on=frozenset({
+            EndReason.EOF, EndReason.SENDER_LEFT, EndReason.STORAGE_GONE,
+        }),
+    )
+    SESSION_DAEMON = False
+
+    COMMANDS = {
+        "play_episode": PlayEpisodeParams,
+        "pause": None,
+        "resume": None,
+        "seek": SeekParams,
+        "set_speed": SetSpeedParams,
+    }
+    COMMAND_SCOPES = {
+        "play_episode": CommandScope.CONTENT,
+        "pause": CommandScope.SESSION,
+        "resume": CommandScope.RESUME,
+        "seek": CommandScope.SESSION,
+        "set_speed": CommandScope.PREFERENCE,
+    }
 
     def __init__(
         self,
@@ -64,153 +113,90 @@ class PodcastSource(MpvAudioSource):
         # immediately for routes access
         self._podcast_api = PodcastCatalog(cache_duration_minutes=60)
 
-        # State
-        self._metadata: Dict[str, Any] = {}
-        self._current_episode: Optional[Dict[str, Any]] = None
-        self._position = 0
-        self._duration = 0
-        # What a play press would bring back once nothing is loaded: the
-        # episode the last stop left behind, at the second it left it. Set by
-        # every stop that is not an ending, cleared by the ending (an episode
-        # played to the end is not resumed, it is finished). In memory only —
-        # the durable row is podcast_data's playback_progress, which is what
-        # `_handle_play_episode` re-reads; these are its published projection.
-        self._last_episode: Optional[Dict[str, Any]] = None
-        self._last_position = 0
-        self._last_duration = 0
         self._playback_speed = 1.0
-        self._loading = False  # Guards monitor tick during stream loading
-
-        # Tasks
-        self._progress_save_task: Optional[asyncio.Task] = None
 
     async def initialize(self) -> bool:
         """Pre-load podcast_data.json so a schema mismatch surfaces at boot."""
         await self._podcast_data.initialize()
         return await super().initialize()
 
-    def _reset_playback_state(self) -> None:
-        super()._reset_playback_state()
-        self._current_episode = None
-        self._position = 0
-        self._duration = 0
-        self._loading = False
-
-    @property
-    def _displayed_episode(self) -> Optional[Dict[str, Any]]:
-        """The episode this source is about: loaded, or last loaded.
-
-        `_current_episode` says a session is live; `_last_episode` says what a
-        play would bring back. Two facts, not two spellings — everything that
-        only needs "which episode" reads this.
-        """
-        return self._current_episode or self._last_episode
-
     def _idle_metadata(self) -> Dict[str, Any]:
         """A stopped podcast still has an episode to resume, so publish the
         full projection (same reason the CD keeps a loaded disc visible).
 
-        An episode that ended cleared the resume slot, and nothing played at
-        all never filled it; both leave the projection empty and fall back to
-        the pair every player reads.
+        An episode that ended leaves no resume point, and nothing played at
+        all never made one; both fall back to the pair every player reads.
         """
         projection = self._build_playback_metadata()
         return projection if projection else super()._idle_metadata()
 
-    def _remember_for_resume(self) -> None:
-        """Hand the live episode over to the resume slot. Called by every stop
-        that leaves something to come back to."""
-        if self._current_episode:
-            self._last_episode = self._current_episode
-            self._last_position = self._position
-            self._last_duration = self._duration
-
-    def _forget_resume(self) -> None:
-        """Nothing to come back to. One caller: the end of an episode.
-
-        A fresh `play_episode` needs no call — `_current_episode` shadows the
-        slot while it is set, and the next stop overwrites it.
-        """
-        self._last_episode = None
-        self._last_position = 0
-        self._last_duration = 0
+    def _resume_content(self, session: PodcastSession):
+        return (
+            session.episode.get('uuid') or "",
+            session.position * 1000,
+            {"episode": session.episode, "duration": session.duration},
+        )
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
         try:
-            # 1. Start service
             if not await self._start_service_and_wait():
                 return False
 
-            # 2. Connect to MPV IPC
             if not await self._attach_mpv():
                 return False
+            await self._listen_to_mpv()
 
-            # 3. Load saved playback speed
-            saved_speed = await self._podcast_data.get_setting("playback_speed", 1.0)
-            self._playback_speed = saved_speed
-
-            # 4. Reset state and load auto-stop config
-            self._reset_playback_state()
+            self._playback_speed = await self._podcast_data.get_setting("playback_speed", 1.0)
             await self._load_auto_stop_config()
 
-            # 5. Start monitor task
-            self._start_monitor()
-
-            # 6. Update state
+            point = self._resume_point
+            if (
+                point is not None
+                and point.reason is EndReason.REROUTE
+                and point.phase is not Phase.PAUSED
+            ):
+                # A multiroom toggle comes back playing, at the same second.
+                await self._play(point.content["episode"], point.position_ms // 1000)
+                return True
             self._update_connection_state()
-
             return True
 
         except Exception as e:
             self._logger.error(f"Start failed: {e}")
+            await self.end_session(EndReason.LOAD_FAILED)
             await self._cleanup()
             return False
 
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
-        """Stop MPV and cleanup."""
-        if self._current_episode and self._position > 0:
-            await self._save_progress()
-
+        """Save where the episode is, keep it to resume (E46), stop mpv."""
+        await self._end_with_progress(EndReason.SOURCE_SWITCH)
         await self._cleanup()
         return await self._stop_service()
 
+    @handle_errors(default=False)
+    async def _do_release(self) -> bool:
+        await self._end_with_progress(EndReason.REROUTE)
+        await self._cleanup()
+        return await self._stop_service()
+
+    async def _end_with_progress(self, reason: EndReason) -> None:
+        session = self._session
+        if isinstance(session, PodcastSession):
+            await self._sync_position(session)
+            await self._save_progress(session)
+        await self.end_session(reason)
+
     async def refresh_metadata(self) -> bool:
-        """Pull live position/duration from mpv so the WebSocket initial_state
-        sent to a (re)connecting client reflects the current playhead — not
-        the last value broadcast via the 30s periodic sync.
-
-        Called by state.refresh_active_metadata() from the WS handshake.
-        """
-        if not self._current_episode or not self._mpv or not self._mpv.is_connected:
+        """Pull the live playhead from mpv so the initial_state a (re)connecting
+        client gets carries the current second, not the last 30 s sync."""
+        session = self._session
+        if not isinstance(session, PodcastSession) or not self._mpv or not self._mpv.is_connected:
             return False
-
-        position = await self._mpv.get_property("playback-time")
-        duration = await self._mpv.get_property("duration")
-        pause_state = await self._mpv.get_property("pause")
-        if position is not None:
-            self._position = int(position)
-        if duration is not None:
-            self._duration = int(duration)
-        # Sync play state from mpv too: reading position live but trusting a
-        # cached _is_playing would stamp a stale flag if a reconnect races a
-        # pause command still in flight. Skip while buffering (mpv reports
-        # pause=False before the stream is ready).
-        if pause_state is not None and not self._is_buffering:
-            self._is_playing = not bool(pause_state)
-
+        await self._sync_position(session)
         self._metadata = self._build_playback_metadata()
         return True
-
-
-    COMMANDS = {
-        "play_episode": PlayEpisodeParams,
-        "pause": None,
-        "resume": None,
-        "seek": SeekParams,
-        "set_speed": SetSpeedParams,
-    }
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Podcast-specific commands."""
@@ -249,13 +235,9 @@ class PodcastSource(MpvAudioSource):
     # === Command Handlers ===
 
     async def _handle_play_episode(self, params: PlayEpisodeParams) -> Dict[str, Any]:
-        """Play an episode."""
+        """Play an episode, from `params.position` when given, else from the
+        second the progress file kept."""
         episode_uuid = params.episode_uuid
-        # Before the first await: a pause timer armed on the outgoing episode
-        # would otherwise keep running through the catalogue read and the load,
-        # and stop mpv under the new stream if it expires there.
-        self._handle_pause_change(False)
-
         try:
             self._logger.info(f"Starting playback for episode: {episode_uuid}")
 
@@ -264,272 +246,134 @@ class PodcastSource(MpvAudioSource):
             )
             if not episode:
                 return self.error_response(f"Episode not found: {episode_uuid}")
-
-            audio_url = episode.get('audio_url')
-            if not audio_url:
+            if not episode.get('audio_url'):
                 return self.error_response(f"No audio URL for episode: {episode_uuid}")
-
             self._logger.info(f"Episode found: {episode.get('name', 'Unknown')}")
 
-            # Armed BEFORE the stop below, not after the progress read further
-            # down: `await self._mpv.stop()` makes mpv idle while _is_playing
-            # and _current_episode still point at the outgoing episode, and a
-            # monitor tick landing in that interval reads it as "episode
-            # finished" — it saves progress and calls mark_episode_completed on
-            # the outgoing uuid, dropping it from the in-progress queue with
-            # nothing wrong on screen. Music Library arms in this position in
-            # four places; this is that shape.
-            self._loading = True
+            if isinstance(self._session, PodcastSession):
+                await self._sync_position(self._session)
+                await self._save_progress(self._session)
 
-            # Stop current playback if any
-            if self._is_playing:
-                await self._save_progress()
-                await self._mpv.stop()
+            start_position = params.position or 0
+            if not start_position:
+                progress = await self._podcast_data.get_playback_progress(episode_uuid)
+                if progress and progress.get('position', 0) > RESUME_MIN_POSITION_S:
+                    start_position = progress['position']
+                    self._logger.info(f"Resuming from {start_position}s")
 
-            # Check for saved progress
-            progress = await self._podcast_data.get_playback_progress(episode_uuid)
-            start_position = 0
-            if progress and progress.get('position', 0) > 10:  # Resume if > 10 seconds
-                start_position = progress['position']
-                self._logger.info(f"Resuming from {start_position}s")
-
-            # Update state BEFORE loading stream
-            self._current_episode = episode
-            self._is_buffering = True
-            self._is_playing = False
-            self._position = start_position
-            self._duration = episode.get('duration', 0)
-
-            # Notify buffering state
-            self._update_connection_state()
-
-            self._logger.info("Loading stream in mpv...")
-            success = await self._mpv.load_stream(audio_url)
-
-            if not success:
-                self._loading = False
-                self._is_buffering = False
-                self._current_episode = None
-                error_msg = "Failed to load stream"
-                self._logger.error(error_msg)
-                self.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
-                return self.error_response(error_msg)
-
-            # Check if mpv is paused after loading and unpause if needed
-            pause_state = await self._mpv.get_property("pause")
-            if pause_state is True:
-                self._logger.info("mpv is paused after load_stream, forcing unpause")
-                await self._mpv.set_property("pause", False)
-
-            # Wait for stream to be ready before seeking (if resuming)
-            if start_position > 0:
-                await self._wait_and_seek(start_position)
-
-            # Apply saved playback speed
-            await self._mpv.set_property("speed", self._playback_speed)
-
-            # Mark as playing
-            self._is_playing = True
-            self._is_buffering = False
-            self._loading = False
-
-            self._start_progress_save()
-
-            # Notify playing state (flips is_playing false→true after buffering).
-            self._update_connection_state()
-
-            # Clear any previous error now that playback is successful
-            self.broadcast_error_cleared()
-
-            self._logger.info("Playback started successfully")
-            return self.success_response(f"Playing {episode.get('name', 'Unknown')}")
+            return await self._play(episode, start_position)
 
         except Exception as e:
             self._logger.error(f"Episode playback error: {e}")
-            self._loading = False
-            self._is_buffering = False
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response(str(e))
 
-    async def _wait_and_seek(self, position: int) -> None:
-        """Wait for stream to be ready, then seek."""
-        self._logger.info(f"Waiting for stream to be seekable for resume to {position}s")
+    async def _play(self, episode: Dict[str, Any], start_position: int) -> Dict[str, Any]:
+        """Open a session on `episode` and load it at `start_position`: one
+        command, no wait-then-seek (E57)."""
+        # Replaced, not stopped: the load below replaces the entry in mpv.
+        await self.end_session(EndReason.USER_STOP)
+        session = PodcastSession(
+            phase=Phase.LOADING, episode=episode,
+            position=int(start_position), duration=int(episode.get('duration') or 0),
+        )
+        self.open_session(session)
+        self._update_connection_state()
 
-        max_wait = 10
-        poll_interval = 0.2
-        elapsed = 0
+        async def load():
+            if await self._mpv_ready() and await self._set_mpv_pause(False):
+                return await self._mpv.loadfile(
+                    episode['audio_url'], mode="replace", start_s=start_position or None
+                )
+            return None
 
-        while elapsed < max_wait:
-            duration = await self._mpv.get_property("duration")
-            if duration is not None and duration > 0:
-                self._logger.info(f"Stream ready (duration={duration}s), seeking to {position}s")
-                await self._mpv.seek(position)
-
-                # Verify seek succeeded
-                await asyncio.sleep(0.3)
-                actual_position = await self._mpv.get_property("playback-time")
-                if actual_position is not None:
-                    self._logger.info(f"Seek completed, position: {int(actual_position)}s")
-                return
-
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
-        self._logger.info("Timeout waiting for stream to be ready, starting from beginning")
+        entry = await self._attempt(load)
+        if entry is None:
+            await self._end_playback(EndReason.LOAD_FAILED, detail="mpv refused the load")
+            return self.error_response("Failed to load stream")
+        session.entry = entry
+        session.link = self._mpv.link
+        await self._attempt(lambda: self._mpv.set_property("speed", self._playback_speed))
+        return self.success_response(f"Playing {episode.get('name', 'Unknown')}")
 
     async def _handle_pause(self) -> Dict[str, Any]:
-        """Pause playback."""
-        try:
-            if self._is_playing:
-                if not await self._mpv.pause():
-                    return self.mpv_refused("pause")
-                self._is_playing = False
-
-                await self._save_progress()
-
-                self._update_connection_state()
-
-            return self.success_response("Paused")
-
-        except Exception as e:
-            return self.error_response(str(e))
+        """Pause playback; the phase follows mpv's pause event."""
+        session = self._session
+        if not await self._mpv.pause():
+            return self.mpv_refused("pause")
+        await self._sync_position(session)
+        await self._save_progress(session)
+        return self.success_response("Paused")
 
     async def _handle_resume(self) -> Dict[str, Any]:
-        """Resume playback — unpause a live session, or reload a stopped one.
+        """Resume playback — unpause the live episode, or reload the one kept.
 
-        The second branch is what an auto-stop leaves behind: nothing is loaded
-        any more, but the episode the source published as its resume identity
-        is exactly what a play press means. Without it the rotary and the IR
-        remote answered "No episode to resume" after every idle timeout —
-        playback_dispatch sends `resume` to this source and knows no other
-        name. Goes through the play path so the position comes from the same
-        durable row a fresh play would read, rather than a second one.
-
-        Without an episode at all there is nothing to resume and no end state
-        that makes "Resumed" true — the old code fell through the guard below
-        and reported success while the player stayed silent, which a client
-        cannot detect at all. Same phrasing family as radio's "No station to
-        resume".
+        The second branch is what an auto-stop or a switch leaves behind: the
+        episode the source published as its resume identity is exactly what a
+        play press means — the rotary and the IR remote send `resume` and know
+        no other name. It goes through the play path so the position comes
+        from the progress file, like any play.
         """
-        if not self._current_episode:
-            if self._last_episode:
-                return await self._handle_play_episode(
-                    PlayEpisodeParams(episode_uuid=self._last_episode['uuid'])
-                )
-            return self.error_response("No episode to resume")
-
-        try:
-            if not self._is_playing:
-                if not await self._mpv.resume():
-                    return self.mpv_refused("resume")
-                self._is_playing = True
-
-                self._update_connection_state()
-
-            return self.success_response("Resumed")
-
-        except Exception as e:
-            return self.error_response(str(e))
+        if self._session is None:
+            point = self._resume_point
+            if point is None:
+                return self.error_response("No episode to resume")
+            return await self._handle_play_episode(
+                PlayEpisodeParams(episode_uuid=point.identity)
+            )
+        if not await self._mpv.resume():
+            return self.mpv_refused("resume")
+        return self.success_response("Resumed")
 
     async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
         """Seek to position (params normalize `position`/`position_ms` to seconds)."""
-        position = params.seconds
-
-        # Unlike pause and stop, a seek has no idempotent reading: there is no
-        # position to move to. `_mpv` is None before the first play and after
-        # cleanup, and the AttributeError used to reach the client as
-        # 400 "'NoneType' object has no attribute 'seek'".
-        if not self._mpv or not self._current_episode:
-            return self.error_response("No episode playing")
-
-        try:
-            if not await self._mpv.seek(int(position)):
-                return self.mpv_refused(f"seek to {int(position)}s")
-            self._position = int(position)
-
-            # Save progress immediately after seek
-            await self._save_progress()
-
-            self._update_connection_state()
-
-            return self.success_response(f"Seeked to {position}s")
-
-        except Exception as e:
-            return self.error_response(str(e))
-
-    async def _auto_stop_action(self) -> None:
-        """Save progress and stop playback in place after pause timeout."""
-        await self._handle_stop_playback()
-
-    async def _handle_stop_playback(self) -> Dict[str, Any]:
-        """Stop playback."""
-        try:
-            self._loading = False
-            # Drop the pause timer that got us here — mpv's pause property can
-            # stay True after `stop`, which would re-arm it immediately.
-            self._handle_pause_change(False)
-            if self._current_episode:
-                await self._save_progress()
-                await self._mpv.stop()
-
-            self._stop_progress_save()
-            self._remember_for_resume()
-            self._current_episode = None
-            self._is_playing = False
-            self._is_buffering = False
-            self._position = 0
-            self._duration = 0
-            self._update_connection_state()
-
-            return self.success_response("Playback stopped")
-
-        except Exception as e:
-            return self.error_response(str(e))
+        session = self._session
+        position = int(params.seconds)
+        if not await self._mpv.seek(position):
+            return self.mpv_refused(f"seek to {position}s")
+        session.position = position
+        await self._save_progress(session)
+        self._update_connection_state()
+        return self.success_response(f"Seeked to {params.seconds}s")
 
     async def _handle_set_speed(self, params: SetSpeedParams) -> Dict[str, Any]:
-        """Set playback speed."""
-        try:
-            speed = params.speed
-            if speed not in VALID_PLAYBACK_SPEEDS:
-                self._logger.info(f"Invalid speed {speed}, using nearest valid")
-                speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
+        """Set playback speed — a stored preference, re-applied to every
+        episode at play time, so it holds with nothing playing."""
+        speed = params.speed
+        if speed not in VALID_PLAYBACK_SPEEDS:
+            self._logger.info(f"Invalid speed {speed}, using nearest valid")
+            speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
 
-            # The speed is a stored preference, re-applied to every episode at
-            # play time — so setting it while nothing plays is meaningful, and
-            # only the push to the live session needs one. Unguarded, it raised
-            # AttributeError on `_mpv` and reached the client as a 400, making a
-            # legitimate "set my speed" from a widget impossible off playback.
-            if self._mpv and self._current_episode:
-                if not await self._mpv.set_property("speed", speed):
-                    return self.mpv_refused(f"speed {speed}x")
-            self._playback_speed = speed
+        if self._session is not None:
+            if not await self._mpv.set_property("speed", speed):
+                return self.mpv_refused(f"speed {speed}x")
+        self._playback_speed = speed
+        await self._podcast_data.set_setting("playback_speed", speed)
+        self._update_connection_state()
 
-            await self._podcast_data.set_setting("playback_speed", speed)
-
-            self._update_connection_state()
-
-            self._logger.info(f"Playback speed set to {speed}x")
-            return self.success_response(f"Speed set to {speed}x", speed=speed)
-
-        except Exception as e:
-            return self.error_response(str(e))
+        self._logger.info(f"Playback speed set to {speed}x")
+        return self.success_response(f"Speed set to {speed}x", speed=speed)
 
     # === Helpers ===
 
     def _build_playback_metadata(self) -> Dict[str, Any]:
-        """Build metadata dict for current episode.
+        """Build metadata dict for the live episode, or the one kept to resume.
 
         position/duration are emitted in milliseconds to match the wire
         convention used by the other audio sources (Spotify, AirPlay, CD) and
         by broadcast_position_update. Internal state stays in seconds.
         """
-        episode = self._displayed_episode
-        if not episode:
+        session = self._session
+        if isinstance(session, PodcastSession):
+            episode, position, duration = session.episode, session.position, session.duration
+        elif self._resume_point is not None:
+            point = self._resume_point
+            episode = point.content["episode"]
+            position, duration = point.position_ms // 1000, point.content["duration"]
+        else:
             return {}
 
-        live = self._current_episode is not None
-        position = self._position if live else self._last_position
-        duration = self._duration if live else self._last_duration
+        is_playing, is_buffering = self._flags(session.phase if session else None)
         podcast_name = episode.get('podcast', {}).get('name')
 
         metadata = {
@@ -539,15 +383,13 @@ class PodcastSource(MpvAudioSource):
             "image_url": episode.get('image_url'),
             "position": position * 1000,
             "duration": duration * 1000,
-            "is_playing": self._is_playing,
-            "is_buffering": self._is_buffering,
+            "is_playing": is_playing,
+            "is_buffering": is_buffering,
             "playback_speed": self._playback_speed,
             "current_episode": episode,
             # The cross-source floor every generic consumer reads (lock screen,
-            # widget, shared player). Podcast filled none of it, and reaches
-            # those consumers through no fallback either — a playing episode
-            # published a card with four null fields. Computed here so no
-            # client has to re-derive it; see core/push/payloads.py.
+            # widget, shared player). Computed here so no client has to
+            # re-derive it; see core/push/payloads.py.
             "title": episode.get('name'),
             "artist": podcast_name,
             "album": podcast_name,
@@ -563,199 +405,87 @@ class PodcastSource(MpvAudioSource):
     def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
         """Update state based on playback — the source's only publish site.
 
-        position/duration in the metadata are in milliseconds (see
-        _build_playback_metadata). `extras` carries the fields that describe
-        one particular transition rather than the session (the episode-end
-        pair); everything routed through here so the payload always carries the
-        inert {is_playing, is_buffering} pair the players read.
+        `extras` carries the fields that describe one particular transition
+        rather than the session (the episode-end trio).
         """
         connected, core, built = self._connection_state()
         self.emit_connection_state(connected, core, {**built, **(extras or {})})
 
     def _connection_state(self):
         core, built = PlaybackMetadata.split(self._build_playback_metadata())
-        return bool(self._current_episode), core, built
+        return self._session is not None, core, built
 
-    async def _save_progress(self) -> None:
-        """Save current playback progress with full metadata."""
-        if self._current_episode and self._position > 0:
-            podcast_info = self._current_episode.get('podcast', {})
+    async def _sync_position(self, session: Optional[PodcastSession]) -> None:
+        """Read the live playhead into the session (while its file is open)."""
+        if isinstance(session, PodcastSession) and session.opened and self._mpv:
+            await self._read_playhead(session)
 
-            await self._podcast_data.update_playback_progress(
-                episode_uuid=self._current_episode['uuid'],
-                position=self._position,
-                duration=self._duration,
-                podcast_uuid=podcast_info.get('uuid', ''),
-                episode_name=self._current_episode.get('name', ''),
-                podcast_name=podcast_info.get('name', ''),
-                image_url=self._current_episode.get('image_url', '')
-            )
-            self._logger.debug(
-                f"Saved progress: {self._position}/{self._duration}s"
-            )
+    async def _save_progress(self, session: Optional[PodcastSession]) -> None:
+        """Save the session's position to the progress file."""
+        if not isinstance(session, PodcastSession) or session.position <= 0:
+            return
+        podcast_info = session.episode.get('podcast', {})
+        await self._podcast_data.update_playback_progress(
+            episode_uuid=session.episode['uuid'],
+            position=session.position,
+            duration=session.duration,
+            podcast_uuid=podcast_info.get('uuid', ''),
+            episode_name=session.episode.get('name', ''),
+            podcast_name=podcast_info.get('name', ''),
+            image_url=session.episode.get('image_url', '')
+        )
+        self._logger.debug(f"Saved progress: {session.position}/{session.duration}s")
 
     async def _cleanup(self) -> None:
-        """Clean up resources.
+        """Close mpv. The catalogue and the progress file stay: the routes read
+        them while the source is stopped."""
+        await self._detach_mpv()
 
-        Note: _podcast_data and _podcast_api are NOT cleaned up here because
-        they need to remain available for routes (subscriptions, search, etc.)
-        even when the source is stopped.
-        """
-        self._stop_monitor()
-        self._stop_progress_save()
+    # === What mpv announces ===
 
-        if self._mpv:
-            await self._mpv.disconnect()
-            self._mpv = None
+    async def _mpv_lost(self, session: PodcastSession) -> None:
+        await self._save_progress(session)
+        await super()._mpv_lost(session)
 
-        self._reset_playback_state()
+    async def _before_idle_end(self, session: PodcastSession) -> None:
+        await self._sync_position(session)
+        await self._save_progress(session)
 
-    # === Monitor hooks ===
+    async def _end_playback(self, reason: EndReason, **kwargs) -> None:
+        if reason in (EndReason.STREAM_LOST, EndReason.LOAD_FAILED):
+            await self._save_progress(self._session)
+        await super()._end_playback(reason, **kwargs)
 
-    async def _on_mpv_disconnect(self) -> None:
-        """Handle unexpected mpv disconnect: save progress and clear state."""
-        if self._current_episode and self._position > 0:
-            await self._save_progress()
-        self._is_playing = False
-        self._is_buffering = False
-        self._remember_for_resume()
-        self._current_episode = None
-        self._position = 0
-        self._duration = 0
-        self._metadata = {}
-        self._stop_progress_save()
-
-    async def _on_monitor_tick(self) -> None:
-        """Track playback position, detect stuck state and episode completion."""
-        if not self._current_episode or self._loading:
-            return
-
-        # Update playback position
-        position = await self._mpv.get_property("playback-time")
-        duration = await self._mpv.get_property("duration")
-        pause_state = await self._mpv.get_property("pause")
-        idle_active = await self._mpv.get_property("idle-active")
-
-        if position is not None:
-            new_position = int(position)
-            if new_position != self._position:
-                self._position = new_position
-
-        # Edge-trigger: a feed may publish no itunes:duration (→ self._duration is
-        # initialized to 0 in _handle_play_episode). Once mpv reports the real
-        # duration, broadcast immediately so the frontend ProgressBar appears
-        # without waiting up to POSITION_SYNC_INTERVAL seconds for the next
-        # periodic sync.
-        duration_just_known = False
-        if duration is not None:
-            new_duration = int(duration)
-            duration_just_known = self._duration == 0 and new_duration > 0
-            self._duration = new_duration
-
-        if duration_just_known:
-            self.broadcast_position_update(
-                self._position * 1000, self._duration * 1000
-            )
-
-        # Only broadcast position periodically (not every tick). Skip when the
-        # eager duration push already covered this tick to avoid a redundant
-        # paired broadcast on the rare overlap.
-        if (
-            self._is_playing
-            and self._position_sync_due()
-            and not duration_just_known
-        ):
-            self.broadcast_position_update(
-                self._position * 1000, self._duration * 1000
-            )
-
-        # Auto-stop: arm/cancel timer based on the pause we already polled.
-        if pause_state is not None:
-            self._handle_pause_change(bool(pause_state))
-
-        # Detect stuck at position 0 with pause=True
-        if self._is_playing and position == 0.0 and pause_state is True:
-            self._logger.info("Stuck at 0.0 with pause=True, forcing unpause")
-            await self._mpv.set_property("pause", False)
-
-        # Episode finished: mpv unloaded the file (keep-open=no) and returned to
-        # idle. `idle-active` is the authoritative EOF signal — unlike a
-        # position-vs-duration heuristic it doesn't depend on accurate podcast
-        # duration metadata (frequently over-reported for VBR MP3 streams, which
-        # would otherwise leave the player stuck on the last frame), and it stays
-        # False during mid-stream cache stalls where playback-time momentarily
-        # reads None.
-        if self._is_playing and idle_active is True:
-            self._logger.info("Episode finished (mpv idle)")
-
-            finished_uuid = self._current_episode['uuid']
-
-            # Persist completion so the episode shows "already listened" and drops
-            # out of the in-progress queue. Write a final row first (covers a short
-            # clip that never hit a periodic save), then force completed: _save_progress
-            # routes through the position>=duration-30 heuristic, which yields False
-            # when mpv over-reports VBR duration (see above) — the explicit mark is
-            # what actually guarantees completion. Wrapped so a persistence error
-            # can't strand the source as "playing".
-            try:
-                await self._save_progress()
-                await self._podcast_data.mark_episode_completed(finished_uuid)
-            except Exception as e:
-                self._logger.error(f"Failed to persist episode completion: {e}")
-
-            self._stop_progress_save()
-            # An episode played to the end is finished, not paused: it leaves
-            # no resume identity behind, which is what tells this READY from
-            # the one an auto-stop publishes.
-            self._forget_resume()
-            self._current_episode = None
-            self._is_playing = False
-            self._is_buffering = False
-            self._position = 0
-            self._duration = 0
-
-            # episode_uuid + completed let the frontend flip the just-finished card
-            # to "already listened" reactively, without a re-fetch. Through the one
-            # publisher rather than a hand-built dict, so the payload carries the
-            # inert pair every other READY does — which is what its sibling
-            # music_library._handle_queue_finished already sent.
-            self._update_connection_state(extras={
-                "episode_ended": True,
-                "episode_uuid": finished_uuid,
-                "completed": True,
-            })
-
-    # === Progress Save ===
-
-    def _start_progress_save(self) -> None:
-        """Start periodic progress save task."""
-        if self._progress_save_task:
-            self._progress_save_task.cancel()
-        self._progress_save_task = asyncio.create_task(self._progress_save_loop())
-
-    def _stop_progress_save(self) -> None:
-        """Stop periodic progress save task."""
-        if self._progress_save_task:
-            self._progress_save_task.cancel()
-            self._progress_save_task = None
-
-    async def _progress_save_loop(self) -> None:
-        """Periodically save playback progress (every 10 seconds)."""
+    async def _content_finished(self, session: PodcastSession) -> None:
+        """The episode played to its end — its own `eof`, nothing else."""
+        finished_uuid = session.episode['uuid']
+        self._logger.info("Episode finished")
+        # Persisted so the episode shows "already listened" and leaves the
+        # in-progress queue. A final row first (a short clip may never have hit
+        # a periodic save), then the explicit mark: the position>=duration-30
+        # heuristic behind the row fails when mpv over-reports VBR durations.
         try:
-            while True:
-                await asyncio.sleep(10)
-                try:
-                    if self._is_playing and self._current_episode:
-                        await self._save_progress()
-                except Exception as e:
-                    # Loop body try/except keeps the task alive on transient I/O
-                    # errors (disk full, lock contention) — otherwise a single
-                    # _save_progress failure would silently kill periodic saves
-                    # until the next backend restart.
-                    self._logger.error(f"Progress save failed (loop continues): {e}")
+            await self._save_progress(session)
+            await self._podcast_data.mark_episode_completed(finished_uuid)
+        except Exception as e:
+            self._logger.error(f"Failed to persist episode completion: {e}")
+        # episode_uuid + completed let the frontend flip the just-finished card
+        # to "already listened" without a re-fetch.
+        await self._end_playback(EndReason.EOF, stop_mpv=False, extras={
+            "episode_ended": True,
+            "episode_uuid": finished_uuid,
+            "completed": True,
+        })
 
-        except asyncio.CancelledError:
-            self._logger.debug("Progress save task cancelled")
+    async def _on_playing_tick(self, session: PodcastSession) -> None:
+        _, just_known = await self._read_playhead(session)
+        self._sync_bar(session, just_known)
+        if session.ticks % PROGRESS_SAVE_TICKS == 0:
+            try:
+                await self._save_progress(session)
+            except Exception as e:
+                # Per tick, like any loop body: a disk hiccup costs this save.
+                self._logger.error(f"Progress save failed: {e}")
 
     # === Public API ===
 
@@ -770,17 +500,6 @@ class PodcastSource(MpvAudioSource):
         return self._podcast_api
 
     @property
-    def position(self) -> int:
-        """Get current position in seconds."""
-        return self._position
-
-    @property
-    def duration(self) -> int:
-        """Get episode duration in seconds."""
-        return self._duration
-
-    @property
     def playback_speed(self) -> float:
         """Get current playback speed."""
         return self._playback_speed
-

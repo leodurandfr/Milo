@@ -15,8 +15,16 @@ Rules that keep the recording meaningful:
 - Re-recording (MILO_RECORD_OLD_WIRE=1) is for adding a scenario, on a tree
   whose source code has not moved since the last green run. Re-recording to
   make a red run green erases the only witness of the drift.
+- The one other re-recording: the phase that migrates a source changes its
+  wire on purpose (phase 1: Radio, Podcast, Music Library — the playing flag
+  now comes from mpv, not from Milō's command). Then only that source's file
+  is re-recorded, after every differing envelope was reviewed and listed in
+  the commit, with the MILO_DUMP_OLD_WIRE output of the run that was
+  reviewed byte-identical to what is recorded.
 """
 import asyncio
+import heapq
+import itertools
 import json
 import os
 from pathlib import Path
@@ -133,6 +141,46 @@ class TickGate:
             await settle()
 
 
+class VirtualClock:
+    """Seconds that pass only when a scenario says so, for one module's sleep.
+
+    Patched in as `AsyncioProxy(clock.sleep)`: a sleeper wakes when `advance()`
+    carries the clock past its own due time, so a timer armed for 600 s and
+    one re-armed for 10 s expire in the order and at the moment their delays
+    say, and one disarmed meanwhile (its sleep cancelled) never does.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self._sleepers: List[tuple] = []
+        self._seq = itertools.count()
+
+    async def sleep(self, delay: float, *a: Any, **k: Any) -> None:
+        if delay <= 0:
+            await _real_sleep(0)
+            return
+        future = asyncio.get_running_loop().create_future()
+        heapq.heappush(self._sleepers, (self.now + delay, next(self._seq), future))
+        await future
+
+    async def advance(self, seconds: float) -> None:
+        """Let `seconds` pass, waking each sleeper at its due time and letting
+        what it set in motion run before the next one wakes."""
+        target = self.now + seconds
+        await settle()
+        while True:
+            while self._sleepers and self._sleepers[0][2].done():
+                heapq.heappop(self._sleepers)
+            if not self._sleepers or self._sleepers[0][0] > target:
+                break
+            due, _, future = heapq.heappop(self._sleepers)
+            self.now = due
+            future.set_result(None)
+            await settle()
+        self.now = target
+        await settle()
+
+
 class FakeMpv:
     """mpv as the four mpv sources see it: properties answer from `props`.
 
@@ -209,6 +257,69 @@ class FakeMpv:
 
     def __getattr__(self, name: str) -> Any:
         raise AttributeError(f"FakeMpv has no '{name}' — add it to the harness")
+
+
+class EventMpv:
+    """MpvSim (tests/mpv_sim.py) under the scenarios' old vocabulary.
+
+    The scenarios speak the polled world the old code read — `props["pause"] =
+    True`, `props["idle-active"] = True` before a load, `is_connected = False`
+    — and are never rewritten. This adapter says what mpv announces in each of
+    those worlds: a pause event, loads that end in `end-file reason=error`, a
+    link lost. A file opens when time passes (`tick`), not at the load, which
+    is what the old code saw too: nothing played before its next poll.
+    """
+
+    def __new__(cls, **props):
+        from backend.tests.mpv_sim import MpvSim
+
+        class _EventMpv(MpvSim):
+            def __init__(self) -> None:
+                super().__init__(auto_open=False)
+                self.props = _WatchedProps(self)
+                self.props.update(props)
+
+            @property
+            def is_connected(self) -> bool:
+                return self._link is not None
+
+            @is_connected.setter
+            def is_connected(self, value: bool) -> None:
+                if not value and self._link is not None:
+                    link, self._link = self._link, None
+                    self.playlist, self.current, self.opened = [], None, False
+                    from backend.shared.mpv import LINK_LOST
+                    self._dispatch({"event": LINK_LOST}, link)
+
+            async def time_passes(self) -> None:
+                if self.current is not None and not self.opened:
+                    await self.opens()
+
+        return _EventMpv()
+
+
+class _WatchedProps(dict):
+    """The scenarios' `props` dict, turned into what mpv would announce."""
+
+    def __init__(self, mpv) -> None:
+        super().__init__()
+        self._mpv = mpv
+
+    def __setitem__(self, name, value) -> None:
+        super().__setitem__(name, value)
+        if name == "pause":
+            self._mpv._set_pause(bool(value))
+        elif name == "idle-active" and value:
+            # mpv idle through the load: every file fails to open.
+            self._mpv.broken[""] = "loading failed"
+        elif name in ("time-pos", "playback-time") and value is not None:
+            self._mpv.position = value
+        elif name == "duration":
+            self._mpv.default_duration = value
+
+    def update(self, *a, **k) -> None:
+        for key, value in dict(*a, **k).items():
+            self[key] = value
 
 
 class Wire:

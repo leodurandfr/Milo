@@ -1,6 +1,6 @@
 # backend/core/audio_source.py
 """BaseAudioSource - base class for all audio sources."""
-from typing import Dict, Any, Optional, Tuple, Type
+from typing import Awaitable, Callable, Dict, Any, List, Optional, Tuple, Type
 from abc import ABC, abstractmethod
 from collections import deque
 from contextlib import asynccontextmanager
@@ -9,10 +9,15 @@ from dataclasses import dataclass
 from enum import Enum
 import asyncio
 import logging
+import time
 
 from pydantic import BaseModel, ValidationError
 
 from backend.core.models.audio_state import AudioSource, NetworkRequirement, SourceState
+from backend.core.models.session import (
+    CommandScope, EndReason, IdlePolicy, IllegalTransition, Phase, ResumePoint,
+    ResumePolicy, Session, check_end,
+)
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import (
     SourceError,
@@ -43,8 +48,8 @@ def _format_validation_error(cmd: str, error: ValidationError) -> str:
 # Everything that touches a source's state is a message, handled one at a time
 # by the source's own task. A check made before an await is then still true
 # after it — the property four separate races lacked (E04, E05, E48, E49).
-# Feeds and results from work done elsewhere join the same mailbox as their
-# sources migrate onto it.
+# Feeds (what a player or a daemon announces) and results (work done elsewhere)
+# join the same mailbox: a callback never touches the source, it posts.
 
 class LifecycleStep(str, Enum):
     START = "start"
@@ -66,9 +71,11 @@ class Lifecycle:
 
 @dataclass(eq=False)
 class Timer:
-    """The pause timer's expiry. `token` is the timer it came from: a timer
-    disarmed or re-armed since makes the message stale, and it is dropped."""
+    """A named timer's expiry ("idle" is the pause timer). `token` is the arming
+    it came from: a timer disarmed or re-armed since makes the message stale,
+    and it is dropped."""
     token: object
+    name: str = "idle"
 
 
 @dataclass(eq=False)
@@ -76,14 +83,37 @@ class Query:
     """A metadata re-read for a state request. Posted only to an idle source."""
 
 
+@dataclass(eq=False)
+class Feed:
+    """What the source's player or daemon announced since the last Feed.
+
+    One message for a burst: the callback appends to the source's pending list
+    and posts a Feed only when none is queued, so the handful of events one
+    player change produces is handled — and published — once.
+    """
+
+
+@dataclass(eq=False)
+class Result:
+    """Work done outside the actor, applied inside it. `token` is the session
+    it was for: when that session is no longer current the result is stale
+    and dropped. None: not tied to a session."""
+    apply: Callable[[], Awaitable[Any]]
+    token: object = None
+
+
 # Which running message a lifecycle message cuts short. Stop beats ordered:
 # a load still waiting on the network, or a start the transition gave up on,
 # does not get to finish over a source that was told to stop.
 _PREEMPTS = {
-    LifecycleStep.STOP: (Command, Timer, Query, LifecycleStep.ACQUIRE,
+    LifecycleStep.STOP: (Command, Timer, Query, Feed, Result, LifecycleStep.ACQUIRE,
                          LifecycleStep.RELEASE),
-    LifecycleStep.RELEASE: (Command, Timer, Query),
+    LifecycleStep.RELEASE: (Command, Timer, Query, Feed, Result),
 }
+
+# Messages a STOP answers as interrupted instead of running them: they target
+# the session it ends.
+_VOIDED_BY_STOP = (Command, Timer, Query, Feed, Result)
 
 
 class _MailboxClosed(Exception):
@@ -202,6 +232,17 @@ class BaseAudioSource(ABC):
     # own idle projection instead.
     MUTE_RECEIVER: bool = False
 
+    # The session model (docs: source architecture). A source on it declares
+    # these four and opens/ends its sessions through open_session() and
+    # end_session(); a source not migrated yet leaves RESUME_POLICY at None.
+    IDLE_POLICY: Optional[IdlePolicy] = None
+    REROUTE = None
+    RESUME_POLICY: Optional[ResumePolicy] = None
+    SESSION_DAEMON: bool = False
+    # command name -> CommandScope, for every command in COMMANDS. A SESSION
+    # command with no session is refused here, once, for every source.
+    COMMAND_SCOPES: Dict[str, CommandScope] = {}
+
     def __init__(
         self,
         source_id: str,
@@ -242,9 +283,16 @@ class BaseAudioSource(ABC):
         # Auto-stop timer (opt-in, subclasses override _on_auto_stop)
         self.auto_stop_enabled: bool = False
         self.auto_stop_delay: float = 10.0
-        self._pause_timer: Optional[asyncio.Task] = None
-        self._pause_token: Optional[object] = None
+        # Named timers: name -> (task, token). "idle" is the pause timer.
+        self._timers: Dict[str, Tuple[asyncio.Task, object]] = {}
         self._monitor_task: Optional[asyncio.Task] = None
+
+        # The session model (see IDLE_POLICY above).
+        self._session: Optional[Session] = None
+        self._resume_point: Optional[ResumePoint] = None
+        self._session_bg: Optional[BackgroundTaskSet] = None
+        self._feed_pending: List[Any] = []
+        self._feed_posted = False
 
         # The actor (see the class docstring).
         self._actor_urgent: deque = deque()
@@ -269,7 +317,14 @@ class BaseAudioSource(ABC):
 
     @property
     def is_playing(self) -> bool:
-        """Whether the source is currently playing."""
+        """Whether a press on play/pause should stop what runs.
+
+        A session that is loading counts: the press means "stop that" (E42 —
+        the knob used to resume an older station over one still buffering).
+        Sources not on the session model yet answer from their own flag.
+        """
+        if self._session is not None:
+            return self._session.phase in (Phase.PLAYING, Phase.LOADING)
         return self._is_playing
 
     @property
@@ -376,7 +431,10 @@ class BaseAudioSource(ABC):
                     continue
                 if not future.done():
                     future.set_result(self._interrupted_result(message, "shutdown"))
-        self._cancel_pause_timer()
+        for name in list(self._timers):
+            self._disarm_timer(name)
+        if self._session_bg is not None:
+            await self._session_bg.cancel_all()
         await self._bg.cancel_all()
 
     # === The actor ===
@@ -422,7 +480,9 @@ class BaseAudioSource(ABC):
             kept = deque()
             while self._actor_inbox:
                 queued, queued_future = self._actor_inbox.popleft()
-                if isinstance(queued, (Command, Timer, Query)):
+                if isinstance(queued, _VOIDED_BY_STOP):
+                    if isinstance(queued, Feed):
+                        self._feed_posted = False
                     if not queued_future.done():
                         queued_future.set_result(self._interrupted_result(queued, "stop"))
                 else:
@@ -524,7 +584,7 @@ class BaseAudioSource(ABC):
                 result = self._interrupted_result(message, str(exc))
             else:
                 result = handler.result()
-                if isinstance(message, (Command, Timer)):
+                if isinstance(message, (Command, Timer, Feed, Result)):
                     # Per message, like any loop body: a projection that raises
                     # costs this republish, never the mailbox.
                     try:
@@ -550,9 +610,24 @@ class BaseAudioSource(ABC):
                 return await self._do_release()
             return await self._do_acquire()
         if isinstance(message, Timer):
-            return await self._run_timer(message.token)
+            return await self._run_timer(message.token, message.name)
         if isinstance(message, Query):
             return await self.refresh_metadata()
+        if isinstance(message, Feed):
+            self._feed_posted = False
+            events, self._feed_pending = self._feed_pending, []
+            try:
+                return await self._handle_feed(events)
+            except asyncio.CancelledError:
+                # Cut short by a stop: what was not handled yet stays in order
+                # for the next Feed (the facts it carries outlive the session).
+                self._feed_pending[:0] = events
+                raise
+        if isinstance(message, Result):
+            if message.token is not None and message.token is not self._session:
+                self._logger.debug("Dropping a result for a session that has ended")
+                return None
+            return await message.apply()
         raise TypeError(f"not a source message: {message!r}")
 
     def _interrupted_result(self, message, why: str) -> Any:
@@ -639,24 +714,56 @@ class BaseAudioSource(ABC):
         return await self._run_start()
 
     async def _run_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
+        if self.COMMAND_SCOPES.get(cmd) is CommandScope.SESSION and self._session is None:
+            return self.error_response(f"Nothing is playing: '{cmd}' needs a live session")
         try:
             return await self._handle_command(cmd, params)
         except Exception as e:
             self._logger.error(f"Error handling command {cmd}: {e}")
             return self.error_response(str(e))
 
-    async def _run_timer(self, token: object) -> None:
-        if token is not self._pause_token:
-            self._logger.debug("Dropping a pause-timer expiry that was disarmed since")
+    async def _run_timer(self, token: object, name: str) -> None:
+        armed = self._timers.get(name)
+        if armed is None or armed[1] is not token:
+            self._logger.debug(f"Dropping a '{name}' timer expiry that was disarmed since")
             return None
-        self._pause_token = None
-        self._pause_timer = None
-        self._logger.info(f"Auto-stopping after {self.auto_stop_delay}s pause")
-        try:
-            await self._on_auto_stop()
-        except Exception as e:
-            self._logger.error(f"Auto-stop failed: {e}")
+        del self._timers[name]
+        if name == "resume":
+            await self._expire_resume()
+            return None
+        if name == "idle":
+            self._logger.info(f"Auto-stopping after {self.auto_stop_delay}s pause")
+            try:
+                await self._on_auto_stop()
+            except Exception as e:
+                self._logger.error(f"Auto-stop failed: {e}")
+            return None
+        await self._on_timer(name, token)
         return None
+
+    async def _on_timer(self, name: str, token: object) -> None:
+        """A named timer other than the pause timer expired (its token is
+        still current). Overridden by the sources that arm one."""
+
+    async def _handle_feed(self, events: List[Any]) -> None:
+        """What the source's player or daemon announced, in order. Overridden
+        by the sources that listen to one."""
+
+    def _post_feed(self, event: Any) -> None:
+        """Queue one announcement from a player or a daemon.
+
+        For callbacks that run outside the actor (a reader task, a D-Bus
+        signal): they never touch the source, they post. Synchronous, so a
+        callback can call it directly.
+        """
+        self._feed_pending.append(event)
+        if not self._feed_posted:
+            self._feed_posted = True
+            self._post(Feed())
+
+    def _post_result(self, apply: Callable[[], Awaitable[Any]], token: object = None) -> None:
+        """Apply `apply` in the actor, unless `token` (a session) ended since."""
+        self._post(Result(apply, token))
 
     # === Publication net ===
 
@@ -698,6 +805,95 @@ class BaseAudioSource(ABC):
 
     def _update_connection_state(self) -> None:
         """The source's one publish site (overridden by every source)."""
+
+    # === Sessions (docs: source architecture, "the session") ===
+    #
+    # One place opens a session and one place ends it, always for a named
+    # reason. Ending it drops everything it owned — its timers, its tasks — and
+    # the source's RESUME_POLICY decides, from that reason alone, whether what
+    # it was playing is kept as the resume point or forgotten.
+
+    def open_session(self, session: Session) -> Session:
+        """Make `session` the live one. The caller has ended the previous one."""
+        if self._session is not None:
+            raise IllegalTransition("a session is already open")
+        self._session = session
+        self._session_bg = BackgroundTaskSet(self._logger, f"source.{self.source_id}.session")
+        return session
+
+    async def end_session(self, reason: EndReason) -> Optional[Session]:
+        """End the live session for `reason`; None when there was none.
+
+        Publishes nothing: the caller knows what the screen shows next (a new
+        session, READY, READY with the episode-end flag).
+        """
+        session = self._session
+        if session is None:
+            return None
+        try:
+            check_end(session.phase, reason)
+        except IllegalTransition as e:
+            # Logged, never raised: a session left open because its end was
+            # not in the table is worse than one ended for a reason nobody
+            # anticipated.
+            self._logger.error(f"{e} — ending it anyway")
+        self._session = None
+        for name in [n for n in self._timers if n != "resume"]:
+            self._disarm_timer(name)
+        tasks, self._session_bg = self._session_bg, None
+        if tasks is not None:
+            await tasks.cancel_all()
+        policy = self.RESUME_POLICY
+        if policy is not None and reason in policy.capture_on:
+            self._set_resume_point(self._capture_resume(session, reason))
+        elif policy is not None and reason in policy.forget_on:
+            self._set_resume_point(None)
+        self._logger.info(f"Session ended ({reason.value})")
+        await self._session_ended(session, reason)
+        return session
+
+    def _capture_resume(self, session: Session, reason: EndReason) -> Optional[ResumePoint]:
+        """The resume point `session` leaves when it ends for `reason`."""
+        content = self._resume_content(session)
+        if content is None:
+            return None
+        identity, position_ms, payload = content
+        return ResumePoint(
+            identity=identity, position_ms=position_ms, captured_at=time.monotonic(),
+            reason=reason, content=payload, phase=session.phase,
+        )
+
+    def _resume_content(self, session: Session) -> Optional[Tuple[str, int, Any]]:
+        """(identity, position_ms, content) of what `session` was playing."""
+        return None
+
+    async def _session_ended(self, session: Session, reason: EndReason) -> None:
+        """Hook: what a source releases when a session ends (Radio: Shazam)."""
+
+    def _set_resume_point(self, point: Optional[ResumePoint]) -> None:
+        """Replace the resume point; one with a TTL expires on a timer, so the
+        screen stops offering it the moment it stops being offered."""
+        self._resume_point = point
+        self._disarm_timer("resume")
+        ttl = self.RESUME_POLICY.ttl_s if self.RESUME_POLICY else None
+        if point is not None and ttl is not None:
+            self._arm_timer("resume", max(0.0, ttl - (time.monotonic() - point.captured_at)), point)
+
+    def _resume_fresh(self) -> bool:
+        """Whether the resume point may still be restored without a press."""
+        point = self._resume_point
+        if point is None:
+            return False
+        ttl = self.RESUME_POLICY.ttl_s if self.RESUME_POLICY else None
+        return ttl is None or time.monotonic() - point.captured_at < ttl
+
+    async def _expire_resume(self) -> None:
+        """The resume point outlived its TTL: forget it, and say so when it is
+        what the screen shows."""
+        self._logger.info("Resume point expired")
+        self._set_resume_point(None)
+        if self._session is None and self._published is not None:
+            self._update_connection_state()
 
     # === Abstract methods for subclasses ===
 
@@ -856,38 +1052,52 @@ class BaseAudioSource(ABC):
         """
         return False
 
-    # === Auto-Stop Timer ===
+    # === Timers ===
+
+    def _arm_timer(self, name: str, delay: float, token: Optional[object] = None) -> object:
+        """Arm the timer `name` for `delay` seconds, replacing any armed one.
+
+        The expiry is posted, not run: it takes its turn behind whatever the
+        source is doing, and is dropped if the timer was disarmed or re-armed
+        meanwhile. `token` defaults to a fresh one; a session passed as the
+        token makes the expiry die with that session too.
+        """
+        self._disarm_timer(name)
+        token = object() if token is None else token
+
+        async def expire():
+            try:
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                return
+            self._post(Timer(token, name))
+
+        self._timers[name] = (asyncio.create_task(expire()), token)
+        return token
+
+    def _disarm_timer(self, name: str) -> None:
+        """Disarm `name`. An expiry already in the mailbox is dropped when its
+        turn comes (its token no longer matches)."""
+        armed = self._timers.pop(name, None)
+        if armed is not None:
+            armed[0].cancel()
+
+    def _timer_armed(self, name: str) -> bool:
+        return name in self._timers
 
     def _cancel_pause_timer(self) -> None:
-        """Disarm the auto-stop timer. An expiry already in the mailbox carries
-        this timer's token and is dropped when its turn comes."""
-        self._pause_token = None
-        if self._pause_timer:
-            self._pause_timer.cancel()
-            self._pause_timer = None
+        """Disarm the auto-stop timer."""
+        self._disarm_timer("idle")
 
     def _start_pause_timer(self) -> None:
         """Arm the auto-stop timer after a pause.
 
-        The expiry is posted, not run: it takes its turn behind whatever the
-        source is doing, and a play handled first disarms it (E49), while a
-        stop cuts it short if it is already running (E06).
+        A play handled first disarms it (E49), and a stop cuts it short if it
+        is already running (E06).
         """
         if not self.auto_stop_enabled:
             return
-
-        self._cancel_pause_timer()
-        token = object()
-
-        async def expire():
-            try:
-                await asyncio.sleep(self.auto_stop_delay)
-            except asyncio.CancelledError:
-                return
-            self._post(Timer(token))
-
-        self._pause_token = token
-        self._pause_timer = asyncio.create_task(expire())
+        self._arm_timer("idle", self.auto_stop_delay)
 
     async def _on_auto_stop(self) -> None:
         """
@@ -931,7 +1141,7 @@ class BaseAudioSource(ABC):
         await self._load_auto_stop_config()
 
         # Refresh a pending timer so the new delay takes effect immediately.
-        if self._pause_timer and not self._pause_timer.done():
+        if self._timer_armed("idle"):
             self._cancel_pause_timer()
             if self.auto_stop_enabled:
                 self._start_pause_timer()

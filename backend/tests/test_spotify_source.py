@@ -194,6 +194,24 @@ def wired(spotify_source):
         coro.close()
 
 
+@pytest.fixture
+async def pause_clock(spotify_source, monkeypatch):
+    """The auto-stop's clock (the pause timer sleeps in core/audio_source.py),
+    moved by the test; the source's mailbox is closed at the end."""
+    from backend.core import audio_source
+    from backend.tests.golden.harness import AsyncioProxy, VirtualClock
+
+    clock = VirtualClock()
+    monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+    yield clock
+    await spotify_source.shutdown()
+
+
+def player_stops(session):
+    """How many times the source told go-librespot to end the Connect session."""
+    return [command for command, _ in posted_commands(session)].count("stop")
+
+
 def published_state(publish):
     """The (state, metadata) of the last push to the state machine."""
     source, state, metadata = publish.call_args.args
@@ -576,35 +594,25 @@ class TestReconcileOnConnect:
     """Reconciliation against the daemon after an un-commanded WS drop."""
 
     @pytest.mark.asyncio
-    async def test_reconcile_on_connect_idle_daemon_resets_to_ready(self, spotify_source):
+    async def test_reconcile_on_connect_idle_daemon_resets_to_ready(
+        self, spotify_source, pause_clock
+    ):
         """On (re)connect to an idle daemon (crash + systemd restart), reconcile
         pulls GET /status, finds no session, and resets the stale 'now playing'
-        state to READY (also dropping any leftover pause timer)."""
-        # Stale 'playing' snapshot left over from before the daemon died
-        spotify_source._device_connected = True
-        spotify_source._is_playing = True
-        spotify_source._metadata = {"title": "Breathe", "is_playing": True}
-        spotify_source._update_connection_state()
+        state to READY — and drops the pause timer the old session left, so it
+        cannot fire /player/stop on whatever session the phone opens next."""
+        session = mock_librespot_api(spotify_source, paused=True)
+        await spotify_source._on_playback_state(False)   # paused: auto-stop armed
         assert spotify_source.state == SourceState.ACTIVE
 
-        async def idle_refresh():
-            # Mirrors refresh_metadata against an empty GET /status (no track)
-            spotify_source._device_connected = False
-            spotify_source._metadata = {}
-            return True
+        # The daemon died and systemd brought it back with no session.
+        session.get = librespot_api({}).get
+        await spotify_source._reconcile_on_connect()
 
-        timer = asyncio.create_task(asyncio.sleep(3600))
-        spotify_source._pause_timer = timer
-
-        with patch.object(spotify_source, 'refresh_metadata', side_effect=idle_refresh):
-            await spotify_source._reconcile_on_connect()
-
-        assert spotify_source._device_connected is False
         assert spotify_source.state == SourceState.READY
-        # The leftover auto-stop is gone, not merely forgotten.
-        assert spotify_source._pause_timer is None
-        with pytest.raises(asyncio.CancelledError):
-            await timer
+        assert "title" not in spotify_source.metadata
+        await pause_clock.advance(spotify_source.auto_stop_delay)
+        assert player_stops(session) == 0
 
     @pytest.mark.asyncio
     async def test_reconcile_on_connect_live_session_stays_active(self, spotify_source):
@@ -622,49 +630,72 @@ class TestReconcileOnConnect:
         assert spotify_source.state == SourceState.ACTIVE
 
     @pytest.mark.asyncio
-    async def test_reconcile_on_connect_unreachable_resets_defensively(self, spotify_source):
+    async def test_reconcile_on_connect_unreachable_resets_defensively(
+        self, spotify_source, pause_clock
+    ):
         """If GET /status is unreachable on reconnect (daemon API not up yet after
         a crash+restart), refresh_metadata returns False without clearing the
         flags. Reconcile must still reset defensively to READY rather than
-        re-affirm the stale 'now playing' (the WS loop retries in 2s)."""
-        spotify_source._device_connected = True
-        spotify_source._metadata = {"title": "Breathe", "is_playing": True}
+        re-affirm the stale 'now playing' (the WS loop retries in 2s), and drop
+        the old session's pause timer."""
+        session = mock_librespot_api(spotify_source, paused=True)
+        await spotify_source._on_playback_state(False)   # paused: auto-stop armed
+        assert spotify_source.metadata["title"] == "Track"
 
-        timer = asyncio.create_task(asyncio.sleep(3600))
-        spotify_source._pause_timer = timer
+        session.get = Mock(side_effect=aiohttp.ClientOSError("connection refused"))
+        await spotify_source._reconcile_on_connect()
 
-        with patch.object(spotify_source, 'refresh_metadata', new_callable=AsyncMock, return_value=False):
-            await spotify_source._reconcile_on_connect()
-
-        assert spotify_source._device_connected is False
-        assert "title" not in spotify_source._metadata  # ghost track cleared
+        assert "title" not in spotify_source.metadata  # ghost track cleared
         assert spotify_source.state == SourceState.READY
-        assert spotify_source._pause_timer is None
-        with pytest.raises(asyncio.CancelledError):
-            await timer
+        await pause_clock.advance(spotify_source.auto_stop_delay)
+        assert player_stops(session) == 0
 
 
 class TestAutoStop:
     """Test auto-stop timer functionality."""
 
-    def test_cancel_pause_timer(self, spotify_source):
-        """Test canceling pause timer."""
-        mock_timer = Mock()
-        mock_timer.cancel = Mock()
-        spotify_source._pause_timer = mock_timer
+    @pytest.mark.asyncio
+    async def test_a_pause_left_alone_ends_the_session_after_the_delay(
+        self, spotify_source, pause_clock
+    ):
+        """The phone paused and walked away: after the delay the Connect session
+        is ended, once, and the screen can sleep. The control for the two
+        tests below — without it their silence proves nothing."""
+        session = mock_librespot_api(spotify_source, paused=True)
 
-        spotify_source._cancel_pause_timer()
+        await spotify_source._on_playback_state(False)
+        await pause_clock.advance(spotify_source.auto_stop_delay)
 
-        mock_timer.cancel.assert_called_once()
-        assert spotify_source._pause_timer is None
+        assert player_stops(session) == 1
 
-    def test_start_pause_timer_disabled(self, spotify_source):
-        """Test timer not started when disabled."""
-        spotify_source.auto_stop_enabled = False
+    @pytest.mark.asyncio
+    async def test_a_play_before_the_delay_keeps_the_session(
+        self, spotify_source, pause_clock
+    ):
+        """A resume from the phone disarms the auto-stop; otherwise the music
+        is cut one delay after the last pause, mid-track."""
+        session = mock_librespot_api(spotify_source, paused=True)
 
-        spotify_source._start_pause_timer()
+        await spotify_source._on_playback_state(False)
+        await pause_clock.advance(spotify_source.auto_stop_delay / 2)
+        await spotify_source._on_playback_state(True)
+        await pause_clock.advance(spotify_source.auto_stop_delay)
 
-        assert spotify_source._pause_timer is None
+        assert player_stops(session) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_auto_stop_when_the_delay_is_zero(self, spotify_source, pause_clock):
+        """0 in Settings means off: a paused session stays on the phone's
+        speaker list as the selected output, however long it waits."""
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(return_value=0)
+        await spotify_source.reload_auto_stop_config()
+        session = mock_librespot_api(spotify_source, paused=True)
+
+        await spotify_source._on_playback_state(False)
+        await pause_clock.advance(3600)
+
+        assert player_stops(session) == 0
 
     @pytest.mark.asyncio
     async def test_on_auto_stop_posts_player_stop(self, spotify_source):

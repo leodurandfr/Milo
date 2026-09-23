@@ -1,14 +1,16 @@
 # backend/tests/test_mpv_audio_source.py
 """
-Unit tests for MpvAudioSource auto-stop on mpv pause.
+Unit tests for MpvAudioSource's shared plumbing.
 
-The base class provides a single edge-tracking helper
-(`_handle_pause_change`); each mpv source decides when to call it (from
-its monitor tick or from explicit user commands like CD play/pause).
-This file covers the helper, the `_on_auto_stop` dispatch that keeps
-`active_source` intact (regression guard against the prior
-`transition_to_source(NONE)` behavior), and the timer self-cancel
-regression guard.
+Two paths live in the base class. The session-driven one (Radio, Podcast,
+Music Library follow mpv's events, and the idle timer follows the session's
+PAUSED phase) is covered by tests/test_mpv_sessions.py and the golden
+scenarios. What is left here is the attach every mpv source shares, and the
+polled path the CD still runs until it migrates: the monitor loop and its
+disconnect fallback, the pause-edge helper (`_handle_pause_change`) and the
+`_on_auto_stop` dispatch to `_auto_stop_action` that keeps `active_source`
+intact. Those are driven through `PolledSource`, a minimal subclass shaped the
+way the CD uses them, and observed through what its hooks did.
 """
 import asyncio
 import logging
@@ -16,10 +18,28 @@ import logging
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.shared.mpv import MpvController
+from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.radio.source import RadioSource
+from backend.tests.golden.harness import AsyncioProxy, VirtualClock
+
+
+class PolledSource(MpvAudioSource):
+    """An mpv source on the polled path, as the CD is: it reports pause edges
+    itself and implements `_auto_stop_action`, which only records the stop."""
+
+    def __init__(self, **kwargs):
+        super().__init__(source_id="cd", service_name="milo-probe.service", **kwargs)
+        self.auto_stops = 0
+
+    async def _do_start(self) -> bool:
+        return True
+
+    async def _auto_stop_action(self) -> None:
+        self.auto_stops += 1
 
 
 @pytest.fixture
@@ -36,6 +56,32 @@ def podcast_source():
     source.auto_stop_enabled = True
     source.auto_stop_delay = 999.0
     return source
+
+
+@pytest.fixture
+def polled():
+    return PolledSource()
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """The pause timer's clock (it sleeps in core/audio_source.py)."""
+    clock = VirtualClock()
+    monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+    return clock
+
+
+@pytest.fixture
+async def timed(clock):
+    """A polled source whose auto-stop delay comes from settings, as on a unit."""
+    settings = Mock()
+    settings.get_setting = AsyncMock(
+        side_effect=lambda key, *a, **k: 30 if key == "audio.auto_stop_delay" else None
+    )
+    source = PolledSource(settings_service=settings)
+    await source.reload_auto_stop_config()
+    yield source
+    await source.shutdown()
 
 
 async def _run_monitor(source, passes: int = 1, before_pass=None) -> None:
@@ -125,55 +171,55 @@ class TestMpvDisconnect:
         source._mpv = _live_mpv()
 
     @pytest.mark.asyncio
-    async def test_disconnect_publishes_ready_before_the_error_banner(self, radio_source):
+    async def test_disconnect_publishes_ready_before_the_error_banner(self, polled):
         order: list[str] = []
-        self._arm(radio_source, order)
-        radio_source._is_playing = True
-        radio_source._on_monitor_tick = AsyncMock()
+        self._arm(polled, order)
+        polled._is_playing = True
+        polled._on_monitor_tick = AsyncMock()
 
         # pass 0: link up. pass 1: mpv gone.
         await _run_monitor(
-            radio_source, passes=2,
-            before_pass=lambda i: setattr(radio_source, "_mpv", None) if i == 1 else None,
+            polled, passes=2,
+            before_pass=lambda i: setattr(polled, "_mpv", None) if i == 1 else None,
         )
 
         assert order == ["publish", "error"]
-        published = radio_source.state_machine.update_source_state.await_args.args
-        assert published[:2] == (AudioSource.RADIO, SourceState.READY)
+        published = polled.state_machine.update_source_state.await_args.args
+        assert published[:2] == (AudioSource.CD, SourceState.READY)
         assert published[2]["is_playing"] is False
         # The source's own copy must agree — routing reads it back on failure.
-        assert radio_source.state is SourceState.READY
+        assert polled.state is SourceState.READY
 
     @pytest.mark.asyncio
-    async def test_publishes_even_though_the_tick_already_cleared_is_playing(self, radio_source):
+    async def test_publishes_even_though_the_tick_already_cleared_is_playing(self, polled):
         """The tick sees the dying mpv one pass before is_connected flips.
 
-        Radio's tick assigns `_is_playing = await self._mpv.is_playing()`, which a
-        dead socket answers False; gating the fallback on that flag meant the
-        station card stayed ACTIVE for good. Observed on the unit 2026-08-07 with
+        A tick that reads the playing flag off mpv (Radio's did, `_is_playing =
+        await self._mpv.is_playing()`) gets False from a dead socket; gating the
+        fallback on that flag meant the station card stayed ACTIVE for good. Observed on the unit 2026-08-07 with
         `systemctl stop milo-radio`: state ACTIVE, station_name still set, 18 s
         later unchanged.
         """
         order: list[str] = []
-        self._arm(radio_source, order)
-        radio_source._is_playing = True
+        self._arm(polled, order)
+        polled._is_playing = True
 
         async def tick_against_dead_mpv():
-            radio_source._is_playing = False  # what is_playing() answers now
+            polled._is_playing = False  # what is_playing() answers now
 
-        radio_source._on_monitor_tick = tick_against_dead_mpv
+        polled._on_monitor_tick = tick_against_dead_mpv
 
         await _run_monitor(
-            radio_source, passes=2,
-            before_pass=lambda i: setattr(radio_source, "_mpv", None) if i == 1 else None,
+            polled, passes=2,
+            before_pass=lambda i: setattr(polled, "_mpv", None) if i == 1 else None,
         )
 
         assert order == ["publish", "error"]
-        assert radio_source.state is SourceState.READY
+        assert polled.state is SourceState.READY
 
     @pytest.mark.asyncio
     async def test_publishes_when_the_link_drops_without_the_controller_being_nulled(
-        self, radio_source
+        self, polled
     ):
         """The branch production actually takes — green here by design.
 
@@ -184,33 +230,33 @@ class TestMpvDisconnect:
         which is exactly the half the link-ownership change makes load-bearing.
         """
         order: list[str] = []
-        self._arm(radio_source, order)
-        radio_source._is_playing = True
-        radio_source._on_monitor_tick = AsyncMock()
+        self._arm(polled, order)
+        polled._is_playing = True
+        polled._on_monitor_tick = AsyncMock()
 
         def drop_the_link(i):
             if i == 1:
-                radio_source._mpv.is_connected = False
+                polled._mpv.is_connected = False
 
-        await _run_monitor(radio_source, passes=2, before_pass=drop_the_link)
+        await _run_monitor(polled, passes=2, before_pass=drop_the_link)
 
         assert order == ["publish", "error"]
-        assert radio_source.state is SourceState.READY
+        assert polled.state is SourceState.READY
 
     @pytest.mark.asyncio
-    async def test_no_publish_while_idle(self, radio_source):
+    async def test_no_publish_while_idle(self, polled):
         """A disconnected mpv on a source that never went ACTIVE is normal idle."""
-        radio_source.state_machine = Mock()
-        radio_source.state_machine.update_source_state = AsyncMock()
-        radio_source._mpv = None
-        radio_source._is_playing = False
+        polled.state_machine = Mock()
+        polled.state_machine.update_source_state = AsyncMock()
+        polled._mpv = None
+        polled._is_playing = False
 
-        await _run_monitor(radio_source, passes=2)
+        await _run_monitor(polled, passes=2)
 
-        radio_source.state_machine.update_source_state.assert_not_called()
+        polled.state_machine.update_source_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_publish_when_the_source_swaps_mpv_itself(self, radio_source):
+    async def test_no_publish_when_the_source_swaps_mpv_itself(self, polled):
         """CD tears mpv down on every seek with _is_playing still set.
 
         That window is indistinguishable from a crash by the loop alone, so
@@ -218,30 +264,30 @@ class TestMpvDisconnect:
         emit "Audio stream disconnected" and drop the disc to READY.
         """
         order: list[str] = []
-        self._arm(radio_source, order)
-        radio_source._is_playing = True
-        radio_source._on_monitor_tick = AsyncMock()
-        radio_source._mpv_swap_in_progress = lambda: True
+        self._arm(polled, order)
+        polled._is_playing = True
+        polled._on_monitor_tick = AsyncMock()
+        polled._mpv_swap_in_progress = lambda: True
 
         await _run_monitor(
-            radio_source, passes=2,
-            before_pass=lambda i: setattr(radio_source, "_mpv", None) if i == 1 else None,
+            polled, passes=2,
+            before_pass=lambda i: setattr(polled, "_mpv", None) if i == 1 else None,
         )
 
         assert order == []
-        radio_source.state_machine.update_source_state.assert_not_called()
+        polled.state_machine.update_source_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_publishes_once_not_every_second(self, radio_source):
+    async def test_publishes_once_not_every_second(self, polled):
         """The link stays down; the banner must not repeat every tick."""
         order: list[str] = []
-        self._arm(radio_source, order)
-        radio_source._is_playing = True
-        radio_source._on_monitor_tick = AsyncMock()
+        self._arm(polled, order)
+        polled._is_playing = True
+        polled._on_monitor_tick = AsyncMock()
 
         await _run_monitor(
-            radio_source, passes=5,
-            before_pass=lambda i: setattr(radio_source, "_mpv", None) if i == 1 else None,
+            polled, passes=5,
+            before_pass=lambda i: setattr(polled, "_mpv", None) if i == 1 else None,
         )
 
         assert order == ["publish", "error"]
@@ -268,8 +314,8 @@ class TestMonitorSurvivesABadPass:
     """
 
     @pytest.mark.asyncio
-    async def test_a_raising_tick_does_not_end_the_monitor(self, radio_source):
-        radio_source._mpv = _live_mpv()
+    async def test_a_raising_tick_does_not_end_the_monitor(self, polled):
+        polled._mpv = _live_mpv()
         ticks: list[int] = []
 
         async def tick():
@@ -277,15 +323,15 @@ class TestMonitorSurvivesABadPass:
             if len(ticks) == 1:
                 raise RuntimeError("transient mpv read")
 
-        radio_source._on_monitor_tick = tick
+        polled._on_monitor_tick = tick
 
-        await _run_monitor(radio_source, passes=3)
+        await _run_monitor(polled, passes=3)
 
         assert ticks == [0, 1, 2]
 
     @pytest.mark.asyncio
     async def test_a_cancel_landing_inside_the_tick_still_ends_the_monitor(
-        self, radio_source
+        self, polled
     ):
         """The per-pass guard must stay `except Exception`, never BaseException.
 
@@ -294,57 +340,65 @@ class TestMonitorSurvivesABadPass:
         to BaseException the loop would swallow its own teardown and keep
         polling an mpv the source has already dropped.
         """
-        radio_source._mpv = _live_mpv()
+        polled._mpv = _live_mpv()
         ticks: list[int] = []
 
         async def tick():
             ticks.append(len(ticks))
             raise asyncio.CancelledError
 
-        radio_source._on_monitor_tick = tick
+        polled._on_monitor_tick = tick
 
-        await asyncio.wait_for(_run_monitor(radio_source, passes=5), timeout=5)
+        await asyncio.wait_for(_run_monitor(polled, passes=5), timeout=5)
 
         assert ticks == [0]
 
 
 class TestPauseChange:
-    """Edge-tracking arms/cancels the auto-stop timer."""
+    """The CD reports pause edges itself; an edge arms or disarms the auto-stop."""
 
-    @pytest.mark.asyncio
-    async def test_arms_timer_on_pause_edge(self, radio_source):
-        radio_source._handle_pause_change(True)
+    async def test_a_pause_edge_auto_stops_after_the_delay(self, timed, clock):
+        """The disc paused and left alone releases the drive, so the screen can
+        sleep; without the edge arming the timer the CD plays paused forever."""
+        timed._handle_pause_change(True)
+        await clock.advance(timed.auto_stop_delay)
 
-        assert radio_source._was_paused is True
-        assert radio_source._pause_timer is not None
-        assert not radio_source._pause_timer.done()
-        radio_source._cancel_pause_timer()
+        assert timed.auto_stops == 1
 
-    @pytest.mark.asyncio
-    async def test_cancels_timer_on_resume_edge(self, radio_source):
-        radio_source._was_paused = True
-        radio_source._pause_timer = asyncio.create_task(asyncio.sleep(999))
+    async def test_a_resume_edge_before_the_delay_keeps_playing(self, timed, clock):
+        """A resume must disarm it, or the music stops mid-track one delay
+        after the last pause."""
+        timed._handle_pause_change(True)
+        await clock.advance(timed.auto_stop_delay / 2)
+        timed._handle_pause_change(False)
+        await clock.advance(timed.auto_stop_delay)
 
-        radio_source._handle_pause_change(False)
+        assert timed.auto_stops == 0
 
-        assert radio_source._was_paused is False
-        assert radio_source._pause_timer is None
+    async def test_no_auto_stop_when_the_delay_is_zero(self, clock):
+        """0 in Settings means off: a paused disc stays loaded."""
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value=0)
+        source = PolledSource(settings_service=settings)
+        await source.reload_auto_stop_config()
+        try:
+            source._handle_pause_change(True)
+            await clock.advance(3600)
 
-    def test_no_op_when_disabled(self, radio_source):
-        radio_source.auto_stop_enabled = False
+            assert source.auto_stops == 0
+        finally:
+            await source.shutdown()
 
-        radio_source._handle_pause_change(True)
+    async def test_a_repeated_pause_does_not_push_the_deadline(self, timed, clock):
+        """The CD reports a pause from several paths (the command, the preload);
+        a same-state report is not an edge, so it must not re-arm the timer and
+        restart the delay — the stop comes one delay after the first pause."""
+        timed._handle_pause_change(True)
+        await clock.advance(timed.auto_stop_delay / 2)
+        timed._handle_pause_change(True)
+        await clock.advance(timed.auto_stop_delay / 2)
 
-        assert radio_source._pause_timer is None
-
-    def test_no_edge_no_action(self, podcast_source):
-        """Same state on consecutive calls does nothing."""
-        podcast_source._was_paused = False
-
-        podcast_source._handle_pause_change(False)
-
-        assert podcast_source._was_paused is False
-        assert podcast_source._pause_timer is None
+        assert timed.auto_stops == 1
 
 
 class TestAutoStopAction:
@@ -355,42 +409,33 @@ class TestAutoStopAction:
     in-source. The new behavior keeps active_source intact.
     """
 
-    @pytest.mark.asyncio
-    async def test_dispatches_to_auto_stop_action_in_source(self, podcast_source):
-        """When the source is still active, delegate to _auto_stop_action."""
-        podcast_source.state_machine = Mock()
-        podcast_source.state_machine.system_state = Mock()
-        podcast_source.state_machine.system_state.active_source = AudioSource.PODCAST
-        podcast_source.state_machine.transition_to_source = AsyncMock(return_value=True)
-        podcast_source._auto_stop_action = AsyncMock(return_value=None)
+    @staticmethod
+    def _wire(source, active: AudioSource) -> Mock:
+        source.state_machine = Mock()
+        source.state_machine.system_state = Mock(active_source=active)
+        source.state_machine.transition_to_source = AsyncMock(return_value=True)
+        source.state_machine.update_source_state = AsyncMock()
+        return source.state_machine
 
-        await podcast_source._on_auto_stop()
+    async def test_the_expiry_stops_in_source(self, timed, clock):
+        """When the source is still active, the source's own stop runs and the
+        selection is left alone."""
+        machine = self._wire(timed, AudioSource.CD)
 
-        podcast_source._auto_stop_action.assert_awaited_once()
+        timed._handle_pause_change(True)
+        await clock.advance(timed.auto_stop_delay)
+
+        assert timed.auto_stops == 1
         # Critical: must NOT call transition_to_source — that was the bug.
-        podcast_source.state_machine.transition_to_source.assert_not_called()
+        machine.transition_to_source.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_cas_guard_aborts_when_source_switched_away(self, podcast_source):
+    async def test_cas_guard_aborts_when_source_switched_away(self, polled):
         """If the user switched to another source mid-timer, do nothing."""
-        podcast_source.state_machine = Mock()
-        podcast_source.state_machine.system_state = Mock()
-        podcast_source.state_machine.system_state.active_source = AudioSource.RADIO
-        podcast_source._auto_stop_action = AsyncMock(return_value=None)
+        self._wire(polled, AudioSource.RADIO)
 
-        await podcast_source._on_auto_stop()
+        await polled._on_auto_stop()
 
-        podcast_source._auto_stop_action.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_dispatches_without_state_machine(self, radio_source):
-        """When no state_machine is wired (test scaffold), still call action."""
-        radio_source.state_machine = None
-        radio_source._auto_stop_action = AsyncMock(return_value=None)
-
-        await radio_source._on_auto_stop()
-
-        radio_source._auto_stop_action.assert_awaited_once()
+        assert polled.auto_stops == 0
 
 
 class TestReloadAutoStop:
@@ -416,30 +461,3 @@ class TestReloadAutoStop:
         assert result is True
         assert podcast_source.auto_stop_enabled is True
         assert podcast_source.auto_stop_delay == 45.0
-
-
-class TestSelfCancelSafety:
-    """The pause timer must not cancel itself once it commits to stopping.
-
-    Regression guard: _on_auto_stop typically calls stop() which calls
-    _cancel_pause_timer(). If the running timer task were still tracked, the
-    cancel would inject CancelledError mid-stop and abort cleanup.
-    """
-
-    @pytest.mark.asyncio
-    async def test_timer_detaches_before_running_callback(self, radio_source):
-        radio_source.auto_stop_delay = 0.01
-
-        callback_observed_timer = []
-
-        async def fake_stop():
-            # By the time the callback runs, the timer ref must be detached
-            # so nested _cancel_pause_timer() calls become no-ops.
-            callback_observed_timer.append(radio_source._pause_timer)
-
-        radio_source._on_auto_stop = fake_stop
-        radio_source._start_pause_timer()
-        # Wait for the timer to fire and the callback to record state.
-        await asyncio.sleep(0.1)
-
-        assert callback_observed_timer == [None]

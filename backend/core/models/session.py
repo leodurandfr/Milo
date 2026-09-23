@@ -43,6 +43,7 @@ class PhaseEvent(str, Enum):
     RESUMED = "resumed"
     SEEK = "seek"
     TRACK_CHANGE = "track_change"
+    STALLED = "stalled"                  # the stream stopped delivering (mpv: paused-for-cache)
     STATE_WITHDRAWN = "state_withdrawn"  # the sender stops publishing a play state
 
 
@@ -74,7 +75,12 @@ TRANSITIONS: Dict[Tuple[Phase, PhaseEvent], Phase] = {
     (Phase.PLAYING, PhaseEvent.PAUSED): Phase.PAUSED,
     (Phase.PLAYING, PhaseEvent.TRACK_CHANGE): Phase.LOADING,
     (Phase.PLAYING, PhaseEvent.SEEK): Phase.LOADING,
+    # Measured on mpv 0.40: a stream that stops delivering sets
+    # paused-for-cache and announces nothing else, for minutes.
+    (Phase.PLAYING, PhaseEvent.STALLED): Phase.LOADING,
     (Phase.PAUSED, PhaseEvent.RESUMED): Phase.PLAYING,
+    # Unpaused, but nothing to play yet (the file is not open, the cache is dry).
+    (Phase.PAUSED, PhaseEvent.STALLED): Phase.LOADING,
     (Phase.PAUSED, PhaseEvent.SEEK): Phase.PAUSED,
     # A sender that publishes a play state leaves CONNECTED; one that stops
     # publishing it goes back — from whichever state it had published.
@@ -90,16 +96,23 @@ _ENDED_BY_MILO_OR_DAEMON = frozenset({
     EndReason.DAEMON_DIED,
 })
 
+# What ends content, whatever the phase it ends in: the file or the stream it
+# reads from gives out. LOADING is not only "before the first sound" — a stall
+# after it (STREAM_LOST), the next track of a queue opening (EOF when it is
+# empty, STORAGE_GONE when its key left) are LOADING too; so is a PAUSED
+# session whose paused load fails, or whose storage is pulled.
+_ENDED_BY_CONTENT = frozenset({
+    EndReason.EOF, EndReason.STREAM_LOST, EndReason.STORAGE_GONE,
+})
+
 ENDS: Dict[Phase, FrozenSet[EndReason]] = {
-    Phase.LOADING: _ENDED_BY_MILO_OR_DAEMON | {EndReason.LOAD_FAILED},
+    Phase.LOADING: _ENDED_BY_MILO_OR_DAEMON | _ENDED_BY_CONTENT | {EndReason.LOAD_FAILED},
     # Every LOADING end but LOAD_FAILED, which is "before the first sound" by
     # definition: a load failing after sound left is STREAM_LOST.
-    Phase.PLAYING: _ENDED_BY_MILO_OR_DAEMON | {
-        EndReason.EOF, EndReason.STREAM_LOST, EndReason.STORAGE_GONE,
-        EndReason.SENDER_LEFT,
-    },
+    Phase.PLAYING: _ENDED_BY_MILO_OR_DAEMON | _ENDED_BY_CONTENT | {EndReason.SENDER_LEFT},
     Phase.PAUSED: _ENDED_BY_MILO_OR_DAEMON | {
-        EndReason.IDLE_TIMEOUT, EndReason.SENDER_LEFT,
+        EndReason.IDLE_TIMEOUT, EndReason.SENDER_LEFT, EndReason.LOAD_FAILED,
+        EndReason.STREAM_LOST, EndReason.STORAGE_GONE,
     },
     Phase.CONNECTED: frozenset({
         EndReason.SENDER_LEFT, EndReason.USER_STOP, EndReason.SOURCE_SWITCH,
@@ -147,23 +160,35 @@ def table_gaps(
 class Session:
     """One listening session. Its identity is the generation token: a timer,
     a result or a feed message carrying a session that is no longer current is
-    stale and dropped. Sources subclass it to add their typed content."""
+    stale and dropped. Sources subclass it to add their typed content.
+
+    `heard` says whether sound ever left in this session — what tells a load
+    that failed (LOAD_FAILED) from a stream that was lost (STREAM_LOST).
+    """
     phase: Phase
     id: str = field(default_factory=lambda: uuid4().hex)
+    heard: bool = False
 
     def advance(self, event: PhaseEvent) -> Phase:
         self.phase = next_phase(self.phase, event)
+        if self.phase is Phase.PLAYING:
+            self.heard = True
         return self.phase
 
 
 @dataclass(frozen=True)
 class ResumePoint:
-    """What "play" would bring back between two sessions."""
+    """What "play" would bring back between two sessions.
+
+    `phase` is the phase the session had when it ended: a multiroom reroute
+    restores it (playing stays playing), every other restore lands paused.
+    """
     identity: str
     position_ms: int
     captured_at: float
     reason: EndReason
     content: Any = None
+    phase: Phase = Phase.PAUSED
 
 
 class IdlePolicy(str, Enum):
@@ -179,6 +204,21 @@ class ReroutePolicy(str, Enum):
     KEEP_SESSION = "keep_session"                  # only the writer moves (Spotify, Bluetooth)
     RESTART_AND_RESTORE = "restart_and_restore"    # same content, position and phase
     END_SESSION = "end_session"                    # the service forces a reconnect
+
+
+class CommandScope(str, Enum):
+    """What a command acts on, which decides whether it can run with no session.
+
+    CONTENT starts something new; SESSION needs a live session and is refused
+    without one; RESUME works from the resume point when there is no session
+    (it restores, then acts); PREFERENCE holds without a session; DEVICE acts on
+    the hardware, not on the session.
+    """
+    CONTENT = "content"
+    SESSION = "session"
+    RESUME = "resume"
+    PREFERENCE = "preference"
+    DEVICE = "device"
 
 
 @dataclass(frozen=True)

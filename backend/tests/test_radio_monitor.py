@@ -1,306 +1,206 @@
 # backend/tests/test_radio_monitor.py
-"""`RadioSource._on_monitor_tick` — the loop that turns mpv's state into the UI.
+"""How what mpv announces becomes what the radio card shows.
 
-The tick was never executed by a test. The in-band arbitration suite in
-`test_radio_source.py` calls `_poll_inband_metadata` directly, so the gate that
-decides whether it is polled at all, the pause edge that arms auto-stop, and the
-buffering timeout that is the *only* thing telling a user their station will not
-tune all ran unobserved.
+The radio used to poll mpv once a second and infer loading, playing and a dead
+stream from a tick count. It now follows mpv's events (MpvAudioSource
+`_listen_to_mpv`): the sound starting, the cache running dry, a pause, the
+entry ending. Each scenario drives mpv (tests/mpv_sim.py, mpv 0.40 as
+measured) and the source's timers on a clock the test advances, and reads the
+result where the Pinia store reads it — the state machine's
+`source_state`/`metadata` and its `source/error` banners.
 
-Consumers: `RadioSource` is driven by `MpvAudioSource._monitor_loop`; every
-assertion here lands on `state_machine` (the WS `source` events the Pinia store
-mirrors) or on the auto-stop timer.
+Stalls ended by the watchdog, a URL that fails to open, the knob during
+buffering and Shazam dying with the session are in tests/test_mpv_sessions.py.
 """
-from unittest.mock import AsyncMock, Mock
-
 import pytest
 
-from backend.core.models.audio_state import SourceState
-from backend.core.models.ws_events import SourceErrorReason
-from backend.sources.radio.source import RadioSource
-from backend.tests.conftest import drain_background_tasks
+from backend.tests.golden.test_old_wire_radio import FIP, NOVA
+from backend.tests.radio_world import STALL_TIMEOUT_S, RadioWorld
 
 
 @pytest.fixture
-def state_machine():
-    machine = Mock()
-    machine.broadcast = AsyncMock()
-    machine.update_source_state = AsyncMock()
-    machine.system_state = Mock()
-    return machine
-
-
-@pytest.fixture
-def source(state_machine):
-    """A radio source mid-playback, with mpv and station data stood in for."""
-    src = RadioSource({"mpv_socket": "/tmp/test-radio-ipc.sock"},
-                      state_machine=state_machine)
-    src._mpv = Mock()
-    src._mpv.is_playing = AsyncMock(return_value=False)
-    src._mpv.get_property = AsyncMock(return_value=None)
-    src._mpv.get_metadata = AsyncMock(return_value={})
-    src._station_data = Mock()
-    src._station_data.is_favorite = Mock(return_value=False)
-    return src
-
-
-def _errors(state_machine):
-    """The reason codes of the banners the tick emitted."""
-    return [
-        call.args[0].reason
-        for call in state_machine.broadcast.await_args_list
-        if getattr(call.args[0], "TYPE", None) == "error"
-    ]
+def radio(monkeypatch):
+    return RadioWorld(monkeypatch, settings={"audio.auto_stop_delay": 45}, clock=True)
 
 
 class TestStreamThatNeverLoads:
-    """A dead stream leaves mpv idle-active for ever and reports nothing itself.
+    """A stream that opens nothing and sends nothing: only the loading
+    watchdog ends it. Losing it is a spinner that never resolves on a station
+    that will never play (the radio card, the lock screen)."""
 
-    The tick is the only thing that notices, and `broadcast_error` is the only
-    thing the user sees. Losing this is a spinner that never resolves on a
-    station that will never play.
-    """
+    async def test_a_slow_stream_gets_the_whole_watchdog_and_then_is_reported(self, radio):
+        """Both sides of the edge: a banner before the watchdog turns every slow
+        station into a failure; none after it leaves the spinner up forever."""
+        await radio.select()
+        await radio.tune(FIP)
 
-    @staticmethod
-    def _buffering(source):
-        station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._current_station = station
-        source._is_buffering = True
-        source._is_playing = False
-        source._mpv.is_playing = AsyncMock(return_value=False)
-        source._mpv.get_property = AsyncMock(
-            side_effect=lambda prop: {"pause": False, "idle-active": True}.get(prop)
-        )
-        return station
+        await radio.advance(STALL_TIMEOUT_S - 1)
+        assert radio.errors() == []
+        assert radio.state()["source_state"] == "active"
+        assert radio.meta()["is_buffering"] is True
 
-    @pytest.mark.asyncio
-    async def test_the_grace_is_five_ticks_and_the_fifth_is_the_one_that_reports(
-        self, source, state_machine
-    ):
-        """The count is the user-visible delay before the failure is named.
+        await radio.advance(1)
+        assert radio.errors() == ["stream_load_failed"]
+        assert radio.state()["source_state"] == "ready"
 
-        Asserting both sides of the edge is what keeps this from passing on a
-        tick that reports immediately (every station would flash an error while
-        it buffers) or one that never reports at all.
-        """
-        self._buffering(source)
+    async def test_the_station_it_failed_on_stays_on_screen_to_retry(self, radio):
+        """READY carries the station the stream failed on, because that is
+        what a press on Retry re-tunes — the banner and the card name the same
+        station. Playback is off and the track it was showing is gone: the
+        recognised track belongs to a stream that runs."""
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.opens()
+        await radio.tick(4)
+        assert radio.meta()["track_title"] == "Snibor"
 
-        for _ in range(4):
-            await source._on_monitor_tick()
-        await drain_background_tasks()
-        assert _errors(state_machine) == []
-        assert source._current_station is not None
+        await radio.stalls()
+        await radio.advance(STALL_TIMEOUT_S)
+        assert radio.errors() == ["stream_disconnected"]
 
-        await source._on_monitor_tick()
-        await drain_background_tasks()
-        assert _errors(state_machine) == [SourceErrorReason.STREAM_LOAD_FAILED]
+        meta = radio.meta()
+        assert meta["station_id"] == "fip"
+        assert meta["title"] == meta["station_name"]
+        assert meta["is_playing"] is False
+        assert meta["is_buffering"] is False
+        assert "track_title" not in meta
 
-    @pytest.mark.asyncio
-    async def test_the_reported_station_is_dropped_and_the_source_goes_ready(
-        self, source, state_machine
-    ):
-        """Leaving the station pinned keeps the player up over a dead stream."""
-        station = self._buffering(source)
+        await radio.command("resume_playback")
+        assert radio.loads()[-1][1] == FIP["url"]
 
-        for _ in range(5):
-            await source._on_monitor_tick()
-        await drain_background_tasks()
+    async def test_a_station_that_opens_in_time_is_never_reported(self, radio):
+        """The sound starting disarms the watchdog: a station that took most
+        of it to open must not be declared dead afterwards."""
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.advance(STALL_TIMEOUT_S - 1)
 
-        assert source._current_station is None
-        assert source._is_buffering is False
-        assert source.state == SourceState.READY
-        # `self._metadata = {}` two lines up is inert: `_update_connection_state`
-        # republishes through `emit_connection_state`, which *replaces* the
-        # dict. This is what the player actually reads.
-        #
-        # READY carries the station the stream failed on, because that is what
-        # a press on Retry would re-tune — the error banner and the state now
-        # say the same thing. Playback is off, and nothing claims a track: the
-        # recognised-track layer belongs to a stream that is running.
-        assert source._metadata["is_playing"] is False
-        assert source._metadata["is_buffering"] is False
-        assert source._metadata["station_id"] == station["id"]
-        assert source._metadata["title"] == station["name"]
-        # Absent rather than null — emit_connection_state drops empty keys on
-        # both halves, and the wire convention is that the two say the same.
-        assert source._metadata.get("track_title") is None
+        await radio.opens()
+        await radio.advance(STALL_TIMEOUT_S * 3)
 
-    @pytest.mark.asyncio
-    async def test_mpv_still_working_on_it_is_not_reported(self, source, state_machine):
-        """`idle-active` is the tell, not the tick count.
-
-        mpv goes idle-active only once it has given up. A slow stream that is
-        still opening past the grace must not be declared dead — reporting on
-        the counter alone turns every slow station into a failure.
-        """
-        self._buffering(source)
-        source._mpv.get_property = AsyncMock(
-            side_effect=lambda prop: {"pause": False, "idle-active": False}.get(prop)
-        )
-
-        for _ in range(12):
-            await source._on_monitor_tick()
-        await drain_background_tasks()
-
-        assert _errors(state_machine) == []
-        assert source._current_station is not None
-        assert source._is_buffering is True
-
-    @pytest.mark.asyncio
-    async def test_a_station_that_starts_playing_is_never_reported(
-        self, source, state_machine
-    ):
-        """The buffering arm is an `elif`: once mpv plays, the counter is moot."""
-        self._buffering(source)
-        for _ in range(4):
-            await source._on_monitor_tick()
-
-        source._mpv.is_playing = AsyncMock(return_value=True)
-        for _ in range(4):
-            await source._on_monitor_tick()
-        await drain_background_tasks()
-
-        assert _errors(state_machine) == []
-        assert source._is_buffering is False
+        assert radio.errors() == []
+        assert radio.state()["source_state"] == "active"
+        assert radio.meta()["is_playing"] is True
 
 
 class TestPlaybackEdges:
-    """The two edges that publish a state change, and the one that must not."""
+    """The phase changes mpv announces, each published once."""
 
-    @pytest.mark.asyncio
-    async def test_buffering_to_playing_clears_the_spinner(self, source, state_machine):
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_buffering = True
-        source._is_playing = False
-        source._mpv.is_playing = AsyncMock(return_value=True)
+    async def test_the_sound_starting_clears_the_spinner(self, radio):
+        """The spinner is up from the tap (a station can take seconds to open)
+        and goes the moment mpv says sound started — not on a later poll."""
+        await radio.select()
+        await radio.tune(FIP)
+        assert radio.state()["source_state"] == "active"
+        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (False, True)
 
-        await source._on_monitor_tick()
-        await drain_background_tasks()
+        await radio.opens()
 
-        assert source._is_buffering is False
-        assert source.state == SourceState.ACTIVE
-        assert source._metadata["is_buffering"] is False
-        assert source._metadata["is_playing"] is True
+        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (True, False)
 
-    @pytest.mark.asyncio
-    async def test_a_stream_that_drops_publishes_the_stop(self, source, state_machine):
-        """mpv losing the stream is not a command — nothing else announces it."""
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_playing = True
-        source._mpv.is_playing = AsyncMock(return_value=False)
+    async def test_a_stream_that_runs_dry_shows_the_spinner_until_it_recovers(self, radio):
+        """mpv's cache running dry is the only sign a stream stalled; the card
+        must show it rather than a play state over silence, and a stream that
+        comes back (measured: within 12 s) plays on with no banner."""
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.opens()
 
-        await source._on_monitor_tick()
-        await drain_background_tasks()
+        await radio.stalls()
+        assert radio.state()["source_state"] == "active"
+        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (False, True)
 
-        assert source._is_playing is False
-        assert source._metadata["is_playing"] is False
-        state_machine.update_source_state.assert_awaited()
+        await radio.recovers()
+        await radio.advance(STALL_TIMEOUT_S * 2)
+        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (True, False)
+        assert radio.errors() == []
 
-    @pytest.mark.asyncio
-    async def test_a_steady_tick_publishes_nothing(self, source, state_machine):
-        """No edge, no event: the tick runs continuously while a station plays,
-        so an unconditional publish is a broadcast storm on every unit."""
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_playing = True
-        source._mpv.is_playing = AsyncMock(return_value=True)
+    async def test_a_stream_that_errors_out_after_its_sound_is_a_lost_stream(self, radio):
+        """mpv losing the stream is not a command, so nothing else announces
+        it: the card drops to READY with the disconnected banner and keeps the
+        station for a re-tune."""
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.opens()
 
-        for _ in range(6):
-            await source._on_monitor_tick()
-        await drain_background_tasks()
+        await radio.fails("network error")
 
-        state_machine.update_source_state.assert_not_awaited()
+        assert radio.state()["source_state"] == "ready"
+        assert radio.errors() == ["stream_disconnected"]
+        assert radio.meta()["station_id"] == "fip"
+
+    async def test_a_steady_stream_publishes_nothing(self, radio):
+        """No change, no event: the source hears from mpv every second while a
+        station plays, and a publish per second is a broadcast storm on every
+        client of every unit."""
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.opens()
+        await radio.tick(4)                    # the title is read and shown
+        assert radio.meta()["track_title"] == "Snibor"
+        before = len(radio.recorder.envelopes)
+
+        await radio.tick(12)
+
+        assert radio.recorder.envelopes[before:] == []
 
 
 class TestPauseEdge:
-    """mpv's `pause` property is the only pause signal radio has.
+    """Radio has no pause command, but mpv can be paused (another IPC client,
+    a load that lands paused). mpv's `pause` event is what arms the idle
+    timeout, as for the other mpv sources."""
 
-    Radio exposes no pause control, so this is the defensive path that keeps it
-    uniform with the other mpv sources — and it is what arms the auto-stop timer.
-    """
+    async def test_a_pause_is_shown_and_ends_the_session_after_the_idle_delay(self, radio):
+        """The configured delay, not another: a stream paused for good must
+        release the audio path, and one paused briefly must not lose it."""
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.opens()
 
-    @pytest.mark.asyncio
-    async def test_the_mpv_pause_property_drives_the_auto_stop_timer(self, source):
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_playing = True
-        source._mpv.is_playing = AsyncMock(return_value=True)
-        source._mpv.get_property = AsyncMock(
-            side_effect=lambda prop: True if prop == "pause" else None
-        )
-        source._handle_pause_change = Mock()
+        await radio.paused(True)
+        await radio.advance(44)
+        assert radio.state()["source_state"] == "active"
+        assert radio.meta()["is_playing"] is False
 
-        await source._on_monitor_tick()
+        await radio.advance(1)
+        assert radio.state()["source_state"] == "ready"
+        assert radio.meta()["station_id"] == "fip"
+        assert radio.errors() == []
 
-        source._handle_pause_change.assert_called_once_with(True)
+    async def test_an_unpause_disarms_the_idle_timeout(self, radio):
+        """A timer left armed across the unpause cuts off a station that is
+        playing again."""
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.opens()
 
-    @pytest.mark.asyncio
-    async def test_an_unavailable_pause_property_is_not_read_as_playing(self, source):
-        """mpv answers None when the property is not available.
+        await radio.paused(True)
+        await radio.advance(30)
+        await radio.paused(False)
+        await radio.advance(120)
 
-        Coercing that to False cancels a pause timer that is legitimately
-        armed, so the auto-stop never fires — the failure is a unit that keeps
-        a dead stream open for hours instead of releasing the source.
-        """
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_playing = True
-        source._mpv.is_playing = AsyncMock(return_value=True)
-        source._mpv.get_property = AsyncMock(return_value=None)
-        source._handle_pause_change = Mock()
-
-        await source._on_monitor_tick()
-
-        source._handle_pause_change.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_no_station_means_no_pause_read(self, source):
-        """Reading mpv properties with nothing tuned is IPC traffic per tick for
-        an answer that cannot mean anything."""
-        source._current_station = None
-        source._is_playing = False
-
-        await source._on_monitor_tick()
-
-        source._mpv.get_property.assert_not_called()
+        assert radio.state()["source_state"] == "active"
+        assert radio.meta()["is_playing"] is True
 
 
-class TestInbandPollingGate:
-    """`_poll_inband_metadata` is reached only through the tick's own gate.
+class TestInbandReadingGate:
+    """The in-band title is read only while sound plays."""
 
-    Every existing in-band test calls the poll directly, so this condition —
-    which decides whether a title is read at all — had never run.
-    """
+    async def test_a_loading_station_is_not_read_until_its_sound_starts(self, radio):
+        """Reading a title off a stream that has not opened pins the previous
+        station's title onto the one now loading (the card, the lock screen)."""
+        await radio.select()
+        await radio.tune(NOVA)
+        await radio.opens()
+        radio.stream_title("Gil Evans - Snibor")   # still the old stream's tag
+        await radio.tune(FIP)                       # loading
 
-    @pytest.mark.asyncio
-    async def test_a_playing_station_is_polled(self, source):
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_playing = True
-        source._mpv.is_playing = AsyncMock(return_value=True)
-        source._poll_inband_metadata = AsyncMock()
+        await radio.tick(8)
+        assert "track_title" not in radio.meta()
 
-        await source._on_monitor_tick()
-
-        source._poll_inband_metadata.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_a_buffering_station_is_not_polled_yet(self, source):
-        """Reading a title off a stream that has not opened pins the *previous*
-        station's title onto the one now loading."""
-        source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        source._is_buffering = True
-        source._is_playing = False
-        source._mpv.is_playing = AsyncMock(return_value=False)
-        source._poll_inband_metadata = AsyncMock()
-
-        await source._on_monitor_tick()
-
-        source._poll_inband_metadata.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_nothing_tuned_is_not_polled(self, source):
-        source._current_station = None
-        source._is_playing = True
-        source._mpv.is_playing = AsyncMock(return_value=True)
-        source._poll_inband_metadata = AsyncMock()
-
-        await source._on_monitor_tick()
-
-        source._poll_inband_metadata.assert_not_awaited()
+        radio.stream_title("Miles Davis - So What")
+        await radio.opens()
+        await radio.tick(4)
+        assert radio.meta()["track_title"] == "So What"

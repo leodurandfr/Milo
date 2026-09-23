@@ -82,6 +82,10 @@ class MpvController:
         # Launch-time --stream-lavf-o (HTTP reconnect options), captured on
         # first connect and toggled off for HLS in load_stream. None until captured.
         self._default_stream_lavf_o: Optional[Any] = None
+        # Which scope (HLS or not) the current link's stream options are set
+        # for: a queue appends one entry per track, and re-sending an
+        # unchanged option doubled the round-trips before its first sound.
+        self._stream_options_hls: Optional[bool] = None
 
     async def connect(
         self, timeout: float = CONNECT_TIMEOUT, retry_delay: float = 0.5
@@ -217,6 +221,7 @@ class MpvController:
         link = MpvLink(reader, writer)
         link.reader_task = asyncio.get_running_loop().create_task(self._read_loop(link))
         self._link = link
+        self._stream_options_hls = None
         return link
 
     async def _read_loop(self, link: MpvLink) -> None:
@@ -442,13 +447,23 @@ class MpvController:
         """
         if not url:
             return
-        if self._is_hls(url):
-            await self.set_property("stream-lavf-o", "")
+        hls = self._is_hls(url)
+        if hls == self._stream_options_hls:
+            return
+        if hls:
+            applied = await self.set_property("stream-lavf-o", "")
         elif self._default_stream_lavf_o is not None:
-            await self.set_property("stream-lavf-o", self._default_stream_lavf_o)
+            applied = await self.set_property("stream-lavf-o", self._default_stream_lavf_o)
+        else:
+            return
+        self._stream_options_hls = hls if applied else None
 
-    async def _prepare_load(self, url: str) -> bool:
-        """Re-attach, scope the stream options, log the load. False: no mpv."""
+    async def _prepare_load(self, url: str, quiet: bool = False) -> bool:
+        """Re-attach, scope the stream options, log the load. False: no mpv.
+
+        `quiet` logs at debug: a queue appends one entry per track, and the
+        caller says once what it is loading.
+        """
         # Before _apply_stream_options, which always issues a round-trip: on a
         # link that dropped since the last command, that round-trip would be the
         # one to discover the death and every command after it would be dropped.
@@ -460,7 +475,9 @@ class MpvController:
         # `u=<user>&t=<md5(password+salt)>&s=<salt>` — the token and the salt
         # that cracks it, on one INFO line, once per track. The path alone is
         # what a stream failure is diagnosed from.
-        self.logger.info("Loading stream: %s", url.split("?")[0][:100])
+        (self.logger.debug if quiet else self.logger.info)(
+            "Loading stream: %s", url.split("?")[0][:100]
+        )
         return True
 
     async def load_stream(self, url: str) -> bool:
@@ -515,7 +532,7 @@ class MpvController:
         Returns:
             The entry id, or None when there is no mpv, no answer or a refusal.
         """
-        if not await self._prepare_load(url):
+        if not await self._prepare_load(url, quiet=mode == "append"):
             return None
         options = []
         if start_s is not None:
@@ -625,20 +642,6 @@ class MpvController:
         response = await self._send_command("set_property", property_name, value)
         return response is not None and response.get('error') == 'success'
 
-    async def is_playing(self) -> bool:
-        """
-        Checks if mpv is playing via playback-time
-
-        Returns:
-            True if playing (playback-time exists)
-        """
-        # playback-time is the most reliable property for streams
-        # It exists as soon as mpv starts decoding, and disappears when stopped
-        playback_time = await self.get_property("playback-time")
-
-        # If playback-time is a number (even 0), the stream is playing
-        return isinstance(playback_time, (int, float))
-
     async def wait_until_advancing(
         self, timeout: float = 3.0, poll_interval: float = 0.05
     ) -> bool:
@@ -693,64 +696,13 @@ class MpvController:
 
     # === Playlist (gapless queue) ===
 
-    async def load_playlist(self, urls: list, start_index: int = 0) -> bool:
-        """Build mpv's native playlist from an ordered list of stream URLs and
-        start playing at ``start_index``.
+    async def play_index(self, index: int) -> bool:
+        """Start playlist entry `index` (0-based). mpv ends the current entry
+        with `end-file reason=stop` and sends `start-file` for this one."""
+        response = await self._send_command("playlist-play-index", index)
+        return response is not None and response.get('error') == 'success'
 
-        With the unit's ``--gapless-audio=yes`` a native playlist plays truly
-        gapless across the queue. Loads paused so the first entry doesn't blip
-        before jumping to ``start_index``, then unpauses. The first URL uses
-        ``loadfile … replace`` (which clears any previous queue); the rest are
-        appended in order. Returns False if the initial load fails; a single
-        failed append is logged but doesn't abort the whole queue.
-        """
-        if not urls:
-            return False
-
-        # Before the priming pause, not just before the loads: that pause is what
-        # stops entry 0 blipping before the jump to start_index, and a
-        # set_property dropped on a down link would let the queue load unpaused —
-        # audibly, with nothing reporting a failure.
-        if not await self.ensure_connected():
-            return False
-
-        await self.set_property("pause", True)
-        if not await self.load_stream(urls[0]):
-            return False
-        for url in urls[1:]:
-            response = await self._send_command("loadfile", url, "append")
-            if response is None:
-                self.logger.warning("playlist append failed for an entry")
-
-        if start_index:
-            await self.set_property("playlist-pos", start_index)
-        await self.set_property("pause", False)
-        return True
-
-    async def set_playlist_pos(self, index: int) -> bool:
-        """Jump to a 0-based entry in the current playlist (mpv loads + plays it,
-        honoring the current pause state)."""
-        return await self.set_property("playlist-pos", index)
-
-    async def replace_playlist_tail(self, keep_count: int, urls: list) -> bool:
-        """Replace every playlist entry at index >= ``keep_count`` with ``urls``,
-        leaving entries ``[0, keep_count)`` — including the one currently playing —
-        untouched.
-
-        Because the current entry is never reloaded, playback continues without a
-        restart (and gaplessly into the new tail). Used by the live shuffle toggle
-        to reorder only the upcoming tracks. Returns False if the playlist length
-        can't be read; a single failed append is logged but doesn't abort.
-        """
-        count = await self.get_property("playlist-count")
-        if count is None:
-            return False
-        # Drop the old tail from the end down to keep_count (stable indices).
-        for index in range(int(count) - 1, keep_count - 1, -1):
-            await self._send_command("playlist-remove", index)
-        # Append the new tail in order.
-        for url in urls:
-            response = await self._send_command("loadfile", url, "append")
-            if response is None:
-                self.logger.warning("playlist tail append failed for an entry")
-        return True
+    async def remove_entry(self, index: int) -> bool:
+        """Remove playlist entry `index` (0-based) without touching the others."""
+        response = await self._send_command("playlist-remove", index)
+        return response is not None and response.get('error') == 'success'

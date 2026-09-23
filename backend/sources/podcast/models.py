@@ -6,12 +6,6 @@ from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 
 
-class PlayEpisodeRequest(BaseModel):
-    """Request to play an episode."""
-    episode_uuid: str
-    position: Optional[int] = None  # Resume position
-
-
 class SubscribeRequest(BaseModel):
     """Request to subscribe to a podcast."""
     uuid: str
@@ -23,17 +17,18 @@ class SubscribeRequest(BaseModel):
 # === Command-parameter models (validated at the command() boundary) ===
 
 class PlayEpisodeParams(BaseModel):
-    """Params for `play_episode`."""
+    """Params for `play_episode`. `position` (seconds) starts the episode there
+    instead of at the second the progress file kept."""
     episode_uuid: str = Field(min_length=1)
+    position: Optional[int] = Field(default=None, ge=0)
 
 
 class SeekParams(BaseModel):
     """Params for `seek`. Accepts `position` (seconds) or `position_ms`.
 
     position_ms is the wire convention used by useSourceProgress.seekTo
-    (shared with Spotify); `position` (seconds) is the internal resume-seek
-    sent by the /play route. Exactly the raw fields are kept; `.seconds`
-    normalizes to a single value.
+    (shared with Spotify); `position` is seconds. Exactly the raw fields are
+    kept; `.seconds` normalizes to a single value.
     """
     position: Optional[float] = None
     position_ms: Optional[float] = None

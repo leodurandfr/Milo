@@ -1,176 +1,113 @@
 # backend/tests/test_radio_source.py
-"""
-Unit tests for RadioSource (features/radio/source.py).
+"""RadioSource: its lifecycle, what it publishes, its knob, and its title feeds.
 
-Tests cover:
-- BaseAudioSource compliance
-- Lifecycle (start, stop, restart)
-- Status format
-- Command handling
-- Station data operations
+Driven through the outside world only (tests/radio_world.py: mpv simulated,
+the station store, the directory and the recognition service faked, a real
+AudioStateMachine) and read where the clients read it: `source_state` and
+`metadata` on the state machine, `source/error` banners, command answers, and
+what mpv was told to load. Also the station store's own persistence rules and
+the two pure helpers (the in-band title parser, the pre-roll probe).
 """
 import asyncio
 import json
+import re
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
 
-from backend.sources.radio.source import RadioSource
+from backend.core import audio_source
+from backend.shared import mpv_audio_source
+from backend.sources.radio import source as radio_module
 from backend.sources.radio.data import StationDataService
-from backend.core.models.audio_state import SourceState
+from backend.sources.radio.source import RadioSource
+from backend.tests.golden.harness import (
+    AsyncioProxy, instant_short_sleep, make_settings, make_systemd, settle,
+)
+from backend.tests.golden.test_old_wire_radio import FIP, NOVA, FakeShazam
+from backend.tests.mpv_sim import MpvSim
+from backend.tests.radio_world import RadioWorld
+
+UNIT_FILE = Path(__file__).resolve().parents[2] / "system" / "milo-radio.service"
 
 
 @pytest.fixture
-def config():
-    """Default Radio source config."""
-    return {
-        "mpv_socket": "/tmp/test-radio-ipc.sock"
-    }
+def radio(monkeypatch):
+    return RadioWorld(monkeypatch)
 
 
-@pytest.fixture
-def radio_source(config, tmp_path):
-    """Create RadioSource with mocked components.
+class TestMpvSocket:
+    """The source reaches mpv on the socket the unit opens."""
 
-    `_data_file` is repointed the way the CD and music-library data services are:
-    `RadioSource.__init__` builds a real StationDataService whatever the test
-    patches afterwards, and `_do_start` initializes it. On the appliance that
-    file exists, so the run loaded the operator's own favourites and wrote
-    nothing; on CI it does not, so the same test seeded defaults and saved them
-    to the live path.
-    """
-    source = RadioSource(config)
-    source._station_data._data_file = tmp_path / "radio_data.json"
+    async def test_the_default_socket_is_the_one_milo_radio_service_opens(self, monkeypatch):
+        """mpv is started by milo-radio.service with its own
+        `--input-ipc-server`; a source dialing another path never attaches and
+        every station fails to start (the radio card shows "Failed to start")."""
+        match = re.search(r"--input-ipc-server=(\S+)", UNIT_FILE.read_text())
+        assert match, "milo-radio.service no longer declares its IPC socket"
+        dialed = []
+        monkeypatch.setattr(
+            mpv_audio_source, "MpvController",
+            lambda **kw: dialed.append(kw["ipc_socket_path"]) or MpvSim(),
+        )
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        monkeypatch.setattr(radio_module, "ShazamRecognitionService", FakeShazam)
+        # The station file is the operator's, under /var/lib/milo: not read here.
+        monkeypatch.setattr(StationDataService, "initialize", AsyncMock())
+        source = RadioSource(settings_service=make_settings(), systemd_manager=make_systemd())
 
-    # Mock service manager
-    source._service_manager = Mock()
-    source._service_manager.start = AsyncMock(return_value=True)
-    source._service_manager.stop = AsyncMock(return_value=True)
-    source._service_manager.restart = AsyncMock(return_value=True)
-    source._service_manager.is_active = AsyncMock(return_value=True)
+        assert await source.start() is True
+        await source.stop()
+        await source.shutdown()
 
-    return source
-
-
-class TestRadioSourceConfig:
-    """Test RadioSource configuration."""
-
-    def test_default_config(self):
-        """Test default configuration values."""
-        source = RadioSource()
-
-        assert source._mpv_socket == "/run/milo/radio-ipc.sock"
-
-    def test_custom_config(self):
-        """Test custom configuration."""
-        config = {"mpv_socket": "/custom/socket.sock"}
-        source = RadioSource(config)
-
-        assert source._mpv_socket == "/custom/socket.sock"
+        assert dialed == [match.group(1)]
 
 
 class TestRadioSourceLifecycle:
-    """Test RadioSource lifecycle methods."""
+    """Selecting and leaving the radio, as the state machine does it."""
 
-    @pytest.mark.asyncio
-    async def test_start_success(self, radio_source):
-        """Test successful start."""
-        # Mock dependencies
-        with patch.object(radio_source, '_start_service', return_value=True):
-            with patch('backend.sources.radio.source.StationDataService') as mock_data_class:
-                mock_data = AsyncMock()
-                mock_data.initialize = AsyncMock()
-                mock_data_class.return_value = mock_data
+    async def test_selecting_starts_the_unit_and_attaches_to_mpv(self, radio):
+        """READY with nothing tuned: the card offers stations, no spinner."""
+        await radio.select()
 
-                with patch('backend.sources.radio.source.RadioBrowserAPI') as mock_api_class:
-                    mock_api = AsyncMock()
-                    mock_api_class.return_value = mock_api
+        assert radio.state()["source_state"] == "ready"
+        assert radio.meta() == {"is_playing": False, "is_buffering": False}
+        radio.systemd.start.assert_awaited_once_with("milo-radio.service")
+        assert radio.mpv.is_connected
 
-                    with patch('backend.shared.mpv_audio_source.MpvController') as mock_mpv_class:
-                        mock_mpv = Mock()
-                        mock_mpv.connect = AsyncMock(return_value=True)
-                        mock_mpv.is_connected = True
-                        mock_mpv_class.return_value = mock_mpv
+    async def test_an_mpv_that_never_answers_fails_the_start(self, radio):
+        """A start that cannot reach mpv is reported as a failed start (the
+        card's Retry), and the unit it started is not left running."""
+        radio.mpv.connect = AsyncMock(return_value=False)
 
-                        result = await radio_source.start()
+        await radio.select()
 
-        assert result is True
+        assert radio.state()["source_state"] == "error"
+        radio.systemd.stop.assert_awaited_once_with("milo-radio.service")
 
-    @pytest.mark.asyncio
-    async def test_start_mpv_connection_failure(self, radio_source):
-        """Test start fails if MPV connection fails."""
-        with patch.object(radio_source, '_start_service', return_value=True):
-            with patch('backend.sources.radio.source.StationDataService') as mock_data_class:
-                mock_data = AsyncMock()
-                mock_data.initialize = AsyncMock()
-                mock_data_class.return_value = mock_data
+    async def test_leaving_stops_the_unit_and_keeps_the_station(self, radio):
+        """The unit goes (it holds the ALSA device the next source needs), the
+        IPC link closes, and coming back shows the station left, to re-tune."""
+        await radio.select()
+        await radio.tune(FIP)
 
-                with patch('backend.sources.radio.source.RadioBrowserAPI') as mock_api_class:
-                    mock_api = AsyncMock()
-                    mock_api_class.return_value = mock_api
+        await radio.leave()
+        assert radio.state()["active_source"] == "none"
+        radio.systemd.stop.assert_awaited_once_with("milo-radio.service")
+        assert not radio.mpv.is_connected
 
-                    with patch('backend.shared.mpv_audio_source.MpvController') as mock_mpv_class:
-                        mock_mpv = Mock()
-                        mock_mpv.connect = AsyncMock(return_value=False)
-                        mock_mpv.disconnect = AsyncMock()
-                        mock_mpv_class.return_value = mock_mpv
+        await radio.select()
+        assert radio.state()["source_state"] == "ready"
+        assert radio.meta()["station_id"] == "fip"
 
-                        with patch.object(radio_source, '_cleanup', new_callable=AsyncMock):
-                            result = await radio_source.start()
+    async def test_a_tuned_station_is_active(self, radio):
+        await radio.select()
 
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_stop_success(self, radio_source):
-        """Test successful stop."""
-        # Setup mocked state
-        radio_source._mpv = Mock()
-        radio_source._mpv.disconnect = AsyncMock()
-        radio_source._radio_api = Mock()
-        radio_source._radio_api.close = AsyncMock()
-        radio_source._station_data = Mock()
-        radio_source._monitor_task = None
-
-        with patch.object(radio_source, '_stop_service', return_value=True):
-            result = await radio_source.stop()
-
-        assert result is True
-
-
-class TestRadioSourceCommands:
-    """Test RadioSource command handling."""
-
-    @pytest.mark.asyncio
-    async def test_play_station_command(self, radio_source):
-        """Test play_station command."""
-        radio_source._mpv = Mock()
-        radio_source._mpv.load_stream = AsyncMock(return_value=True)
-        radio_source._station_data = Mock()
-        radio_source._station_data.is_favorite = Mock(return_value=False)
-        radio_source._radio_api = Mock()
-        radio_source._radio_api.get_station_by_id = AsyncMock(return_value={
-            "id": "test-id",
-            "name": "Test Station",
-            "url": "http://stream.url"
-        })
-        radio_source._radio_api.increment_station_clicks = AsyncMock()
-
-        result = await radio_source.command("play_station", {"station_id": "test-id"})
+        result = await radio.command("play_station", {"station_id": "fip"})
 
         assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_stop_command(self, radio_source):
-        """Test stop command."""
-        radio_source._mpv = Mock()
-        radio_source._mpv.stop = AsyncMock(return_value=True)
-        radio_source._current_station = {"name": "Test"}
-
-        result = await radio_source.command("stop", {})
-
-        assert result["success"] is True
-        assert radio_source._current_station is None
-        assert radio_source._is_playing is False
+        assert radio.state()["source_state"] == "active"
+        assert radio.loads()[-1][1] == FIP["url"]
 
 
 class TestStationDataService:
@@ -345,26 +282,6 @@ class TestStationDataPersistence:
             await service.initialize()
 
 
-class TestConnectionState:
-    """Test connection state management."""
-
-    def test_update_state_no_station(self, radio_source):
-        """Test state is READY with no station."""
-        radio_source._current_station = None
-        radio_source._update_connection_state()
-
-        assert radio_source.state == SourceState.READY
-
-    def test_update_state_with_station(self, radio_source):
-        """Test state is ACTIVE with station."""
-        radio_source._current_station = {"id": "test", "name": "Test"}
-        radio_source._is_playing = True
-        radio_source._station_data = Mock()
-        radio_source._station_data.is_favorite = Mock(return_value=False)
-        radio_source._update_connection_state()
-
-        assert radio_source.state == SourceState.ACTIVE
-
 
 class TestTheCommonFloor:
     """Radio fills title/artist/album/album_art_url like every other source.
@@ -372,121 +289,118 @@ class TestTheCommonFloor:
     It used to fill none of them: the track travelled in `track_title` and
     `track_artist` beside an empty floor, and every generic consumer re-derived
     which to show — the push layer in `core/push/payloads.py`, Milo-iOS in its
-    own copy of the same cascade. Two copies, and both missed podcast, which
-    reached the lock screen with four null fields. The rule that decides what a
-    one-line consumer shows lives here, in the only place that knows a
-    recognised track annotates a stream rather than replacing it.
+    own copy of the same cascade. The rule that decides what a one-line
+    consumer shows lives in the source, the only place that knows a recognised
+    track annotates a stream rather than replacing it.
     """
 
-    @staticmethod
-    def _tuned(source, **track):
-        source._station_data = Mock()
-        source._station_data.is_favorite = Mock(return_value=False)
-        source._current_station = {
-            "id": "s1", "name": "FIP Jazz",
-            "favicon": "https://cdn.example/fip.png",
-        }
-        source._is_playing = True
-        source._inband_track = track or None
-
-    def test_a_recognised_track_is_the_title_and_the_station_the_album(
-        self, radio_source
-    ):
+    async def test_a_recognised_track_is_the_title_and_the_station_the_album(self, radio):
         """The one-line view of a two-layer source: what is playing, on what."""
-        self._tuned(radio_source, title="Snibor", artist="Gil Evans", artwork=None)
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
 
-        meta = radio_source._build_playback_metadata()
-
-        assert meta["title"] == "Snibor"
-        assert meta["artist"] == "Gil Evans"
+        meta = radio.meta()
+        assert (meta["title"], meta["artist"]) == ("Snibor", "Gil Evans")
         assert meta["album"] == meta["station_name"]
         # Both layers stay on the wire: the UI draws them apart.
-        assert meta["track_title"] == "Snibor"
+        assert (meta["track_title"], meta["track_artist"]) == ("Snibor", "Gil Evans")
 
-    def test_without_a_track_the_station_is_the_title(self, radio_source):
+    async def test_without_a_track_the_station_is_the_title(self, radio):
         """A stream with no in-band metadata and no Shazam match is still
         something to show, and the station is what it is."""
-        self._tuned(radio_source)
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
 
-        meta = radio_source._build_playback_metadata()
-
+        meta = radio.meta()
         assert meta["title"] == meta["station_name"]
-        assert meta["artist"] is None
-        assert meta["track_title"] is None
+        assert "artist" not in meta
+        assert "track_title" not in meta
 
-    def test_the_cover_falls_back_to_the_station_logo_through_the_proxy(
-        self, radio_source
-    ):
+    async def test_a_track_shazam_recognised_is_the_title(self, radio):
+        """The fallback layer reaches the floor the same way in-band does."""
+        await radio.select()
+        await radio.tune(NOVA)
+        await radio.tick(8)
+        shazam = radio.shazams[-1]
+
+        shazam.current_track = {"title": "Take Five", "artist": "Dave Brubeck", "artwork": None}
+        await shazam.on_track_changed(shazam.current_track)
+        await settle()
+
+        assert (radio.meta()["title"], radio.meta()["artist"]) == ("Take Five", "Dave Brubeck")
+
+    async def test_the_cover_falls_back_to_the_station_logo_through_the_proxy(self, radio):
         """`album_art_url` is the floor, so it has to be fetchable as-is. A
         station logo is often an external URL behind a WAF that refuses a bare
         User-Agent, which is what /api/radio/favicon exists for — a client
         should not have to know that rule to draw a cover."""
-        self._tuned(radio_source)
+        await radio.select()
+        await radio.tune(FIP)
+        assert radio.meta()["album_art_url"].startswith("/api/radio/favicon?url=https%3A")
 
-        meta = radio_source._build_playback_metadata()
-
-        assert meta["album_art_url"].startswith("/api/radio/favicon?url=")
         # A logo this unit already serves is handed over untouched.
-        radio_source._current_station["favicon"] = "/api/radio/images/7ff7.webp"
-        assert radio_source._build_playback_metadata()["album_art_url"] == (
-            "/api/radio/images/7ff7.webp"
-        )
+        await radio.tune(NOVA)
+        assert radio.meta()["album_art_url"] == radio.meta()["favicon"]
 
-    def test_a_stopped_station_keeps_the_floor_and_drops_the_track(
-        self, radio_source
-    ):
+    async def test_an_in_band_track_gets_its_cover_resolved(self, radio):
+        """In-band carries no artwork; the cover looked up from artist and
+        title replaces the station logo once it arrives."""
+        radio.artwork.resolve = AsyncMock(return_value="https://art.example/snibor.jpg")
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        radio.artwork.resolve.assert_awaited_with("Gil Evans", "Snibor")
+        assert radio.meta()["album_art_url"] == "https://art.example/snibor.jpg"
+        assert radio.meta()["track_artwork"] == "https://art.example/snibor.jpg"
+
+    async def test_a_stopped_station_keeps_the_floor_and_drops_the_track(self, radio):
         """What a stop publishes: the station a play press would re-tune, and
         no track. The recognised track annotates a stream that is running —
         holding it would claim a stopped radio is still on that song."""
-        self._tuned(radio_source, title="Snibor", artist="Gil Evans", artwork=None)
-        radio_source._last_station = radio_source._current_station
-        radio_source._current_station = None
-        radio_source._is_playing = False
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
 
-        meta = radio_source._build_playback_metadata()
+        await radio.command("stop")
 
-        assert meta["station_id"] == "s1"
+        meta = radio.meta()
+        assert meta["station_id"] == "fip"
         assert meta["title"] == meta["station_name"]
         assert meta["is_playing"] is False
-        assert meta["track_title"] is None
-        assert meta["track_artist"] is None
+        assert "track_title" not in meta
+        assert "track_artist" not in meta
 
 
 class TestPlaybackMetadata:
-    """Test playback metadata building."""
+    """The station keys the radio card and Milo-Mac read."""
 
-    def test_build_metadata_no_station(self, radio_source):
-        """Test metadata is empty with no station."""
-        radio_source._current_station = None
+    async def test_a_tuned_station_publishes_its_card(self, radio):
+        await radio.select()
+        await radio.tune(FIP)
 
-        metadata = radio_source._build_playback_metadata()
+        meta = radio.meta()
+        assert meta["station_id"] == "fip"
+        assert meta["station_name"] == FIP["name"]
+        assert meta["station_url"] == FIP["url"]
+        assert (meta["country"], meta["genre"]) == (FIP["country"], FIP["genre"])
+        assert meta["is_favorite"] is True
+        assert (meta["is_playing"], meta["is_buffering"]) == (True, False)
 
-        assert metadata == {}
+    async def test_a_station_outside_the_favorites_says_so(self, radio):
+        """The heart on the card reads this; a stale True hides "add to
+        favorites" for a station that is not one."""
+        await radio.select()
+        await radio.command("play_station", {
+            "station_id": "s1", "station": {"id": "s1", "name": "Jazz", "url": "http://x/jazz"},
+        })
 
-    def test_build_metadata_with_station(self, radio_source):
-        """Test metadata includes station info."""
-        radio_source._current_station = {
-            "id": "test-id",
-            "name": "Test Station",
-            "url": "http://stream.url",
-            "country": "France",
-            "genre": "Rock"
-        }
-        radio_source._is_playing = True
-        radio_source._is_buffering = False
-        radio_source._station_data = Mock()
-        radio_source._station_data.is_favorite = Mock(return_value=True)
-
-        metadata = radio_source._build_playback_metadata()
-
-        assert metadata["station_id"] == "test-id"
-        assert metadata["station_name"] == "Test Station"
-        assert metadata["country"] == "France"
-        assert metadata["genre"] == "Rock"
-        assert metadata["is_playing"] is True
-        assert metadata["is_buffering"] is False
-        assert metadata["is_favorite"] is True
-
+        assert radio.meta()["is_favorite"] is False
 
 class TestInbandTrackParsing:
     """Test _parse_inband_track (WI-1)."""
@@ -563,170 +477,93 @@ class TestInbandTrackParsing:
         assert track["artist"] == ""
 
 
-class TestResumePlayback:
-    """Test resume_playback passes a typed param, not a raw dict (WI-5)."""
-
-    @pytest.mark.asyncio
-    async def test_resume_no_last_station(self, radio_source):
-        radio_source._last_station = None
-        result = await radio_source._handle_resume_playback()
-        assert result["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_resume_passes_play_station_params(self, radio_source):
-        from backend.sources.radio.models import PlayStationParams
-        radio_source._last_station = {"id": "s1", "name": "Resumed"}
-        radio_source._handle_play_station = AsyncMock(return_value={"success": True})
-
-        result = await radio_source._handle_resume_playback()
-
-        assert result["success"] is True
-        (params,), _ = radio_source._handle_play_station.call_args
-        assert isinstance(params, PlayStationParams)
-        assert params.station_id == "s1"
-        assert params.station == {"id": "s1", "name": "Resumed"}
-
-    @pytest.mark.asyncio
-    async def test_resume_last_station_without_id(self, radio_source):
-        radio_source._last_station = {"name": "No ID"}
-        result = await radio_source._handle_resume_playback()
-        assert result["success"] is False
-
 
 class TestInbandShazamArbitration:
-    """Test in-band metadata vs Shazam arbitration (WI-1/WI-2)."""
+    """In-band metadata is the primary title feed, Shazam the fallback.
 
-    @pytest.mark.asyncio
-    async def test_inband_overrides_and_stops_shazam(self, radio_source):
-        radio_source._current_station = {"id": "s1", "name": "Vinyl", "url": "http://x"}
-        radio_source._is_playing = True
-        radio_source._station_data = Mock()
-        radio_source._station_data.is_favorite = Mock(return_value=False)
-        radio_source._mpv = Mock()
-        radio_source._mpv.get_metadata = AsyncMock(
-            return_value={"icy-title": "Miles Davis - So What"}
-        )
-        radio_source._shazam = Mock()
-        radio_source._shazam.is_running = True
-        radio_source._shazam.stop = AsyncMock()
-        radio_source._shazam.current_track = None
-        radio_source._update_connection_state = Mock()
-        # Artwork resolution is spawned here; close the coroutine so it is not
-        # left un-awaited (we assert arbitration, not artwork).
-        radio_source._bg = Mock()
-        radio_source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
+    In-band (ICY StreamTitle) is instant and exact when present; Shazam costs a
+    recording every 20 s and is only for stations that name nothing. Read
+    every fourth second of sound.
+    """
 
-        # Poll only reads every _INBAND_POLL_TICKS ticks.
-        from backend.sources.radio.source import _INBAND_POLL_TICKS
-        for _ in range(_INBAND_POLL_TICKS):
-            await radio_source._poll_inband_metadata()
+    async def test_in_band_overrides_and_stops_shazam(self, radio):
+        """A station that starts naming its tracks after the fallback began
+        must not run two title feeds side by side."""
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(8)
+        assert radio.shazam_running()
 
-        assert radio_source._inband_seen is True
-        assert radio_source._inband_track["title"] == "So What"
-        radio_source._shazam.stop.assert_awaited_once()
+        radio.stream_title("Miles Davis - So What")
+        await radio.tick(4)
 
-    @pytest.mark.asyncio
-    async def test_recognition_disabled_suppresses_inband(self, radio_source):
-        # Per-station opt-out must hide the title even for an in-band station.
-        radio_source._current_station = {"id": "s1", "name": "Ambient", "url": "http://x"}
-        radio_source._is_playing = True
-        radio_source._recognition_enabled = False
-        radio_source._mpv = Mock()
-        radio_source._mpv.get_metadata = AsyncMock(
-            return_value={"icy-title": "Some Artist - Some Song"}
-        )
-        radio_source._update_connection_state = Mock()
-        radio_source._bg = Mock()
+        assert radio.meta()["track_title"] == "So What"
+        assert not radio.shazam_running()
 
-        from backend.sources.radio.source import _INBAND_POLL_TICKS
-        for _ in range(_INBAND_POLL_TICKS * 2):
-            await radio_source._poll_inband_metadata()
+    async def test_recognition_disabled_suppresses_in_band_before_reading_it(self, radio):
+        """The per-station opt-out must hide the title even for an in-band
+        station, and costs no read of mpv's metadata."""
+        radio.data.is_station_shazam_enabled = Mock(return_value=False)
+        radio.stream_title("Some Artist - Some Song")
+        reads = []
+        real_read = radio.mpv.get_metadata
 
-        assert radio_source._inband_track is None       # no track resolved
-        assert radio_source._inband_seen is False
-        radio_source._mpv.get_metadata.assert_not_called()  # gated before IPC read
-        radio_source._bg.spawn.assert_not_called()          # no artwork lookup
+        async def counted_read():
+            reads.append(1)
+            return await real_read()
 
-    @pytest.mark.asyncio
-    async def test_shazam_fallback_after_grace(self, radio_source):
-        from backend.sources.radio.source import _INBAND_POLL_TICKS, _SHAZAM_GRACE_TICKS
-        radio_source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        radio_source._is_playing = True
-        radio_source._shazam_candidate = True
-        radio_source._mpv = Mock()
-        radio_source._mpv.get_metadata = AsyncMock(return_value={})  # no in-band
-        radio_source._shazam = Mock()
-        radio_source._shazam.is_running = False
-        radio_source._start_shazam_fallback = Mock(return_value="coro-sentinel")
-        radio_source._bg = Mock()
+        radio.mpv.get_metadata = counted_read
+        await radio.select()
+        await radio.tune(FIP)
 
-        # Enough ticks to cross the grace window.
-        total_ticks = _INBAND_POLL_TICKS * (_SHAZAM_GRACE_TICKS + 1)
-        for _ in range(total_ticks):
-            await radio_source._poll_inband_metadata()
+        await radio.tick(16)
 
-        assert radio_source._shazam_candidate is False  # consumed
-        radio_source._start_shazam_fallback.assert_called_once_with("http://x")
-        radio_source._bg.spawn.assert_called_once()
-        assert radio_source._bg.spawn.call_args.args[0] == "coro-sentinel"
+        assert "track_title" not in radio.meta()
+        assert reads == []
+        radio.artwork.resolve.assert_not_awaited()
 
-    @pytest.mark.asyncio
-    async def test_no_shazam_when_not_candidate(self, radio_source):
-        from backend.sources.radio.source import _INBAND_POLL_TICKS, _SHAZAM_GRACE_TICKS
-        radio_source._current_station = {"id": "s1", "name": "FIP", "url": "http://x"}
-        radio_source._is_playing = True
-        radio_source._shazam_candidate = False
-        radio_source._mpv = Mock()
-        radio_source._mpv.get_metadata = AsyncMock(return_value={})
-        radio_source._shazam = Mock()
-        radio_source._shazam.is_running = False
-        radio_source._start_shazam_fallback = Mock(return_value="coro-sentinel")
-        radio_source._bg = Mock()
+    async def test_the_fallback_starts_once_and_only_after_the_grace(self, radio):
+        """Two empty reads, then Shazam — once: its candidacy is consumed, so
+        a fallback that stops is not restarted on every read after it."""
+        await radio.select()
+        await radio.tune(NOVA)
+        await radio.tick(4)
+        assert radio.shazams[-1].is_running is False
 
-        for _ in range(_INBAND_POLL_TICKS * (_SHAZAM_GRACE_TICKS + 1)):
-            await radio_source._poll_inband_metadata()
+        await radio.tick(4)
+        assert radio.shazam_running()
+        radio.shazams[-1].is_running = False       # the loop gave up on its own
 
-        radio_source._start_shazam_fallback.assert_not_called()
-        radio_source._bg.spawn.assert_not_called()
+        await radio.tick(16)
+        assert not radio.shazam_running()
 
-    @pytest.mark.asyncio
-    async def test_inband_stale_clears_after_sustained_silence(self, radio_source):
-        # A brief gap keeps the last in-band title; sustained empty metadata
-        # (ad/talk/dead air) clears it, so no phantom title stays pinned (#3).
-        from backend.sources.radio.source import (
-            _INBAND_POLL_TICKS,
-            _INBAND_STALE_CLEAR_POLLS,
-        )
-        radio_source._current_station = {"id": "s1", "name": "Vinyl", "url": "http://x"}
-        radio_source._is_playing = True
-        radio_source._station_data = Mock()
-        radio_source._station_data.is_favorite = Mock(return_value=False)
-        radio_source._shazam = None
-        radio_source._update_connection_state = Mock()
-        radio_source._bg = Mock()
-        radio_source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
-        radio_source._mpv = Mock()
-        radio_source._mpv.get_metadata = AsyncMock(
-            return_value={"icy-title": "Miles Davis - So What"}
-        )
+    async def test_no_shazam_when_the_global_toggle_is_off(self, radio):
+        radio.shazam_enabled = False
+        await radio.select()
+        await radio.tune(NOVA)
 
-        # Phase 1: a title arrives and is pinned.
-        for _ in range(_INBAND_POLL_TICKS):
-            await radio_source._poll_inband_metadata()
-        assert radio_source._inband_track["title"] == "So What"
+        await radio.tick(16)
 
-        # Phase 2: empty metadata. A short gap keeps the last title...
-        radio_source._mpv.get_metadata = AsyncMock(return_value={})
-        for _ in range(_INBAND_POLL_TICKS * (_INBAND_STALE_CLEAR_POLLS - 1)):
-            await radio_source._poll_inband_metadata()
-        assert radio_source._inband_track is not None
+        assert not radio.shazam_running()
 
-        # ...but sustained silence clears it (still an in-band station).
-        for _ in range(_INBAND_POLL_TICKS):
-            await radio_source._poll_inband_metadata()
-        assert radio_source._inband_track is None
-        assert radio_source._inband_seen is True
+    async def test_in_band_stale_title_clears_after_sustained_silence(self, radio):
+        """A brief gap between tracks keeps the last in-band title; sustained
+        empty metadata (ad, talk, dead air) clears it, so no phantom title
+        stays pinned on the card and the lock screen."""
+        radio.stream_title("Miles Davis - So What")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+        assert radio.meta()["track_title"] == "So What"
 
+        radio.stream_title(None)
+        await radio.tick(4 * 3)
+        assert radio.meta()["track_title"] == "So What"
+
+        await radio.tick(4)
+        assert "track_title" not in radio.meta()
+        # Still an in-band station: silence does not hand over to Shazam.
+        assert not radio.shazam_running()
 
 class TestPrerollProbe:
     """The ffprobe pass that reads a station's pre-roll ad out of ICY tags."""
@@ -765,28 +602,39 @@ class TestPrerollProbe:
         process.wait.assert_awaited_once()
 
 
+
 class TestTransportOnAnIdleSource:
     """A transport command sent while nothing plays must not serve a crash.
 
-    `command()` catches everything `_handle_command` raises and hands the
-    exception text to `run_source_command`, which serves it as HTTP 400. So an
-    unguarded attribute access does not surface as a 500 — it arrives at the
-    client wearing a client error's clothes, and Milo-iOS could only tell it
-    from a real refusal by matching "NoneType" in the detail string.
+    `command()` catches everything `_handle_command` raises and hands the text
+    to `run_source_command`, which serves it as HTTP 400 — so a crash arrives
+    at the client wearing a client error's clothes, and Milo-iOS could only
+    tell it from a real refusal by matching "NoneType" in the detail string.
     """
 
-    @pytest.mark.asyncio
-    async def test_stop_before_the_first_play_reports_success(self, radio_source):
-        """`_mpv` is None before the first play and again after `_cleanup` — the
-        exact state a client stops from. Stop is idempotent: not playing is the
+    async def test_stop_before_the_source_ever_started_reports_success(self, radio):
+        """No mpv exists before the first start and after a stop — the exact
+        state a lock screen stops from. Stop is idempotent: not playing is the
         end state asked for, so this is a success, not an invented failure."""
-        assert radio_source._mpv is None
-
-        result = await radio_source.command("stop", {})
+        result = await radio.command("stop")
 
         assert result["success"] is True
         assert "NoneType" not in str(result)
-        assert radio_source._is_playing is False
+        assert radio.mpv.sent == []
+
+    async def test_stop_with_nothing_tuned_reports_success(self, radio):
+        await radio.select()
+
+        result = await radio.command("stop")
+
+        assert result["success"] is True
+        assert radio.state()["source_state"] == "ready"
+
+
+A = {"id": "a", "name": "A", "url": "http://stream.example/a"}
+B = {"id": "b", "name": "B", "url": "http://stream.example/b"}
+C = {"id": "c", "name": "C", "url": "http://stream.example/c"}
+SEARCHED = {"id": "not-a-favorite", "name": "Found", "url": "http://stream.example/found"}
 
 
 class TestFavoriteStepping:
@@ -794,122 +642,123 @@ class TestFavoriteStepping:
 
     The senders are the rotary multi-click, the IR remote and the Milo-iOS lock
     screen, all of which reach `command()` with no argument: the station the
-    press lands on is chosen here and nowhere else. Each case runs the real
-    play path down to mpv and reads the station that ended up tuned.
+    press lands on is chosen by the source and nowhere else. Each case reads
+    the station that ended up tuned and what mpv was told to load.
     """
 
     @pytest.fixture
-    async def tuned(self, radio_source):
+    async def tuned(self, radio):
         """Radio with three favorites, playing the middle one."""
-        await radio_source._station_data.initialize()
-        for station_id in ("a", "b", "c"):
-            await radio_source._station_data.add_favorite(
-                station_id, {"name": station_id.upper(), "url": f"http://{station_id}"}
-            )
-        radio_source._mpv = AsyncMock()
-        radio_source._mpv.load_stream = AsyncMock(return_value=True)
-        radio_source._radio_api.increment_station_clicks = AsyncMock()
-        radio_source._current_station = {"id": "b", "name": "B"}
-        radio_source._is_playing = True
-        return radio_source
+        radio.favorites(A, B, C)
+        await radio.select()
+        await radio.tune(B)
+        return radio
 
-    @pytest.mark.asyncio
     async def test_next_takes_the_following_favorite(self, tuned):
-        assert (await tuned.command("next", {}))["success"] is True
-        assert tuned._current_station["id"] == "c"
+        assert (await tuned.command("next"))["success"] is True
+        assert tuned.station() == "c"
+        assert tuned.loads()[-1][1] == C["url"]
 
-    @pytest.mark.asyncio
     async def test_prev_takes_the_preceding_favorite(self, tuned):
-        await tuned.command("prev", {})
-        assert tuned._current_station["id"] == "a"
+        await tuned.command("prev")
+        assert tuned.station() == "a"
 
-    @pytest.mark.asyncio
     async def test_the_list_wraps_in_both_directions(self, tuned):
-        tuned._current_station = {"id": "c"}
-        await tuned.command("next", {})
-        assert tuned._current_station["id"] == "a"
+        await tuned.tune(C)
+        await tuned.command("next")
+        assert tuned.station() == "a"
 
-        await tuned.command("prev", {})
-        assert tuned._current_station["id"] == "c"
+        await tuned.command("prev")
+        assert tuned.station() == "c"
 
-    @pytest.mark.asyncio
     async def test_a_searched_station_enters_the_list_at_an_end(self, tuned):
         """A station played from search has no place in the list, so there is no
         neighbor to step to — next enters at the first favorite, prev at the
         last, rather than refusing the press."""
-        tuned._current_station = {"id": "not-a-favorite"}
-        await tuned.command("next", {})
-        assert tuned._current_station["id"] == "a"
+        await tuned.command("play_station", {"station_id": SEARCHED["id"], "station": SEARCHED})
+        await tuned.command("next")
+        assert tuned.station() == "a"
 
-        tuned._current_station = {"id": "not-a-favorite"}
-        await tuned.command("prev", {})
-        assert tuned._current_station["id"] == "c"
+        await tuned.command("play_station", {"station_id": SEARCHED["id"], "station": SEARCHED})
+        await tuned.command("prev")
+        assert tuned.station() == "c"
 
-    @pytest.mark.asyncio
-    async def test_a_stopped_source_steps_from_the_last_station(self, tuned):
-        """`stop` clears `_current_station`; the press still has to know where the
-        walk left off, or every press after a stop would restart at one end."""
-        await tuned.command("stop", {})
-        assert tuned._current_station is None
+    async def test_a_stopped_source_steps_from_the_station_it_stopped_on(self, tuned):
+        """The press has to know where the walk left off, or every press after
+        a stop would restart at one end of the list."""
+        await tuned.command("stop")
+        assert tuned.state()["source_state"] == "ready"
 
-        await tuned.command("next", {})
+        await tuned.command("next")
 
-        assert tuned._current_station["id"] == "c"
+        assert tuned.station() == "c"
+        assert tuned.state()["source_state"] == "active"
 
-    @pytest.mark.asyncio
     async def test_the_only_favorite_is_not_re_tuned(self, tuned):
         """Re-tuning the station already playing costs a re-buffer and buys
         nothing — the press is answered, no stream is loaded."""
-        await tuned._station_data.remove_favorite("a")
-        await tuned._station_data.remove_favorite("c")
+        tuned.favorites(B)
+        loads = len(tuned.loads())
 
-        result = await tuned.command("next", {})
+        result = await tuned.command("next")
 
         assert result["success"] is True
-        tuned._mpv.load_stream.assert_not_called()
-        assert tuned._current_station["id"] == "b"
+        assert len(tuned.loads()) == loads
+        assert tuned.station() == "b"
 
-    @pytest.mark.asyncio
     async def test_a_second_stop_does_not_forget_where_the_walk_was(self, tuned):
-        """`stop` is idempotent, so it can arrive twice — the auto-stop timer
-        firing next to a user press, or the iOS lock screen. The second one must
-        not blank `_last_station`, or the next press restarts at the head of the
-        list (and `resume_playback` answers "No station to resume")."""
-        await tuned.command("stop", {})
-        await tuned.command("stop", {})
+        """`stop` is idempotent, so it can arrive twice — the idle timeout next
+        to a user press, or the iOS lock screen. The second one must not blank
+        the station kept, or the next press restarts at the head of the list
+        (and `resume_playback` answers "No station to resume")."""
+        await tuned.command("stop")
+        await tuned.command("stop")
 
-        await tuned.command("next", {})
+        await tuned.command("next")
 
-        assert tuned._current_station["id"] == "c"
+        assert tuned.station() == "c"
 
-    @pytest.mark.asyncio
     async def test_two_presses_move_two_stations(self, tuned):
         """Two presses that overlap must not collapse into one step.
 
-        `_handle_play_station` tears the current stream down before it writes
-        `_current_station`, and nothing upstream serializes `command()` — the IR
-        remote dispatches on every key event, the lock screen on every tap. Both
-        presses would read the same current station and compute the same target.
-        The teardown is slowed here to hold that window open: slowing anything
-        after the write would leave the test green with no lock at all.
+        The IR remote dispatches on every key event, the lock screen on every
+        tap, and nothing upstream serializes them. The first press is held
+        where it has let go of the station it left and not yet tuned the next
+        one (the recognition service stopping with the old session): a second
+        press read there would compute the same target.
         """
+        release = asyncio.Event()
+        shazam = tuned.shazams[-1]
+        real_stop = shazam.stop
+
         async def slow_stop():
-            await asyncio.sleep(0.05)
+            await release.wait()
+            await real_stop()
 
-        tuned._mpv.stop = AsyncMock(side_effect=slow_stop)
-
-        await asyncio.gather(tuned.command("next", {}), tuned.command("next", {}))
+        shazam.stop = slow_stop
+        presses = asyncio.gather(
+            tuned.source.command("next", None), tuned.source.command("next", None),
+        )
+        await settle()
+        release.set()
+        await presses
+        await settle()
 
         # b → c → a (the list wraps), not b → c twice.
-        assert tuned._current_station["id"] == "a"
-        assert tuned._mpv.load_stream.await_count == 2
+        assert tuned.station() == "a"
+        assert [load[1] for load in tuned.loads()] == [B["url"], C["url"], A["url"]]
 
-    @pytest.mark.asyncio
     async def test_no_favorites_refuses(self, tuned):
-        for station_id in ("a", "b", "c"):
-            await tuned._station_data.remove_favorite(station_id)
+        tuned.favorites()
+        loads = len(tuned.loads())
 
-        result = await tuned.command("next", {})
+        result = await tuned.command("next")
 
         assert result["success"] is False
-        tuned._mpv.load_stream.assert_not_called()
+        assert len(tuned.loads()) == loads
+
+
+@pytest.fixture
+def radio_source():
+    """A bare source, for the pre-roll probe (no lifecycle involved)."""
+    return RadioSource({"mpv_socket": "/nonexistent/radio.sock"})

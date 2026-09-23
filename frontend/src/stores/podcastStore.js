@@ -77,15 +77,12 @@ export const usePodcastStore = defineStore('podcast', () => {
   async function play(episodeUuid) {
     // Set pending immediately for instant UI feedback (spinner)
     pendingEpisodeUuid.value = episodeUuid;
-    const result = await apiCall.post('/api/podcast/play', {
+    const played = await unifiedStore.sendCommand('podcast', 'play_episode', {
       episode_uuid: episodeUuid,
-    }, {
-      category: 'store',
-      message: 'Error playing episode',
     });
-    if (!result.ok || !result.data.success) {
+    if (!played) {
       pendingEpisodeUuid.value = null;
-      throw new Error(result.error?.detail || 'Failed to play episode');
+      throw new Error('Failed to play episode');
     }
     // State will be updated via WebSocket broadcast from backend
     // pendingEpisodeUuid will be cleared in _applyMetadata()
@@ -213,11 +210,13 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   // Called from App.vue on source.state_changed; metadata is nested under
-  // event.data.metadata (the event also carries new_state).
+  // event.data.metadata (the event also carries new_state). A null metadata is
+  // a state-only change (the multiroom reroute's STARTING) and says nothing
+  // about the episode.
   function handleSourceEvent(event) {
     if (event.origin !== 'podcast') return;
-    if (event.type === 'state_changed') {
-      _applyMetadata(event.data?.metadata || {});
+    if (event.type === 'state_changed' && event.data?.metadata) {
+      _applyMetadata(event.data.metadata);
     }
   }
 
