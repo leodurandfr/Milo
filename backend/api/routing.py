@@ -82,18 +82,20 @@ def create_routing_router(
         async with api_error_handler("Error changing multiroom state", logger):
             multiroom_enabled = request.enabled
 
-            current_state = state_machine.get_current_state()
-            active_source = coerce_audio_source_or_none(current_state["active_source"])
-
-            success = await routing_service.set_multiroom_enabled(multiroom_enabled, active_source)
+            success = await routing_service.set_multiroom_enabled(multiroom_enabled)
             if not success:
                 logger.error("Failed to change multiroom state to %s", multiroom_enabled)
                 raise HTTPException(status_code=500, detail="Failed to change multiroom state")
 
+            # Read after the transition: the source it carried is the one active
+            # when it took the lock, not the one active when this request arrived.
+            active_source = coerce_audio_source_or_none(
+                state_machine.get_current_state()["active_source"]
+            )
             return {
                 "status": "success",
                 "multiroom_enabled": multiroom_enabled,
-                "active_source": current_state["active_source"] if active_source else "none"
+                "active_source": active_source.value if active_source else "none"
             }
 
     # === WebSocket utility functions ===

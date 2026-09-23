@@ -536,7 +536,7 @@ class AudioRoutingService:
                 self.logger.error(f"Error changing {operation_name} state: {e}")
                 return False
 
-    async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
+    async def set_multiroom_enabled(self, enabled: bool) -> bool:
         """Enable/disable multiroom mode via idempotent reconcile.
 
         No phased commit, no rollback. Each step is either idempotent or a
@@ -581,7 +581,7 @@ class AudioRoutingService:
 
             try:
                 await self._broadcast_transition_event(enabled)
-                await self._apply_transition(enabled, active_source)
+                await self._apply_transition(enabled)
                 if self.settings_service:
                     await self.settings_service.set_setting_strict(
                         'routing.multiroom_enabled', enabled
@@ -607,7 +607,7 @@ class AudioRoutingService:
             self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
 
-    async def _apply_transition(self, enabled: bool, active_source: AudioSource = None) -> None:
+    async def _apply_transition(self, enabled: bool) -> None:
         """Release source, reconcile snapcast, regenerate routing.env, re-acquire source.
 
         Source release/re-acquire goes through release_for_reroute() /
@@ -618,6 +618,10 @@ class AudioRoutingService:
         Acquires the state machine's exclusive_transition() context to prevent
         concurrent source lifecycle operations with `transition_to_source()`.
         Lock order is always: `_routing_lock` (held by caller) → transition lock.
+        The source to carry is read *inside* that lock, never handed in: a
+        caller's read predates `_broadcast_transition_event` and its 100 ms
+        pause, and a source picked in that window would otherwise be rerouted as the one it
+        replaced — restarting a stopped source next to the new one.
 
         Snapcast reconcile is idempotent. routing.env is regenerated AFTER
         snapcast settles and BEFORE the source restart so systemd sees the new
@@ -634,11 +638,13 @@ class AudioRoutingService:
             raise RuntimeError("State machine not available for routing transition")
 
         target_mode = "multiroom" if enabled else "direct"
-        source_instance = None
-        if active_source and self.get_source:
-            source_instance = self.get_source(active_source)
 
         async with self.state_machine.exclusive_transition():
+            active_source = self.state_machine.system_state.active_source
+            source_instance = None
+            if active_source != AudioSource.NONE and self.get_source:
+                source_instance = self.get_source(active_source)
+
             # Step 1: Notify STARTING state to show loading UI.
             # metadata=None: state-only change — keep the current track metadata
             # visible during the reroute (update_source_state replaces metadata

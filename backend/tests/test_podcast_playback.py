@@ -770,6 +770,47 @@ class TestStopping:
         source._podcast_data.update_playback_progress.assert_not_awaited()
 
 
+class TestAPausedEpisodeReplacedByAnother:
+    """Pausing arms the auto-stop timer; starting another episode must disarm
+    it before anything is awaited.
+
+    What breaks when this fails: a timer that expires while the new stream is
+    loading stops mpv under it. The play then reports success over an idle
+    mpv, the card shows the new episode playing in silence, and the next
+    monitor tick reads that idle as the episode's end — marking an episode
+    nobody heard as completed.
+    """
+
+    async def test_the_new_stream_is_not_stopped_while_it_loads(self, source):
+        await play(source)
+        await source._handle_pause()
+        source._mpv.props["pause"] = True
+        source.auto_stop_enabled = True
+        source.auto_stop_delay = 0
+        await source._on_monitor_tick()
+
+        loading = asyncio.Event()
+        loaded = asyncio.Event()
+        load_stream = source._mpv.load_stream
+
+        async def _slow_stream(url):
+            loading.set()
+            await loaded.wait()
+            source._mpv.props["pause"] = False
+            return await load_stream(url)
+
+        source._mpv.load_stream = _slow_stream
+        source._podcast_api.get_episode.return_value = dict(EPISODE, uuid="ep-2")
+        second = asyncio.create_task(play(source, "ep-2"))
+        await loading.wait()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        loaded.set()
+
+        assert (await second)["success"] is True
+        assert "stop" not in source._mpv.verbs()
+
+
 class TestBoot:
     async def test_the_data_file_is_read_at_boot_so_a_schema_drift_fails_loud(
         self, source

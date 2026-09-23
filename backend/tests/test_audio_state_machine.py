@@ -888,6 +888,70 @@ class TestRefreshActiveMetadata:
         assert await state_machine.refresh_active_metadata() is False
         assert state_machine.system_state.metadata == {"title": "Stored"}
 
+    async def test_a_source_switched_away_from_during_the_read_is_not_written_back(
+        self, state_machine, mock_source
+    ):
+        """The hook awaits the source's daemon (Spotify reads go-librespot's
+        /status over HTTP), and a transition can complete inside that await.
+        Writing the outgoing source's record then puts its track on the card of
+        the source that replaced it, until that one next publishes."""
+        answered = asyncio.Event()
+        source = Mock(metadata={"title": "Outgoing"})
+
+        async def _read_the_daemon():
+            await answered.wait()
+            return True
+
+        source.refresh_metadata = AsyncMock(side_effect=_read_the_daemon)
+        source.stop = AsyncMock(return_value=True)
+        self._register(state_machine, source)
+        mock_source.metadata = {"title": "Radio"}
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+
+        refresh = asyncio.create_task(state_machine.refresh_active_metadata())
+        await asyncio.sleep(0)
+        assert await state_machine.transition_to_source(AudioSource.RADIO)
+        answered.set()
+        await refresh
+
+        assert state_machine.system_state.active_source == AudioSource.RADIO
+        assert state_machine.system_state.metadata == {"title": "Radio"}
+
+    async def test_a_read_that_lands_inside_a_transition_is_not_written(self, state_machine):
+        """Retrying an errored source keeps it active while it restarts. The
+        transition blanks the record and resyncs it from the source once the
+        start is done; a refresh landing in between would publish the record of
+        the attempt that failed, over a card that says it is starting."""
+        answered = asyncio.Event()
+        started = asyncio.Event()
+        source = Mock(metadata={"title": "Failed attempt"})
+
+        async def _read_the_daemon():
+            await answered.wait()
+            return True
+
+        async def _start():
+            await started.wait()
+            return True
+
+        source.refresh_metadata = AsyncMock(side_effect=_read_the_daemon)
+        source.start = AsyncMock(side_effect=_start)
+        source.state = SourceState.ACTIVE
+        self._register(state_machine, source)
+        state_machine.system_state.source_state = SourceState.ERROR
+
+        refresh = asyncio.create_task(state_machine.refresh_active_metadata())
+        await asyncio.sleep(0)
+        retry = asyncio.create_task(state_machine.transition_to_source(AudioSource.SPOTIFY))
+        while not state_machine.system_state.transitioning:
+            await asyncio.sleep(0)
+        answered.set()
+        await refresh
+
+        assert state_machine.system_state.metadata == {}
+        started.set()
+        assert await retry
+
 
 class TestUpdatePositionMetadata:
     """The live playhead written into the record a new WS client is handed.

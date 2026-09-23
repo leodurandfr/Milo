@@ -664,6 +664,10 @@ class MusicLibrarySource(MpvAudioSource):
         """Build the mpv playlist from a context and start playing at start_index."""
         if not self._mpv:
             return self.error_response("Music library not active")
+        # Before the first await: a pause timer armed on the outgoing queue would
+        # otherwise keep running through the catalog read and the load, and stop
+        # mpv under the new playlist if it expires there.
+        self._handle_pause_change(False)
 
         client = await self.get_navidrome_client()
         if client is None:

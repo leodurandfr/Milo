@@ -177,6 +177,45 @@ class TestPlayContext:
         assert source.state == SourceState.READY
 
 
+class TestAPausedQueueReplacedByAnother:
+    """Pausing arms the auto-stop timer; starting another context must disarm
+    it before anything is awaited.
+
+    What breaks when this fails: a timer that expires while the new playlist is
+    loading stops mpv and clears the queue under it — the play then reports
+    success and publishes a track that is not playing, and the resume snapshot
+    the auto-stop saves is the queue that was never heard.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_new_playlist_is_not_stopped_while_it_loads(self, source):
+        source._mpv = _mpv()
+        await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
+        source.auto_stop_enabled = True
+        source.auto_stop_delay = 0
+        await source.command("pause", {})
+
+        loading = asyncio.Event()
+        loaded = asyncio.Event()
+
+        async def _slow_playlist(urls, start_index):
+            loading.set()
+            await loaded.wait()
+            return True
+
+        source._mpv.load_playlist = AsyncMock(side_effect=_slow_playlist)
+        second = asyncio.create_task(
+            source.command("play_context", {"tracks": TRACKS, "start_index": 2})
+        )
+        await loading.wait()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        loaded.set()
+
+        assert (await second)["success"] is True
+        source._mpv.stop.assert_not_awaited()
+
+
 class TestTransport:
     async def _play(self, source):
         source._mpv = _mpv()

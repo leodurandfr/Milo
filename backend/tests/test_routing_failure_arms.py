@@ -560,7 +560,7 @@ class TestTheServiceLifecycle:
         service.state_machine = None
 
         with pytest.raises(RuntimeError, match="State machine not available"):
-            await service._apply_transition(True, None)
+            await service._apply_transition(True)
 
     async def test_cleanup_drains_the_delayed_sync(self, service):
         """It waits up to fifteen seconds on snapserver. Left running through a

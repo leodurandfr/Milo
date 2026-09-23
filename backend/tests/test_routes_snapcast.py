@@ -424,19 +424,6 @@ class TestMultiroomToggle:
         app.include_router(create_routing_router(routing, state_machine, Mock()))
         return TestClient(app)
 
-    def test_the_active_source_is_handed_to_the_transition(self, client, services):
-        """The service restarts that source onto the other ALSA device. Handing
-        it `none` instead leaves the source playing into a device that no longer
-        carries the audio, and the room goes silent with everything reporting
-        success.
-        """
-        routing, _ = services
-
-        response = client.put("/api/routing/multiroom", json={"enabled": True})
-
-        assert response.status_code == 200
-        routing.set_multiroom_enabled.assert_awaited_once_with(True, AudioSource.RADIO)
-
     def test_an_idle_appliance_switches_with_no_source_to_carry(self, client, services):
         routing, state_machine = services
         state_machine.get_current_state.return_value = {"active_source": "none"}
@@ -445,7 +432,7 @@ class TestMultiroomToggle:
 
         assert response.status_code == 200
         assert response.json()["active_source"] == "none"
-        routing.set_multiroom_enabled.assert_awaited_once_with(False, None)
+        routing.set_multiroom_enabled.assert_awaited_once_with(False)
 
     def test_a_source_name_the_enum_does_not_know_is_reported_as_none(
         self, client, services
@@ -483,3 +470,96 @@ class TestMultiroomToggle:
         response = client.put("/api/routing/multiroom", json={"enabled": True})
 
         assert response.status_code == 500
+
+
+class TestAToggleRacingASourceSwitch:
+    """The route against a real state machine and a real routing service, with
+    only the outside world mocked: systemd, the WebSocket clients, and the two
+    sources' own lifecycle.
+
+    What breaks when this fails: a source picked while the multiroom toggle is
+    in flight is followed by a reroute of the source it replaced — the stopped
+    one is started again next to the new one, two daemons write to the same
+    ALSA device, and the room plays the wrong thing or nothing. The toggle
+    announces itself to the UI and waits 100 ms before it reaches the lock, so
+    the window is a tap wide.
+    """
+
+    @pytest.fixture
+    def appliance(self, mock_settings_service):
+        import asyncio
+        from unittest.mock import patch
+        from backend.core.multiroom.routing import AudioRoutingService
+        from backend.core.models.audio_state import SourceState
+        from backend.core.state import AudioStateMachine
+
+        systemd = Mock()
+        systemd.start = AsyncMock(return_value=True)
+        systemd.stop = AsyncMock(return_value=True)
+        systemd.is_active = AsyncMock(return_value=True)
+        routing = AudioRoutingService(
+            settings_service=mock_settings_service, systemd_manager=systemd
+        )
+        routing._initial_detection_done = True
+        mock_settings_service._storage["routing.multiroom_enabled"] = True
+
+        state_machine = AudioStateMachine()
+        state_machine.routing_service = routing
+        routing.set_state_machine(state_machine)
+        routing.set_source_callback(state_machine.get_source)
+
+        sources = {}
+        for name in (AudioSource.RADIO, AudioSource.PODCAST):
+            source = Mock()
+            source.start = AsyncMock(return_value=True)
+            source.stop = AsyncMock(return_value=True)
+            source.release_for_reroute = AsyncMock(return_value=True)
+            source.acquire_after_reroute = AsyncMock(return_value=True)
+            source.state = SourceState.ACTIVE
+            source.metadata = {}
+            state_machine.register_source(name, source)
+            sources[name] = source
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.system_state.source_state = SourceState.ACTIVE
+
+        # The toggle's first outward act is the "multiroom_disabling" broadcast.
+        # Holding it there is holding the request between its start and the lock.
+        announced = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _deliver(envelope):
+            if envelope.get("type") == "multiroom_disabling":
+                announced.set()
+                await release.wait()
+
+        state_machine.ws_manager = Mock()
+        state_machine.ws_manager.broadcast_dict = AsyncMock(side_effect=_deliver)
+
+        app = FastAPI()
+        app.include_router(create_routing_router(routing, state_machine, Mock()))
+        with patch("backend.core.multiroom.routing.RoutingEnv.regenerate"):
+            yield app, state_machine, sources, announced, release
+
+    async def test_the_reroute_carries_the_source_picked_during_the_toggle(self, appliance):
+        import asyncio
+        import httpx
+
+        app, state_machine, sources, announced, release = appliance
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as client:
+            toggle = asyncio.create_task(
+                client.put("/api/routing/multiroom", json={"enabled": False})
+            )
+            await announced.wait()
+
+            assert await state_machine.transition_to_source(AudioSource.PODCAST)
+            release.set()
+            response = await toggle
+
+        assert response.status_code == 200
+        radio, podcast = sources[AudioSource.RADIO], sources[AudioSource.PODCAST]
+        radio.acquire_after_reroute.assert_not_called()
+        radio.release_for_reroute.assert_not_called()
+        podcast.release_for_reroute.assert_awaited_once()
+        podcast.acquire_after_reroute.assert_awaited_once()
+        assert response.json()["active_source"] == "podcast"

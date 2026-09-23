@@ -386,15 +386,12 @@ def create_settings_router(
 
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # Get the active source for source restart
-                        current_state = state_machine.get_current_state()
-                        active_source = coerce_audio_source_or_none(current_state["active_source"])
-
-                        # set_multiroom_enabled owns the full transition: source restart,
-                        # snapcast stop, settings + routing.env writes, and broadcast.
+                        # set_multiroom_enabled owns the full transition: source restart
+                        # (the source active once it holds the lock), snapcast stop,
+                        # settings + routing.env writes, and broadcast.
                         operations_log.append("Disabling multiroom routing and switching to direct mode")
-                        logger.info(f"Disabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
-                        success = await routing_service.set_multiroom_enabled(False, active_source)
+                        logger.info("Disabling multiroom routing")
+                        success = await routing_service.set_multiroom_enabled(False)
                         if not success:
                             raise ValueError("Failed to disable multiroom routing")
 
@@ -424,15 +421,12 @@ def create_settings_router(
 
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # Get the active source for source restart
-                        current_state = state_machine.get_current_state()
-                        active_source = coerce_audio_source_or_none(current_state["active_source"])
-
-                        # set_multiroom_enabled owns the full transition: source restart,
-                        # snapcast start, settings + routing.env writes, and broadcast.
+                        # set_multiroom_enabled owns the full transition: source restart
+                        # (the source active once it holds the lock), snapcast start,
+                        # settings + routing.env writes, and broadcast.
                         operations_log.append("Enabling multiroom routing and switching to multiroom mode")
-                        logger.info(f"Enabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
-                        success = await routing_service.set_multiroom_enabled(True, active_source)
+                        logger.info("Enabling multiroom routing")
+                        success = await routing_service.set_multiroom_enabled(True)
                         if not success:
                             raise ValueError("Failed to enable multiroom routing")
 

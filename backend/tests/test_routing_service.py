@@ -95,6 +95,7 @@ class TestAudioRoutingService:
         mock_state_machine.exclusive_transition = _exclusive_transition
         mock_state_machine.broadcast = AsyncMock()
         mock_state_machine.update_source_state = AsyncMock()
+        mock_state_machine.system_state.active_source = AudioSource.NONE
         service.state_machine = mock_state_machine
         # Wire a camilladsp stub so equalizer_effects_enabled property works
         service.camilladsp_service = _CamillaStub()
@@ -591,6 +592,7 @@ class TestAudioRoutingService:
         device so the source unit picks up the new MILO_MODE when systemd starts it."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
+        routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         # Track ordering: regenerate vs source re-acquire
         order: list[str] = []
@@ -605,7 +607,7 @@ class TestAudioRoutingService:
         mock_source.acquire_after_reroute = AsyncMock(side_effect=_acquire)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate', side_effect=_regen):
-            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+            await routing_service._apply_transition(True)
 
         assert order == ["regenerate", "source.acquire"]
 
@@ -620,9 +622,10 @@ class TestAudioRoutingService:
         routing_service.set_source_callback(
             lambda source: mock_source if source == AudioSource.SPOTIFY else None
         )
+        routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+            await routing_service._apply_transition(True)
 
         mock_source.release_for_reroute.assert_awaited_once()
         mock_source.acquire_after_reroute.assert_awaited_once()
@@ -643,10 +646,11 @@ class TestAudioRoutingService:
         routing_service.set_source_callback(
             lambda source: mock_source if source == AudioSource.SPOTIFY else None
         )
+        routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
             with pytest.raises(RuntimeError):
-                await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+                await routing_service._apply_transition(True)
 
         published = [
             entry.kwargs["new_state"]
@@ -671,10 +675,11 @@ class TestAudioRoutingService:
         routing_service.set_source_callback(
             lambda source: mock_source if source == AudioSource.SPOTIFY else None
         )
+        routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(return_value=False)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+            await routing_service._apply_transition(True)
 
         published = [
             entry.kwargs["new_state"]
@@ -696,10 +701,11 @@ class TestAudioRoutingService:
         routing_service.set_source_callback(
             lambda source: mock_source if source == AudioSource.SPOTIFY else None
         )
+        routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+            await routing_service._apply_transition(True)
 
         published = [
             entry.kwargs["new_state"]
@@ -715,11 +721,12 @@ class TestAudioRoutingService:
         """A failing source re-acquire no longer fails the transition (Phase 3)."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
+        routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
             # Should NOT raise — source failure is best-effort
-            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+            await routing_service._apply_transition(True)
 
     @pytest.mark.asyncio
     async def test_sync_snapcast_state_starts_when_enabled_and_down(self, routing_service, mock_settings_service, mock_systemd_manager):

@@ -251,6 +251,10 @@ class PodcastSource(MpvAudioSource):
     async def _handle_play_episode(self, params: PlayEpisodeParams) -> Dict[str, Any]:
         """Play an episode."""
         episode_uuid = params.episode_uuid
+        # Before the first await: a pause timer armed on the outgoing episode
+        # would otherwise keep running through the catalogue read and the load,
+        # and stop mpv under the new stream if it expires there.
+        self._handle_pause_change(False)
 
         try:
             self._logger.info(f"Starting playback for episode: {episode_uuid}")

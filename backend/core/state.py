@@ -424,19 +424,27 @@ class AudioStateMachine:
         is what actually repairs an ended session; widening this method to paper
         over it would put a second reconciliation path next to the real one.
         """
-        if self.system_state.active_source == AudioSource.NONE:
+        active = self.system_state.active_source
+        if active == AudioSource.NONE:
             return False
 
-        source = self.sources.get(self.system_state.active_source)
+        source = self.sources.get(active)
         if not source:
             return False
 
-        if await source.refresh_metadata():
-            async with self._state_lock:
-                self.system_state.metadata = source.metadata
-            return True
+        if not await source.refresh_metadata():
+            return False
 
-        return False
+        # The hook awaited the source's daemon, and a transition may have run
+        # inside that await: a switch away makes this the outgoing source's
+        # record, and one still in flight owns the record until its post-start
+        # resync. Either way the read is stale — the same guard as
+        # update_position_metadata().
+        async with self._state_lock:
+            if self.system_state.active_source != active or self.system_state.transitioning:
+                return False
+            self.system_state.metadata = source.metadata
+        return True
 
     @handle_errors(default=None)
     async def _stop_source(self, source: AudioSource) -> None:
