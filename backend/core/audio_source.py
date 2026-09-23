@@ -97,9 +97,27 @@ class Feed:
 class Result:
     """Work done outside the actor, applied inside it. `token` is the session
     it was for: when that session is no longer current the result is stale
-    and dropped. None: not tied to a session."""
+    and dropped. None: not tied to a session. A DeviceToken: the source's
+    hardware, which checks the token's currency itself."""
     apply: Callable[[], Awaitable[Any]]
     token: object = None
+
+
+class DeviceToken:
+    """The token of work on the source's hardware — a drive announcing a disc,
+    a disc read, a timer watching the drive — rather than on a session.
+
+    The device axis outlives sessions: a disc stays in the drive across a
+    source switch. So a STOP neither voids nor cuts a Timer or a Result that
+    carries one; a disc read cut halfway would leave the drive "reading" with
+    nothing left to finish it. What is still current is the source's to say
+    (a new token per disc), and `end_session` leaves these timers armed.
+    """
+
+
+def _session_bound(message) -> bool:
+    """Whether `message` is about the session a STOP or a RELEASE ends."""
+    return not isinstance(getattr(message, "token", None), DeviceToken)
 
 
 # Which running message a lifecycle message cuts short. Stop beats ordered:
@@ -112,7 +130,7 @@ _PREEMPTS = {
 }
 
 # Messages a STOP answers as interrupted instead of running them: they target
-# the session it ends.
+# the session it ends (a DeviceToken's do not, and are neither voided nor cut).
 _VOIDED_BY_STOP = (Command, Timer, Query, Feed, Result)
 
 
@@ -285,7 +303,6 @@ class BaseAudioSource(ABC):
         self.auto_stop_delay: float = 10.0
         # Named timers: name -> (task, token). "idle" is the pause timer.
         self._timers: Dict[str, Tuple[asyncio.Task, object]] = {}
-        self._monitor_task: Optional[asyncio.Task] = None
 
         # The session model (see IDLE_POLICY above).
         self._session: Optional[Session] = None
@@ -480,7 +497,7 @@ class BaseAudioSource(ABC):
             kept = deque()
             while self._actor_inbox:
                 queued, queued_future = self._actor_inbox.popleft()
-                if isinstance(queued, _VOIDED_BY_STOP):
+                if isinstance(queued, _VOIDED_BY_STOP) and _session_bound(queued):
                     if isinstance(queued, Feed):
                         self._feed_posted = False
                     if not queued_future.done():
@@ -494,7 +511,7 @@ class BaseAudioSource(ABC):
                 running = self._actor_current
                 key = running.step if isinstance(running, Lifecycle) else type(running)
                 # A lease has no handler task to cut (see _Lease).
-                if key in _PREEMPTS[step]:
+                if key in _PREEMPTS[step] and _session_bound(running):
                     self._logger.info(
                         "%s cuts short %s", step.value, self._describe(running)
                     )
@@ -624,7 +641,7 @@ class BaseAudioSource(ABC):
                 self._feed_pending[:0] = events
                 raise
         if isinstance(message, Result):
-            if message.token is not None and message.token is not self._session:
+            if _session_bound(message) and message.token is not None and message.token is not self._session:
                 self._logger.debug("Dropping a result for a session that has ended")
                 return None
             return await message.apply()
@@ -838,7 +855,10 @@ class BaseAudioSource(ABC):
             # anticipated.
             self._logger.error(f"{e} — ending it anyway")
         self._session = None
-        for name in [n for n in self._timers if n != "resume"]:
+        for name in [
+            n for n, (_, token) in self._timers.items()
+            if n != "resume" and not isinstance(token, DeviceToken)
+        ]:
             self._disarm_timer(name)
         tasks, self._session_bg = self._session_bg, None
         if tasks is not None:
@@ -933,7 +953,7 @@ class BaseAudioSource(ABC):
         self._metadata = {}
 
     def _idle_metadata(self) -> Dict[str, Any]:
-        """The metadata that describes this source stopped, for _publish_idle().
+        """The metadata that describes this source stopped, for `_idle_payload()`.
 
         Default is the pair every player reads. A source whose idle view still
         has something to show overrides it (CD keeps the loaded disc visible).
@@ -945,9 +965,8 @@ class BaseAudioSource(ABC):
 
         Two things happen here and nowhere else. Nones are dropped, the same
         rule `exclude_none` applies to the typed half (a key present-and-null
-        says what an absent key says, at the cost of a line on the wire) — the
-        two idle routes disagreed on exactly this, `emit_connection_state`
-        filtering and `_publish_idle` not, so one state had two shapes
+        says what an absent key says, at the cost of a line on the wire) — two
+        idle routes once disagreed on exactly this, so one state had two shapes
         depending on which path published it. And the inert pair is forced:
         READY *means* not playing, while three of the four overrides project
         from live fields (radio's station, podcast's episode, CD's disc), so a
@@ -958,38 +977,6 @@ class BaseAudioSource(ABC):
         payload["is_playing"] = False
         payload["is_buffering"] = False
         return payload
-
-    async def _publish_idle(self) -> None:
-        """Drop to READY and publish it — awaited, not spawned.
-
-        For the paths that clear playback themselves and never announce it: the
-        mpv disconnect hooks, the storage-gone stop. Both emit something else
-        right after (an error banner, a storages payload), and those events carry
-        INCLUDE_FULL_STATE — so without this the client is told playback broke
-        *and* handed a state saying the track is still running, permanently
-        (IDLE_STATES excludes ACTIVE, so the 12 h inactivity sweep never repairs
-        it either).
-
-        Awaited rather than set_state() precisely because of that following
-        event: the order between _bg-spawned tasks is guaranteed nowhere.
-
-        Called from those paths and never hoisted into the stop: the stop is
-        also the default RELEASE, which AudioStateMachine.reroute_active_source()
-        posts with no `transitioning` flag set and active_source still the
-        running one — so both guards in update_source_state() would pass and
-        the card would blank on every multiroom toggle.
-        """
-        self._state = SourceState.READY
-        self._metadata = self._idle_payload()
-        try:
-            self._published = self._project()
-        except Exception as e:
-            self._logger.error(f"Projecting the idle state failed: {e}")
-            self._published = None
-        if self.state_machine:
-            await self.state_machine.update_source_state(
-                self.source, SourceState.READY, self._metadata
-            )
 
     async def _do_stop(self) -> bool:
         """
@@ -1148,20 +1135,6 @@ class BaseAudioSource(ABC):
 
         return True
 
-    # === Monitor task ===
-
-    def _start_monitor(self) -> None:
-        """Start the monitor loop task. Subclasses must implement _monitor_loop()."""
-        if self._monitor_task:
-            return
-        self._monitor_task = asyncio.create_task(self._monitor_loop())
-
-    def _stop_monitor(self) -> None:
-        """Stop the monitor loop task."""
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            self._monitor_task = None
-
     # === Helper methods ===
 
     async def _start_service(self, service_name: str = None) -> bool:
@@ -1310,8 +1283,8 @@ class BaseAudioSource(ABC):
           (title/artist/album/album_art_url/position/duration) are dropped by
           default and a stale track can't linger. A source whose idle view
           still has something to show overrides ``_idle_metadata()`` and
-          publishes its resume projection there — the same hook, and the same
-          definition of "stopped", as ``_publish_idle()``. Omitting it is not
+          publishes its resume projection there — the one definition of
+          "stopped" (``_idle_payload()``). Omitting it is not
           how a source says it has no transport: that is ``MUTE_RECEIVER``, on
           the class. Here it only means this call had nothing to project, and
           the inert pair goes out regardless.

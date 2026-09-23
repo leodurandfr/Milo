@@ -71,6 +71,7 @@
       "trackLoadFailed": "यह ट्रैक लोड नहीं हो सका",
       "playbackFailed": "प्लेबैक विफल",
       "serviceUnreachable": "सेवा से संपर्क नहीं हो सका",
+      "discUnreadable": "यह डिस्क पढ़ी नहीं जा सकती",
       "generic": "एक त्रुटि हुई"
     },
     "cdSource": {

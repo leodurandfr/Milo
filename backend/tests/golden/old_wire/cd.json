@@ -112,7 +112,7 @@
      "new_state": "ready",
      "metadata": {
       "drive_connected": true,
-      "disc_present": false,
+      "disc_present": true,
       "is_playing": false,
       "is_buffering": false,
       "ejecting": false,
@@ -124,7 +124,7 @@
       "transitioning": false,
       "metadata": {
        "drive_connected": true,
-       "disc_present": false,
+       "disc_present": true,
        "is_playing": false,
        "is_buffering": false,
        "ejecting": false,
@@ -143,6 +143,40 @@
     "origin": "cd",
     "data": {
      "source": "cd",
+     "full_state": {
+      "active_source": "cd",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "drive_connected": true,
+       "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
+       "ejecting": false,
+       "cache_ready": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "cd",
+    "data": {
+     "source": "cd",
+     "new_state": "ready",
+     "metadata": {
+      "drive_connected": true,
+      "disc_present": false,
+      "is_playing": false,
+      "is_buffering": false,
+      "ejecting": false,
+      "cache_ready": false
+     },
      "full_state": {
       "active_source": "cd",
       "source_state": "ready",
@@ -457,9 +491,125 @@
     "origin": "cd",
     "data": {
      "source": "cd",
+     "new_state": "ready",
+     "metadata": {
+      "drive_connected": true,
+      "disc_present": true,
+      "is_playing": false,
+      "is_buffering": false,
+      "ejecting": false,
+      "cache_ready": true
+     },
+     "full_state": {
+      "active_source": "cd",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "drive_connected": true,
+       "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
+       "ejecting": false,
+       "cache_ready": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "cd",
+    "data": {
+     "source": "cd",
+     "new_state": "ready",
+     "metadata": {
+      "drive_connected": true,
+      "disc_present": true,
+      "is_playing": false,
+      "is_buffering": false,
+      "ejecting": false,
+      "cache_ready": true,
+      "disc_id": "golden-disc-1",
+      "track_count": 3,
+      "tracks": [
+       {
+        "number": 1,
+        "title": "Track 1",
+        "duration": 200
+       },
+       {
+        "number": 2,
+        "title": "Track 2",
+        "duration": 150
+       },
+       {
+        "number": 3,
+        "title": "Track 3",
+        "duration": 180
+       }
+      ],
+      "current_track": 1,
+      "artwork_pending": false,
+      "title": "Track 1",
+      "position": 0,
+      "duration": 200000
+     },
+     "full_state": {
+      "active_source": "cd",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "drive_connected": true,
+       "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
+       "ejecting": false,
+       "cache_ready": true,
+       "disc_id": "golden-disc-1",
+       "track_count": 3,
+       "tracks": [
+        {
+         "number": 1,
+         "title": "Track 1",
+         "duration": 200
+        },
+        {
+         "number": 2,
+         "title": "Track 2",
+         "duration": 150
+        },
+        {
+         "number": 3,
+         "title": "Track 3",
+         "duration": 180
+        }
+       ],
+       "current_track": 1,
+       "artwork_pending": false,
+       "title": "Track 1",
+       "position": 0,
+       "duration": 200000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "cd",
+    "data": {
+     "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "Track 1",
       "position": 0,
@@ -495,7 +645,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "Track 1",
        "position": 0,
@@ -971,24 +1121,6 @@
    },
    {
     "category": "system",
-    "type": "cd_drive_status",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "full_state": {
-      "active_source": "none",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {},
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "system",
     "type": "transition_start",
     "origin": "system",
     "data": {
@@ -1070,51 +1202,12 @@
     "origin": "cd",
     "data": {
      "source": "cd",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
       "drive_connected": true,
       "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
       "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
+      "is_buffering": false,
       "ejecting": false,
       "cache_ready": true,
       "disc_id": "golden-disc-1",
@@ -1140,22 +1233,22 @@
        }
       ],
       "current_track": 1,
-      "artwork_pending": true
+      "album": "Blue",
+      "artist": "Joni Mitchell",
+      "artwork_pending": true,
+      "title": "Blue",
+      "position": 0,
+      "duration": 200000
      },
      "full_state": {
       "active_source": "cd",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "position": 0,
-       "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
        "ejecting": false,
        "cache_ready": true,
        "disc_id": "golden-disc-1",
@@ -1181,7 +1274,12 @@
         }
        ],
        "current_track": 1,
-       "artwork_pending": true
+       "album": "Blue",
+       "artist": "Joni Mitchell",
+       "artwork_pending": true,
+       "title": "Blue",
+       "position": 0,
+       "duration": 200000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -1725,102 +1823,6 @@
       "metadata": {
        "is_playing": false,
        "is_buffering": false,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "album_art_url": "/api/cd/cover/golden-disc-1",
-       "position": 12493,
-       "duration": 200000,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true,
-       "disc_id": "golden-disc-1",
-       "disc_album": "Blue",
-       "disc_artist": "Joni Mitchell",
-       "disc_year": "1971",
-       "disc_cover_url": "/api/cd/cover/golden-disc-1",
-       "track_count": 3,
-       "tracks": [
-        {
-         "number": 1,
-         "title": "Blue",
-         "duration": 200
-        },
-        {
-         "number": 2,
-         "title": "California",
-         "duration": 150
-        },
-        {
-         "number": 3,
-         "title": "River",
-         "duration": 180
-        }
-       ],
-       "current_track": 1,
-       "artwork_pending": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "album_art_url": "/api/cd/cover/golden-disc-1",
-      "position": 12493,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true,
-      "disc_id": "golden-disc-1",
-      "disc_album": "Blue",
-      "disc_artist": "Joni Mitchell",
-      "disc_year": "1971",
-      "disc_cover_url": "/api/cd/cover/golden-disc-1",
-      "track_count": 3,
-      "tracks": [
-       {
-        "number": 1,
-        "title": "Blue",
-        "duration": 200
-       },
-       {
-        "number": 2,
-        "title": "California",
-        "duration": 150
-       },
-       {
-        "number": 3,
-        "title": "River",
-        "duration": 180
-       }
-      ],
-      "current_track": 1,
-      "artwork_pending": false
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
        "title": "Blue",
        "artist": "Joni Mitchell",
        "album": "Blue",
@@ -2128,24 +2130,6 @@
    },
    {
     "category": "system",
-    "type": "cd_drive_status",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "full_state": {
-      "active_source": "none",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {},
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "system",
     "type": "transition_start",
     "origin": "system",
     "data": {
@@ -2227,51 +2211,12 @@
     "origin": "cd",
     "data": {
      "source": "cd",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
       "drive_connected": true,
       "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
       "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
+      "is_buffering": false,
       "ejecting": false,
       "cache_ready": true,
       "disc_id": "golden-disc-1",
@@ -2297,22 +2242,22 @@
        }
       ],
       "current_track": 1,
-      "artwork_pending": true
+      "album": "Blue",
+      "artist": "Joni Mitchell",
+      "artwork_pending": true,
+      "title": "Blue",
+      "position": 0,
+      "duration": 200000
      },
      "full_state": {
       "active_source": "cd",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "position": 0,
-       "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
        "ejecting": false,
        "cache_ready": true,
        "disc_id": "golden-disc-1",
@@ -2338,7 +2283,12 @@
         }
        ],
        "current_track": 1,
-       "artwork_pending": true
+       "album": "Blue",
+       "artist": "Joni Mitchell",
+       "artwork_pending": true,
+       "title": "Blue",
+       "position": 0,
+       "duration": 200000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -2837,7 +2787,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "California",
       "artist": "Joni Mitchell",
@@ -2880,7 +2830,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "California",
        "artist": "Joni Mitchell",
@@ -3039,7 +2989,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "California",
       "artist": "Joni Mitchell",
@@ -3082,7 +3032,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "California",
        "artist": "Joni Mitchell",
@@ -3135,103 +3085,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "California",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "album_art_url": "/api/cd/cover/golden-disc-1",
-      "position": 0,
-      "duration": 150000,
-      "drive_connected": true,
-      "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true,
-      "disc_id": "golden-disc-1",
-      "disc_album": "Blue",
-      "disc_artist": "Joni Mitchell",
-      "disc_year": "1971",
-      "disc_cover_url": "/api/cd/cover/golden-disc-1",
-      "track_count": 3,
-      "tracks": [
-       {
-        "number": 1,
-        "title": "Blue",
-        "duration": 200
-       },
-       {
-        "number": 2,
-        "title": "California",
-        "duration": 150
-       },
-       {
-        "number": 3,
-        "title": "River",
-        "duration": 180
-       }
-      ],
-      "current_track": 2,
-      "artwork_pending": false
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "California",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "album_art_url": "/api/cd/cover/golden-disc-1",
-       "position": 0,
-       "duration": 150000,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true,
-       "disc_id": "golden-disc-1",
-       "disc_album": "Blue",
-       "disc_artist": "Joni Mitchell",
-       "disc_year": "1971",
-       "disc_cover_url": "/api/cd/cover/golden-disc-1",
-       "track_count": 3,
-       "tracks": [
-        {
-         "number": 1,
-         "title": "Blue",
-         "duration": 200
-        },
-        {
-         "number": 2,
-         "title": "California",
-         "duration": 150
-        },
-        {
-         "number": 3,
-         "title": "River",
-         "duration": 180
-        }
-       ],
-       "current_track": 2,
-       "artwork_pending": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "Blue",
       "artist": "Joni Mitchell",
@@ -3274,7 +3128,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "Blue",
        "artist": "Joni Mitchell",
@@ -3327,103 +3181,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "album_art_url": "/api/cd/cover/golden-disc-1",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true,
-      "disc_id": "golden-disc-1",
-      "disc_album": "Blue",
-      "disc_artist": "Joni Mitchell",
-      "disc_year": "1971",
-      "disc_cover_url": "/api/cd/cover/golden-disc-1",
-      "track_count": 3,
-      "tracks": [
-       {
-        "number": 1,
-        "title": "Blue",
-        "duration": 200
-       },
-       {
-        "number": 2,
-        "title": "California",
-        "duration": 150
-       },
-       {
-        "number": 3,
-        "title": "River",
-        "duration": 180
-       }
-      ],
-      "current_track": 1,
-      "artwork_pending": false
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "album_art_url": "/api/cd/cover/golden-disc-1",
-       "position": 0,
-       "duration": 200000,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true,
-       "disc_id": "golden-disc-1",
-       "disc_album": "Blue",
-       "disc_artist": "Joni Mitchell",
-       "disc_year": "1971",
-       "disc_cover_url": "/api/cd/cover/golden-disc-1",
-       "track_count": 3,
-       "tracks": [
-        {
-         "number": 1,
-         "title": "Blue",
-         "duration": 200
-        },
-        {
-         "number": 2,
-         "title": "California",
-         "duration": 150
-        },
-        {
-         "number": 3,
-         "title": "River",
-         "duration": 180
-        }
-       ],
-       "current_track": 1,
-       "artwork_pending": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "Blue",
       "artist": "Joni Mitchell",
@@ -3466,7 +3224,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "Blue",
        "artist": "Joni Mitchell",
@@ -3675,102 +3433,6 @@
        "album": "Blue",
        "album_art_url": "/api/cd/cover/golden-disc-1",
        "position": 61000,
-       "duration": 200000,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true,
-       "disc_id": "golden-disc-1",
-       "disc_album": "Blue",
-       "disc_artist": "Joni Mitchell",
-       "disc_year": "1971",
-       "disc_cover_url": "/api/cd/cover/golden-disc-1",
-       "track_count": 3,
-       "tracks": [
-        {
-         "number": 1,
-         "title": "Blue",
-         "duration": 200
-        },
-        {
-         "number": 2,
-         "title": "California",
-         "duration": 150
-        },
-        {
-         "number": 3,
-         "title": "River",
-         "duration": 180
-        }
-       ],
-       "current_track": 1,
-       "artwork_pending": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "album_art_url": "/api/cd/cover/golden-disc-1",
-      "position": 90000,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true,
-      "disc_id": "golden-disc-1",
-      "disc_album": "Blue",
-      "disc_artist": "Joni Mitchell",
-      "disc_year": "1971",
-      "disc_cover_url": "/api/cd/cover/golden-disc-1",
-      "track_count": 3,
-      "tracks": [
-       {
-        "number": 1,
-        "title": "Blue",
-        "duration": 200
-       },
-       {
-        "number": 2,
-        "title": "California",
-        "duration": 150
-       },
-       {
-        "number": 3,
-        "title": "River",
-        "duration": 180
-       }
-      ],
-      "current_track": 1,
-      "artwork_pending": false
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "album_art_url": "/api/cd/cover/golden-disc-1",
-       "position": 90000,
        "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
@@ -4063,24 +3725,6 @@
    },
    {
     "category": "system",
-    "type": "cd_drive_status",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "full_state": {
-      "active_source": "none",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {},
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "system",
     "type": "transition_start",
     "origin": "system",
     "data": {
@@ -4162,51 +3806,12 @@
     "origin": "cd",
     "data": {
      "source": "cd",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
       "drive_connected": true,
       "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
       "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
+      "is_buffering": false,
       "ejecting": false,
       "cache_ready": true,
       "disc_id": "golden-disc-1",
@@ -4232,22 +3837,22 @@
        }
       ],
       "current_track": 1,
-      "artwork_pending": true
+      "album": "Blue",
+      "artist": "Joni Mitchell",
+      "artwork_pending": true,
+      "title": "Blue",
+      "position": 0,
+      "duration": 200000
      },
      "full_state": {
       "active_source": "cd",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "position": 0,
-       "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
        "ejecting": false,
        "cache_ready": true,
        "disc_id": "golden-disc-1",
@@ -4273,7 +3878,12 @@
         }
        ],
        "current_track": 1,
-       "artwork_pending": true
+       "album": "Blue",
+       "artist": "Joni Mitchell",
+       "artwork_pending": true,
+       "title": "Blue",
+       "position": 0,
+       "duration": 200000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -4570,7 +4180,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "California",
       "artist": "Joni Mitchell",
@@ -4613,7 +4223,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "California",
        "artist": "Joni Mitchell",
@@ -4974,7 +4584,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "Blue",
       "artist": "Joni Mitchell",
@@ -5017,104 +4627,8 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "album_art_url": "/api/cd/cover/golden-disc-1",
-       "position": 0,
-       "duration": 200000,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true,
-       "disc_id": "golden-disc-1",
-       "disc_album": "Blue",
-       "disc_artist": "Joni Mitchell",
-       "disc_year": "1971",
-       "disc_cover_url": "/api/cd/cover/golden-disc-1",
-       "track_count": 3,
-       "tracks": [
-        {
-         "number": 1,
-         "title": "Blue",
-         "duration": 200
-        },
-        {
-         "number": 2,
-         "title": "California",
-         "duration": 150
-        },
-        {
-         "number": 3,
-         "title": "River",
-         "duration": 180
-        }
-       ],
-       "current_track": 1,
-       "artwork_pending": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "album_art_url": "/api/cd/cover/golden-disc-1",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true,
-      "disc_id": "golden-disc-1",
-      "disc_album": "Blue",
-      "disc_artist": "Joni Mitchell",
-      "disc_year": "1971",
-      "disc_cover_url": "/api/cd/cover/golden-disc-1",
-      "track_count": 3,
-      "tracks": [
-       {
-        "number": 1,
-        "title": "Blue",
-        "duration": 200
-       },
-       {
-        "number": 2,
-        "title": "California",
-        "duration": 150
-       },
-       {
-        "number": 3,
-        "title": "River",
-        "duration": 180
-       }
-      ],
-      "current_track": 1,
-      "artwork_pending": false
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
        "title": "Blue",
        "artist": "Joni Mitchell",
        "album": "Blue",
@@ -5268,24 +4782,6 @@
    },
    {
     "category": "system",
-    "type": "cd_drive_status",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "full_state": {
-      "active_source": "none",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {},
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "system",
     "type": "transition_start",
     "origin": "system",
     "data": {
@@ -5367,51 +4863,12 @@
     "origin": "cd",
     "data": {
      "source": "cd",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
       "drive_connected": true,
       "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
       "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
+      "is_buffering": false,
       "ejecting": false,
       "cache_ready": true,
       "disc_id": "golden-disc-1",
@@ -5437,22 +4894,22 @@
        }
       ],
       "current_track": 1,
-      "artwork_pending": true
+      "album": "Blue",
+      "artist": "Joni Mitchell",
+      "artwork_pending": true,
+      "title": "Blue",
+      "position": 0,
+      "duration": 200000
      },
      "full_state": {
       "active_source": "cd",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "position": 0,
-       "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
        "ejecting": false,
        "cache_ready": true,
        "disc_id": "golden-disc-1",
@@ -5478,7 +4935,12 @@
         }
        ],
        "current_track": 1,
-       "artwork_pending": true
+       "album": "Blue",
+       "artist": "Joni Mitchell",
+       "artwork_pending": true,
+       "title": "Blue",
+       "position": 0,
+       "duration": 200000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -6158,24 +5620,6 @@
    },
    {
     "category": "system",
-    "type": "cd_drive_status",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "full_state": {
-      "active_source": "none",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {},
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "system",
     "type": "transition_start",
     "origin": "system",
     "data": {
@@ -6257,51 +5701,12 @@
     "origin": "cd",
     "data": {
      "source": "cd",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
       "drive_connected": true,
       "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
       "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
+      "is_buffering": false,
       "ejecting": false,
       "cache_ready": true,
       "disc_id": "golden-disc-1",
@@ -6327,22 +5732,22 @@
        }
       ],
       "current_track": 1,
-      "artwork_pending": true
+      "album": "Blue",
+      "artist": "Joni Mitchell",
+      "artwork_pending": true,
+      "title": "Blue",
+      "position": 0,
+      "duration": 200000
      },
      "full_state": {
       "active_source": "cd",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "position": 0,
-       "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
        "ejecting": false,
        "cache_ready": true,
        "disc_id": "golden-disc-1",
@@ -6368,7 +5773,12 @@
         }
        ],
        "current_track": 1,
-       "artwork_pending": true
+       "album": "Blue",
+       "artist": "Joni Mitchell",
+       "artwork_pending": true,
+       "title": "Blue",
+       "position": 0,
+       "duration": 200000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -6757,7 +6167,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "Blue",
       "artist": "Joni Mitchell",
@@ -6800,7 +6210,7 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
        "title": "Blue",
        "artist": "Joni Mitchell",
@@ -7151,7 +6561,7 @@
      "source": "cd",
      "new_state": "active",
      "metadata": {
-      "is_playing": true,
+      "is_playing": false,
       "is_buffering": true,
       "title": "Blue",
       "artist": "Joni Mitchell",
@@ -7194,104 +6604,8 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": true,
+       "is_playing": false,
        "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "album_art_url": "/api/cd/cover/golden-disc-1",
-       "position": 30000,
-       "duration": 200000,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true,
-       "disc_id": "golden-disc-1",
-       "disc_album": "Blue",
-       "disc_artist": "Joni Mitchell",
-       "disc_year": "1971",
-       "disc_cover_url": "/api/cd/cover/golden-disc-1",
-       "track_count": 3,
-       "tracks": [
-        {
-         "number": 1,
-         "title": "Blue",
-         "duration": 200
-        },
-        {
-         "number": 2,
-         "title": "California",
-         "duration": 150
-        },
-        {
-         "number": 3,
-         "title": "River",
-         "duration": 180
-        }
-       ],
-       "current_track": 1,
-       "artwork_pending": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "album_art_url": "/api/cd/cover/golden-disc-1",
-      "position": 30000,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true,
-      "disc_id": "golden-disc-1",
-      "disc_album": "Blue",
-      "disc_artist": "Joni Mitchell",
-      "disc_year": "1971",
-      "disc_cover_url": "/api/cd/cover/golden-disc-1",
-      "track_count": 3,
-      "tracks": [
-       {
-        "number": 1,
-        "title": "Blue",
-        "duration": 200
-       },
-       {
-        "number": 2,
-        "title": "California",
-        "duration": 150
-       },
-       {
-        "number": 3,
-        "title": "River",
-        "duration": 180
-       }
-      ],
-      "current_track": 1,
-      "artwork_pending": false
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
        "title": "Blue",
        "artist": "Joni Mitchell",
        "album": "Blue",
@@ -7445,24 +6759,6 @@
    },
    {
     "category": "system",
-    "type": "cd_drive_status",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "full_state": {
-      "active_source": "none",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {},
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "system",
     "type": "transition_start",
     "origin": "system",
     "data": {
@@ -7544,51 +6840,12 @@
     "origin": "cd",
     "data": {
      "source": "cd",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
       "drive_connected": true,
       "disc_present": true,
-      "ejecting": false,
-      "cache_ready": true
-     },
-     "full_state": {
-      "active_source": "cd",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "drive_connected": true,
-       "disc_present": true,
-       "ejecting": false,
-       "cache_ready": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "cd",
-    "data": {
-     "source": "cd",
-     "new_state": "active",
-     "metadata": {
       "is_playing": false,
-      "is_buffering": true,
-      "title": "Blue",
-      "artist": "Joni Mitchell",
-      "album": "Blue",
-      "position": 0,
-      "duration": 200000,
-      "drive_connected": true,
-      "disc_present": true,
+      "is_buffering": false,
       "ejecting": false,
       "cache_ready": true,
       "disc_id": "golden-disc-1",
@@ -7614,22 +6871,22 @@
        }
       ],
       "current_track": 1,
-      "artwork_pending": true
+      "album": "Blue",
+      "artist": "Joni Mitchell",
+      "artwork_pending": true,
+      "title": "Blue",
+      "position": 0,
+      "duration": 200000
      },
      "full_state": {
       "active_source": "cd",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Blue",
-       "artist": "Joni Mitchell",
-       "album": "Blue",
-       "position": 0,
-       "duration": 200000,
        "drive_connected": true,
        "disc_present": true,
+       "is_playing": false,
+       "is_buffering": false,
        "ejecting": false,
        "cache_ready": true,
        "disc_id": "golden-disc-1",
@@ -7655,7 +6912,12 @@
         }
        ],
        "current_track": 1,
-       "artwork_pending": true
+       "album": "Blue",
+       "artist": "Joni Mitchell",
+       "artwork_pending": true,
+       "title": "Blue",
+       "position": 0,
+       "duration": 200000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -8189,7 +7451,7 @@
       "album_art_url": "/api/cd/cover/golden-disc-1",
       "artwork_pending": false,
       "title": "Blue",
-      "position": 0,
+      "position": 8000,
       "duration": 200000
      },
      "full_state": {
@@ -8232,7 +7494,7 @@
        "album_art_url": "/api/cd/cover/golden-disc-1",
        "artwork_pending": false,
        "title": "Blue",
-       "position": 0,
+       "position": 8000,
        "duration": 200000
       },
       "error": null,
@@ -8289,7 +7551,7 @@
        "album_art_url": "/api/cd/cover/golden-disc-1",
        "artwork_pending": false,
        "title": "Blue",
-       "position": 0,
+       "position": 8000,
        "duration": 200000
       },
       "error": null,
@@ -8377,7 +7639,7 @@
      "album_art_url": "/api/cd/cover/golden-disc-1",
      "artwork_pending": false,
      "title": "Blue",
-     "position": 0,
+     "position": 8000,
      "duration": 200000
     },
     "error": null,

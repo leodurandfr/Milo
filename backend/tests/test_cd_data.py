@@ -103,12 +103,11 @@ class TestCoverPathLookup:
 
 
 # =============================================================================
-# Disc detection, MusicBrainz lookup, and the on-disk cache.
+# The TOC, the MusicBrainz lookup, and the on-disk cache.
 #
-# `data.py` is what tells the appliance a disc is in the tray, and it does it
-# with raw descriptors on /dev/sr0. This host IS the appliance and there is a
-# disc in that tray, so `never_the_real_drive` below makes the real primitives
-# RAISE for the whole module; every test installs the drive it wants to see.
+# This host IS the appliance and there is a disc in its drive, so
+# `never_the_real_drive` below makes the real primitives on /dev/sr0 RAISE for
+# the whole module (the drive itself is tests/test_cd_drive.py's).
 #
 # `discid.read()` in particular spins the disc up. It is never called.
 # =============================================================================
@@ -118,15 +117,8 @@ import json
 from unittest.mock import Mock, patch
 
 from backend.config.constants import CD_DEVICE
-from backend.sources.cd.data import (
-    CDROM_DRIVE_STATUS,
-    CDS_DISC_OK,
-    CDS_DRIVE_NOT_READY,
-)
+from backend.sources.cd.drive import CDROM_DRIVE_STATUS
 from backend.sources.cd.models import DiscInfo
-
-DRIVE_FD = 771
-
 
 @pytest.fixture(autouse=True)
 def never_the_real_drive(monkeypatch):
@@ -145,98 +137,6 @@ def never_the_real_drive(monkeypatch):
 
     monkeypatch.setattr(os, "open", open_)
     monkeypatch.setattr(fcntl, "ioctl", ioctl_)
-
-
-class FakeDriveNode:
-    """`/dev/sr0` as an fd and a status code, plus what was done to it."""
-
-    def __init__(self, status=CDS_DISC_OK, *, open_error=None, ioctl_error=None):
-        self.status = status
-        self.opened = []
-        self.closed = []
-        self.ioctls = []
-        self._open_error = open_error
-        self._ioctl_error = ioctl_error
-
-    def install(self, monkeypatch, *, present=True):
-        real_open, real_close = os.open, os.close
-        real_ioctl, real_exists = fcntl.ioctl, os.path.exists
-
-        def open_(path, flags, *a):
-            if str(path) != CD_DEVICE:
-                return real_open(path, flags, *a)
-            self.opened.append(flags)
-            if self._open_error:
-                raise self._open_error
-            return DRIVE_FD
-
-        def close_(fd):
-            if fd != DRIVE_FD:
-                return real_close(fd)
-            self.closed.append(fd)
-
-        def ioctl_(fd, request, *a):
-            if request != CDROM_DRIVE_STATUS:
-                return real_ioctl(fd, request, *a)
-            assert fd == DRIVE_FD
-            self.ioctls.append(request)
-            if self._ioctl_error:
-                raise self._ioctl_error
-            return self.status
-
-        monkeypatch.setattr(os, "open", open_)
-        monkeypatch.setattr(os, "close", close_)
-        monkeypatch.setattr(fcntl, "ioctl", ioctl_)
-        monkeypatch.setattr(
-            os.path, "exists",
-            lambda p: present if str(p) == CD_DEVICE else real_exists(p))
-        return self
-
-
-class TestDiscDetection:
-    """`probe_drive_and_disc` is the whole of disc presence: the watcher calls it
-    every poll for the life of the unit, and the two-phase NOT_READY/DISC_OK
-    answer is what puts the loading-album indicator on screen before the TOC is
-    readable."""
-
-    def test_a_ready_disc_is_reported_through_the_drive_status_ioctl(self, service, monkeypatch):
-        drive = FakeDriveNode(CDS_DISC_OK).install(monkeypatch)
-        assert service.probe_drive_and_disc() == (True, CDS_DISC_OK)
-        assert drive.ioctls == [CDROM_DRIVE_STATUS]
-
-    def test_a_spinning_up_disc_is_distinguished_from_a_ready_one(self, service, monkeypatch):
-        FakeDriveNode(CDS_DRIVE_NOT_READY).install(monkeypatch)
-        assert service.probe_drive_and_disc() == (True, CDS_DRIVE_NOT_READY)
-
-    def test_no_drive_answers_without_touching_the_device(self, service, monkeypatch):
-        """`-1` is the sentinel for "no drive", and it must not come from a
-        failed open: the watcher tells the two apart to broadcast a drive
-        disconnect exactly once."""
-        drive = FakeDriveNode().install(monkeypatch, present=False)
-        assert service.probe_drive_and_disc() == (False, -1)
-        assert drive.opened == [], "the device was opened although it is not there"
-
-    def test_the_device_is_opened_without_blocking(self, service, monkeypatch):
-        """O_NONBLOCK is what makes this safe to call from a poll: a plain open
-        on a CD device waits for the disc to spin up, and the watcher runs in an
-        executor thread the event loop is waiting on."""
-        drive = FakeDriveNode().install(monkeypatch)
-        service.check_disc_status()
-        assert drive.opened and drive.opened[0] & os.O_NONBLOCK
-
-    def test_the_descriptor_is_released_even_when_the_ioctl_fails(self, service, monkeypatch):
-        """Leaked once per poll, the drive is held open for ever: the tray stops
-        opening and `eject` reports the device busy."""
-        drive = FakeDriveNode(
-            ioctl_error=OSError(5, "Input/output error")).install(monkeypatch)
-        assert service.check_disc_status() == -1
-        assert drive.closed == [DRIVE_FD]
-
-    def test_a_drive_that_will_not_open_answers_minus_one(self, service, monkeypatch):
-        drive = FakeDriveNode(
-            open_error=OSError(16, "Device or resource busy")).install(monkeypatch)
-        assert service.check_disc_status() == -1
-        assert drive.closed == [], "a descriptor that was never obtained was closed"
 
 
 class TestReadingTheToc:

@@ -2,9 +2,7 @@
 """
 CD data service for disc detection, metadata lookup, and caching.
 
-Responsibilities:
-- Detect USB CD drive presence via /dev/sr0
-- Detect disc insertion via ioctl CDROM_DRIVE_STATUS
+Responsibilities (the drive itself is drive.py's):
 - Read disc TOC via python-discid (libdiscid)
 - Lookup metadata from MusicBrainz (with fuzzy TOC fallback)
 - Download cover art from MusicBrainz Cover Art Archive
@@ -15,7 +13,6 @@ Data is persisted to /var/lib/milo/cd_data.json
 Cover art is stored in /var/lib/milo/cd_covers/
 """
 import asyncio
-import fcntl
 import json
 import logging
 import os
@@ -29,11 +26,6 @@ from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger("source.cd.data")
-
-# ioctl constants for CD drive status
-CDROM_DRIVE_STATUS = 0x5326
-CDS_DRIVE_NOT_READY = 3  # Disc spinning up (detected but not yet readable)
-CDS_DISC_OK = 4  # Disc ready (TOC readable)
 
 # How long a caller waits for a jacket before treating the archive as
 # unreachable. Its own retries last ~100 s in an outage (8 tries, 56 s of
@@ -83,34 +75,6 @@ class CdDataService:
         os.makedirs(self._covers_dir, exist_ok=True)
         await self._load_data()
         self._loaded = True
-
-    # =========================================================================
-    # DISC DETECTION
-    # =========================================================================
-
-    def probe_drive_and_disc(self) -> Tuple[bool, int]:
-        """Check drive presence and disc status in one blocking call (single executor hop).
-
-        Returns (drive_connected, status); status is -1 when no drive is connected.
-        """
-        if not os.path.exists(CD_DEVICE):
-            return False, -1
-        return True, self.check_disc_status()
-
-    def check_disc_status(self) -> int:
-        """Return raw CDROM_DRIVE_STATUS ioctl value.
-
-        Returns CDS_DISC_OK (4) when ready, CDS_DRIVE_NOT_READY (3) when
-        spinning up, 1 when empty, or -1 on error.
-        """
-        try:
-            fd = os.open(CD_DEVICE, os.O_RDONLY | os.O_NONBLOCK)
-            try:
-                return fcntl.ioctl(fd, CDROM_DRIVE_STATUS)
-            finally:
-                os.close(fd)
-        except OSError:
-            return -1
 
     # =========================================================================
     # DISC TOC READING

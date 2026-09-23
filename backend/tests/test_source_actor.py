@@ -326,3 +326,68 @@ async def test_a_held_mailbox_queues_what_arrives_meanwhile(probe):
     await pressed
     assert probe._service_manager.calls[-2:] == ["stop", "stop done"]
     assert not probe._service_manager.active
+
+
+# === Work on the hardware outlives a stop (DeviceToken) ===
+
+async def test_a_stop_neither_voids_nor_cuts_the_hardware_s_news(probe):
+    """A disc read cut by a source switch left the drive "reading" with
+    nothing left to finish it: a STOP answers the session's mail, not the
+    device's. Queued before the stop, the news still runs; running when it
+    arrives, it runs to its end."""
+    from backend.core.audio_source import DeviceToken
+    token = DeviceToken()
+    reading = asyncio.Event()
+    done: List[str] = []
+
+    async def read_the_disc():
+        done.append("read begin")
+        await reading.wait()
+        done.append("read end")
+
+    async def news():
+        done.append("news")
+
+    probe._post_result(read_the_disc, token=token)
+    await _until(lambda: done == ["read begin"])
+    probe._post_result(news, token=token)
+    stopping = asyncio.ensure_future(probe.stop())
+    for _ in range(20):
+        await asyncio.sleep(0)
+    reading.set()
+    assert await stopping
+    await _until(lambda: "news" in done)
+    assert done == ["read begin", "read end", "news"]
+
+
+async def test_a_stop_still_voids_the_session_s_results(probe):
+    """The other half: a result for a session is dropped by the stop that
+    ends it (the rule the device exemption must not widen)."""
+    ran: List[str] = []
+
+    async def late():
+        ran.append("late")
+
+    blocking = asyncio.ensure_future(probe.command("slow", None))
+    await _until(lambda: "slow begin" in probe.log)
+    probe._post_result(late)
+    assert await probe.stop()
+    probe.gate.set()
+    await asyncio.gather(blocking, return_exceptions=True)
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert ran == []
+
+
+async def test_a_device_timer_survives_the_end_of_a_session(probe):
+    """The disc's watchdog belongs to the drive: a session ending (a switch,
+    an eject) disarms the session's timers, not the drive's."""
+    from backend.core.audio_source import DeviceToken
+    from backend.core.models.session import EndReason, Phase, Session
+
+    probe._arm_timer("reading", 999, DeviceToken())
+    probe._arm_timer("stall", 999, probe.open_session(Session(phase=Phase.LOADING)))
+    await probe.end_session(EndReason.USER_STOP)
+
+    assert probe._timer_armed("reading")
+    assert not probe._timer_armed("stall")

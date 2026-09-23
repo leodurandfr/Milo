@@ -28,6 +28,12 @@ SECTOR_SIZE = 2352  # bytes per sector (588 frames x 4 bytes/frame)
 SECTORS_PER_SECOND = 75
 READ_CHUNK = 20  # sectors per ioctl call (~0.27s of audio)
 
+# libdiscid's track offsets count the 2 s lead-in; CDROMREADAUDIO's LBAs count
+# from 0 (the kernel's own TOC puts track 1 at 32 where libdiscid says 182,
+# measured). Read at an offset as given, every track started 2 s late and the
+# last 2 s of a disc answered EIO (E66).
+LEAD_IN_SECTORS = 150
+
 # FIFO path (RuntimeDirectory=milo already exists)
 CD_FIFO_PATH = "/run/milo/cd-audio.pcm"
 
@@ -45,10 +51,23 @@ class CdIoctlReader:
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
         self._running = False
+        # Why the last run ended: "leadout", an errno, or None (stopped, or
+        # still running). mpv sees the FIFO close the same way in every case.
+        self._outcome = None
 
     @property
     def is_running(self) -> bool:
         return self._running and self._thread is not None and self._thread.is_alive()
+
+    @property
+    def reached_leadout(self) -> bool:
+        """The last run read the disc to its end."""
+        return self._outcome == "leadout"
+
+    @property
+    def failure(self) -> Optional[int]:
+        """The errno the last run failed on, if it failed."""
+        return self._outcome if isinstance(self._outcome, int) else None
 
     def start(self, start_lba: int, end_lba: int) -> None:
         """Start reading from start_lba to end_lba, writing PCM to FIFO.
@@ -65,6 +84,7 @@ class CdIoctlReader:
         self._stop_event = threading.Event()
         self._ready_event.clear()
         self._running = True
+        self._outcome = None
         self._thread = threading.Thread(
             target=self._read_loop,
             args=(start_lba, end_lba, self._stop_event),
@@ -135,6 +155,7 @@ class CdIoctlReader:
                     if stop_event.is_set():
                         break
                     logger.error(f"CDROMREADAUDIO failed at LBA {lba}: {e}")
+                    self._outcome = e.errno
                     break
 
                 # Write PCM data to FIFO (may block if mpv buffer is full)
@@ -158,9 +179,13 @@ class CdIoctlReader:
 
                 lba += nframes
 
+            if lba >= end_lba:
+                self._outcome = "leadout"
+
         except OSError as e:
             if not stop_event.is_set():
                 logger.error(f"CD reader error: {e}")
+                self._outcome = e.errno
         finally:
             self._running = False
             for fd in (fifo_fd, cd_fd):

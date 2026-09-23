@@ -71,6 +71,7 @@
       "trackLoadFailed": "Dieser Titel konnte nicht geladen werden",
       "playbackFailed": "Wiedergabe fehlgeschlagen",
       "serviceUnreachable": "Dienst nicht erreichbar",
+      "discUnreadable": "Disc nicht lesbar",
       "generic": "Ein Fehler ist aufgetreten"
     },
     "cdSource": {

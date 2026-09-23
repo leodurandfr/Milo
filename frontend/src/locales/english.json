@@ -71,6 +71,7 @@
       "trackLoadFailed": "Could not load this track",
       "playbackFailed": "Playback failed",
       "serviceUnreachable": "The service could not be reached",
+      "discUnreadable": "This disc cannot be read",
       "generic": "Something went wrong"
     },
     "cdSource": {

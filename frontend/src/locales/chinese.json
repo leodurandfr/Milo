@@ -71,6 +71,7 @@
       "trackLoadFailed": "无法加载此曲目",
       "playbackFailed": "播放失败",
       "serviceUnreachable": "无法连接服务",
+      "discUnreadable": "无法读取此光盘",
       "generic": "发生错误"
     },
     "cdSource": {

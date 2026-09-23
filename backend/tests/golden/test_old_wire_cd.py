@@ -8,15 +8,15 @@ from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.shared import mpv_audio_source
 from backend.sources.cd import source as cd_module
-from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY
+from backend.sources.cd.drive import CDS_DISC_OK, CDS_DRIVE_NOT_READY, DriveEvent
 from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.sources.cd.source import CdSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, FakeMpv, TickGate, Wire, check_recording, instant_short_sleep,
-    make_settings, make_state_machine, make_systemd, settle,
+    AsyncioProxy, EventMpv, TickGate, VirtualClock, Wire, check_recording,
+    instant_short_sleep, make_settings, make_state_machine, make_systemd, settle,
 )
 
-# CDROM_DRIVE_STATUS answers the watcher reads besides the two the source names.
+# CDROM_DRIVE_STATUS answers besides the two the drive module names.
 CDS_NO_DISC = 1
 CDS_TRAY_OPEN = 2
 
@@ -33,38 +33,28 @@ DISC_END_LBA = 39900
 TITLES = ["Blue", "California", "River"]
 
 
-class CdMpv(FakeMpv):
-    """mpv as CD drives it: a FIFO load restarts the clock, a stop idles it."""
-
-    async def ensure_connected(self) -> bool:
-        return self.is_connected
-
-    async def load_stream(self, url: str, *a: Any, **k: Any) -> bool:
-        loaded = await super().load_stream(url)
-        if loaded:
-            self.props["time-pos"] = 0
-            self.props["playback-time"] = 0
-        return loaded
-
-    async def stop(self) -> bool:
-        self.props["time-pos"] = None
-        self.props["playback-time"] = None
-        return True
-
-
 class FakeReader:
     """The ioctl reader thread, without the thread: the FIFO opens at once."""
 
     def __init__(self, device: str = "") -> None:
         self.running = False
+        self.outcome: Any = None
         self.starts: List[int] = []
 
     @property
     def is_running(self) -> bool:
         return self.running
 
+    @property
+    def reached_leadout(self) -> bool:
+        return self.outcome == "leadout"
+
+    @property
+    def failure(self) -> Optional[int]:
+        return self.outcome if isinstance(self.outcome, int) else None
+
     def start(self, start_lba: int, end_lba: int) -> None:
-        self.running = True
+        self.running, self.outcome = True, None
         self.starts.append(start_lba)
 
     def wait_ready(self, timeout: float = 5.0) -> bool:
@@ -75,8 +65,9 @@ class FakeReader:
 
 
 class FakeCdData:
-    """The drive (presence + CDROM_DRIVE_STATUS), libdiscid, MusicBrainz and
-    the Cover Art Archive, at the boundary the source calls them through."""
+    """The drive's state (presence + CDROM_DRIVE_STATUS), libdiscid,
+    MusicBrainz and the Cover Art Archive, at the boundary the source calls
+    them through."""
 
     def __init__(self) -> None:
         self.drive = False
@@ -88,9 +79,6 @@ class FakeCdData:
 
     async def initialize(self) -> None:
         return None
-
-    def probe_drive_and_disc(self):
-        return (True, self.status) if self.drive else (False, -1)
 
     async def read_disc(self):
         if not self.disc_loaded:
@@ -126,9 +114,15 @@ class FakeCdData:
     def _cover_url(self, disc_id: str) -> Optional[str]:
         return f"/api/cd/cover/{disc_id}" if disc_id in self.on_disk else None
 
+    def media(self) -> Dict[str, str]:
+        """udev's media properties for what is in the drive now."""
+        if self.status == CDS_DISC_OK and self.disc_loaded:
+            return {"ID_CDROM_MEDIA": "1", "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO": str(len(TOC))}
+        return {}
+
 
 class _Proc:
-    """`eject`'s process: the tray opens and the command answers 0."""
+    """`eject`'s process: the disc comes out and the command answers 0."""
 
     returncode = 0
 
@@ -137,19 +131,13 @@ class _Proc:
 
 
 class CdAsyncio(AsyncioProxy):
-    """The cd module's `asyncio`: the watcher's poll is a gate, threads run
-    inline (a real thread finishing after `settle()` returned would make the
-    recording depend on the scheduler), and `eject` is the drive's."""
+    """The cd module's `asyncio`: threads run inline (a real thread finishing
+    after `settle()` returned would make the recording depend on the
+    scheduler), and `eject` is the drive's."""
 
-    def __init__(self, gate: TickGate, eject) -> None:
-        super().__init__(self._sleep)
-        self._gate = gate
+    def __init__(self, sleep, eject) -> None:
+        super().__init__(sleep)
         self._eject = eject
-
-    async def _sleep(self, delay: float, *a: Any, **k: Any) -> Any:
-        if delay == cd_module.DISC_POLL_INTERVAL_S:
-            return await self._gate.sleep(delay)
-        return await instant_short_sleep(delay, *a, **k)
 
     async def to_thread(self, fn, *a: Any, **k: Any) -> Any:
         return fn(*a, **k)
@@ -159,24 +147,55 @@ class CdAsyncio(AsyncioProxy):
 
 
 class Cd:
-    """Adapter: how each outside-world stimulus reaches CdSource today."""
+    """Adapter: how each outside-world stimulus reaches CdSource today.
+
+    The drive is heard through udev (measured on the unit, docs: source
+    architecture phase 2): each `drive_tick()` announces what changed in the
+    drive since the last one — `add`, `remove`, or a `change` with or without
+    media — the way the scenarios' poll used to discover it.
+    """
 
     def __init__(self, monkeypatch, settings=None):
         self.data = FakeCdData()
-        self.mpv: Optional[CdMpv] = None
+        self.mpv = EventMpv()
         self.monitor_gate = TickGate()
-        self.drive_gate = TickGate()
+        self.clock = VirtualClock()
         self.ejected: List[tuple] = []
-        # The MusicBrainz retry is throttled on monotonic(); a fixed clock the
-        # scenario advances makes that throttle a step instead of wall time.
-        self.clock = 1000.0
-        monkeypatch.setattr(cd_module, "monotonic", lambda: self.clock)
-        monkeypatch.setattr(mpv_audio_source, "MpvController", self._new_mpv)
+        self._listeners: List[Any] = []
+        self._heard = (False, CDS_NO_DISC, False)
+        self._ending = False
+        self._advance = 0.0
+        adapter = self
+
+        class Drive:
+            def __init__(self, device: str = "") -> None:
+                pass
+
+            def start(self, on_event):
+                adapter._listeners.append(on_event)
+                adapter._heard = adapter._drive_now()
+                if not adapter.data.drive:
+                    return None
+                return DriveEvent.from_udev("present", adapter.data.media())
+
+            def stop(self) -> None:
+                adapter._listeners.clear()
+
+            def status(self) -> int:
+                return adapter.data.status
+
+        async def sleep(delay: float, *a: Any, **k: Any) -> Any:
+            if delay <= 1.0:
+                return await instant_short_sleep(delay)
+            return await self.clock.sleep(delay)
+
+        monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.monitor_gate.sleep))
-        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
-        monkeypatch.setattr(cd_module, "asyncio", CdAsyncio(self.drive_gate, self._eject))
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
+        monkeypatch.setattr(cd_module, "asyncio", CdAsyncio(sleep, self._eject))
         monkeypatch.setattr(cd_module, "CdIoctlReader", FakeReader)
         monkeypatch.setattr(cd_module, "CdDataService", lambda: self.data)
+        monkeypatch.setattr(cd_module, "CdDrive", Drive)
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         self.source = CdSource(
@@ -188,21 +207,24 @@ class Cd:
         self.reader: FakeReader = self.source._reader
         self.machine.register_source(AudioSource.CD, self.source)
 
-    def _new_mpv(self, **_: Any) -> CdMpv:
-        # One per attach: every source start is a fresh milo-cd process.
-        self.mpv = CdMpv()
-        return self.mpv
-
     def _eject(self, argv) -> _Proc:
         self.ejected.append(argv)
         self.data.status = CDS_TRAY_OPEN
         self.data.disc_loaded = False
         return _Proc()
 
+    def _drive_now(self):
+        return self.data.drive, self.data.status, self.data.disc_loaded
+
+    def _announce(self, action: str, properties: Dict[str, str]) -> None:
+        event = DriveEvent.from_udev(action, properties)
+        for listener in list(self._listeners):
+            listener(event)
+
     # --- lifecycle ---------------------------------------------------------
 
     async def boot(self):
-        """App startup: initialize() starts the permanent disc watcher."""
+        """App startup: initialize() starts following the drive."""
         await self.source.initialize()
         await settle()
 
@@ -242,24 +264,46 @@ class Cd:
         await settle()
 
     async def drive_tick(self, times=1):
-        await self.drive_gate.tick(times)
+        """udev announces what changed in the drive since it last spoke."""
+        for _ in range(times):
+            now, before = self._drive_now(), self._heard
+            was_plugged = before[0]
+            self._heard = now
+            if now[0] and not was_plugged:
+                self._announce("add", {})
+                self._announce("change", self.data.media())
+            elif was_plugged and not now[0]:
+                self._announce("remove", {})
+            elif now[0] and now != before:
+                self._announce("change", self.data.media())
+            await settle()
+            advance, self._advance = self._advance, 0.0
+            await self.clock.advance(advance)
 
     def advance_clock(self, seconds):
-        self.clock += seconds
+        """Seconds that pass before the next drive tick (the retry timer's)."""
+        self._advance += seconds
 
     # --- mpv and the reader ------------------------------------------------
 
     async def tick(self, times=1):
-        await self.monitor_gate.tick(times)
+        for _ in range(times):
+            if self._ending:
+                self._ending = False
+                await self.mpv.ends("eof")
+            await self.mpv.time_passes()
+            await settle()                   # what mpv said is handled first
+            await self.monitor_gate.tick()
 
     def playhead(self, seconds):
         self.mpv.props["time-pos"] = seconds
         self.mpv.props["playback-time"] = seconds
 
     def disc_runs_out(self):
-        """The reader reached the leadout; mpv drained the FIFO and idles."""
+        """The reader reached the leadout; mpv drains the FIFO and ends it."""
         self.reader.running = False
-        self.playhead(None)
+        self.reader.outcome = "leadout"
+        self._ending = True
 
 
 @pytest.fixture
@@ -278,11 +322,10 @@ async def make_cd(monkeypatch):
         return cd
 
     yield factory
-    # The watcher is permanent; it is the adapter's to end, not the scenario's.
+    # The drive is followed for good; it is the adapter's to end, not the
+    # scenario's.
     for cd in made:
-        task = cd.source._disc_watcher_task
-        if task:
-            task.cancel()
+        await cd.source.shutdown()
     await settle()
 
 

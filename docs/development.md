@@ -299,8 +299,9 @@ class MySource(BaseAudioSource):
 session model the way `radio/` does: a `MpvSession` subclass for what one session owns, the four
 declared policies, `_listen_to_mpv()` in `_do_start`, and the `_entry_started` / `_entry_ended` /
 `_on_playing_tick` hooks. The phase comes from mpv's events and the one-second tick only reads the
-playhead while sound plays; never hand-roll a monitor loop. (The CD still uses the older polled
-`_monitor_loop()` until it migrates.)
+playhead while sound plays; never hand-roll a monitor loop. A source with hardware of its own
+(the CD's drive) keeps that device state apart from the session and tags the work on it with a
+`DeviceToken`, which a stop neither voids nor cuts.
 
 The authoritative shape is the family table in [CLAUDE.md](../CLAUDE.md) § *Audio sources* plus an
 existing source — `radio/` is the reference for family C, `qobuz/` for family B, `bluetooth/` for

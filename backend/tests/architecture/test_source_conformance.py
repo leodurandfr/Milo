@@ -348,14 +348,16 @@ def _collaborators(cls, package_names):
 NO_COLLABORATOR_SOURCES = {"mac"}
 
 # Public methods where reaching a collaborator is the source's own work rather
-# than a proxy for a caller. `initialize`/`refresh_metadata` are the base
-# contract — bringing a collaborator up is the source's job even when nothing
-# else is. `on_shazam_setting_changed` is the same kind: its caller
+# than a proxy for a caller. `initialize`/`shutdown`/`refresh_metadata` are the
+# base contract — bringing a collaborator up (and down: the CD's udev monitor
+# outlives every start/stop) is the source's job even when nothing else is. `on_shazam_setting_changed` is the same kind: its caller
 # (api/settings.py::set_radio_settings) wants the *source* to react to a global
 # toggle, and the method re-arms `_shazam_candidate` against the in-band feed —
 # state nobody holding `source.shazam` could reason about. Exposing the service
 # to satisfy the rule would add a property no caller reads.
-COLLABORATOR_OWNER_METHODS = ("initialize", "refresh_metadata", "on_shazam_setting_changed")
+COLLABORATOR_OWNER_METHODS = (
+    "initialize", "shutdown", "refresh_metadata", "on_shazam_setting_changed",
+)
 
 
 def test_collaborator_extraction_reaches_every_source_but_the_named_ones():
@@ -509,8 +511,7 @@ def test_mpv_sources_attach_through_the_base_class(source_id):
 def _publish_sites(source_id):
     """Methods of the `{Name}Source` class that publish a connection state.
 
-    Returns {method name: {primitives it calls}}. `_publish_idle()` is not
-    among them by construction: it lives on the base class, not in this body.
+    Returns {method name: {primitives it calls}}.
     """
     cls, _ = _source_ast(source_id)
     sites = {}

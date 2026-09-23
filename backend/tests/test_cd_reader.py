@@ -397,9 +397,51 @@ class TestHowARunEnds:
 
         assert sorted(drive.closed) == [CD_FD, FIFO_FD]
 
+    def test_a_run_that_reads_to_the_end_says_it_reached_the_leadout(self, monkeypatch):
+        """mpv sees the FIFO close with the same `eof` whether the disc ran out
+        or a sector failed (measured): this is how the source tells an album
+        that finished from a read error."""
+        FakeDrive().install(monkeypatch)
+        reader = CdIoctlReader()
+
+        reader.start(0, READ_CHUNK * 2)
+        reader._thread.join(timeout=5)
+
+        assert reader.reached_leadout is True
+        assert reader.failure is None
+
+    def test_a_run_a_sector_ended_says_which_error(self, monkeypatch):
+        FakeDrive(ioctl_error=OSError(5, "Input/output error")).install(monkeypatch)
+        reader = CdIoctlReader()
+
+        reader.start(0, READ_CHUNK * 4)
+        reader._thread.join(timeout=5)
+
+        assert reader.reached_leadout is False
+        assert reader.failure == 5
+
+    def test_a_drive_that_left_mid_run_says_so(self, monkeypatch):
+        """Measured on an unplug mid-play: the read fails with ENODEV — a
+        drive gone, not a lost stream."""
+        FakeDrive(ioctl_error=OSError(19, "No such device")).install(monkeypatch)
+        reader = CdIoctlReader()
+
+        reader.start(0, READ_CHUNK * 4)
+        reader._thread.join(timeout=5)
+
+        assert reader.failure == 19
+
+    def test_a_run_mpv_let_go_of_is_neither_an_end_nor_a_failure(self, monkeypatch):
+        FakeDrive(write_error=BrokenPipeError(32, "Broken pipe")).install(monkeypatch)
+        reader = CdIoctlReader()
+
+        reader.start(0, READ_CHUNK * 4)
+        reader._thread.join(timeout=5)
+
+        assert reader.reached_leadout is False
+        assert reader.failure is None
+
     def test_running_is_cleared_when_the_loop_exits(self, monkeypatch):
-        """`is_running` is what the monitor tick reads to tell an album that has
-        finished from a track still playing (source.py::_on_monitor_tick)."""
         drive = FakeDrive()
         drive.park_in_ioctl = threading.Event()
         drive.install(monkeypatch)

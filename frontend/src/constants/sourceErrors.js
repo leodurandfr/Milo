@@ -17,6 +17,7 @@ export const SOURCE_ERROR_KEYS = {
   track_load_failed: 'audioSources.errors.trackLoadFailed',
   playback_failed: 'audioSources.errors.playbackFailed',
   service_unreachable: 'audioSources.errors.serviceUnreachable',
+  disc_unreadable: 'audioSources.errors.discUnreadable',
 };
 
 export const SOURCE_ERROR_FALLBACK_KEY = 'audioSources.errors.generic';

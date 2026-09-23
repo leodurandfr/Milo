@@ -71,6 +71,7 @@
       "trackLoadFailed": "Impossibile caricare questo brano",
       "playbackFailed": "Riproduzione non riuscita",
       "serviceUnreachable": "Servizio non raggiungibile",
+      "discUnreadable": "Disco illeggibile",
       "generic": "Si è verificato un errore"
     },
     "cdSource": {

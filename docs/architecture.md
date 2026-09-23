@@ -381,9 +381,17 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Automatic disc identification via MusicBrainz (TOC lookup)
 
 **How does it work?**
-- USB CD drive detected via udev rules
-- `libdiscid` computes the disc TOC; queries MusicBrainz for metadata
-- Track-by-track playback with metadata + cover art caching
+- The drive is followed through udev (`sources/cd/drive.py`): plug, unplug,
+  a disc readable, an eject — no polling, except every 2 s while CD is the
+  active source over an empty drive (udev announces an inserted disc only once
+  it is readable, ~10 s on the measured SuperDrive)
+- `libdiscid` computes the disc TOC; queries MusicBrainz for metadata. Its
+  track offsets count the 150-sector lead-in and `CDROMREADAUDIO` counts from
+  0, so the reader subtracts it
+- An ioctl reader thread feeds raw PCM into a FIFO that mpv plays; a track
+  change or a seek restarts both at the new LBA
+- A disc already in the drive when the source opens is preloaded paused; a
+  disc inserted while CD is the active source plays by itself
 
 **Configuration:**
 - Service: milo-cd.service

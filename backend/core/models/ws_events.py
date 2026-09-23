@@ -201,6 +201,7 @@ class SourceErrorReason:
     TRACK_LOAD_FAILED = "track_load_failed"       # the sender refused this track
     PLAYBACK_FAILED = "playback_failed"           # playback could not start
     SERVICE_UNREACHABLE = "service_unreachable"   # the external service is down
+    DISC_UNREADABLE = "disc_unreadable"           # the disc in the drive is not an audio CD Milō can read
 
 
 class SourceError(WsEvent):
