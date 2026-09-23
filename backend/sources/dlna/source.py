@@ -421,6 +421,9 @@ class DlnaSource(BaseAudioSource):
         The control point is never identified by the renderer, so what is named
         here is where the audio came from, not who asked for it.
         """
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
         # The cover is merged in here and never stored: _metadata is the last
@@ -446,7 +449,7 @@ class DlnaSource(BaseAudioSource):
         # extra, and _metadata is the record it hands back, so this is also what
         # clears the previous server's name out of it when the host changes.
         extras["client_name"] = self._server_name
-        self.emit_connection_state(self._device_connected, core, extras)
+        return self._device_connected, core, extras
 
     async def _cleanup(self) -> None:
         """Clean up resources."""

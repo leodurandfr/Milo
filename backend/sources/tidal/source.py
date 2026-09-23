@@ -316,9 +316,12 @@ class TidalSource(BaseAudioSource):
         there is no client_name: with transport controls on screen the player
         draws the transport, not a source bar.
         """
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         core, _ = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
-        self.emit_connection_state(self._device_connected, core)
+        return self._device_connected, core, None
 
     async def _cleanup(self) -> None:
         """Drop the controller socket and reset state (unit stop is _do_stop's)."""

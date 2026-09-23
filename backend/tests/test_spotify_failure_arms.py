@@ -264,11 +264,11 @@ class TestTheReAcquireThatCannotBeConfirmed:
         source._soft_reroute = True
         source._reroute_was_playing = False
 
-        with patch.object(source, "start", new_callable=AsyncMock,
-                          return_value=True) as start:
+        with patch.object(source, "_do_start", new_callable=AsyncMock,
+                          return_value=True) as full_start:
             assert await source.acquire_after_reroute() is True
 
-        start.assert_awaited_once()
+        full_start.assert_awaited_once()
 
     async def test_a_resume_the_daemon_refuses_does_not_fail_the_reroute(
         self, source, monkeypatch

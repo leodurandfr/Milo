@@ -1,0 +1,2523 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "has_avrcp": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "phone_with_no_player_connects_and_leaves": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "Mac mini de Léo",
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "device_name": "Mac mini de Léo",
+     "has_avrcp": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "bluetooth",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "has_avrcp": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "player_before_pcm_publishes_a_track": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 0,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 0,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 5000,
+     "duration": 511000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 5000,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 5000,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 10000,
+     "duration": 511000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 15000,
+     "duration": 511000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 16000,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 16000,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Says",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+     "position": 5000,
+     "duration": 511000,
+     "device_name": "iPhone de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Says",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+     "position": 16000,
+     "duration": 511000,
+     "device_name": "iPhone de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "pause_and_resume_from_the_phone_and_from_milo": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "position": 30000,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "position": 30000,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 30000,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 30000,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 35000,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 35120,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 35120,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 35120,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 35120,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 35120,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 35120,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 37120,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 40250,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 40250,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 40250,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 40250,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 40250,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 40250,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 40250,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 40250,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 40250,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 41725,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 45625,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "title": "Feeling Good",
+     "artist": "Nina Simone",
+     "album": "I Put a Spell on You",
+     "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+     "position": 35120,
+     "duration": 177000,
+     "device_name": "iPhone de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "title": "Feeling Good",
+     "artist": "Nina Simone",
+     "album": "I Put a Spell on You",
+     "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+     "position": 40250,
+     "duration": 177000,
+     "device_name": "iPhone de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "track_changes": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "position": 0,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "position": 0,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 0,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 0,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 5000,
+     "duration": 511000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Hammers",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "position": 875,
+      "duration": 381000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Hammers",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "position": 875,
+       "duration": 381000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Hammers",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 875,
+      "duration": 381000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Hammers",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 875,
+       "duration": 381000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 3200,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 5500,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 700,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 3125,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 5500,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Hammers",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 6000,
+      "duration": 381000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Hammers",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 6000,
+       "duration": 381000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 8125,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 13125,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 16000,
+     "duration": 381000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "position": 0,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "position": 0,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+      "position": 0,
+      "duration": 177000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "album": "I Put a Spell on You",
+       "album_art_url": "https://is1.example/nina/spell/600x600bb.jpg",
+       "position": 0,
+       "duration": 177000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 1500,
+     "duration": 177000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Demo 3 (voice memo)",
+      "artist": "Léo",
+      "album": "Garage",
+      "position": 0,
+      "duration": 95000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Demo 3 (voice memo)",
+       "artist": "Léo",
+       "album": "Garage",
+       "position": 0,
+       "duration": 95000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "position": 1500,
+     "duration": 95000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Demo 3 (voice memo)",
+      "artist": "Léo",
+      "album": "Garage",
+      "position": 5000,
+      "duration": 95000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Demo 3 (voice memo)",
+       "artist": "Léo",
+       "album": "Garage",
+       "position": 5000,
+       "duration": 95000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Hammers",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+     "position": 6000,
+     "duration": 381000,
+     "device_name": "iPhone de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Demo 3 (voice memo)",
+     "artist": "Léo",
+     "album": "Garage",
+     "position": 5000,
+     "duration": 95000,
+     "device_name": "iPhone de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "disconnect_command_and_a_second_phone": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "position": 0,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "position": 0,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "position": 0,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "https://is1.example/nils/spaces/600x600bb.jpg",
+       "position": 0,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "iPhone de Léo",
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "iPhone de Léo",
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "has_avrcp": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "sender_already_connected_at_select": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "Mac mini de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "position": 9874000,
+      "device_name": "Mac mini de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "position": 9874000,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "position": 9874000,
+      "device_name": "Mac mini de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "position": 9874000,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "position": 9879000,
+      "device_name": "Mac mini de Léo",
+      "has_avrcp": true
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "position": 9879000,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "device_name": "Mac mini de Léo",
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "device_name": "Mac mini de Léo",
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "has_avrcp": false
+     },
+     "full_state": {
+      "active_source": "bluetooth",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "has_avrcp": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "bluetooth",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "position": 9874000,
+     "device_name": "Mac mini de Léo",
+     "has_avrcp": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "bluetooth",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "has_avrcp": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ }
+}

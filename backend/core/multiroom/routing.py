@@ -8,13 +8,12 @@ import logging
 import asyncio
 import os
 import time
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
     ALLOWED_LATENCY_PROFILES,
     DEFAULT_ROC_CONFIG,
 )
-from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.ws_events import (
     EqualizerEnabledChanged,
     RoutingMultiroomDisabling,
@@ -278,13 +277,11 @@ class AudioRoutingService:
     broadcasts.
     """
 
-    def __init__(self, get_source_callback: Optional[Callable] = None,
-                 settings_service: Optional["SettingsService"] = None,
+    def __init__(self, settings_service: Optional["SettingsService"] = None,
                  systemd_manager: Optional[SystemdServiceManager] = None,
                  snapcast_service=None, camilladsp_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = systemd_manager
-        self.get_source = get_source_callback
         self.settings_service = settings_service
         self._initial_detection_done = False
 
@@ -314,11 +311,6 @@ class AudioRoutingService:
     def set_volume_service(self, service) -> None:
         """Set VolumeService dependency."""
         self.volume_service = service
-
-    def set_source_callback(self, callback: Callable) -> None:
-        """Set callback to access audio source instances."""
-        if not self.get_source:
-            self.get_source = callback
 
     # === Helper methods ===
 
@@ -608,123 +600,37 @@ class AudioRoutingService:
             return True
 
     async def _apply_transition(self, enabled: bool) -> None:
-        """Release source, reconcile snapcast, regenerate routing.env, re-acquire source.
+        """Carry the active source across the mode change, switching the output
+        under it: reconcile snapcast, then regenerate routing.env.
 
-        Source release/re-acquire goes through release_for_reroute() /
-        acquire_after_reroute() (default = stop()/start()) so a source that holds
-        its upstream link in a separate process from the ALSA writer (Bluetooth)
-        can rebounce only the writer and keep the sender connected.
-
-        Acquires the state machine's exclusive_transition() context to prevent
-        concurrent source lifecycle operations with `transition_to_source()`.
-        Lock order is always: `_routing_lock` (held by caller) → transition lock.
-        The source to carry is read *inside* that lock, never handed in: a
-        caller's read predates `_broadcast_transition_event` and its 100 ms
-        pause, and a source picked in that window would otherwise be rerouted as the one it
-        replaced — restarting a stopped source next to the new one.
+        The source's side — reading which source is active inside the transition
+        lock, RELEASE before the output moves, ACQUIRE after, republishing its
+        real state when the reacquire fails — is the state machine's
+        (`reroute_active_source`). Lock order is always: `_routing_lock` (held
+        by the caller) → the transition lock.
 
         Snapcast reconcile is idempotent. routing.env is regenerated AFTER
-        snapcast settles and BEFORE the source restart so systemd sees the new
-        MILO_MODE when it starts the source unit. Source start is best-effort
-        — a failing source no longer fails the whole transition.
-
-        Raises only when snapcast services fail to start (multiroom→enabled)
-        or when the state machine is unavailable. Every path that does not end
-        in the source broadcasting its own start — the raise, and both step-5
-        failure branches — republishes the source's real state, so the STARTING
-        posted at step 1 is never the last word.
+        snapcast settles and BEFORE the source is reacquired, so systemd sees
+        the new MILO_MODE when it starts the source unit. Raises only when
+        snapcast fails to move (both directions: a silent stop would leave
+        snapclient holding the ALSA loopback while routing.env flips to direct,
+        recreating the 2026-05-13 desync) or when the state machine is missing.
         """
         if not self.state_machine:
             raise RuntimeError("State machine not available for routing transition")
 
-        target_mode = "multiroom" if enabled else "direct"
+        async def switch_output() -> None:
+            if enabled:
+                self.logger.info("Starting snapcast services")
+                if not await self._start_snapcast():
+                    raise RuntimeError("Failed to start snapcast services")
+            else:
+                self.logger.info("Stopping snapcast services")
+                if not await self._stop_snapcast():
+                    raise RuntimeError("Failed to stop snapcast services")
+            await RoutingEnv.regenerate(enabled)
 
-        async with self.state_machine.exclusive_transition():
-            active_source = self.state_machine.system_state.active_source
-            source_instance = None
-            if active_source != AudioSource.NONE and self.get_source:
-                source_instance = self.get_source(active_source)
-
-            # Step 1: Notify STARTING state to show loading UI.
-            # metadata=None: state-only change — keep the current track metadata
-            # visible during the reroute (update_source_state replaces metadata
-            # when a payload is given, so passing one here would wipe the track).
-            if source_instance:
-                await self.state_machine.update_source_state(
-                    source=active_source,
-                    new_state=SourceState.STARTING,
-                    metadata=None
-                )
-
-            try:
-                # Step 2: Stop source FIRST to release ALSA device before routing change.
-                # Critical: in direct mode the source holds camilladsp; in multiroom mode
-                # snapclient needs the same device.
-                if source_instance:
-                    self.logger.info(f"Releasing source {active_source.value} to free ALSA device")
-                    await source_instance.release_for_reroute()
-                    await asyncio.sleep(0.5)  # Wait for ALSA to release
-
-                # Step 3: Reconcile snapcast services to target (idempotent).
-                # Both branches raise on failure — a silent stop would leave
-                # snapclient holding the ALSA loopback while routing.env flips to
-                # direct, recreating the 2026-05-13 desync.
-                if enabled:
-                    self.logger.info("Starting snapcast services")
-                    if not await self._start_snapcast():
-                        raise RuntimeError("Failed to start snapcast services")
-                else:
-                    self.logger.info("Stopping snapcast services")
-                    if not await self._stop_snapcast():
-                        raise RuntimeError("Failed to stop snapcast services")
-
-                # Step 4: Regenerate routing.env so source unit picks up new MILO_MODE
-                await RoutingEnv.regenerate(enabled)
-
-                # Step 5: Restart source with new routing — best-effort.
-                # A source failure here doesn't fail the transition; the multiroom
-                # mode is correctly set and the user can retry source playback.
-                if source_instance:
-                    self.logger.info(f"Re-acquiring source {active_source.value} for {target_mode} mode")
-                    reacquired = False
-                    try:
-                        reacquired = await source_instance.acquire_after_reroute()
-                        if not reacquired:
-                            self.logger.warning(
-                                f"Source {active_source.value} re-acquire returned False after "
-                                f"{target_mode} transition (transition still considered successful)"
-                            )
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Source start failed after {target_mode} transition (non-fatal): {e}"
-                        )
-
-                    if not reacquired:
-                        # The success path relies on the source's own start
-                        # broadcast to replace the STARTING published at step 1;
-                        # neither of these two branches has one. Without this the
-                        # card spins for the rest of the session — re-tapping the
-                        # source is a no-op because the state machine already
-                        # believes it is starting, and only switching sources
-                        # recovers. Same recipe as the except below.
-                        await self.state_machine.update_source_state(
-                            source=active_source,
-                            new_state=source_instance.state,
-                            metadata=source_instance.metadata,
-                        )
-            except Exception:
-                # Step 1 published STARTING and nothing else republishes on this
-                # path: the caller broadcasts multiroom_error and returns, so the
-                # card would show "Starting" for the rest of the session. Same
-                # recipe as transition_to_source's post-start resync — read the
-                # source's real state back rather than guess one.
-                if source_instance:
-                    await self.state_machine.update_source_state(
-                        source=active_source,
-                        new_state=source_instance.state,
-                        metadata=source_instance.metadata,
-                    )
-                raise
+        await self.state_machine.reroute_active_source(switch_output)
 
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
         """Post-transition: WebSocket lifecycle, volume sync, and ready broadcast.

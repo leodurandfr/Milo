@@ -492,6 +492,7 @@ class TestAToggleRacingASourceSwitch:
         from backend.core.multiroom.routing import AudioRoutingService
         from backend.core.models.audio_state import SourceState
         from backend.core.state import AudioStateMachine
+        from backend.tests.conftest import free_mailbox
 
         systemd = Mock()
         systemd.start = AsyncMock(return_value=True)
@@ -506,7 +507,7 @@ class TestAToggleRacingASourceSwitch:
         state_machine = AudioStateMachine()
         state_machine.routing_service = routing
         routing.set_state_machine(state_machine)
-        routing.set_source_callback(state_machine.get_source)
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
 
         sources = {}
         for name in (AudioSource.RADIO, AudioSource.PODCAST):
@@ -515,6 +516,7 @@ class TestAToggleRacingASourceSwitch:
             source.stop = AsyncMock(return_value=True)
             source.release_for_reroute = AsyncMock(return_value=True)
             source.acquire_after_reroute = AsyncMock(return_value=True)
+            source.hold_mailbox = free_mailbox()
             source.state = SourceState.ACTIVE
             source.metadata = {}
             state_machine.register_source(name, source)

@@ -288,10 +288,13 @@ class QobuzSource(BaseAudioSource):
         The ~1 Hz poll doubles as the progress feed: every tick re-emits the full
         state, so there is no separate broadcast_position_update path here.
         """
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
         extras["account_authenticated"] = self._authenticated
-        self.emit_connection_state(self._device_connected, core, extras)
+        return self._device_connected, core, extras
 
     async def _cleanup(self) -> None:
         """Stop the poll monitor and reset state (service stop handled by _do_stop)."""

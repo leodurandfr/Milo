@@ -238,7 +238,7 @@ class BluetoothSource(BaseAudioSource):
 
         return True
 
-    async def release_for_reroute(self) -> bool:
+    async def _do_release(self) -> bool:
         """Multiroom reroute (release half): stop ONLY bluealsa-aplay so the
         CamillaDSP input it feeds in direct mode is freed for the snapcast
         reconcile (snapclient feeds that same CamillaDSP in multiroom mode).
@@ -252,7 +252,7 @@ class BluetoothSource(BaseAudioSource):
         """
         return await self._stop_service(self.bluealsa_aplay_service)
 
-    async def acquire_after_reroute(self) -> bool:
+    async def _do_acquire(self) -> bool:
         """Multiroom reroute (acquire half): restart bluealsa-aplay under the
         new MILO_MODE and re-publish state. The device stayed connected and the
         monitor kept self.connected_device current, so re-broadcasting the
@@ -600,18 +600,21 @@ class BluetoothSource(BaseAudioSource):
         title/artist, that sender would have looked like one with no transport,
         which is the one reading that must not happen.
         """
+        self._avrcp_published = self.avrcp.has_player
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         device = self.connected_device or {}
         playback = dict(self._playback)
         if self._artwork_url and self._artwork_key == self._track_key(playback):
             playback["album_art_url"] = self._artwork_url
 
-        self._avrcp_published = self.avrcp.has_player
-        self.emit_connection_state(
+        return (
             self.connected_device is not None,
             PlaybackMetadata.model_validate(playback),
-            extras={
+            {
                 "device_name": device.get("name"),
-                "has_avrcp": self._avrcp_published,
+                "has_avrcp": self.avrcp.has_player,
             },
         )
 

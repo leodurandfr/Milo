@@ -90,9 +90,10 @@ Two things are worth spelling out because both were once ambiguous:
   Library; they are simply ready to play.
 
 `STARTING` and the machine's `transitioning` flag encode the same fact twice,
-deliberately: `exclusive_transition()` sets the flag *without* the state so a
-multiroom reroute can keep broadcasting live, and Milo-Mac pins `transitioning`
-in `full_state`. Neither is redundant — the frontend follows the flag.
+deliberately: `reroute_active_source()` publishes `STARTING` *without* the flag
+so a multiroom reroute keeps broadcasting live, and Milo-Mac pins
+`transitioning` in `full_state`. Neither is redundant — the frontend follows the
+flag.
 
 **Two kinds of error, two mechanisms, no overlap.** A source that will not start
 is a *state*: the failed transition leaves the source **selected** in `ERROR`

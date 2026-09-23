@@ -198,6 +198,9 @@ async def lifespan(app: FastAPI):
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
         ("push_service", get_service("push_service").cleanup),
         ("apns", get_service("apns_client").cleanup),
+        # Each source's mailbox: its task is ended and a caller still waiting
+        # is answered, so nothing is left pending on a closing loop.
+        ("audio_sources", state_machine.shutdown_sources),
         ("websockets", ws_manager.cleanup),
     ]
     if rotary_controller:

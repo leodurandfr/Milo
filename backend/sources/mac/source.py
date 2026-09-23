@@ -302,7 +302,11 @@ class MacSource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on connected clients."""
-        self.emit_connection_state(
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
+        return (
             bool(self.connected_clients),
-            extras={"client_names": list(self.connected_clients.values())},
+            None,
+            {"client_names": list(self.connected_clients.values())},
         )

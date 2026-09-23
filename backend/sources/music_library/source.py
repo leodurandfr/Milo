@@ -1338,8 +1338,12 @@ class MusicLibrarySource(MpvAudioSource):
         cleared. `extras` carries the fields that describe one particular
         transition rather than the session (the queue-end flag).
         """
+        connected, core, built = self._connection_state()
+        self.emit_connection_state(connected, core, {**built, **(extras or {})})
+
+    def _connection_state(self):
         core, built = PlaybackMetadata.split(self._build_playback_metadata())
-        self.emit_connection_state(bool(self._queue), core, {**built, **(extras or {})})
+        return bool(self._queue), core, built
 
     async def refresh_metadata(self) -> bool:
         """Pull the live playhead from mpv so a (re)connecting client's

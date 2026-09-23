@@ -1245,9 +1245,12 @@ class CdSource(MpvAudioSource):
         # thing to show while idle, and so is the resume point. That is why this
         # can go through the shared publisher: the generic READY drops the
         # now-playing core only for a source that has nothing to keep.
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         connected = self._is_playing or self._is_buffering or self._is_paused
         core, extras = PlaybackMetadata.split(self._build_metadata())
-        self.emit_connection_state(connected, core, extras)
+        return connected, core, extras
 
     async def refresh_metadata(self) -> bool:
         """Refresh metadata so WebSocket initial_state contains live position."""

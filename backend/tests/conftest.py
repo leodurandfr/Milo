@@ -4,6 +4,7 @@ Pytest configuration - Shared fixtures for all tests
 """
 import asyncio
 import builtins
+import contextlib
 import copy
 import errno
 import logging
@@ -323,9 +324,16 @@ async def drain_background_tasks() -> None:
     Notification handlers hand their slow work to BackgroundTaskSet rather than
     blocking the snapserver message loop, so the effect a test asserts often
     lands one task later. Draining is deterministic where a sleep is not.
+
+    A source's mailbox task (`source.<id>.actor`, core/audio_source.py) is left
+    out: it lives until shutdown by design, and an idle one is waiting for mail,
+    not doing work — gathering it never returns.
     """
     for _ in range(10):
-        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        pending = [
+            t for t in asyncio.all_tasks()
+            if t is not asyncio.current_task() and not t.get_name().endswith(".actor")
+        ]
         if not pending:
             return
         await asyncio.gather(*pending, return_exceptions=True)
@@ -432,6 +440,15 @@ def mock_routing_service():
     return service
 
 
+def free_mailbox():
+    """A stand-in for `BaseAudioSource.hold_mailbox`: an async context that holds
+    nothing, for a Mock source the reroute holds across RELEASE and ACQUIRE."""
+    @contextlib.asynccontextmanager
+    async def hold():
+        yield
+    return hold
+
+
 @pytest.fixture
 def mock_source():
     """Mock of an audio source"""
@@ -443,6 +460,7 @@ def mock_source():
     # mocked as awaitables so _apply_transition can call them on this Mock.
     source.release_for_reroute = AsyncMock(return_value=True)
     source.acquire_after_reroute = AsyncMock(return_value=True)
+    source.hold_mailbox = free_mailbox()
     # No `status` here on purpose: architecture/test_source_conformance.py
     # forbids one on a real source (status is broadcast over WS, never polled),
     # and no test read it. The shared mock every reader opens first should not

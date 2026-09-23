@@ -1,0 +1,2738 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "sender_plays_a_track_with_cover": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 10000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 20000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 95000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+     "client_name": "iPhone de Léo",
+     "album_art_width": 1000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+     "client_name": "iPhone de Léo",
+     "album_art_width": 1000,
+     "position": 95000,
+     "duration": 253000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "sender_pauses_and_resumes": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 10000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "position": 10000,
+      "duration": 253000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "position": 10000,
+       "duration": 253000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "position": 10000,
+      "duration": 253000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "position": 10000,
+       "duration": 253000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 20000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+     "position": 10000,
+     "duration": 253000,
+     "client_name": "iPhone de Léo",
+     "album_art_width": 1000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+     "position": 20000,
+     "duration": 253000,
+     "client_name": "iPhone de Léo",
+     "album_art_width": 1000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "track_changes_and_the_cover_follows": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "position": 0,
+      "duration": 253000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Sunson",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "position": 0,
+       "duration": 253000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "position": 0,
+      "duration": 200000,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Sunson",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "position": 0,
+       "duration": 200000,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=22857a947419",
+      "position": 0,
+      "duration": 200000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 600
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Sunson",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=22857a947419",
+       "position": 0,
+       "duration": 200000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 600
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "/api/airplay/artwork?v=22857a947419",
+      "position": 8000,
+      "duration": 200000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 600
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "/api/airplay/artwork?v=22857a947419",
+       "position": 8000,
+       "duration": 200000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 600
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 0,
+     "duration": 498000
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 10000,
+     "duration": 498000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Says (Live)",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "album_art_url": "/api/airplay/artwork?v=22857a947419",
+      "position": 10000,
+      "duration": 498000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 600
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Says (Live)",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "album_art_url": "/api/airplay/artwork?v=22857a947419",
+       "position": 10000,
+       "duration": 498000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 600
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+     "position": 0,
+     "duration": 253000,
+     "client_name": "iPhone de Léo",
+     "album_art_width": 1000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "position": 0,
+     "duration": 200000,
+     "client_name": "iPhone de Léo"
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Says (Live)",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "album_art_url": "/api/airplay/artwork?v=22857a947419",
+     "position": 10000,
+     "duration": 498000,
+     "client_name": "iPhone de Léo",
+     "album_art_width": 600
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "sender_stops_and_disconnects": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "position": 0,
+      "duration": 253000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "position": 0,
+       "duration": 253000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "position": 0,
+      "duration": 253000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "position": 0,
+       "duration": 253000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Lecture",
+      "artist": "YouTube",
+      "album": "",
+      "position": 0,
+      "duration": 253000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Lecture",
+       "artist": "YouTube",
+       "album": "",
+       "position": 0,
+       "duration": 253000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Lecture",
+      "artist": "YouTube",
+      "album": "",
+      "album_art_url": "/api/airplay/artwork?v=d850dd735da0",
+      "position": 0,
+      "duration": 253000,
+      "album_art_width": 64
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Lecture",
+       "artist": "YouTube",
+       "album": "",
+       "album_art_url": "/api/airplay/artwork?v=d850dd735da0",
+       "position": 0,
+       "duration": 253000,
+       "album_art_width": 64
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+     "position": 0,
+     "duration": 253000,
+     "client_name": "iPhone de Léo",
+     "album_art_width": 1000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Lecture",
+     "artist": "YouTube",
+     "album": "",
+     "album_art_url": "/api/airplay/artwork?v=d850dd735da0",
+     "position": 0,
+     "duration": 253000,
+     "album_art_width": 64
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "pause_auto_stops": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "position": 0,
+      "duration": 253000,
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "position": 0,
+       "duration": 253000,
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "daemon_dies_under_the_session": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "client_name": "iPhone de Léo"
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "client_name": "iPhone de Léo"
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+      "client_name": "iPhone de Léo",
+      "album_art_width": 1000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "All Melody",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "album_art_url": "/api/airplay/artwork?v=1663d4543fe5",
+       "client_name": "iPhone de Léo",
+       "album_art_width": 1000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 10000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "reason": "stream_disconnected",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "error_cleared",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "position": 20000,
+      "duration": 253000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "position": 20000,
+       "duration": 253000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "position": 20000,
+      "duration": 253000
+     },
+     "full_state": {
+      "active_source": "airplay",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Sunson",
+       "artist": "Nils Frahm",
+       "album": "All Melody",
+       "position": 20000,
+       "duration": 253000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "position": 30000,
+     "duration": 253000
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "airplay",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "airplay",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "position": 20000,
+     "duration": 253000
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ }
+}

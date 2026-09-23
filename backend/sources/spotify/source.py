@@ -208,7 +208,7 @@ class SpotifySource(BaseAudioSource):
 
     # === Multiroom reroute ===
 
-    async def release_for_reroute(self) -> bool:
+    async def _do_release(self) -> bool:
         """Free the ALSA device for a MILO_MODE change, keeping the session.
 
         go-librespot 0.8.0 reopens its output in place via POST /player/output,
@@ -226,20 +226,20 @@ class SpotifySource(BaseAudioSource):
         self._reroute_was_playing = False
 
         if not self._session or not self._api_url:
-            return await super().release_for_reroute()
+            return await super()._do_release()
 
         # Ground truth before pausing rather than the cached flag: a stale
         # _is_playing=False (WS dropped mid-playback) would skip the pause and
         # hand a live stream to a sink that does not rate-limit.
         if not await self.refresh_metadata():
             self._logger.warning("Reroute: daemon unreachable, falling back to a full stop")
-            return await super().release_for_reroute()
+            return await super()._do_release()
 
         self._reroute_was_playing = self._is_playing
 
         if self._reroute_was_playing and not await self._pause_and_confirm():
             self._logger.warning("Reroute: pause unconfirmed, falling back to a full stop")
-            return await super().release_for_reroute()
+            return await super()._do_release()
 
         result = await self._send_api_command("output", {"device": self.RELEASE_DEVICE})
         if not result.get("success"):
@@ -247,13 +247,13 @@ class SpotifySource(BaseAudioSource):
                 f"Reroute: releasing the output failed ({result.get('error')}), "
                 "falling back to a full stop"
             )
-            return await super().release_for_reroute()
+            return await super()._do_release()
 
         self._soft_reroute = True
         self._logger.info("Reroute: output parked, Connect session kept")
         return True
 
-    async def acquire_after_reroute(self) -> bool:
+    async def _do_acquire(self) -> bool:
         """Reopen the output on the device the new MILO_MODE selects.
 
         The device name is explicit rather than the `milo_spotify` alias: that
@@ -264,7 +264,7 @@ class SpotifySource(BaseAudioSource):
         without the usual start(), hence the final state emission here.
         """
         if not self._soft_reroute:
-            return await super().acquire_after_reroute()
+            return await super()._do_acquire()
 
         self._soft_reroute = False
         device = self._output_device_for_mode()
@@ -275,7 +275,7 @@ class SpotifySource(BaseAudioSource):
                 f"Reroute: reopening on {device} failed ({result.get('error')}), "
                 "restarting the source"
             )
-            return await super().acquire_after_reroute()
+            return await super()._do_acquire()
 
         if self._reroute_was_playing:
             resumed = await self._send_api_command("resume")
@@ -870,6 +870,9 @@ class SpotifySource(BaseAudioSource):
 
     def _update_connection_state(self) -> None:
         """Update state based on device connection."""
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
-        self.emit_connection_state(self._device_connected, core, extras)
+        return self._device_connected, core, extras

@@ -1,7 +1,12 @@
 # backend/core/audio_source.py
 """BaseAudioSource - base class for all audio sources."""
-from typing import Dict, Any, Optional, Type
+from typing import Dict, Any, Optional, Tuple, Type
 from abc import ABC, abstractmethod
+from collections import deque
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from enum import Enum
 import asyncio
 import logging
 
@@ -33,6 +38,90 @@ def _format_validation_error(cmd: str, error: ValidationError) -> str:
     return f"Invalid parameters for '{cmd}': {details}"
 
 
+# === The actor's mail ===
+#
+# Everything that touches a source's state is a message, handled one at a time
+# by the source's own task. A check made before an await is then still true
+# after it — the property four separate races lacked (E04, E05, E48, E49).
+# Feeds and results from work done elsewhere join the same mailbox as their
+# sources migrate onto it.
+
+class LifecycleStep(str, Enum):
+    START = "start"
+    STOP = "stop"
+    RELEASE = "release"   # multiroom reroute: let go of the ALSA device
+    ACQUIRE = "acquire"   # multiroom reroute: take it back under the new mode
+
+
+@dataclass(eq=False)
+class Command:
+    name: str
+    params: Optional[BaseModel]
+
+
+@dataclass(eq=False)
+class Lifecycle:
+    step: LifecycleStep
+
+
+@dataclass(eq=False)
+class Timer:
+    """The pause timer's expiry. `token` is the timer it came from: a timer
+    disarmed or re-armed since makes the message stale, and it is dropped."""
+    token: object
+
+
+@dataclass(eq=False)
+class Query:
+    """A metadata re-read for a state request. Posted only to an idle source."""
+
+
+# Which running message a lifecycle message cuts short. Stop beats ordered:
+# a load still waiting on the network, or a start the transition gave up on,
+# does not get to finish over a source that was told to stop.
+_PREEMPTS = {
+    LifecycleStep.STOP: (Command, Timer, Query, LifecycleStep.ACQUIRE,
+                         LifecycleStep.RELEASE),
+    LifecycleStep.RELEASE: (Command, Timer, Query),
+}
+
+
+class _MailboxClosed(Exception):
+    """A hold still waiting for the mailbox when the source was shut down."""
+
+
+@dataclass(eq=False)
+class _Lease:
+    """The mailbox held for a message its caller runs in its own task (START).
+
+    The actor grants it in turn and then waits for its release, so nothing else
+    runs meanwhile; the caller runs the handler without the task hop a posted
+    message costs. That hop is what START cannot afford: the state machine
+    clears `transitioning` in the same stretch that START returns in, and a
+    single yielded turn in between lets every publish the start spawned run
+    first — and be dropped — where they have always landed just after
+    transition_complete. The transition's own timeout cuts a leased START, as
+    it always has; the stop that follows is a posted STOP and is never cut.
+    """
+    message: object
+    granted: asyncio.Future
+    released: asyncio.Event
+
+# The message being handled, its source, and the one task running it. A post
+# made from that task (the auto-stop's stop + start) runs inline: queueing it
+# behind the handler that awaits it would be a deadlock. The task is part of the
+# key because a context is copied into every task created meanwhile — a feed or a
+# monitor started by the handler — and those must queue like anyone else.
+_handling: ContextVar[Optional[Tuple["BaseAudioSource", object, asyncio.Task]]] = ContextVar(
+    "source_actor_handling", default=None
+)
+
+# Fields that travel on the position axis (broadcast_position_update), left out
+# of the projection compare so a playhead moving between two publishes is not
+# a state change.
+_POSITION_FIELDS = ("position", "duration")
+
+
 class BaseAudioSource(ABC):
     """
     Base implementation for audio sources.
@@ -50,11 +139,18 @@ class BaseAudioSource(ABC):
     Optional overrides:
     - _do_restart(): Custom restart logic (default: stop + start)
     - _handle_command(): Source-specific commands
-    - release_for_reroute() / acquire_after_reroute(): lighter device
-      release/re-acquire for a multiroom MILO_MODE change (default: stop()
-      / start()). Override only when the upstream link is held by a separate
-      process from the ALSA writer (e.g. Bluetooth: bluez/bluealsa hold the
-      link, bluealsa-aplay is the writer).
+    - _do_release() / _do_acquire(): lighter device release/re-acquire for a
+      multiroom MILO_MODE change (default: the whole stop / start). Override
+      only when the upstream link is held by a separate process from the ALSA
+      writer (e.g. Bluetooth: bluez/bluealsa hold the link, bluealsa-aplay is
+      the writer).
+
+    The actor: start(), stop(), release_for_reroute(), acquire_after_reroute(),
+    command(), the pause timer's expiry and refresh_when_idle() are messages to
+    one mailbox, handled one at a time by one task (created on the first post,
+    ended by shutdown()). A caller that stops waiting — the transition's 15 s
+    budget — never cuts the handler. STOP and RELEASE cut the handler in
+    flight instead of queueing behind it (see _PREEMPTS).
 
     Example:
         class RadioSource(BaseAudioSource):
@@ -147,7 +243,19 @@ class BaseAudioSource(ABC):
         self.auto_stop_enabled: bool = False
         self.auto_stop_delay: float = 10.0
         self._pause_timer: Optional[asyncio.Task] = None
+        self._pause_token: Optional[object] = None
         self._monitor_task: Optional[asyncio.Task] = None
+
+        # The actor (see the class docstring).
+        self._actor_urgent: deque = deque()
+        self._actor_inbox: deque = deque()
+        self._actor_mail: Optional[asyncio.Event] = None
+        self._actor_task: Optional[asyncio.Task] = None
+        self._actor_current: Optional[object] = None
+        self._actor_handler: Optional[asyncio.Task] = None
+        self._actor_closed = False
+        # The projection at the last publish, for the net after a command.
+        self._published: Optional[Tuple[SourceState, Dict[str, Any]]] = None
 
     @property
     def state(self) -> SourceState:
@@ -174,15 +282,300 @@ class BaseAudioSource(ABC):
         """Whether initialize() has already run (set by initialize() itself)."""
         return self._initialized
 
-    async def start(self) -> bool:
-        """
-        Start the audio source.
+    # === Public entry points: each one is a message to the actor ===
 
-        Calls _do_start() for source-specific logic.
+    async def start(self) -> bool:
+        """Start the source (START, leased — see _Lease). True when it came up."""
+        return await self._run_leased(Lifecycle(LifecycleStep.START))
+
+    async def stop(self) -> bool:
+        """Stop the source (STOP), cutting short whatever it was doing."""
+        return await self._submit(Lifecycle(LifecycleStep.STOP))
+
+    async def release_for_reroute(self) -> bool:
+        """Release the ALSA output device for a MILO_MODE (direct↔multiroom)
+        change while keeping any upstream sender connection alive (RELEASE).
+
+        Run by AudioStateMachine.reroute_active_source() instead of stop() so a
+        multiroom toggle does not tear down the sender link. What it does is
+        `_do_release()`.
+        """
+        return await self._submit(Lifecycle(LifecycleStep.RELEASE))
+
+    async def acquire_after_reroute(self) -> bool:
+        """Re-acquire the ALSA output device after routing.env was regenerated
+        with the new MILO_MODE (ACQUIRE). Mirror of release_for_reroute()."""
+        return await self._submit(Lifecycle(LifecycleStep.ACQUIRE))
+
+    async def command(self, cmd: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Validate and execute a source-specific command.
+
+        Single validation boundary for every producer (generic control route,
+        run_source_command, hardware playback dispatch): the command name is
+        checked against COMMANDS, then its params are validated against the
+        registered Pydantic model — here, outside the actor — before the
+        command is posted and _handle_command() runs on typed input.
+
+        Always returns a response dict (never raises) so run_source_command maps
+        bad input to HTTP 400, not 500.
+
+        Args:
+            cmd: Command name
+            data: Raw command parameters (may be None from the public route)
 
         Returns:
-            True if start successful
+            Response dict with success, message/error, and custom data
         """
+        self._logger.debug(f"Command: {cmd} with data: {data}")
+
+        payload = data or {}
+        if cmd not in self.COMMANDS:
+            return self.error_response(f"Unknown command: {cmd}")
+
+        model = self.COMMANDS[cmd]
+        try:
+            params = model.model_validate(payload) if model else None
+        except ValidationError as e:
+            self._logger.warning(f"Invalid params for '{cmd}': {e}")
+            return self.error_response(_format_validation_error(cmd, e))
+
+        return await self._submit(Command(cmd, params))
+
+    async def refresh_when_idle(self) -> bool:
+        """Re-read metadata for a state request, unless the source is busy.
+
+        GET /api/audio/state and the WS handshake come through here. A read
+        never waits behind a handler — Milo-iOS gives up after 3 s, a podcast
+        resume can hold its handler for ten — and never runs inside one either,
+        so it cannot overwrite what a command in flight is changing. Busy, the
+        caller keeps the record already published, which is what that handler
+        will replace when it is done.
+
+        Returns:
+            True if self._metadata was refreshed.
+        """
+        if self._actor_closed or self._actor_current is not None or self._actor_urgent or self._actor_inbox:
+            return False
+        return await self._submit(Query())
+
+    async def shutdown(self) -> None:
+        """End the mailbox for good: backend teardown (main.py). Pending callers
+        get the answer an interrupted message gets; later posts are refused."""
+        self._actor_closed = True
+        task, self._actor_task = self._actor_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        for queue in (self._actor_urgent, self._actor_inbox):
+            while queue:
+                message, future = queue.popleft()
+                if isinstance(message, _Lease):
+                    if not message.granted.done():
+                        message.granted.set_exception(_MailboxClosed())
+                    continue
+                if not future.done():
+                    future.set_result(self._interrupted_result(message, "shutdown"))
+        self._cancel_pause_timer()
+        await self._bg.cancel_all()
+
+    # === The actor ===
+
+    def _is_handling_here(self) -> bool:
+        """Whether this task is the one running the source's current message."""
+        current = _handling.get()
+        return (
+            current is not None
+            and current[0] is self
+            and current[1] is self._actor_current
+            and current[2] is asyncio.current_task()
+        )
+
+    async def _submit(self, message) -> Any:
+        """Post `message` and wait for its result.
+
+        The wait is shielded: a caller that gives up (a timeout, a client that
+        hung up) stops waiting, and the handler goes on to the end.
+        """
+        if self._is_handling_here():
+            return await self._dispatch(message)
+        return await asyncio.shield(self._post(message))
+
+    def _post(self, message) -> asyncio.Future:
+        """Queue `message` without waiting (the pause timer's expiry)."""
+        future = asyncio.get_running_loop().create_future()
+        if self._actor_closed:
+            future.set_result(self._interrupted_result(message, "shutdown"))
+            return future
+        if self._actor_mail is None:
+            self._actor_mail = asyncio.Event()
+        if self._actor_task is None or self._actor_task.done():
+            if self._actor_task is not None:
+                self._logger.error("The mailbox task had ended; starting a new one")
+            self._actor_task = asyncio.create_task(
+                self._run_actor(), name=f"source.{self.source_id}.actor"
+            )
+        step = message.step if isinstance(message, Lifecycle) else None
+        if step is LifecycleStep.STOP:
+            # What was queued before the stop targets the session it ends: it is
+            # answered as interrupted rather than run against a stopped source.
+            kept = deque()
+            while self._actor_inbox:
+                queued, queued_future = self._actor_inbox.popleft()
+                if isinstance(queued, (Command, Timer, Query)):
+                    if not queued_future.done():
+                        queued_future.set_result(self._interrupted_result(queued, "stop"))
+                else:
+                    kept.append((queued, queued_future))
+            self._actor_inbox = kept
+        if step in _PREEMPTS:
+            self._actor_urgent.append((message, future))
+            if self._actor_current is not None and self._actor_handler is not None:
+                running = self._actor_current
+                key = running.step if isinstance(running, Lifecycle) else type(running)
+                # A lease has no handler task to cut (see _Lease).
+                if key in _PREEMPTS[step]:
+                    self._logger.info(
+                        "%s cuts short %s", step.value, self._describe(running)
+                    )
+                    self._actor_handler.cancel()
+        else:
+            self._actor_inbox.append((message, future))
+        self._actor_mail.set()
+        return future
+
+    @asynccontextmanager
+    async def hold_mailbox(self):
+        """Hold this source's mailbox for the length of the block.
+
+        Nothing queued runs meanwhile; this task's own posts run inline. What
+        the multiroom reroute holds across RELEASE, the output switch and
+        ACQUIRE, so a command or a stop arriving in between waits for the whole
+        of it — a resume does not land on an output parked on `null`, and a stop
+        is not undone by the reacquire. A hold cannot be preempted: there is no
+        handler task to cut, and a stop posted meanwhile runs right after it.
+        """
+        if self._is_handling_here():
+            yield
+            return
+        if self._actor_closed:
+            raise _MailboxClosed()
+        lease = _Lease(None, asyncio.get_running_loop().create_future(), asyncio.Event())
+        self._post(lease)
+        try:
+            await lease.granted
+        except BaseException:
+            lease.released.set()
+            raise
+        token = _handling.set((self, lease, asyncio.current_task()))
+        try:
+            yield
+        finally:
+            _handling.reset(token)
+            lease.released.set()
+
+    async def _run_leased(self, message) -> Any:
+        """Run `message` in this task while holding the mailbox (see _Lease)."""
+        try:
+            async with self.hold_mailbox():
+                return await self._dispatch(message)
+        except _MailboxClosed:
+            return self._interrupted_result(message, "shutdown")
+
+    async def _run_actor(self) -> None:
+        while True:
+            if not self._actor_urgent and not self._actor_inbox:
+                self._actor_mail.clear()
+                await self._actor_mail.wait()
+                continue
+            message, future = (self._actor_urgent or self._actor_inbox).popleft()
+            if isinstance(message, _Lease):
+                self._actor_current = message
+                try:
+                    if not message.granted.done():
+                        message.granted.set_result(None)
+                        await message.released.wait()
+                finally:
+                    self._actor_current = None
+                if not future.done():
+                    future.set_result(None)
+                continue
+            self._actor_current = message
+            self._actor_handler = asyncio.create_task(
+                self._handle_in_context(message),
+                name=f"source.{self.source_id}.handler",
+            )
+            try:
+                await asyncio.wait({self._actor_handler})
+            except asyncio.CancelledError:
+                self._actor_handler.cancel()
+                if not future.done():
+                    future.set_result(self._interrupted_result(message, "shutdown"))
+                raise
+            finally:
+                handler, self._actor_handler, self._actor_current = self._actor_handler, None, None
+            if handler.cancelled():
+                result = self._interrupted_result(message, "preempted")
+            elif handler.exception() is not None:
+                exc = handler.exception()
+                self._logger.error(
+                    f"{self._describe(message)} raised: {exc}", exc_info=exc
+                )
+                result = self._interrupted_result(message, str(exc))
+            else:
+                result = handler.result()
+                if isinstance(message, (Command, Timer)):
+                    # Per message, like any loop body: a projection that raises
+                    # costs this republish, never the mailbox.
+                    try:
+                        self._republish_if_moved()
+                    except Exception as e:
+                        self._logger.error(f"Republishing after {self._describe(message)} failed: {e}")
+            if not future.done():
+                future.set_result(result)
+
+    async def _handle_in_context(self, message) -> Any:
+        _handling.set((self, message, asyncio.current_task()))
+        return await self._dispatch(message)
+
+    async def _dispatch(self, message) -> Any:
+        if isinstance(message, Command):
+            return await self._run_command(message.name, message.params)
+        if isinstance(message, Lifecycle):
+            if message.step is LifecycleStep.START:
+                return await self._run_start()
+            if message.step is LifecycleStep.STOP:
+                return await self._run_stop()
+            if message.step is LifecycleStep.RELEASE:
+                return await self._do_release()
+            return await self._do_acquire()
+        if isinstance(message, Timer):
+            return await self._run_timer(message.token)
+        if isinstance(message, Query):
+            return await self.refresh_metadata()
+        raise TypeError(f"not a source message: {message!r}")
+
+    def _interrupted_result(self, message, why: str) -> Any:
+        """What a caller gets back for a message that did not run to its end."""
+        if isinstance(message, _Lease):
+            return None
+        if isinstance(message, Command):
+            return self.error_response(f"'{message.name}' interrupted ({why})")
+        if isinstance(message, Timer):
+            return None
+        return False
+
+    @staticmethod
+    def _describe(message) -> str:
+        if isinstance(message, Command):
+            return f"command '{message.name}'"
+        if isinstance(message, Lifecycle):
+            return message.step.value
+        return type(message).__name__.lower()
+
+    # === Handlers ===
+
+    async def _run_start(self) -> bool:
         self._logger.info(f"Starting {self.source_id}")
         self._state = SourceState.STARTING
         self._error = None
@@ -208,15 +601,7 @@ class BaseAudioSource(ABC):
             self._error = str(e)
             return False
 
-    async def stop(self) -> bool:
-        """
-        Stop the audio source.
-
-        Calls _do_stop() for source-specific logic.
-
-        Returns:
-            True if stop successful
-        """
+    async def _run_stop(self) -> bool:
         self._logger.info(f"Stopping {self.source_id}")
         self._cancel_pause_timer()
         # Drain any stale in-flight broadcasts from the previous state.
@@ -242,62 +627,77 @@ class BaseAudioSource(ABC):
             self._logger.error(f"Error stopping {self.source_id}: {e}")
             return False
 
-    async def release_for_reroute(self) -> bool:
-        """Release the ALSA output device for a MILO_MODE (direct↔multiroom)
-        change while keeping any upstream sender connection alive.
+    async def _do_release(self) -> bool:
+        """What RELEASE does. Default: the whole stop — correct when the
+        connection and the ALSA writer are the same process. Override when the
+        connection is held by a separate process from the writer (Bluetooth:
+        bluez/bluealsa hold the A2DP link, bluealsa-aplay is the writer)."""
+        return await self._run_stop()
 
-        Called by AudioRoutingService._apply_transition instead of stop() so a
-        multiroom toggle does not tear down the sender link. Default = full
-        stop() (correct when the connection and the ALSA writer are the same
-        process). Override when the connection is held by a separate process
-        from the writer (Bluetooth: bluez/bluealsa hold the A2DP link,
-        bluealsa-aplay is the writer).
-        """
-        return await self.stop()
+    async def _do_acquire(self) -> bool:
+        """What ACQUIRE does. Default: the whole start."""
+        return await self._run_start()
 
-    async def acquire_after_reroute(self) -> bool:
-        """Re-acquire the ALSA output device after routing.env was regenerated
-        with the new MILO_MODE. Mirror of release_for_reroute(); default start().
-        """
-        return await self.start()
-
-    async def command(self, cmd: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Validate and execute a source-specific command.
-
-        Single validation boundary for every producer (generic control route,
-        run_source_command, hardware playback dispatch): the command name is
-        checked against COMMANDS, then its params are validated against the
-        registered Pydantic model before _handle_command() runs on typed input.
-
-        Always returns a response dict (never raises) so run_source_command maps
-        bad input to HTTP 400, not 500.
-
-        Args:
-            cmd: Command name
-            data: Raw command parameters (may be None from the public route)
-
-        Returns:
-            Response dict with success, message/error, and custom data
-        """
-        self._logger.debug(f"Command: {cmd} with data: {data}")
-
-        payload = data or {}
-        if cmd not in self.COMMANDS:
-            return self.error_response(f"Unknown command: {cmd}")
-
-        model = self.COMMANDS[cmd]
-        try:
-            params = model.model_validate(payload) if model else None
-        except ValidationError as e:
-            self._logger.warning(f"Invalid params for '{cmd}': {e}")
-            return self.error_response(_format_validation_error(cmd, e))
-
+    async def _run_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         try:
             return await self._handle_command(cmd, params)
         except Exception as e:
             self._logger.error(f"Error handling command {cmd}: {e}")
             return self.error_response(str(e))
+
+    async def _run_timer(self, token: object) -> None:
+        if token is not self._pause_token:
+            self._logger.debug("Dropping a pause-timer expiry that was disarmed since")
+            return None
+        self._pause_token = None
+        self._pause_timer = None
+        self._logger.info(f"Auto-stopping after {self.auto_stop_delay}s pause")
+        try:
+            await self._on_auto_stop()
+        except Exception as e:
+            self._logger.error(f"Auto-stop failed: {e}")
+        return None
+
+    # === Publication net ===
+
+    def _connection_state(
+        self,
+    ) -> Optional[Tuple[bool, Optional[PlaybackMetadata], Optional[Dict[str, Any]]]]:
+        """(connected, playback, extras) as the source would publish them now.
+
+        Pure: no side effect, nothing sent. Every source's
+        `_update_connection_state()` publishes exactly this (plus the fields of
+        one transition), which is what lets the actor tell, after a command,
+        whether the source changed without saying so. None: no projection
+        (the net is off for this source).
+        """
+        return None
+
+    def _project(self) -> Optional[Tuple[SourceState, Dict[str, Any]]]:
+        """The old wire's (state, metadata) for the source's current fields,
+        minus the position axis."""
+        args = self._connection_state()
+        if args is None:
+            return None
+        state, meta = self._compose(*args)
+        for key in _POSITION_FIELDS:
+            meta.pop(key, None)
+        return state, meta
+
+    def _republish_if_moved(self) -> None:
+        """The net after a command or an auto-stop: a handler that changed the
+        source and published nothing (mpv refusing a load — E41) is published
+        anyway. Compared, not repeated: a handler that did publish costs no
+        second envelope."""
+        if self._published is None:
+            return
+        projection = self._project()
+        if projection is not None and projection != self._published:
+            self._logger.debug("State changed without a publish — publishing it")
+            self._update_connection_state()
+
+    def _update_connection_state(self) -> None:
+        """The source's one publish site (overridden by every source)."""
 
     # === Abstract methods for subclasses ===
 
@@ -377,14 +777,19 @@ class BaseAudioSource(ABC):
         Awaited rather than set_state() precisely because of that following
         event: the order between _bg-spawned tasks is guaranteed nowhere.
 
-        Called from those paths and never hoisted into stop(): stop() is also
-        the default release_for_reroute(), which routing.py runs inside
-        exclusive_transition() — no `transitioning` flag set, active_source
-        still the running one — so both guards in update_source_state() would
-        pass and the card would blank on every multiroom toggle.
+        Called from those paths and never hoisted into the stop: the stop is
+        also the default RELEASE, which AudioStateMachine.reroute_active_source()
+        posts with no `transitioning` flag set and active_source still the
+        running one — so both guards in update_source_state() would pass and
+        the card would blank on every multiroom toggle.
         """
         self._state = SourceState.READY
         self._metadata = self._idle_payload()
+        try:
+            self._published = self._project()
+        except Exception as e:
+            self._logger.error(f"Projecting the idle state failed: {e}")
+            self._published = None
         if self.state_machine:
             await self.state_machine.update_source_state(
                 self.source, SourceState.READY, self._metadata
@@ -441,8 +846,9 @@ class BaseAudioSource(ABC):
     async def refresh_metadata(self) -> bool:
         """Re-read metadata from the underlying player into self._metadata.
 
-        Called by AudioStateMachine.refresh_active_metadata() on the active
-        source (GET /api/audio/state, WS reconnect). Default: no-op for sources
+        Run by refresh_when_idle() for AudioStateMachine.refresh_active_metadata()
+        on the active source (GET /api/audio/state, WS reconnect), as a message
+        to the actor. Default: no-op for sources
         whose metadata is pushed by an event feed rather than polled.
 
         Returns:
@@ -453,35 +859,35 @@ class BaseAudioSource(ABC):
     # === Auto-Stop Timer ===
 
     def _cancel_pause_timer(self) -> None:
-        """Cancel auto-stop timer."""
+        """Disarm the auto-stop timer. An expiry already in the mailbox carries
+        this timer's token and is dropped when its turn comes."""
+        self._pause_token = None
         if self._pause_timer:
             self._pause_timer.cancel()
             self._pause_timer = None
 
     def _start_pause_timer(self) -> None:
-        """Start auto-stop timer after pause/inactivity."""
+        """Arm the auto-stop timer after a pause.
+
+        The expiry is posted, not run: it takes its turn behind whatever the
+        source is doing, and a play handled first disarms it (E49), while a
+        stop cuts it short if it is already running (E06).
+        """
         if not self.auto_stop_enabled:
             return
 
         self._cancel_pause_timer()
+        token = object()
 
-        async def stop_after_delay():
+        async def expire():
             try:
                 await asyncio.sleep(self.auto_stop_delay)
             except asyncio.CancelledError:
                 return
-            # Detach the task ref so re-entrant _cancel_pause_timer() calls
-            # (e.g. from stop() inside _on_auto_stop) become no-ops.
-            self._pause_timer = None
-            self._logger.info(
-                f"Auto-stopping after {self.auto_stop_delay}s pause"
-            )
-            try:
-                await self._on_auto_stop()
-            except Exception as e:
-                self._logger.error(f"Auto-stop failed: {e}")
+            self._post(Timer(token))
 
-        self._pause_timer = asyncio.create_task(stop_after_delay())
+        self._pause_token = token
+        self._pause_timer = asyncio.create_task(expire())
 
     async def _on_auto_stop(self) -> None:
         """
@@ -712,6 +1118,17 @@ class BaseAudioSource(ABC):
           (`update_source_state`), never merged — an absent key cannot leave a
           stale value behind.
         """
+        state, meta = self._compose(connected, playback, extras)
+        self._published = self._project()
+        self.set_state(state, meta)
+
+    def _compose(
+        self,
+        connected: bool,
+        playback: Optional[PlaybackMetadata] = None,
+        extras: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[SourceState, Dict[str, Any]]:
+        """The (state, metadata) `emit_connection_state` puts on the wire — pure."""
         if self.MUTE_RECEIVER:
             # Carries extras and nothing else — there is no transport to state.
             meta: Dict[str, Any] = {}
@@ -721,7 +1138,7 @@ class BaseAudioSource(ABC):
             meta = self._idle_payload()
         if extras:
             meta.update({k: v for k, v in extras.items() if v is not None})
-        self.set_state(SourceState.ACTIVE if connected else SourceState.READY, meta)
+        return SourceState.ACTIVE if connected else SourceState.READY, meta
 
     def broadcast_position_update(self, position: int, duration: int) -> None:
         """Broadcast a lightweight position update without full_state.

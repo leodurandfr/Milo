@@ -937,10 +937,10 @@ class TestMultiroomReroute:
         """After the fallback there is no session left to reopen an output on."""
         spotify_source._soft_reroute = False
 
-        with patch.object(spotify_source, 'start', new_callable=AsyncMock, return_value=True) as start:
+        with patch.object(spotify_source, '_do_start', new_callable=AsyncMock, return_value=True) as full_start:
             assert await spotify_source.acquire_after_reroute() is True
 
-        start.assert_awaited_once()
+        full_start.assert_awaited_once()
 
 
 class TestManagedConfig:

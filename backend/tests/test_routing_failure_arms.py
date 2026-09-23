@@ -28,11 +28,11 @@ checkout is the appliance, and `RoutingEnv.regenerate` also sets
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from backend.core.state import AudioStateMachine
 from backend.core.multiroom.routing import (
     DEFAULT_ROC_CONFIG,
     AudioRoutingService,
@@ -63,17 +63,10 @@ def service(mock_settings_service, mock_systemd_manager):
         settings_service=mock_settings_service, systemd_manager=mock_systemd_manager
     )
     svc._initial_detection_done = True
-    lock = asyncio.Lock()
-
-    @asynccontextmanager
-    async def _exclusive():
-        async with lock:
-            yield
-
-    state_machine = Mock()
-    state_machine.exclusive_transition = _exclusive
+    state_machine = AudioStateMachine()
+    state_machine.ALSA_RELEASE_SETTLE_S = 0
     state_machine.broadcast = AsyncMock()
-    state_machine.update_source_state = AsyncMock()
+    state_machine.update_source_state = AsyncMock(wraps=state_machine.update_source_state)
     svc.state_machine = state_machine
     mock_settings_service._storage["routing.multiroom_enabled"] = False
     return svc

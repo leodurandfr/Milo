@@ -410,10 +410,10 @@ async def initialize_services() -> None:
     # in the factory, NOT here.
 
     # Cycle: routing_service ↔ state_machine
-    #   routing resolves sources via state_machine.get_source() and broadcasts
-    #   through it; state_machine reads back routing.multiroom_enabled — for
-    #   full_state aggregation only, never for a transition decision.
-    routing_service.set_source_callback(lambda source: state_machine.get_source(source))
+    #   routing carries the active source through state_machine.reroute_active_source()
+    #   and broadcasts through it; state_machine reads back
+    #   routing.multiroom_enabled — for full_state aggregation only, never for a
+    #   transition decision.
     routing_service.set_state_machine(state_machine)
     state_machine.routing_service = routing_service
 

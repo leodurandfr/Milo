@@ -20,6 +20,7 @@ import asyncio
 from unittest.mock import Mock, AsyncMock
 
 from backend.core.state import AudioStateMachine
+from backend.tests.conftest import free_mailbox
 from backend.core.models.audio_state import (
     AudioSource,
     ConnectivityLevel,
@@ -45,6 +46,7 @@ def mock_source():
     source.is_initialized = False
     source.state = SourceState.READY
     source.metadata = {}
+    source.hold_mailbox = free_mailbox()
     return source
 
 
@@ -530,31 +532,32 @@ class TestFailedTransition:
         assert state_machine.system_state.active_source == AudioSource.NONE
 
     @pytest.mark.asyncio
-    async def test_timeout_inside_the_old_teardown_finishes_that_teardown(
+    async def test_a_teardown_cut_by_the_timeout_is_finished_not_re_issued(
         self, state_machine, mock_source
     ):
-        """A timeout while the *old* source is stopping must still stop it.
+        """The budget cuts the transition's *wait* for the old stop, never the stop.
 
-        The unwind only ever tore down the target, so a stop cancelled mid-way
-        left the previous source running: bluealsa keeps the ALSA device and
-        every later start of anything fails until the unit is rebooted. The
-        second stop is the recovery — the first one never returned.
+        A stop cancelled mid-way left the previous source running (bluealsa
+        kept the ALSA device and every later start failed until reboot), so the
+        unwind used to re-issue it — after probing the unit, because the cut
+        stop had usually landed anyway, and a blind second call on a dead unit
+        timed out and read as a refusal. Now the stop is never cancelled: the
+        failed transition waits for that one call to end, and there is nothing
+        to re-issue or probe.
         """
+        released = asyncio.Event()
         stop_calls = []
 
-        async def stop_hangs_once():
-            stop_calls.append(1)
-            if len(stop_calls) == 1:
-                await asyncio.sleep(10)  # cancelled by the transition timeout
+        async def slow_stop():
+            stop_calls.append("begin")
+            await released.wait()
+            stop_calls.append("end")
             return True
 
         old_source = Mock()
         old_source.initialize = AsyncMock(return_value=True)
         old_source.start = AsyncMock(return_value=True)
-        old_source.stop = stop_hangs_once
-        # The unwind asks before re-issuing; True is the branch this test is
-        # about — the cut teardown left the unit up, so it must be retried.
-        old_source.probe_service_active = AsyncMock(return_value=True)
+        old_source.stop = slow_stop
         old_source.is_initialized = False
         old_source.state = SourceState.ACTIVE
         old_source.metadata = {}
@@ -563,53 +566,62 @@ class TestFailedTransition:
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         await state_machine.transition_to_source(AudioSource.BLUETOOTH)
 
-        state_machine.TRANSITION_TIMEOUT = 0.1
+        state_machine.TRANSITION_TIMEOUT = 0.05
+        asyncio.get_running_loop().call_later(0.2, released.set)
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        assert len(stop_calls) == 2
+        assert stop_calls == ["begin", "end"]
         mock_source.start.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_a_cut_teardown_is_not_re_issued_when_the_unit_is_down(
+    async def test_a_retry_never_starts_over_a_teardown_still_running(
         self, state_machine, mock_source
     ):
-        """The timeout fires on the budget, not on the unit.
+        """The press that follows a timed-out switch waits for the old source.
 
-        A teardown cancelled mid-way has usually landed anyway — measured on
-        the unit, systemd completed the stop a second after the guard cut it.
-        Re-issuing blindly spent a second systemd call on a dead unit, timed
-        out on a loaded box, and came back as `would not stop`: an accusation
-        against a source that had done exactly what it was told. Asking first
-        costs one probe and removes the whole sequence.
+        The old stop outlived the budget and the user presses the new source
+        again at once. Starting it while the old unit still holds the device is
+        the failure the cut-teardown machinery existed for — now the failed
+        transition holds the lock until that stop is over, so the retry is
+        ordered behind it by construction.
         """
-        stop_calls = []
+        released = asyncio.Event()
+        order = []
 
-        async def stop_hangs_once():
-            stop_calls.append(1)
-            if len(stop_calls) == 1:
-                await asyncio.sleep(10)  # cancelled by the transition timeout
+        async def slow_stop():
+            await released.wait()
+            order.append("old stopped")
+            return True
+
+        async def start_new():
+            order.append("new started")
             return True
 
         old_source = Mock()
         old_source.initialize = AsyncMock(return_value=True)
         old_source.start = AsyncMock(return_value=True)
-        old_source.stop = stop_hangs_once
-        # The unit came down while the guard was cancelling the call.
-        old_source.probe_service_active = AsyncMock(return_value=False)
+        old_source.stop = slow_stop
         old_source.is_initialized = False
         old_source.state = SourceState.ACTIVE
         old_source.metadata = {}
+        mock_source.start = start_new
 
         state_machine.register_source(AudioSource.BLUETOOTH, old_source)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         await state_machine.transition_to_source(AudioSource.BLUETOOTH)
 
-        state_machine.TRANSITION_TIMEOUT = 0.1
-        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
+        state_machine.TRANSITION_TIMEOUT = 0.05
+        first = asyncio.ensure_future(state_machine.transition_to_source(AudioSource.SPOTIFY))
+        await asyncio.sleep(0.1)                     # past the budget, stop still held
+        retry = asyncio.ensure_future(state_machine.transition_to_source(AudioSource.SPOTIFY))
+        await asyncio.sleep(0.05)
+        released.set()
+        await first
+        await retry
 
-        assert result is False
-        assert len(stop_calls) == 1, "the dead unit was stopped a second time"
+        assert order[0] == "old stopped"
+        assert "new started" in order
 
     @pytest.mark.asyncio
     async def test_a_start_failure_does_not_stop_the_old_source_twice(
@@ -638,6 +650,57 @@ class TestFailedTransition:
 
         assert result is False
         old_source.stop.assert_awaited_once()
+
+
+class TestErrorIsTheLastWordOfAFailedStart:
+    """ERROR, once settled, is what every client is shown until a start succeeds."""
+
+    @pytest.mark.asyncio
+    async def test_the_error_banner_carries_the_error_state(self, state_machine, mock_source):
+        """The banner's full_state is what the card draws under it.
+
+        It used to carry STARTING with `transitioning` already false — a
+        "starting" card under an error banner, Dock re-enabled — for as long as
+        the failed target took to stop, before ERROR landed.
+        """
+        manager = Mock()
+        manager.broadcast_dict = AsyncMock()
+        state_machine.ws_manager = manager
+        mock_source.start = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        banners = [
+            c.args[0] for c in manager.broadcast_dict.call_args_list
+            if (c.args[0]["category"], c.args[0]["type"]) == ("system", "error")
+        ]
+        assert len(banners) == 1
+        assert banners[0]["data"]["full_state"]["source_state"] == "error"
+        assert banners[0]["data"]["full_state"]["transitioning"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_source_publishing_after_a_failed_start_does_not_hide_the_error(
+        self, state_machine, mock_source
+    ):
+        """The CD's disc watcher runs whether or not its start succeeded, and its
+        next publish replaced ERROR with READY — the card lost "Retry" and
+        re-selecting the source became a no-op."""
+        mock_source.start = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.CD, mock_source)
+        await state_machine.transition_to_source(AudioSource.CD)
+
+        await state_machine.update_source_state(
+            AudioSource.CD, SourceState.READY, {"disc_present": True}
+        )
+
+        assert state_machine.system_state.source_state == SourceState.ERROR
+        assert state_machine.system_state.error == "Failed to start cd"
+
+        mock_source.start = AsyncMock(return_value=True)
+        assert await state_machine.transition_to_source(AudioSource.CD) is True
+        mock_source.start.assert_awaited_once()
+        assert state_machine.system_state.source_state == SourceState.READY
 
 
 class TestASourceThatWillNotStop:
@@ -855,7 +918,7 @@ class TestRefreshActiveMetadata:
 
     async def test_the_sources_record_replaces_the_stored_one(self, state_machine):
         source = Mock(metadata={"title": "Fresh", "artist": "Artist"})
-        source.refresh_metadata = AsyncMock(return_value=True)
+        source.refresh_when_idle = AsyncMock(return_value=True)
         self._register(state_machine, source)
 
         assert await state_machine.refresh_active_metadata() is True
@@ -872,7 +935,7 @@ class TestRefreshActiveMetadata:
         whatever half-state the failed read left behind.
         """
         source = Mock(metadata={"title": "Half-read"})
-        source.refresh_metadata = AsyncMock(return_value=False)
+        source.refresh_when_idle = AsyncMock(return_value=False)
         self._register(state_machine, source)
 
         assert await state_machine.refresh_active_metadata() is False
@@ -882,7 +945,7 @@ class TestRefreshActiveMetadata:
         """This runs on the WS handshake and on every GET /api/audio/state, so a
         source whose daemon just died must cost a stale record, not a 500."""
         source = Mock(metadata={})
-        source.refresh_metadata = AsyncMock(side_effect=RuntimeError("daemon gone"))
+        source.refresh_when_idle = AsyncMock(side_effect=RuntimeError("daemon gone"))
         self._register(state_machine, source)
 
         assert await state_machine.refresh_active_metadata() is False
@@ -902,7 +965,7 @@ class TestRefreshActiveMetadata:
             await answered.wait()
             return True
 
-        source.refresh_metadata = AsyncMock(side_effect=_read_the_daemon)
+        source.refresh_when_idle = AsyncMock(side_effect=_read_the_daemon)
         source.stop = AsyncMock(return_value=True)
         self._register(state_machine, source)
         mock_source.metadata = {"title": "Radio"}
@@ -934,7 +997,7 @@ class TestRefreshActiveMetadata:
             await started.wait()
             return True
 
-        source.refresh_metadata = AsyncMock(side_effect=_read_the_daemon)
+        source.refresh_when_idle = AsyncMock(side_effect=_read_the_daemon)
         source.start = AsyncMock(side_effect=_start)
         source.state = SourceState.ACTIVE
         self._register(state_machine, source)
@@ -1016,44 +1079,67 @@ class TestUpdatePositionMetadata:
         assert state_machine.system_state.metadata == {}
 
 
-class TestExclusiveTransition:
-    """The lock the multiroom reroute holds while it drives a lifecycle itself.
+class TestRerouteActiveSource:
+    """The lock and the order the multiroom reroute holds while it moves a source.
 
-    `AudioRoutingService._apply_transition` stops and starts sources outside
-    `transition_to_source()`, and takes this context so the two cannot run at
-    once. What breaks when this fails: a user tapping a source while a reroute
-    is in flight has both paths stopping and starting the same units.
+    `AudioRoutingService._apply_transition` hands its output switch to
+    `reroute_active_source()`, which carries the active source across it under
+    the transition lock. What breaks when this fails: a user tapping a source
+    while a reroute is in flight has both paths stopping and starting the same
+    units — or the card never leaves the reroute's STARTING.
     """
 
     async def test_it_locks_out_a_concurrent_transition(self, state_machine, mock_source):
         state_machine.register_source(AudioSource.RADIO, mock_source)
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+        switching = asyncio.Event()
+        release = asyncio.Event()
 
-        async with state_machine.exclusive_transition():
-            transition = asyncio.create_task(
-                state_machine.transition_to_source(AudioSource.RADIO)
-            )
-            await asyncio.sleep(0.01)  # let the task run until it blocks
-            mock_source.start.assert_not_awaited()
+        async def switch_output():
+            switching.set()
+            await release.wait()
 
+        reroute = asyncio.create_task(state_machine.reroute_active_source(switch_output))
+        await switching.wait()
+        transition = asyncio.create_task(state_machine.transition_to_source(AudioSource.RADIO))
+        await asyncio.sleep(0.01)  # let the task run until it blocks
+        mock_source.start.assert_not_awaited()
+
+        release.set()
+        await reroute
         assert await transition is True
         mock_source.start.assert_awaited_once()
 
-    async def test_an_update_inside_the_block_still_reaches_the_ui(self, state_machine):
-        """The block deliberately does NOT set `transitioning`.
+    async def test_the_starting_state_reaches_the_ui_live(self, state_machine, mock_source):
+        """The reroute deliberately does NOT set `transitioning`.
 
         `update_source_state()` drops — never buffers — every update arriving
-        while that flag is set, and the reroute relies on this context leaving
-        it clear to push its own STARTING state out. Setting it here, by
-        symmetry with `transition_to_source()`, would silently swallow that.
+        while that flag is set, and the reroute's own STARTING must go out.
+        Setting it, by symmetry with `transition_to_source()`, would silently
+        swallow that — and the source's own start publish after it.
         """
         state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        state_machine.register_source(AudioSource.RADIO, mock_source)
         state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+        seen = []
 
-        async with state_machine.exclusive_transition():
-            await state_machine.update_source_state(AudioSource.RADIO, SourceState.STARTING)
+        async def switch_output():
+            seen.append(state_machine.system_state.source_state)
 
-        assert state_machine.system_state.source_state == SourceState.STARTING
-        assert state_machine.ws_manager.broadcast_dict.await_count == 1
+        await state_machine.reroute_active_source(switch_output)
+
+        assert seen == [SourceState.STARTING]
+        assert state_machine.system_state.transitioning is False
+        states = [
+            c.args[0]["data"]["new_state"]
+            for c in state_machine.ws_manager.broadcast_dict.await_args_list
+        ]
+        assert states == ["starting"]
+        mock_source.release_for_reroute.assert_awaited_once()
+        mock_source.acquire_after_reroute.assert_awaited_once()
 
 
 class TestReloadAutoStopForAllSources:
@@ -1200,3 +1286,75 @@ class TestInactivityMonitorTask:
         state_machine.cleanup()
 
         assert state_machine._inactivity_monitor_task is None
+
+
+class TestShutdownSources:
+    """The teardown entry that ends every source's mailbox."""
+
+    async def test_every_registered_source_is_shut_down(self, state_machine):
+        radio, spotify = Mock(), Mock()
+        radio.shutdown = AsyncMock()
+        spotify.shutdown = AsyncMock()
+        state_machine.register_source(AudioSource.RADIO, radio)
+        state_machine.register_source(AudioSource.SPOTIFY, spotify)
+
+        await state_machine.shutdown_sources()
+
+        radio.shutdown.assert_awaited_once()
+        spotify.shutdown.assert_awaited_once()
+
+
+class TestRerouteOfAnErroredSource:
+    async def test_a_reacquire_that_succeeds_clears_the_error(self, state_machine, mock_source):
+        """ERROR is sticky against the source's own publishes, so the reroute's
+        successful reacquire is what must lift it — otherwise the source plays
+        (the reacquire is a full start) under a card that still says "Retry"."""
+        mock_source.start = AsyncMock(return_value=False)
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+        assert state_machine.system_state.source_state == SourceState.ERROR
+
+        mock_source.state = SourceState.READY
+        mock_source.metadata = {"is_playing": False, "is_buffering": False}
+
+        async def switch_output():
+            pass
+
+        await state_machine.reroute_active_source(switch_output)
+
+        assert state_machine.system_state.source_state == SourceState.READY
+        assert state_machine.system_state.error is None
+
+
+class TestATeardownThatNeverEnds:
+    async def test_the_lock_is_given_back_after_a_second_budget(
+        self, state_machine, mock_source, caplog
+    ):
+        """Waiting for a cut teardown keeps the next start off the device; waiting
+        for ever would freeze every source press, IR key and multiroom toggle
+        behind the transition lock. One more budget, then an ERROR that names it."""
+        async def stuck_stop():
+            await asyncio.Event().wait()
+
+        old_source = Mock()
+        old_source.initialize = AsyncMock(return_value=True)
+        old_source.start = AsyncMock(return_value=True)
+        old_source.stop = stuck_stop
+        old_source.is_initialized = False
+        old_source.state = SourceState.ACTIVE
+        old_source.metadata = {}
+        state_machine.register_source(AudioSource.BLUETOOTH, old_source)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.BLUETOOTH)
+
+        state_machine.TRANSITION_TIMEOUT = 0.05
+        state_machine.TEARDOWN_GRACE = 0.05
+        with caplog.at_level(logging.ERROR):
+            async with asyncio.timeout(5):          # a hang guard, not a budget
+                assert await state_machine.transition_to_source(AudioSource.SPOTIFY) is False
+        assert "bluetooth" in caplog.text and "still stopping" in caplog.text
+        async with asyncio.timeout(5):
+            assert await state_machine.transition_to_source(AudioSource.NONE) is True

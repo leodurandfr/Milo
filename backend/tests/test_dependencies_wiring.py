@@ -153,19 +153,16 @@ class TestCycleWiring:
         with pytest.raises(RuntimeError, match=f"{attr} not wired"):
             await deps.initialize_services()
 
-    async def test_routing_resolves_its_sources_through_the_state_machine(self, registry):
-        """The callback is a lambda, so only calling it proves what it closes over.
-
-        Wired to anything else, `AudioRoutingService` would resolve a source to
-        the wrong object and stop the wrong unit on a mode switch.
+    async def test_routing_reroutes_through_the_state_machine(self, registry):
+        """The reroute's source side is `state_machine.reroute_active_source()`,
+        reached through the machine routing is handed here. Handed anything
+        else, a mode switch would move the output under a source nobody
+        released, or raise before moving it at all.
         """
         await _run_init(registry)
 
-        callback = registry["audio_routing_service"].set_source_callback.call_args.args[0]
         machine = registry["audio_state_machine"]
-        callback("radio")
-
-        machine.get_source.assert_called_once_with("radio")
+        registry["audio_routing_service"].set_state_machine.assert_called_once_with(machine)
 
     async def test_camilladsp_calls_volume_back_on_reconnect(self, registry):
         """The single most consequential line in this function.

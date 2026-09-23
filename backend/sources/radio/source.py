@@ -588,8 +588,11 @@ class RadioSource(MpvAudioSource):
         """Update state based on playback."""
         if self._current_station and self._is_playing:
             self.broadcast_error_cleared()
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         core, extras = PlaybackMetadata.split(self._build_playback_metadata())
-        self.emit_connection_state(bool(self._current_station), core, extras)
+        return bool(self._current_station), core, extras
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
         """React to global Shazam toggle change."""

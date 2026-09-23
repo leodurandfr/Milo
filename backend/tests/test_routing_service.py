@@ -15,13 +15,12 @@ it writes /var/lib/milo/routing.env and sets os.environ["MILO_MODE"], and this
 dev host IS the appliance. A test that let it run would flip the live unit's
 audio routing.
 """
-import asyncio
 import pytest
-from contextlib import asynccontextmanager
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.settings import SettingsWriteError
+from backend.core.state import AudioStateMachine
 from backend.tests.conftest import events_of
 
 
@@ -83,20 +82,14 @@ class TestAudioRoutingService:
         service = AudioRoutingService(settings_service=mock_settings_service, systemd_manager=mock_systemd_manager)
         # Skip async detection in tests
         service._initial_detection_done = True
-        # Set up state machine (normally done via set_state_machine())
-        mock_state_machine = Mock()
-        _transition_lock = asyncio.Lock()
-
-        @asynccontextmanager
-        async def _exclusive_transition():
-            async with _transition_lock:
-                yield
-
-        mock_state_machine.exclusive_transition = _exclusive_transition
-        mock_state_machine.broadcast = AsyncMock()
-        mock_state_machine.update_source_state = AsyncMock()
-        mock_state_machine.system_state.active_source = AudioSource.NONE
-        service.state_machine = mock_state_machine
+        # The real state machine: the reroute's source side is its
+        # reroute_active_source(). Its broadcasts are recorded rather than sent,
+        # and update_source_state stays real but observable.
+        state_machine = AudioStateMachine()
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+        state_machine.broadcast = AsyncMock()
+        state_machine.update_source_state = AsyncMock(wraps=state_machine.update_source_state)
+        service.state_machine = state_machine
         # Wire a camilladsp stub so equalizer_effects_enabled property works
         service.camilladsp_service = _CamillaStub()
         # Default initial state: multiroom OFF (property reads from storage)
@@ -139,12 +132,18 @@ class TestAudioRoutingService:
         assert AudioRoutingService._to_bool(1) is True
         assert AudioRoutingService._to_bool(0) is False
 
-    def test_set_source_callback(self, routing_service):
-        """Source callback definition test"""
-        callback = lambda source: None
-        routing_service.set_source_callback(callback)
+    @pytest.mark.asyncio
+    async def test_a_reroute_with_no_source_selected_only_moves_the_output(
+        self, routing_service, mock_systemd_manager
+    ):
+        """Nothing to carry: snapcast still moves, and no STARTING is published
+        for a source that is not there."""
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate') as regen:
+            await routing_service._apply_transition(True)
 
-        assert routing_service.get_source == callback
+        assert mock_systemd_manager.start.call_count == 2
+        regen.assert_called_once_with(True)
+        routing_service.state_machine.update_source_state.assert_not_called()
 
     def test_set_snapcast_websocket_service(self, routing_service):
         """Snapcast WebSocket service definition test"""
@@ -591,7 +590,7 @@ class TestAudioRoutingService:
         """routing.env must be regenerated BEFORE the source re-acquires its ALSA
         device so the source unit picks up the new MILO_MODE when systemd starts it."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
-        routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
+        routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         # Track ordering: regenerate vs source re-acquire
@@ -619,9 +618,7 @@ class TestAudioRoutingService:
         so a source whose upstream link lives in a separate process from the ALSA
         writer (Bluetooth) keeps that link alive across a multiroom toggle."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
-        routing_service.set_source_callback(
-            lambda source: mock_source if source == AudioSource.SPOTIFY else None
-        )
+        routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
@@ -643,9 +640,7 @@ class TestAudioRoutingService:
         not in IDLE_STATES, so the 12 h inactivity sweep never clears it either.
         """
         mock_systemd_manager.start = AsyncMock(return_value=False)
-        routing_service.set_source_callback(
-            lambda source: mock_source if source == AudioSource.SPOTIFY else None
-        )
+        routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
@@ -672,9 +667,7 @@ class TestAudioRoutingService:
         machine already believed it was starting.
         """
         mock_systemd_manager.start = AsyncMock(return_value=True)
-        routing_service.set_source_callback(
-            lambda source: mock_source if source == AudioSource.SPOTIFY else None
-        )
+        routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(return_value=False)
 
@@ -698,9 +691,7 @@ class TestAudioRoutingService:
         handler untouched and lands on exactly the stuck STARTING above.
         """
         mock_systemd_manager.start = AsyncMock(return_value=True)
-        routing_service.set_source_callback(
-            lambda source: mock_source if source == AudioSource.SPOTIFY else None
-        )
+        routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
 
@@ -720,7 +711,7 @@ class TestAudioRoutingService:
     ):
         """A failing source re-acquire no longer fails the transition (Phase 3)."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
-        routing_service.set_source_callback(lambda source: mock_source if source == AudioSource.SPOTIFY else None)
+        routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
 

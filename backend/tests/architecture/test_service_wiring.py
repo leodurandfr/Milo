@@ -265,6 +265,23 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
     assert not uncalled, "\n  ".join(["services that clean up nothing:"] + sorted(uncalled))
 
 
+def test_every_source_mailbox_is_ended_on_shutdown():
+    """Each source's actor task lives until the backend stops (core/audio_source.py).
+
+    It is created by the source's first message, so no registry entry names it
+    and the rule above cannot see it: the state machine owns the sources, and
+    its `shutdown_sources` — which ends every registered one — must be in the
+    shutdown block, or eleven tasks outlive the loop and a caller still waiting
+    on a source is never answered.
+    """
+    main_src = (BACKEND_ROOT / "main.py").read_text()
+    shutdown = main_src.split("yield", 1)[1] if "yield" in main_src else ""
+    assert "cleanup" in shutdown, "could not locate main.py's shutdown block"
+    assert re.search(r"\bstate_machine\.shutdown_sources\b", shutdown), (
+        "main.py's shutdown never reaches AudioStateMachine.shutdown_sources()"
+    )
+
+
 def test_no_untracked_fire_and_forget_tasks():
     """Raw `create_task` must at least bind its task to something.
 

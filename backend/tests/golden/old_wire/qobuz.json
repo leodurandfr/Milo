@@ -1,0 +1,1748 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "session_opens_and_plays": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 0,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 0,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 1000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 1000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 2000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 2000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 3000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 3000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Nightcall",
+     "artist": "Kavinsky",
+     "album": "OutRun",
+     "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+     "position": 3000,
+     "duration": 258000,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "session_opens_without_a_track": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 4000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 4000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "pause_resume_from_phone": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 0,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 0,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 5000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 5000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 5000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 5000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 5000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 5000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "title": "Nightcall",
+     "artist": "Kavinsky",
+     "album": "OutRun",
+     "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+     "position": 5000,
+     "duration": 258000,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "track_change_blips": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 0,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 0,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 257000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 257000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 257000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 257000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Alive",
+      "artist": "Daft Punk",
+      "album": "Homework",
+      "album_art_url": "https://static.qobuz.example/alive.jpg",
+      "position": 0,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Alive",
+       "artist": "Daft Punk",
+       "album": "Homework",
+       "album_art_url": "https://static.qobuz.example/alive.jpg",
+       "position": 0,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Alive",
+      "artist": "Daft Punk",
+      "album": "Homework",
+      "album_art_url": "https://static.qobuz.example/alive.jpg",
+      "position": 1000,
+      "duration": 320000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Alive",
+       "artist": "Daft Punk",
+       "album": "Homework",
+       "album_art_url": "https://static.qobuz.example/alive.jpg",
+       "position": 1000,
+       "duration": 320000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Alive",
+     "artist": "Daft Punk",
+     "album": "Homework",
+     "album_art_url": "https://static.qobuz.example/alive.jpg",
+     "position": 0,
+     "duration": 258000,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "phone_disconnects": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 0,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 0,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Nightcall",
+     "artist": "Kavinsky",
+     "album": "OutRun",
+     "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+     "position": 0,
+     "duration": 258000,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "qobuz",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "account_and_proxy_hiccups": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": false
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": false
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "ready",
+     "metadata": {
+      "is_playing": false,
+      "is_buffering": false,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 0,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 0,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "qobuz",
+    "data": {
+     "source": "qobuz",
+     "new_state": "active",
+     "metadata": {
+      "is_playing": true,
+      "is_buffering": false,
+      "title": "Nightcall",
+      "artist": "Kavinsky",
+      "album": "OutRun",
+      "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+      "position": 9000,
+      "duration": 258000,
+      "account_authenticated": true
+     },
+     "full_state": {
+      "active_source": "qobuz",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": true,
+       "is_buffering": false,
+       "title": "Nightcall",
+       "artist": "Kavinsky",
+       "album": "OutRun",
+       "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+       "position": 9000,
+       "duration": 258000,
+       "account_authenticated": true
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
+   {
+    "active_source": "qobuz",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
+     "account_authenticated": false
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   },
+   {
+    "active_source": "qobuz",
+    "source_state": "active",
+    "transitioning": false,
+    "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
+     "title": "Nightcall",
+     "artist": "Kavinsky",
+     "album": "OutRun",
+     "album_art_url": "https://static.qobuz.example/nightcall.jpg",
+     "position": 0,
+     "duration": 258000,
+     "account_authenticated": true
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ }
+}

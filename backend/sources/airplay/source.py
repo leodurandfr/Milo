@@ -568,6 +568,9 @@ class AirPlaySource(BaseAudioSource):
         # is not for. Same shape as radio's, for the same reason.
         if self._device_connected:
             self.broadcast_error_cleared()
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
         # The cover is published for the track it was stamped for, and the
@@ -584,7 +587,7 @@ class AirPlaySource(BaseAudioSource):
             core.album_art_url = self._artwork_url
             extras["album_art_width"] = self._artwork_width
         extras["client_name"] = self._client_name
-        self.emit_connection_state(self._device_connected, core, extras)
+        return self._device_connected, core, extras
 
     async def _cleanup(self) -> None:
         """Clean up resources."""

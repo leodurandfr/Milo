@@ -16,9 +16,8 @@ Usage:
 import asyncio
 import contextlib
 import logging
-from contextlib import asynccontextmanager
 from time import monotonic
-from typing import Dict, Any, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from backend.core.models.audio_state import (
     AudioSource,
@@ -51,8 +50,9 @@ class AudioStateMachine:
     seconds long); the state lock guards individual `system_state` writes and
     is held for microseconds. Taking the transition lock while holding the
     state lock would deadlock against transition_to_source(), which holds the
-    former across every acquisition of the latter. `core/multiroom/routing.py`
-    obeys the same order through exclusive_transition().
+    former across every acquisition of the latter. The multiroom reroute obeys
+    the same order: reroute_active_source() takes the transition lock and
+    AudioRoutingService holds only its own `_routing_lock` above it.
     """
 
     # Above one SystemdServiceManager call, deliberately not above a whole
@@ -72,6 +72,12 @@ class AudioStateMachine:
     # it fires (a blind second stop, a "would not stop" nobody verified) is the
     # part that misreports, and it is not addressed here.
     TRANSITION_TIMEOUT = 15.0
+    # How much longer a failed transition waits for a teardown the budget cut,
+    # before giving the lock back with the unit possibly still stopping.
+    TEARDOWN_GRACE = 15.0
+    # Given to ALSA to release the device between a source's RELEASE and the
+    # snapcast reconcile that reopens it.
+    ALSA_RELEASE_SETTLE_S = 0.5
     INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
 
     # States a source can sit in without ever producing audio, so the ones the
@@ -170,16 +176,93 @@ class AudioStateMachine:
         state["network_unavailable"] = self._network_unavailable()
         return state
 
-    @asynccontextmanager
-    async def exclusive_transition(self):
-        """Hold the transition lock for an externally-orchestrated source
-        lifecycle (e.g. the multiroom reroute), mutually exclusive with
-        transition_to_source(). It does NOT set system_state.transitioning,
-        so update_source_state() calls inside the block broadcast live — the
-        reroute relies on this to push its STARTING state to the UI. No
-        in-transition buffer exists, here or anywhere; none is needed."""
+    async def reroute_active_source(
+        self, apply_mode: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Carry the active source across a multiroom MILO_MODE change.
+
+        Under the transition lock, so it is mutually exclusive with
+        transition_to_source(). The source to carry is read *inside* that lock,
+        never handed in: a caller's read predates the lock, and a source picked
+        in that window would be rerouted as the one it replaced — restarting a
+        stopped source next to the new one (E04).
+
+        Posts RELEASE, runs `apply_mode` (snapcast reconcile + routing.env,
+        owned by AudioRoutingService), then posts ACQUIRE. Messages the source
+        receives meanwhile wait their turn in its mailbox. `transitioning` is
+        deliberately not set: the STARTING published first must reach the UI
+        live. Every path that does not end in the source publishing its own
+        start — `apply_mode` raising, ACQUIRE answering False or raising —
+        republishes the source's real state, so STARTING is never the last word.
+        `apply_mode` raising is re-raised; an ACQUIRE failure is not, since the
+        mode itself is committed and the user can retry the source.
+        """
         async with self._transition_lock:
-            yield
+            active = self.system_state.active_source
+            instance = self.sources.get(active) if active != AudioSource.NONE else None
+
+            if instance is None:
+                await apply_mode()
+                return
+
+            # State-only change: the current track stays visible during the
+            # reroute (a payload here would replace it).
+            await self.update_source_state(
+                source=active, new_state=SourceState.STARTING, metadata=None
+            )
+
+            try:
+                # Held across the three steps: a command, a daemon's message or
+                # a stop arriving meanwhile waits for the whole of it, instead of
+                # landing on a released source or being undone by the reacquire.
+                async with instance.hold_mailbox():
+                    # The device is freed first: in direct mode the source holds
+                    # CamillaDSP's input, in multiroom mode snapclient needs it.
+                    logger.info("Releasing source %s to free the ALSA device", active.value)
+                    await instance.release_for_reroute()
+                    await asyncio.sleep(self.ALSA_RELEASE_SETTLE_S)
+
+                    await apply_mode()
+
+                    logger.info("Re-acquiring source %s", active.value)
+                    reacquired = False
+                    try:
+                        reacquired = await instance.acquire_after_reroute()
+                        if not reacquired:
+                            logger.warning(
+                                "Source %s re-acquire returned False after the reroute "
+                                "(the reroute itself stands)", active.value
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Source %s re-acquire failed after the reroute (non-fatal): %s",
+                            active.value, e,
+                        )
+                if not reacquired:
+                    await self.update_source_state(
+                        source=active, new_state=instance.state, metadata=instance.metadata
+                    )
+                elif self.system_state.source_state == SourceState.ERROR:
+                    # The reacquire is a full start that succeeded: the one thing
+                    # that lifts ERROR, which no publish of the source's may do.
+                    await self._resync_after_start(active, instance)
+            except Exception:
+                await self.update_source_state(
+                    source=active, new_state=instance.state, metadata=instance.metadata
+                )
+                raise
+
+    async def _resync_after_start(self, active: AudioSource, instance) -> None:
+        """Take the source's own state as the machine's, after a start succeeded."""
+        async with self._state_lock:
+            if self.system_state.active_source != active:
+                return
+            self.system_state.source_state = instance.state
+            self.system_state.metadata = instance.metadata
+            self.system_state.error = None
+        await self.broadcast(SourceStateChanged(
+            source=active.value, new_state=instance.state.value, metadata=instance.metadata,
+        ))
 
     async def transition_to_source(
         self,
@@ -226,10 +309,13 @@ class AudioStateMachine:
                 logger.error(f"No source registered for: {target_source.value}")
                 return False
 
-            # Holds the previous source while its teardown is in flight. The
-            # timeout below can fire inside that stop and cancel it half-done,
-            # and the unwind is then the only place left to finish it.
-            unstopped_source = AudioSource.NONE
+            # The previous source's teardown, while it runs. The timeout below
+            # cuts the *wait* for it, never the teardown itself (it is shielded,
+            # and a source's stop runs in its own actor): a failed transition
+            # waits for it to end before settling, so nothing — not even the
+            # user's retry, queued on the lock — starts over a source still
+            # letting go of the device.
+            teardown: Optional[asyncio.Task] = None
 
             try:
                 async with asyncio.timeout(self.TRANSITION_TIMEOUT):
@@ -251,9 +337,9 @@ class AudioStateMachine:
 
                     # Stop old source
                     if old_source != AudioSource.NONE:
-                        unstopped_source = old_source
-                        await self._stop_source(old_source)
-                        unstopped_source = AudioSource.NONE
+                        teardown = asyncio.ensure_future(self._stop_source(old_source))
+                        teardown.set_name(old_source.value)
+                        await asyncio.shield(teardown)
 
                     # Start new source
                     if target_source != AudioSource.NONE:
@@ -317,8 +403,17 @@ class AudioStateMachine:
                     message,
                     f" (link is {blocked})" if blocked else "",
                 )
+                # ERROR lands with `transitioning` cleared, in the same write:
+                # the banner below carries full_state, and a STARTING in it drew
+                # a "starting" card under the error, Dock re-enabled, for as
+                # long as the failed target took to stop (E03).
                 async with self._state_lock:
                     self.system_state.transitioning = False
+                    self.system_state.source_state = (
+                        SourceState.ERROR if target_source != AudioSource.NONE
+                        else SourceState.READY
+                    )
+                    self.system_state.metadata = {}
                     self.system_state.error = error
 
                 # No banner when the link already explains it. The status card
@@ -333,7 +428,7 @@ class AudioStateMachine:
                         message=message
                     ))
 
-                await self._settle_failed_transition(target_source, error, unstopped_source)
+                await self._settle_failed_transition(target_source, error, teardown)
                 return False
 
     async def update_source_state(
@@ -352,6 +447,16 @@ class AudioStateMachine:
             # are recovered by the post-start resync in transition_to_source().
             if self.system_state.transitioning:
                 logger.debug(f"Ignoring state update during transition: {source.value}")
+                return
+
+            # ERROR is the answer to a failed start, and only a start that
+            # succeeds replaces it — through the resync of a transition or of a
+            # reroute, never through here. A source with a feed that outlives
+            # its start (the CD's disc watcher) otherwise published READY over
+            # it: the card lost "Retry" and re-selecting became a no-op (E07).
+            if (self.system_state.source_state == SourceState.ERROR
+                    and new_state != SourceState.ERROR):
+                logger.debug(f"Ignoring {new_state.value} from {source.value}: it is in error")
                 return
 
             self.system_state.source_state = new_state
@@ -432,7 +537,7 @@ class AudioStateMachine:
         if not source:
             return False
 
-        if not await source.refresh_metadata():
+        if not await source.refresh_when_idle():
             return False
 
         # The hook awaited the source's daemon, and a transition may have run
@@ -495,9 +600,10 @@ class AudioStateMachine:
         return await instance.start()
 
     async def _settle_failed_transition(
-        self, target_source: AudioSource, error: str, unstopped_source: AudioSource
+        self, target_source: AudioSource, error: str, teardown: Optional[asyncio.Task]
     ) -> None:
-        """Stop the source whose start failed, then settle it in ERROR.
+        """Let the old teardown finish, stop the source whose start failed, then
+        settle it in ERROR.
 
         The source stays *selected*: "this source is in error" is exactly what
         happened, and dropping back to "no source" would throw that away — plus
@@ -506,35 +612,26 @@ class AudioStateMachine:
         system_state so full_state carries the message the card reads; the
         banner rides on the SystemErrorEvent emitted just before.
 
+        `teardown` is the previous source's stop when the timeout cut the wait
+        for it: it is still running, it is awaited here and never re-issued (a
+        second teardown is its own bug — Bluetooth's has no is-running guard).
         The target is always stopped: a start can fail after its systemd unit
-        came up (e.g. mpv started, IPC connect failed). `unstopped_source` is
-        the previous source *only* on the one branch where the timeout fired
-        inside its teardown and cancelled it — it is NONE on every other path,
-        because a stop that returned already ran and re-running an unguarded
-        teardown is its own bug (Bluetooth's tears down bluetoothctl +
-        bluealsa/bluetooth.service with no is-running guard). Left running, it
-        keeps the ALSA device and every later start fails until reboot.
+        came up (e.g. mpv started, IPC connect failed), and a start the timeout
+        gave up on is still running in the source's actor, which this stop cuts
+        short.
         """
-        if unstopped_source not in (AudioSource.NONE, target_source):
-            # Ask before re-issuing. The cut teardown often *did* land — the
-            # timeout fires on the budget, not on the unit — and the blind
-            # retry then spent a second systemd call on an already-dead unit,
-            # timed out on a loaded box, and reported it as a refusal. Only a
-            # known-down unit is skipped: unknown still retries, because
-            # leaving one up keeps the ALSA device for every later start.
-            instance = self.sources.get(unstopped_source)
-            still_up = await instance.probe_service_active() if instance else None
-            if still_up is False:
-                logger.info(
-                    "Teardown of %s was cut short, but its unit is down — not re-issuing",
-                    unstopped_source.value,
+        if teardown is not None and not teardown.done():
+            logger.info("Waiting for the previous source's teardown to finish")
+            # Bounded: past TEARDOWN_GRACE, a teardown that never ends would
+            # hold the transition lock — every source press, IR key and
+            # multiroom toggle — for good. It goes on in its own actor.
+            try:
+                await asyncio.wait_for(asyncio.shield(teardown), self.TEARDOWN_GRACE)
+            except asyncio.TimeoutError:
+                logger.error(
+                    "%s is still stopping %.0fs past the transition budget; "
+                    "no longer waiting for it", teardown.get_name(), self.TEARDOWN_GRACE,
                 )
-            else:
-                logger.warning(
-                    "Teardown of %s was cut short by the transition timeout — retrying it",
-                    unstopped_source.value,
-                )
-                await self._stop_source(unstopped_source)
 
         if target_source != AudioSource.NONE:
             await self._stop_source(target_source)
@@ -628,6 +725,12 @@ class AudioStateMachine:
         if self._inactivity_monitor_task:
             self._inactivity_monitor_task.cancel()
             self._inactivity_monitor_task = None
+
+    async def shutdown_sources(self) -> None:
+        """End every registered source's mailbox (backend teardown, main.py)."""
+        for instance in self.sources.values():
+            if instance is not None:
+                await instance.shutdown()
 
     # === WebSocket Broadcasting ===
 

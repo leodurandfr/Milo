@@ -569,10 +569,12 @@ class PodcastSource(MpvAudioSource):
         pair); everything routed through here so the payload always carries the
         inert {is_playing, is_buffering} pair the players read.
         """
+        connected, core, built = self._connection_state()
+        self.emit_connection_state(connected, core, {**built, **(extras or {})})
+
+    def _connection_state(self):
         core, built = PlaybackMetadata.split(self._build_playback_metadata())
-        self.emit_connection_state(
-            bool(self._current_episode), core, {**built, **(extras or {})}
-        )
+        return bool(self._current_episode), core, built
 
     async def _save_progress(self) -> None:
         """Save current playback progress with full metadata."""

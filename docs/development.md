@@ -225,10 +225,15 @@ the source selected so re-selecting it retries).
 
 ### 2. Create the source
 
-`start()`, `stop()`, `command()` and `refresh_metadata()` are **public API on the base class — never
-override them.** They own the locking, the state transitions and the `COMMANDS` validation. What you
-implement are the hooks they call: `_do_start` (the only `@abstractmethod`), plus `_do_stop`,
-`_handle_command`, `_cleanup`, `_reset_playback_state` and `_do_restart` as needed.
+`start()`, `stop()`, `release_for_reroute()`, `acquire_after_reroute()`, `command()` and
+`refresh_when_idle()` are **public API on the base class — never override them.** Each one is a
+message to the source's actor (one mailbox, one task: `core/audio_source.py`), which is what
+serializes a source's lifecycle, commands, pause timer and state reads; `command()` validates against
+`COMMANDS` before posting. What you implement are the hooks the handlers call: `_do_start` (the only
+`@abstractmethod`), plus `_do_stop`, `_handle_command`, `_cleanup`, `_reset_playback_state`,
+`_do_restart`, `_do_release`/`_do_acquire` (a lighter multiroom reroute, Spotify and Bluetooth) and
+`refresh_metadata` as needed — and `_connection_state()`, the pure half of your publisher, which the
+actor compares after each command to republish a state a handler changed without saying so.
 
 There is **no `status()`, `get_status()` or `_get_status()`** anywhere in the hierarchy. Status is
 broadcast over the WebSocket, never polled — a `GET /<source>/status` route is explicitly forbidden

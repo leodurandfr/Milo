@@ -188,11 +188,21 @@ class TestAPausedQueueReplacedByAnother:
     """
 
     @pytest.mark.asyncio
-    async def test_the_new_playlist_is_not_stopped_while_it_loads(self, source):
+    async def test_the_new_playlist_is_not_stopped_while_it_loads(self, source, monkeypatch):
+        """The pause timer's clock is held open until the new playlist is
+        loading, then let expire: an expiry landing mid-load is the case."""
+        from backend.core import audio_source
+        from backend.tests.golden.harness import AsyncioProxy
+
+        delay_over = asyncio.Event()
+
+        async def pause_timer_clock(delay, *a, **k):
+            await delay_over.wait()
+
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(pause_timer_clock))
         source._mpv = _mpv()
         await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
         source.auto_stop_enabled = True
-        source.auto_stop_delay = 0
         await source.command("pause", {})
 
         loading = asyncio.Event()
@@ -208,11 +218,14 @@ class TestAPausedQueueReplacedByAnother:
             source.command("play_context", {"tracks": TRACKS, "start_index": 2})
         )
         await loading.wait()
+        delay_over.set()                    # the pause's delay runs out now
         for _ in range(5):
             await asyncio.sleep(0)
         loaded.set()
 
         assert (await second)["success"] is True
+        for _ in range(20):
+            await asyncio.sleep(0)
         source._mpv.stop.assert_not_awaited()
 
 
@@ -1171,15 +1184,18 @@ class TestMpvRefusesTheTransportCommand:
     never switched to.
     """
 
-    async def _playing(self, source):
-        """A loaded queue, then an mpv that refuses every transport command.
+    async def _playing(self, source, paused=False):
+        """A loaded queue (paused through the pause command when asked), then
+        an mpv that refuses every transport command.
 
-        The refusal is installed after play_context so the setup itself still
+        The refusal is installed after the setup so the setup itself still
         succeeds, and the state_machine/_bg spy is attached last so only the
         refused command's broadcasts are observed.
         """
         source._mpv = _mpv()
         await source.command("play_context", {"tracks": TRACKS, "start_index": 1})
+        if paused:
+            await source.command("pause", {})
         source._mpv.pause = AsyncMock(return_value=False)
         source._mpv.resume = AsyncMock(return_value=False)
         source._mpv.seek = AsyncMock(return_value=False)
@@ -1201,8 +1217,7 @@ class TestMpvRefusesTheTransportCommand:
 
     @pytest.mark.asyncio
     async def test_resume_refused_keeps_the_track_paused(self, source):
-        await self._playing(source)
-        source._is_playing = False
+        await self._playing(source, paused=True)
 
         result = await source.command("resume", {})
 
