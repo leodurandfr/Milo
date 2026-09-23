@@ -7,7 +7,6 @@ process is still alive.
 """
 import asyncio
 import base64
-import os
 import struct
 import zlib
 from typing import Optional, Tuple
@@ -20,8 +19,8 @@ from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.sources.airplay.source import AirPlaySource
 from backend.tests.golden.harness import (
-    AsyncioProxy, TickGate, Wire, check_recording, instant_short_sleep,
-    make_settings, make_state_machine, make_systemd, settle,
+    AsyncioProxy, VirtualClock, Wire, check_recording, make_settings,
+    make_state_machine, make_systemd, settle,
 )
 
 Item = Tuple[str, str, Optional[bytes]]
@@ -114,65 +113,36 @@ def _xml(item: Item) -> str:
 
 # === The adapter ===
 
-class _Clock:
-    """The loop clock as the source reads it (`get_running_loop().time()`).
+class _LoopView:
+    """The running loop, its `time()` answered from the scenario's clock: the
+    source ages the `prgr` snapshot by loop time, and a real clock would put
+    wall-clock jitter into every published position."""
 
-    The source ages the `prgr` snapshot by loop time; a real clock would put
-    wall-clock jitter into every published position. Here time moves only when
-    a scenario says ten seconds (a ticker pass) or eight (the cover hold) went by.
-    """
-
-    def __init__(self) -> None:
-        self.now = 5000.0
+    def __init__(self, clock: VirtualClock) -> None:
+        self._clock = clock
 
     def time(self) -> float:
-        return self.now
-
-
-class _SourceAsyncio(AsyncioProxy):
-    """The source module's asyncio: its two timers become scenario steps."""
-
-    def __init__(self, adapter: "AirPlay") -> None:
-        super().__init__(self._sleep)
-        self._adapter = adapter
-
-    async def _sleep(self, delay: float, *a, **k) -> None:
-        if delay == airplay_module.POSITION_TICK_SECONDS:
-            await self._adapter.ticker.sleep(delay)
-        elif delay == airplay_module.ARTWORK_SETTLE_SECONDS:
-            await self._adapter.cover_hold.sleep(delay)
-        else:
-            raise AssertionError(f"unexpected sleep({delay}) in the AirPlay source")
-
-    def get_running_loop(self) -> _Clock:
-        return self._adapter.clock
-
-
-class _ProcessTable:
-    """The source module's `os`, with /proc answered from the adapter's pids."""
-
-    def __init__(self, adapter: "AirPlay") -> None:
-        self._adapter = adapter
-        self.path = self
-
-    def exists(self, path: str) -> bool:
-        if path.startswith("/proc/"):
-            return int(path.rsplit("/", 1)[1]) in self._adapter.live_pids
-        return os.path.exists(path)
+        return self._clock.now
 
     def __getattr__(self, name: str):
-        return getattr(os, name)
+        return getattr(asyncio.get_running_loop(), name)
 
 
 class AirPlay:
-    """Adapter: how each outside-world stimulus reaches AirPlaySource today."""
+    """Adapter: how each outside-world stimulus reaches AirPlaySource today.
+
+    Phase 3a: the source's timers (the position ticker, the cover hold, the
+    idle timeout) are the base's named timers on one virtual clock; the
+    daemon's death reaches it through a pidfd watch; the idle timeout asks the
+    daemon for the end over D-Bus (DropSession), which answers with a `disc`.
+    """
 
     def __init__(self, monkeypatch, tmp_path, settings=None):
-        self.clock = _Clock()
-        self.ticker = TickGate()
-        self.cover_hold = TickGate()
+        self.clock = VirtualClock()
         self.live_pids = {DAEMON_PID}
         self.daemon_pid = DAEMON_PID
+        self.watches: list = []
+        self.sender: Optional[str] = None
         self.reader: Optional[MetadataReader] = None
         adapter = self
 
@@ -191,10 +161,36 @@ class AirPlay:
             async def _read_loop(self) -> None:
                 await asyncio.Event().wait()
 
+        class Watch:
+            """The pidfd watch: fires when the adapter kills that pid."""
+
+            def __init__(self, pid, on_exit):
+                self.on_exit = on_exit
+                adapter.watches.append((pid, on_exit))
+
+            def close(self):
+                adapter.watches[:] = [w for w in adapter.watches if w[1] is not self.on_exit]
+
+        async def drop_session() -> bool:
+            # As measured on shairport-sync 5.5.1: the goodbye follows at once.
+            if adapter.sender is not None:
+                asyncio.ensure_future(adapter._write(disc(adapter.sender)))
+            return True
+
+        class SourceAsyncio(AsyncioProxy):
+            def get_running_loop(self):
+                return _LoopView(adapter.clock)
+
+        async def sleep(delay: float, *a, **k):
+            if delay <= 1.0:                     # a unit's settle delay
+                return await asyncio.sleep(0)
+            return await adapter.clock.sleep(delay)
+
         monkeypatch.setattr(airplay_module, "MetadataReader", PipeReader)
-        monkeypatch.setattr(airplay_module, "asyncio", _SourceAsyncio(self))
-        monkeypatch.setattr(airplay_module, "os", _ProcessTable(self))
-        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        monkeypatch.setattr(airplay_module, "asyncio", SourceAsyncio(sleep))
+        monkeypatch.setattr(airplay_module, "drop_session", drop_session)
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
+        monkeypatch.setattr(audio_source, "ProcessWatch", Watch)
         systemd = make_systemd()
         systemd.main_pid.side_effect = lambda *_: self.daemon_pid
         self.machine, recorder = make_state_machine()
@@ -215,26 +211,37 @@ class AirPlay:
         await self.machine.transition_to_source(AudioSource.NONE)
         await settle()
 
+    async def _write(self, *items: Item):
+        for _, code, payload in items:
+            if code == "conn":
+                self.sender = payload.decode()
+            elif code == "disc" and payload and payload.decode() == self.sender:
+                self.sender = None
+        await self.reader._process_buffer("".join(_xml(i) for i in items).encode())
+
     async def pipe(self, *items: Item):
         """shairport-sync writes these items to the metadata pipe, in order."""
-        await self.reader._process_buffer("".join(_xml(i) for i in items).encode())
+        await self._write(*items)
         await settle()
 
     async def seconds_pass(self, ticks: int = 1):
         """Ten seconds go by, `ticks` times: the position ticker runs once each."""
         for _ in range(ticks):
-            self.clock.now += airplay_module.POSITION_TICK_SECONDS
-            await self.ticker.tick()
+            await self.clock.advance(airplay_module.POSITION_TICK_SECONDS)
 
     async def cover_hold_runs_out(self):
-        self.clock.now += airplay_module.ARTWORK_SETTLE_SECONDS
-        await self.cover_hold.tick()
+        await self.clock.advance(airplay_module.ARTWORK_SETTLE_SECONDS)
 
     def daemon_killed_and_restarted(self):
         """shairport-sync is killed outright; systemd's Restart= brings up a new one."""
-        self.live_pids.discard(self.daemon_pid)
+        dead = self.daemon_pid
+        self.live_pids.discard(dead)
         self.daemon_pid = RESTARTED_PID
         self.live_pids.add(RESTARTED_PID)
+        self.sender = None
+        for pid, on_exit in list(self.watches):
+            if pid == dead:
+                on_exit()
 
 
 @pytest.fixture
@@ -351,3 +358,80 @@ async def test_daemon_dies_under_the_session(airplay):
     await airplay.seconds_pass()
     await airplay.deselect()
     check_recording("airplay", "daemon_dies_under_the_session", airplay.wire)
+
+
+# === Phase 3a: the sequences shairport-sync 5.5.1 was measured to write ===
+#
+# The scenarios above predate the measurement: their stream opens with `pbeg`
+# alone, while every real one follows it with its first frame (`pffr`) and its
+# type (`styp`) 0.5-2 s later. They are kept as they were recorded; these use
+# what an iPhone (Music: Buffered) and a Mac (system audio: Realtime) sent.
+
+async def _music_starts_track_a(ap: AirPlay):
+    await ap.pipe(conn(PHONE), snam("iPhone de Léo"))
+    await ap.pipe(ssnc("pbeg"), ssnc("pres"))
+    await ap.pipe(ssnc("prsm"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
+    await ap.pipe(*bundle(RTP_A, "All Melody", "Nils Frahm", "All Melody"))
+    await ap.pipe(*picture(RTP_A + 1056, COVER_A))
+    await ap.pipe(prgr(0, 253))
+
+
+async def test_music_pauses_resumes_and_skips(airplay):
+    await airplay.select()
+    await _music_starts_track_a(airplay)
+    await airplay.seconds_pass()
+    await airplay.pipe(ssnc("paus"))
+    await airplay.wire.snapshot_rest()
+    await airplay.pipe(ssnc("pres"), ssnc("prsm"))
+    await airplay.pipe(ssnc("pffr", b"1/2"))
+    await airplay.seconds_pass()
+    # A skip: paus, then pres 160 ms later, the new track's tags and cover.
+    await airplay.pipe(ssnc("paus"))
+    await airplay.pipe(ssnc("pres"), ssnc("prsm"))
+    await airplay.pipe(*bundle(RTP_B, "Sunson", "Nils Frahm", "All Melody"),
+                       *picture(RTP_B, COVER_C), prgr(0, 200), ssnc("pffr", b"1/2"))
+    await airplay.wire.snapshot_rest()
+    await airplay.deselect()
+    check_recording("airplay", "music_pauses_resumes_and_skips", airplay.wire)
+
+
+async def test_a_music_pause_is_ended_by_the_daemon(monkeypatch, tmp_path):
+    airplay = AirPlay(monkeypatch, tmp_path, settings={"audio.auto_stop_delay": 30})
+    await airplay.select()
+    await _music_starts_track_a(airplay)
+    await airplay.pipe(ssnc("paus"))
+    await airplay.seconds_pass()
+    await airplay.pipe(ssnc("pend"))             # the phone tears its stream down, connected
+    await airplay.wire.snapshot_rest()
+    await airplay.seconds_pass(2)                # the 30 s timeout asks for DropSession
+    await airplay.wire.snapshot_rest()
+    await airplay.deselect()
+    check_recording("airplay", "a_music_pause_is_ended_by_the_daemon", airplay.wire)
+
+
+async def test_system_audio_is_connected(airplay):
+    await airplay.select()
+    await airplay.pipe(conn(LAPTOP), snam("Mac mini de Léo"))
+    await airplay.pipe(ssnc("pbeg"), ssnc("flsr", b"1"), ssnc("prsm"))
+    await airplay.pipe(ssnc("pffr", b"1/2"), ssnc("styp", b"Realtime"))
+    await airplay.pipe(*bundle(RTP_LAPTOP, "Energy", "Jean du Voyage", ""), prgr(0, 208))
+    await airplay.seconds_pass()
+    await airplay.wire.snapshot_rest()
+    await airplay.pipe(ssnc("pend"))
+    await airplay.pipe(disc(LAPTOP))
+    await airplay.wire.snapshot_rest()
+    await airplay.deselect()
+    check_recording("airplay", "system_audio_is_connected", airplay.wire)
+
+
+async def test_a_newcomer_before_the_late_goodbye(airplay):
+    await airplay.select()
+    await _music_starts_track_a(airplay)
+    await airplay.pipe(conn(LAPTOP), snam("Mac mini de Léo"))
+    await airplay.wire.snapshot_rest()
+    await airplay.pipe(disc(PHONE))              # a minute late, as measured 2026-09-03
+    await airplay.pipe(ssnc("pbeg"), ssnc("prsm"))
+    await airplay.pipe(ssnc("pffr", b"1/2"), ssnc("styp", b"Realtime"))
+    await airplay.wire.snapshot_rest()
+    await airplay.deselect()
+    check_recording("airplay", "a_newcomer_before_the_late_goodbye", airplay.wire)

@@ -7,9 +7,11 @@ a state the screen will draw. Both directions are pinned here.
 """
 import pytest
 
+from itertools import permutations
+
 from backend.core.models.session import (
     ENDS, TRANSITIONS, EndReason, IllegalTransition, Phase, PhaseEvent, Session,
-    check_end, next_phase, table_gaps,
+    check_end, event_towards, next_phase, table_gaps,
 )
 
 
@@ -63,3 +65,22 @@ def test_a_session_advances_through_the_table_and_is_its_own_token():
         session.advance(PhaseEvent.RESUMED)
     assert session.phase is Phase.PLAYING
     assert Session(phase=Phase.LOADING) != Session(phase=Phase.LOADING)
+
+
+@pytest.mark.parametrize("before,target", list(permutations(Phase, 2)), ids=lambda p: p.value)
+def test_a_daemon_s_report_is_reached_in_one_step(before, target):
+    """A daemon reports where its session stands, not what happened to it
+    (reconcile). Measured on shairport-sync 5.5.1, a sender goes from any
+    phase to any other: connected before it streams (CONNECTED → LOADING), its
+    stream type known only at the first frame (LOADING → CONNECTED for a
+    Realtime one). A pair with no event would leave the session behind what
+    the daemon said."""
+    assert next_phase(before, event_towards(before, target)) is target
+
+
+@pytest.mark.parametrize("phase,reason", [
+    (Phase.LOADING, EndReason.SENDER_LEFT),    # a sender leaving before its first frame
+    (Phase.CONNECTED, EndReason.REROUTE),      # a multiroom toggle under a Mac's stream
+])
+def test_a_daemon_held_session_ends_where_a_sender_can_leave_it(phase, reason):
+    check_end(phase, reason)

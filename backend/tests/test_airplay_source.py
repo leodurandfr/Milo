@@ -1,454 +1,66 @@
 # backend/tests/test_airplay_source.py
 """
-Unit tests for the AirPlay source's metadata pipe and the cover it pairs.
+The AirPlay source's metadata pipe, the cover it pairs, the playhead it ages,
+and the reader that feeds it.
 
-Everything here drives the real `MetadataReader` wired to the real
-`AirPlaySource`, feeding the byte stream shairport-sync writes to the pipe. The
-outside world is the sender, and it is represented by exactly that stream.
+Everything here drives the source through the world shairport-sync was measured
+to be (tests/airplay_world.py): the real `MetadataReader` parser, fed the items
+the daemon writes, behind the real `AirPlaySource` on a real state machine, on a
+virtual clock. What is asserted is what reaches the wire — `world.meta()`, every
+state published, the position pushes, the artwork route — never the source's
+own fields. The pure parser and the read loop are driven through the real
+`MetadataReader` alone, with an `on_event` collector.
 
-What is being pinned is the pairing rule. shairport-sync sends a track's tags
-and its cover in two separate SET_PARAMETER requests and stamps both with the
-same rtptime — "if they refer to the same item, they have the same rtptime"
+What is being pinned first is the pairing rule. shairport-sync sends a track's
+tags and its cover in two separate SET_PARAMETER requests and stamps both with
+the same rtptime — "if they refer to the same item, they have the same rtptime"
 (rtsp.c) — precisely because neither one follows the other reliably. Take the
-order as the pairing and one of two things breaks: a cover that arrives first is
-thrown away, or a track that sends none at all wears the previous track's for
-its whole duration.
+order as the pairing and one of two things breaks: a cover that arrives first
+is thrown away, or a track that sends none at all wears the previous track's
+for its whole duration.
+
+Danger specific to this file: `/tmp/shairport-sync-metadata` is the LIVE pipe's
+path. shairport-sync is stopped whenever the AirPlay source is off, so a test
+that reached `_ensure_metadata_pipe` unguarded would CREATE the service's pipe.
+Every test here puts it under `tmp_path`, and `never_the_live_pipe` fails loudly
+if one does not.
 """
+import asyncio
 import base64
+import logging
+import contextlib
+import os
 from io import BytesIO
-from typing import Optional
+from typing import List, Optional
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from PIL import Image
 
-from backend.sources.airplay.metadata_reader import MetadataReader
-from backend.sources.airplay import source as airplay_source
-from backend.sources.airplay.source import AirPlaySource
+from backend.core.models.ws_events import SourceErrorReason
+from backend.sources.airplay import source as airplay_module
+from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent, _hex_to_str
+from backend.sources.airplay.source import (
+    ARTWORK_SETTLE_SECONDS,
+    POSITION_JUMP_TOLERANCE_MS,
+    POSITION_TICK_SECONDS,
+)
+from backend.tests.airplay_world import MAC, PHONE, AirPlayWorld, Item, ssnc
 
-# Two rtptimes, as the sender sends them: an ASCII decimal string.
-RTP_A = "3222108659"
-RTP_B = "3222285731"
+LIVE_PIPE = "/tmp/shairport-sync-metadata"
+
+# Two rtptimes, as the sender sends them (the pipe carries them as ASCII decimal).
+RTP_A = 3222108659
+RTP_B = 3222285731
 # The same track, three AirPlay packets later. Measured on an iPhone
 # (2026-09-03): iOS re-stamps every re-sent bundle and its picture with the
 # playback position, which advances by 1056 frames (24 ms) inside one track.
-RTP_A_LATER = str(int(RTP_A) + 1056)
+RTP_A_LATER = RTP_A + 1056
 # The same track, the other way round: a Mac stamped the picture 1408 frames
 # (32 ms) *before* its own track's tags. Measured 2026-09-03.
-RTP_A_EARLIER = str(int(RTP_A) - 1408)
+RTP_A_EARLIER = RTP_A - 1408
 
-
-def _cover(color: str, size: int = 600) -> bytes:
-    """A real cover, so the dimension decode on the way in is real too."""
-    buf = BytesIO()
-    Image.new("RGB", (size, size), color).save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def _item(item_type: str, code: str, payload: Optional[bytes] = None) -> str:
-    """One metadata item in the wire shape the pipe carries.
-
-    Type and code are hex-encoded ASCII, the payload base64 with its decoded
-    length alongside — an item with no payload carries `<length>0</length>` and
-    no data element at all, which is how shairport-sync reports an rtptime it
-    did not get from the sender.
-    """
-    head = (
-        f"<item><type>{item_type.encode().hex()}</type>"
-        f"<code>{code.encode().hex()}</code>"
-        f"<length>{len(payload) if payload else 0}</length>"
-    )
-    if not payload:
-        return head + "</item>"
-    return head + f'<data encoding="base64">{base64.b64encode(payload).decode()}</data></item>'
-
-
-def _bundle(
-    rtptime: Optional[str], title: str, artist: Optional[str] = "Nils Frahm"
-) -> str:
-    """A track's tags, bracketed by mdst/mden as rtsp.c brackets them.
-
-    `artist=None` is a bundle the sender sent no `asar` in — not an empty one:
-    a DAAP tag a sender omits produces no item at all, which is the whole
-    difference between "this track has no artist" and "unchanged".
-    """
-    stamp = rtptime.encode() if rtptime else None
-    tags = [_item("core", "minm", title.encode())]
-    if artist is not None:
-        tags.append(_item("core", "asar", artist.encode()))
-    return "".join([
-        _item("ssnc", "mdst", stamp),
-        *tags,
-        _item("ssnc", "mden", stamp),
-    ])
-
-
-def _picture(rtptime: Optional[str], data: bytes) -> str:
-    """A cover, bracketed by pcst/pcen as rtsp.c brackets it."""
-    stamp = rtptime.encode() if rtptime else None
-    return "".join([
-        _item("ssnc", "pcst", stamp),
-        _item("ssnc", "PICT", data),
-        _item("ssnc", "pcen", stamp),
-    ])
-
-
-@pytest.fixture
-def airplay(monkeypatch):
-    """The real source behind the real reader, fed by the caller.
-
-    The artwork hold is shortened from its production 8 s. What the two "no
-    cover" tests pin is that the window *ends*, not how long it is, and
-    sleeping the real bound would put 16 s of wall clock in the suite for a
-    tuning constant.
-    """
-    monkeypatch.setattr(airplay_source, "ARTWORK_SETTLE_SECONDS", 0.2)
-    source = AirPlaySource()
-    reader = MetadataReader(
-        pipe_path="/nonexistent",
-        on_metadata=source._on_metadata_update,
-        on_play_state=source._on_play_state,
-        on_artwork=source._on_artwork,
-    )
-
-    async def feed(*chunks: str) -> None:
-        await reader._process_buffer("".join(chunks).encode())
-
-    return source, feed
-
-
-def _every_publish(source) -> list:
-    """Record every state the source publishes from here on, in order.
-
-    `source.metadata` is only the last one, and a flicker is by definition a
-    state that was published and then corrected — so the assertions about one
-    have to be able to see the states in between. The real `set_state` still
-    runs; this only watches what goes through it.
-    """
-    published: list = []
-    real = source.set_state
-
-    def watch(state, metadata=None):
-        published.append(dict(metadata or {}))
-        real(state, metadata)
-
-    source.set_state = watch
-    return published
-
-
-async def _after_the_hold() -> None:
-    """Wait out the artwork hold, so what follows is the state it leaves behind.
-
-    Read off the module rather than imported, so it follows the shortened value
-    the fixture installs. `asyncio` is the module's single import of it, made
-    further down with the second block; a second one here would be an F811
-    redefinition.
-    """
-    await asyncio.sleep(airplay_source.ARTWORK_SETTLE_SECONDS + 0.05)
-
-
-class TestCoverPairing:
-    """Which track the cover on screen belongs to."""
-
-    async def test_a_track_and_its_cover_are_published_together(self, airplay):
-        """The non-triviality check the rest of this class rests on: a stream
-        that produced no cover at all would satisfy every 'has no cover'
-        assertion below."""
-        source, feed = airplay
-
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-
-        assert source.metadata["title"] == "Says"
-        assert source.metadata["album_art_url"].startswith("/api/airplay/artwork?v=")
-        assert source.metadata["album_art_width"] == 600
-        assert source.get_artwork() is not None
-
-    async def test_a_cover_that_arrives_before_its_track_is_kept(self, airplay):
-        """The order is the sender's to choose — two SET_PARAMETER requests,
-        nothing sequencing them. Dropping the cover on the bundle that follows
-        would delete the one that was right."""
-        source, feed = airplay
-
-        await feed(_picture(RTP_A, _cover("navy")), _bundle(RTP_A, "Says"))
-
-        assert source.metadata["title"] == "Says"
-        assert "album_art_url" in source.metadata
-
-    async def test_a_track_that_sends_no_cover_shows_none(self, airplay):
-        """The defect this pairing exists for. Plenty of senders push a picture
-        for one track and nothing for the next; the cover left behind is what
-        the full-screen player draws for the whole of it.
-
-        The drop is deferred by ARTWORK_SETTLE_SECONDS, not instant — see
-        `test_the_cover_is_held_while_the_next_one_is_still_in_flight` for what
-        that window is for. What this pins is that the window *ends*: a hold
-        that never expired would be the whole-track-stale-cover bug again."""
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-
-        await feed(_bundle(RTP_B, "Toilet Brush"))
-        await _after_the_hold()
-
-        assert source.metadata["title"] == "Toilet Brush"
-        assert "album_art_url" not in source.metadata
-        assert "album_art_width" not in source.metadata
-
-    async def test_a_cover_stamped_for_the_previous_track_is_not_adopted(self, airplay):
-        """The stamp is the whole rule: a picture in hand is not this track's
-        merely because it is the most recent one — once the hold has expired."""
-        source, feed = airplay
-        await feed(_picture(RTP_A, _cover("navy")))
-
-        await feed(_bundle(RTP_B, "Toilet Brush"))
-        await _after_the_hold()
-
-        assert "album_art_url" not in source.metadata
-
-    async def test_a_cover_stamped_just_after_its_own_tags_is_not_dropped(self, airplay):
-        """The stamp is a position, not an identity, and iOS proves it.
-
-        An iPhone re-sends its bundle several times inside one track, each under
-        a fresh rtptime, and stamps the picture with one of them — so the
-        picture routinely carries a stamp a few packets *after* the last bundle
-        received, and no later bundle ever comes to meet it. Judged by equality
-        that pairing never completes: the hold expired mid-track and dropped a
-        cover that was this very track's, which the untrusted-sender gate reads
-        as "no real cover" and takes AudioPlayerFull off the screen. Measured
-        live at 11 s on the screen, four times in 95 publishes.
-
-        Asserted after the hold has run out, because before it the pending
-        settle shows the cover for the wrong reason.
-        """
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A_LATER, _cover("navy")))
-
-        await _after_the_hold()
-
-        assert source.metadata["title"] == "Says"
-        assert source.metadata["album_art_url"], source.metadata
-        assert source.metadata["album_art_width"] == 600
-
-    async def test_a_cover_stamped_just_before_its_own_tags_is_not_dropped(self, airplay):
-        """The drift runs both ways, and the second direction is a Mac's.
-
-        Measured on the unit: a macOS sender opened a session stamping the
-        picture 1408 frames — 32 ms — *ahead* of the tags that followed it, and
-        nothing came after to close the gap. Judged by order alone that reads
-        as "the previous track's cover", which is what the deadline is for, so
-        the hold expired on the playing track's own sleeve and the player left
-        the screen. What tells the two apart is distance: a real track change
-        measured no nearer than 535 ms.
-        """
-        source, feed = airplay
-        await feed(_picture(RTP_A_EARLIER, _cover("navy")), _bundle(RTP_A, "Says"))
-
-        await _after_the_hold()
-
-        assert source.metadata["title"] == "Says"
-        assert source.metadata["album_art_url"], source.metadata
-        assert source.metadata["album_art_width"] == 600
-
-    async def test_a_drifting_sender_never_takes_the_player_off_the_screen(self, airplay):
-        """The same shape over a run, judged the way the screen judges it.
-
-        Every publish is replayed through `useRichDisplay`'s airplay arm — title
-        AND artist AND a cover over 300 px — and none of them may take it from
-        true back to false. That is the whole defect class: a display field
-        emptied while its replacement is in flight does not correct the piece of
-        UI it feeds, it removes it. Over every published state, not the last:
-        the last one was always right, which is how this survived the fix that
-        named it.
-        """
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-        published = _every_publish(source)
-
-        # The sender re-sends the same track under a fresh stamp, and its
-        # picture lands a few packets ahead of it — the measured iOS order.
-        await feed(_bundle(RTP_A_LATER, "Says"))
-        await feed(_picture(str(int(RTP_A_LATER) + 1056), _cover("navy")))
-        await _after_the_hold()
-
-        def rich(m):
-            return bool(m.get("title")) and bool(m.get("artist")) and (
-                m.get("album_art_width") or 0) > 300
-
-        assert published, "the run published nothing to judge"
-        unmounts = [
-            (before, after)
-            for before, after in zip(published, published[1:])
-            if rich(before) and not rich(after)
-        ]
-        assert not unmounts, unmounts
-
-    async def test_two_tracks_off_one_album_keep_their_cover(self, airplay):
-        """The same image byte for byte, so the md5 dedupe in `_on_artwork`
-        short-circuits — but the picture that changed nothing still moved which
-        track the cover belongs to. Recorded after the dedupe, the second track
-        would drop to its glyph on an album that has a cover."""
-        source, feed = airplay
-        sleeve = _cover("navy")
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, sleeve))
-        first = source.metadata["album_art_url"]
-
-        await feed(_bundle(RTP_B, "Says (Live)"), _picture(RTP_B, sleeve))
-
-        assert source.metadata["title"] == "Says (Live)"
-        assert source.metadata["album_art_url"] == first
-
-    async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, airplay):
-        """A track change must not blank the cover for the millisecond before
-        its own arrives.
-
-        The tags and the picture are two SET_PARAMETER requests in no
-        guaranteed order, so the tags-first order leaves the new stamp
-        unpaired. Publishing that gap sends a state with no `album_art_url`,
-        and `useRichDisplay`'s untrusted-sender gate reads a missing
-        `album_art_width` as "no real cover from this sender": the frontend
-        swaps AudioPlayerFull for the AudioSourceStatus card and back within
-        ~30 ms, which is visible as the player animating itself out and in.
-        Measured on a macOS sender, on every track change *and* every transport
-        action, since the sender re-sends its bundle under a fresh rtptime.
-
-        The window is what is asserted here; that it expires is asserted by
-        `test_a_track_that_sends_no_cover_shows_none`.
-        """
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-        held = source.metadata["album_art_url"]
-
-        await feed(_bundle(RTP_B, "Toilet Brush"))
-
-        assert source.metadata["title"] == "Toilet Brush"
-        assert source.metadata["album_art_url"] == held
-        assert source.metadata["album_art_width"] == 600
-
-        # And the track's own picture, when it lands, takes the hold's place.
-        await feed(_picture(RTP_B, _cover("crimson", size=450)))
-
-        assert source.metadata["album_art_url"] != held
-        assert source.metadata["album_art_width"] == 450
-
-    async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, airplay):
-        """The mirror of the test above, and the same flicker.
-
-        The order is the sender's, so the picture can be the one that arrives
-        first — and then the new stamp is on the cover while the title on
-        screen is still the previous track's. A publish judging on the stamps
-        alone found them unequal and dropped `album_art_url` from that state,
-        which `useRichDisplay`'s untrusted-sender gate reads as "this sender
-        pushes no real cover": AudioPlayerFull swapped for the AudioSourceStatus
-        card and back, the player animating itself out and in.
-
-        Asserted over every published state, not the last one: the last one was
-        always right, which is why the tags-first fix left this half standing.
-        """
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-        published = _every_publish(source)
-
-        await feed(
-            _picture(RTP_B, _cover("crimson", size=450)),
-            _bundle(RTP_B, "Toilet Brush"),
-        )
-
-        assert published, "the track change published nothing to judge"
-        assert all(m.get("album_art_width") for m in published), published
-        assert source.metadata["title"] == "Toilet Brush"
-        assert source.metadata["album_art_width"] == 450
-
-    async def test_a_cover_arriving_first_off_one_album_does_not_blank_it_either(
-        self, airplay
-    ):
-        """Same order, through the md5 dedupe: the identical image re-sent under
-        a new stamp takes the early return, which published its own coverless
-        state on the way past."""
-        source, feed = airplay
-        sleeve = _cover("navy")
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, sleeve))
-        published = _every_publish(source)
-
-        await feed(_picture(RTP_B, sleeve), _bundle(RTP_B, "Says (Live)"))
-
-        assert published, "the track change published nothing to judge"
-        assert all(m.get("album_art_width") for m in published), published
-        assert source.metadata["title"] == "Says (Live)"
-
-    async def test_a_bundle_under_a_new_stamp_owns_every_tag(self, airplay):
-        """Nothing belonging to the previous track is published as this one's.
-
-        A bundle carries only the DAAP tags the sender put in it, so a track
-        sent without an `asar` used to be published wearing the previous
-        track's artist — under the right title, for the whole of it. The stamp
-        settles it, the same stamp the cover is paired by: a new one is a
-        different track and owns its absences too. The status card is then the
-        right screen, and it is the one the gate already picks for a sender
-        that publishes a bare title.
-        """
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says", artist="Nils Frahm"))
-
-        await feed(_bundle(RTP_B, "Untitled recording", artist=None))
-
-        assert source.metadata["title"] == "Untitled recording"
-        assert not source.metadata.get("artist")
-
-    async def test_a_bundle_under_the_stamp_on_screen_amends_it(self, airplay):
-        """The other half of the same rule, and what stops it stripping a track
-        that is already right: a bundle re-sent under the stamp on screen is an
-        amendment to that track, not a new one, so the tags it does not carry
-        stay as they were."""
-        source, feed = airplay
-        await feed(_bundle(RTP_A, "Says", artist="Nils Frahm"))
-
-        await feed(_bundle(RTP_A, "Says", artist=None))
-
-        assert source.metadata["artist"] == "Nils Frahm"
-
-    async def test_a_sender_without_rtp_info_keeps_what_it_had(self, airplay):
-        """shairport-sync tolerates a sender that sends no RTP-Info and sends
-        mdst/pcst empty, which leaves nothing to pair on. Hiding every cover
-        there would be worse than carrying one: documented, not worked around."""
-        source, feed = airplay
-        await feed(_bundle(None, "Says"), _picture(None, _cover("navy")))
-
-        await feed(_bundle(None, "Toilet Brush"))
-
-        assert source.metadata["title"] == "Toilet Brush"
-        assert "album_art_url" in source.metadata
-
-
-# =============================================================================
-# The rest of the pipe: session control, progress, connection — and the loop
-# that reads them.
-#
-# Same principle as the cover pairing above: the outside world is shairport-sync
-# writing to a FIFO, and it is represented by exactly that byte stream. Nothing
-# here mocks a callback the source owns.
-#
-# Danger specific to this file: `/tmp/shairport-sync-metadata` is the LIVE
-# pipe's path. shairport-sync is stopped whenever the AirPlay source is off, so
-# a test that reached `_ensure_metadata_pipe` unguarded would CREATE the
-# service's pipe. Every test here puts it under `tmp_path`.
-# =============================================================================
-import asyncio
-import contextlib
-import os
-import time
-from unittest.mock import AsyncMock, Mock, patch
-
-from backend.core.models.ws_events import (
-    SourceError,
-    SourceErrorCleared,
-    SourceErrorReason,
-)
-
-from backend.sources.airplay.metadata_reader import MetadataReader as _Reader
-from backend.sources.airplay.source import (
-    AIRPLAY_SAMPLE_RATE,
-    POSITION_JUMP_TOLERANCE_MS,
-)
-
-LIVE_PIPE = "/tmp/shairport-sync-metadata"
+SAMPLE_RATE = 44100
 
 
 @pytest.fixture(autouse=True)
@@ -471,138 +83,475 @@ def never_the_live_pipe(monkeypatch):
 
 
 @pytest.fixture
-def wired(tmp_path):
-    """The real source behind the real reader, with every callback connected.
+async def world(monkeypatch, tmp_path):
+    w = AirPlayWorld(monkeypatch, tmp_path)
+    await w.select()
+    yield w
+    await w.source.shutdown()
 
-    The fixture above wires three; the session, progress and connection arms are
-    only reachable with all seven, which is why none of them had ever run.
+
+# === What the sender writes ===
+
+def _cover(color: str, size: int = 600) -> bytes:
+    """A real cover, so the dimension decode on the way in is real too."""
+    buf = BytesIO()
+    Image.new("RGB", (size, size), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _stamp(rtptime: Optional[int]) -> Optional[bytes]:
+    """An rtptime as mdst/pcst carry it; None is the empty item shairport-sync
+    writes when the sender gave it no RTP-Info."""
+    return str(rtptime).encode() if rtptime is not None else None
+
+
+def _bundle(rtptime: Optional[int], title: str, artist: Optional[str] = "Nils Frahm") -> List[Item]:
+    """A track's tags, bracketed by mdst/mden as rtsp.c brackets them.
+
+    `artist=None` is a bundle the sender sent no `asar` in — not an empty one:
+    a DAAP tag a sender omits produces no item at all, which is the whole
+    difference between "this track has no artist" and "unchanged".
     """
-    source = AirPlaySource(config={"metadata_pipe": str(tmp_path / "pipe")})
-    source._bg = Mock()
-    source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
-    reader = _Reader(
-        pipe_path=str(tmp_path / "pipe"),
-        on_metadata=source._on_metadata_update,
-        on_play_state=source._on_play_state,
-        on_artwork=source._on_artwork,
-        on_progress=source._on_progress,
-        on_client_name=source._on_client_name,
-        on_connection=source._on_connection,
-    )
-
-    async def feed(*chunks: str) -> None:
-        await reader._process_buffer("".join(chunks).encode())
-
-    return source, feed
+    tags: List[Item] = [("core", "minm", title.encode())]
+    if artist is not None:
+        tags.append(("core", "asar", artist.encode()))
+    return [ssnc("mdst", _stamp(rtptime)), *tags, ssnc("mden", _stamp(rtptime))]
 
 
-def _frames(seconds: float) -> int:
-    return int(seconds * AIRPLAY_SAMPLE_RATE)
+def _picture(rtptime: Optional[int], data: Optional[bytes]) -> List[Item]:
+    """A cover, bracketed by pcst/pcen as rtsp.c brackets it."""
+    return [ssnc("pcst", _stamp(rtptime)), ssnc("PICT", data), ssnc("pcen", _stamp(rtptime))]
 
 
-def _progress(start_s: float, current_s: float, end_s: float) -> str:
+def _progress(start_s: float, current_s: float, end_s: float) -> Item:
     """`prgr` as rtsp.c writes it: three RTP frame counts separated by slashes."""
-    payload = f"{_frames(start_s)}/{_frames(current_s)}/{_frames(end_s)}"
-    return _item("ssnc", "prgr", payload.encode())
+    frames = [int(s * SAMPLE_RATE) for s in (start_s, current_s, end_s)]
+    return ssnc("prgr", "/".join(map(str, frames)).encode())
+
+
+def _item(item_type: str, code: str, payload: Optional[bytes] = None) -> str:
+    """One metadata item in the wire shape the pipe carries.
+
+    Type and code are hex-encoded ASCII, the payload base64 with its decoded
+    length alongside — an item with no payload carries `<length>0</length>` and
+    no data element at all, which is how shairport-sync reports an rtptime it
+    did not get from the sender.
+    """
+    head = (
+        f"<item><type>{item_type.encode().hex()}</type>"
+        f"<code>{code.encode().hex()}</code>"
+        f"<length>{len(payload) if payload else 0}</length>"
+    )
+    if not payload:
+        return head + "</item>"
+    return head + f'<data encoding="base64">{base64.b64encode(payload).decode()}</data></item>'
+
+
+# === Driving and reading ===
+
+async def _on_air(world: AirPlayWorld) -> None:
+    """A phone connected and playing a Buffered stream, before any tags."""
+    await world.connects(PHONE, "iPhone de Léo")
+    await world.send(ssnc("pbeg"), ssnc("pres"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
+    assert world.playing(), "the stream never reached PLAYING"
+
+
+async def _after_the_hold(world: AirPlayWorld) -> None:
+    """Let the artwork hold run out, so what follows is the state it leaves."""
+    await world.advance(ARTWORK_SETTLE_SECONDS + 1)
+
+
+def _pushes(world: AirPlayWorld, since: int = 0) -> List[dict]:
+    """The position updates broadcast since envelope `since`."""
+    return [
+        e["data"] for e in world.recorder.envelopes[since:]
+        if e["category"] == "source" and e["type"] == "position_update"
+    ]
+
+
+def _rich(m: dict) -> bool:
+    """`useRichDisplay`'s airplay arm: title AND artist AND a cover over 300 px."""
+    return bool(m.get("title")) and bool(m.get("artist")) and (m.get("album_art_width") or 0) > 300
+
+
+class _Collector:
+    """An `on_event` for the real reader: keeps what it was told, in order."""
+
+    def __init__(self) -> None:
+        self.events: List[PipeEvent] = []
+
+    async def __call__(self, event: PipeEvent) -> None:
+        self.events.append(event)
+
+    def kinds(self) -> List[str]:
+        return [e.kind for e in self.events]
+
+
+class TestCoverPairing:
+    """Which track the cover on screen belongs to."""
+
+    async def test_a_track_and_its_cover_are_published_together(self, world):
+        """The non-triviality check the rest of this class rests on: a stream
+        that produced no cover at all would satisfy every 'has no cover'
+        assertion below."""
+        await _on_air(world)
+
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+
+        meta = world.meta()
+        assert meta["title"] == "Says"
+        assert meta["album_art_url"].startswith("/api/airplay/artwork?v=")
+        assert meta["album_art_width"] == 600
+        assert world.source.get_artwork() is not None
+
+    async def test_a_cover_that_arrives_before_its_track_is_kept(self, world):
+        """The order is the sender's to choose — two SET_PARAMETER requests,
+        nothing sequencing them. Dropping the cover on the bundle that follows
+        would delete the one that was right. Asserted after the hold, so the
+        cover is on screen because it is paired, not because it is held."""
+        await _on_air(world)
+
+        await world.send(*_picture(RTP_A, _cover("navy")))
+        await world.send(*_bundle(RTP_A, "Says"))
+        await _after_the_hold(world)
+
+        assert world.meta()["title"] == "Says"
+        assert "album_art_url" in world.meta()
+
+    async def test_a_track_that_sends_no_cover_shows_none(self, world):
+        """The defect this pairing exists for. Plenty of senders push a picture
+        for one track and nothing for the next; the cover left behind is what
+        the full-screen player draws for the whole of it.
+
+        The drop is deferred by ARTWORK_SETTLE_SECONDS, not instant — see
+        `test_the_cover_is_held_while_the_next_one_is_still_in_flight` for what
+        that window is for. What this pins is that the window *ends*: a hold
+        that never expired would be the whole-track-stale-cover bug again."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+
+        await world.send(*_bundle(RTP_B, "Toilet Brush"))
+        await _after_the_hold(world)
+
+        meta = world.meta()
+        assert meta["title"] == "Toilet Brush"
+        assert "album_art_url" not in meta
+        assert "album_art_width" not in meta
+
+    async def test_a_cover_stamped_for_the_previous_track_is_not_adopted(self, world):
+        """The stamp is the whole rule: a picture in hand is not this track's
+        merely because it is the most recent one — once the hold has expired."""
+        await _on_air(world)
+        await world.send(*_picture(RTP_A, _cover("navy")))
+
+        await world.send(*_bundle(RTP_B, "Toilet Brush"))
+        await _after_the_hold(world)
+
+        assert world.meta()["title"] == "Toilet Brush"
+        assert "album_art_url" not in world.meta()
+
+    async def test_a_cover_stamped_just_after_its_own_tags_is_not_dropped(self, world):
+        """The stamp is a position, not an identity, and iOS proves it.
+
+        An iPhone re-sends its bundle several times inside one track, each under
+        a fresh rtptime, and stamps the picture with one of them — so the
+        picture routinely carries a stamp a few packets *after* the last bundle
+        received, and no later bundle ever comes to meet it. Judged by equality
+        that pairing never completes: the hold expired mid-track and dropped a
+        cover that was this very track's, which the untrusted-sender gate reads
+        as "no real cover" and takes AudioPlayerFull off the screen. Measured
+        live at 11 s on the screen, four times in 95 publishes.
+
+        Asserted after the hold has run out, because before it the pending
+        settle shows the cover for the wrong reason.
+        """
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A_LATER, _cover("navy")))
+
+        await _after_the_hold(world)
+
+        meta = world.meta()
+        assert meta["title"] == "Says"
+        assert meta["album_art_url"], meta
+        assert meta["album_art_width"] == 600
+
+    async def test_a_cover_stamped_just_before_its_own_tags_is_not_dropped(self, world):
+        """The drift runs both ways, and the second direction is a Mac's.
+
+        Measured on the unit: a macOS sender opened a session stamping the
+        picture 1408 frames — 32 ms — *ahead* of the tags that followed it, and
+        nothing came after to close the gap. Judged by order alone that reads
+        as "the previous track's cover", which is what the deadline is for, so
+        the hold expired on the playing track's own sleeve and the player left
+        the screen. What tells the two apart is distance: a real track change
+        measured no nearer than 535 ms.
+        """
+        await _on_air(world)
+        await world.send(*_picture(RTP_A_EARLIER, _cover("navy")))
+        await world.send(*_bundle(RTP_A, "Says"))
+
+        await _after_the_hold(world)
+
+        meta = world.meta()
+        assert meta["title"] == "Says"
+        assert meta["album_art_url"], meta
+        assert meta["album_art_width"] == 600
+
+    async def test_a_drifting_sender_never_takes_the_player_off_the_screen(self, world):
+        """The same shape over a run, judged the way the screen judges it.
+
+        Every publish is replayed through `useRichDisplay`'s airplay arm — title
+        AND artist AND a cover over 300 px — and none of them may take it from
+        true back to false. That is the whole defect class: a display field
+        emptied while its replacement is in flight does not correct the piece of
+        UI it feeds, it removes it. Over every published state, not the last:
+        the last one was always right, which is how this survived the fix that
+        named it.
+        """
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        before = len(world.published())
+        assert _rich(world.published()[-1]), "the run starts from nothing to lose"
+
+        # The sender re-sends the same track under a fresh stamp, and its
+        # picture lands a few packets ahead of it — the measured iOS order.
+        await world.send(*_bundle(RTP_A_LATER, "Says"))
+        await world.send(*_picture(RTP_A_LATER + 1056, _cover("navy")))
+        await _after_the_hold(world)
+
+        # Only what changed is published, so the run's states are the starting
+        # one plus every change; ending rich is what makes "no unmount" count.
+        published = world.published()[before - 1:]
+        assert _rich(world.meta()), "the run ended without the player it started with"
+        unmounts = [(a, b) for a, b in zip(published, published[1:]) if _rich(a) and not _rich(b)]
+        assert not unmounts, unmounts
+
+    async def test_two_tracks_off_one_album_keep_their_cover(self, world):
+        """The same image byte for byte, so the source's dedupe short-circuits —
+        but the picture that changed nothing still moved which track the cover
+        belongs to. Recorded after the dedupe, the second track would drop to
+        its glyph on an album that has a cover: asserted after the hold, which
+        would otherwise carry it for 8 s and hide exactly that."""
+        await _on_air(world)
+        sleeve = _cover("navy")
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
+        first = world.meta()["album_art_url"]
+
+        await world.send(*_bundle(RTP_B, "Says (Live)"))
+        await world.send(*_picture(RTP_B, sleeve))
+        await _after_the_hold(world)
+
+        assert world.meta()["title"] == "Says (Live)"
+        assert world.meta()["album_art_url"] == first
+
+    async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, world):
+        """A track change must not blank the cover for the millisecond before
+        its own arrives.
+
+        The tags and the picture are two SET_PARAMETER requests in no
+        guaranteed order, so the tags-first order leaves the new stamp
+        unpaired. Publishing that gap sends a state with no `album_art_url`,
+        and `useRichDisplay`'s untrusted-sender gate reads a missing
+        `album_art_width` as "no real cover from this sender": the frontend
+        swaps AudioPlayerFull for the AudioSourceStatus card and back within
+        ~30 ms, which is visible as the player animating itself out and in.
+        Measured on a macOS sender, on every track change *and* every transport
+        action, since the sender re-sends its bundle under a fresh rtptime.
+
+        The window is what is asserted here; that it expires is asserted by
+        `test_a_track_that_sends_no_cover_shows_none`.
+        """
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        held = world.meta()["album_art_url"]
+
+        await world.send(*_bundle(RTP_B, "Toilet Brush"))
+
+        meta = world.meta()
+        assert meta["title"] == "Toilet Brush"
+        assert meta["album_art_url"] == held
+        assert meta["album_art_width"] == 600
+
+        # And the track's own picture, when it lands, takes the hold's place.
+        await world.send(*_picture(RTP_B, _cover("crimson", size=450)))
+
+        assert world.meta()["album_art_url"] != held
+        assert world.meta()["album_art_width"] == 450
+
+    async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, world):
+        """The mirror of the test above, and the same flicker.
+
+        The order is the sender's, so the picture can be the one that arrives
+        first — and then the new stamp is on the cover while the title on
+        screen is still the previous track's. A publish judging on the stamps
+        alone found them unequal and dropped `album_art_url` from that state,
+        which `useRichDisplay`'s untrusted-sender gate reads as "this sender
+        pushes no real cover": AudioPlayerFull swapped for the AudioSourceStatus
+        card and back, the player animating itself out and in.
+
+        Asserted over every published state, not the last one: the last one was
+        always right, which is why the tags-first fix left this half standing.
+        The two requests are sent apart, so the state between them is published.
+        """
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        before = len(world.published())
+
+        await world.send(*_picture(RTP_B, _cover("crimson", size=450)))
+        await world.send(*_bundle(RTP_B, "Toilet Brush"))
+
+        published = world.published()[before:]
+        assert published, "the track change published nothing to judge"
+        assert all(m.get("album_art_width") for m in published), published
+        assert world.meta()["title"] == "Toilet Brush"
+        assert world.meta()["album_art_width"] == 450
+
+    async def test_a_cover_arriving_first_off_one_album_does_not_blank_it_either(self, world):
+        """Same order, through the dedupe: the identical image re-sent under a
+        new stamp takes the early return, which published its own coverless
+        state on the way past."""
+        await _on_air(world)
+        sleeve = _cover("navy")
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
+        before = len(world.published())
+
+        await world.send(*_picture(RTP_B, sleeve))
+        await world.send(*_bundle(RTP_B, "Says (Live)"))
+
+        published = world.published()[before:]
+        assert published, "the track change published nothing to judge"
+        assert all(m.get("album_art_width") for m in published), published
+        assert world.meta()["title"] == "Says (Live)"
+
+    async def test_a_bundle_under_a_new_stamp_owns_every_tag(self, world):
+        """Nothing belonging to the previous track is published as this one's.
+
+        A bundle carries only the DAAP tags the sender put in it, so a track
+        sent without an `asar` used to be published wearing the previous
+        track's artist — under the right title, for the whole of it. The stamp
+        settles it, the same stamp the cover is paired by: a new one is a
+        different track and owns its absences too. The status card is then the
+        right screen, and it is the one the gate already picks for a sender
+        that publishes a bare title.
+        """
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says", artist="Nils Frahm"))
+
+        await world.send(*_bundle(RTP_B, "Untitled recording", artist=None))
+
+        assert world.meta()["title"] == "Untitled recording"
+        assert not world.meta().get("artist")
+
+    async def test_a_bundle_under_the_stamp_on_screen_amends_it(self, world):
+        """The other half of the same rule, and what stops it stripping a track
+        that is already right: a bundle re-sent under the stamp on screen is an
+        amendment to that track, not a new one, so the tags it does not carry
+        stay as they were."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says", artist="Nils Frahm"))
+
+        await world.send(*_bundle(RTP_A, "Says", artist=None))
+
+        assert world.meta()["artist"] == "Nils Frahm"
+
+    async def test_a_sender_without_rtp_info_keeps_what_it_had(self, world):
+        """shairport-sync tolerates a sender that sends no RTP-Info and sends
+        mdst/pcst empty, which leaves nothing to pair on. Hiding every cover
+        there would be worse than carrying one: documented, not worked around.
+        Asserted after the hold, so it is kept and not merely held."""
+        await _on_air(world)
+        await world.send(*_bundle(None, "Says"), *_picture(None, _cover("navy")))
+
+        await world.send(*_bundle(None, "Toilet Brush"))
+        await _after_the_hold(world)
+
+        assert world.meta()["title"] == "Toilet Brush"
+        assert "album_art_url" in world.meta()
 
 
 class TestSessionControl:
-    """`pbeg`/`prsm`/`pfls`/`pend` are the only thing that moves is_playing.
+    """What moves is_playing: a Buffered stream's first frame, its `paus`/`pres`,
+    and the stream ending. The session model's own scenarios — pauses timing
+    out, skips, Realtime streams — live in test_airplay_sessions.py."""
 
-    Read the module docstring before adding to this: a sender-side pause is
-    invisible on every channel the receiver has, so `pfls` and `pend` in
-    practice only arrive when the output is torn down.
-    """
+    async def test_a_stream_is_loading_until_its_first_frame(self, world):
+        """`pbeg` opens the stream; sound arrives at `pffr`, and `styp` says
+        whether the stream will report its pauses. Published as playing before
+        that, the screensaver and the lock screen ran ahead of silence."""
+        await world.connects()
+        await world.send(ssnc("pbeg"), ssnc("pres"))
 
-    async def test_play_begin_marks_the_session_playing_and_connected(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"))
-        assert source._is_playing is True
-        assert source._device_connected is True
+        assert world.active() and not world.playing()
+        assert world.meta().get("is_buffering") is True
 
-    async def test_resume_is_the_same_as_begin(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _item("ssnc", "pfls"), _item("ssnc", "prsm"))
-        assert source._is_playing is True
+        await world.send(ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
 
-    async def test_flush_pauses_without_disconnecting_the_device(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _item("ssnc", "pfls"))
-        assert source._is_playing is False
-        assert source._device_connected is True
+        assert world.playing()
+        assert not world.meta().get("is_buffering")
 
-    async def test_play_end_is_not_a_disconnection(self, wired):
+    async def test_a_flush_neither_pauses_nor_freezes_the_playhead(self, world):
+        """E54, inverted from the test this file used to carry. `pfls` (a flush)
+        was read as a pause: it cleared is_playing and froze the position under a
+        sender that never paused, and armed the auto-stop behind it. It never
+        appeared in the 2026-09-23 measurements and is no longer read: the
+        session plays on, and the pushed position keeps ageing."""
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        marker = len(world.recorder.envelopes)
+
+        await world.send(ssnc("pfls", b"12345"))
+        await world.advance(POSITION_TICK_SECONDS)
+
+        assert world.playing()
+        pushed = _pushes(world, marker)
+        assert pushed, "the playhead stopped being pushed after a flush"
+        assert pushed[-1]["position"] > 30_000
+
+    async def test_play_end_is_not_a_disconnection(self, world):
         """`pend` means the stream ended; the sender is still there until `disc`.
         Treated as a disconnect, the source would drop to READY while the phone
         still has it selected."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _item("ssnc", "pend"))
-        assert source._is_playing is False
-        assert source._device_connected is True
+        await _on_air(world)
 
-    async def test_the_published_metadata_carries_the_play_state(self, wired):
-        source, feed = wired
-        await feed(_bundle(RTP_A, "Says"), _item("ssnc", "pbeg"))
-        assert source._metadata["is_playing"] is True
-        await feed(_item("ssnc", "pfls"))
-        assert source._metadata["is_playing"] is False
+        await world.tears_the_stream_down()
 
-    async def test_the_idle_timer_is_armed_on_pause_and_on_stop(self, wired):
-        """It is the only thing that returns the source to READY: a sender that
-        stops without disconnecting would otherwise hold ACTIVE for ever, and
-        IDLE_STATES excludes ACTIVE so the 12 h sweep never gets it."""
-        source, feed = wired
-        source._start_pause_timer = Mock()
-        source._cancel_pause_timer = Mock()
-
-        await feed(_item("ssnc", "pfls"))
-        await feed(_item("ssnc", "pend"))
-        assert source._start_pause_timer.call_count == 2
-
-    async def test_playing_again_cancels_the_idle_timer(self, wired):
-        source, feed = wired
-        source._cancel_pause_timer = Mock()
-        await feed(_item("ssnc", "pbeg"))
-        source._cancel_pause_timer.assert_called_once()
+        assert world.active()
+        assert world.meta().get("client_name") == "iPhone de Léo"
+        assert world.meta().get("is_playing") is False
 
 
 class TestConnectionEvents:
     """`conn`/`disc` are AirPlay 2's own events, sent as soon as a client picks
     this output — before any audio flows — and when it lets go."""
 
-    async def test_a_client_selecting_the_output_marks_it_connected(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "conn", b"192.168.1.42"))
-        assert source._device_connected is True
-        assert source._is_playing is False, "selecting an output is not playing"
+    async def test_a_client_selecting_the_output_marks_it_connected(self, world):
+        await world.send(ssnc("conn", PHONE.encode()))
 
-    async def test_a_connection_event_with_no_address_still_counts(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "conn"))
-        assert source._device_connected is True
+        assert world.active()
+        assert world.meta().get("is_playing") is False, "selecting an output is not playing"
 
-    async def test_a_disconnection_clears_the_session_completely(self, wired):
+    async def test_a_connection_event_with_no_address_still_counts(self, world):
+        await world.send(ssnc("conn"))
+
+        assert world.active()
+
+    async def test_a_disconnection_clears_the_session_completely(self, world):
         """Anything left behind is what the next sender inherits: the previous
         phone's track and cover on screen before it has sent its own."""
-        source, feed = wired
-        await feed(_item("ssnc", "conn", b"192.168.1.42"),
-                   _bundle(RTP_A, "Says"),
-                   _picture(RTP_A, _cover("navy")),
-                   _item("ssnc", "pbeg"))
-        assert source._metadata.get("title") == "Says"
-        assert source.get_artwork() is not None
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        assert world.meta().get("title") == "Says"
+        assert world.source.get_artwork() is not None
 
-        await feed(_item("ssnc", "disc", b"192.168.1.42"))
+        await world.says_goodbye(PHONE)
 
-        assert source._device_connected is False
-        assert source._is_playing is False
-        # `_metadata` is emptied and then the publish writes the two transport
-        # flags back into it, so the check is that no *track* survives.
-        assert not {"title", "artist", "album", "album_art_url"} & set(source._metadata)
-        assert source.get_artwork() is None
-        assert source._client_name is None
+        assert not world.active()
+        meta = world.meta()
+        assert meta.get("is_playing") is False
+        assert not {"title", "artist", "album", "album_art_url", "client_name"} & set(meta)
+        assert world.source.get_artwork() is None
 
-    async def test_a_late_disconnect_does_not_tear_down_the_sender_on_air(self, wired):
+    async def test_a_late_disconnect_does_not_tear_down_the_sender_on_air(self, world):
         """A `disc` names a sender, and it can arrive after that sender is gone.
 
         Measured on the unit 2026-09-03: a phone let go at 19:12:13, the next
@@ -613,45 +562,40 @@ class TestConnectionEvents:
         came back and the card read a bare "AirPlay" instead of the sender for
         the rest of it.
         """
-        source, feed = wired
-        await feed(_item("ssnc", "conn", b"192.168.1.42"),
-                   _item("ssnc", "snam", "iPhone de Léo".encode()),
-                   _item("ssnc", "disc", b"192.168.1.42"))
-        await feed(_item("ssnc", "conn", b"192.168.1.77"),
-                   _item("ssnc", "snam", "Mac mini de Léo".encode()),
-                   _bundle(RTP_A, "Says"),
-                   _picture(RTP_A, _cover("navy")),
-                   _item("ssnc", "pbeg"))
+        await world.connects(PHONE, "iPhone de Léo")
+        await world.says_goodbye(PHONE)
+        await world.connects(MAC, "Mac mini de Léo")
+        await world.send(ssnc("pbeg"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-        await feed(_item("ssnc", "disc", b"192.168.1.42"))
+        await world.says_goodbye(PHONE)
 
-        assert source._client_name == "Mac mini de Léo"
-        assert source._device_connected is True
-        assert source._is_playing is True
-        assert source._metadata.get("title") == "Says"
-        assert source.get_artwork() is not None
+        meta = world.meta()
+        assert meta.get("client_name") == "Mac mini de Léo"
+        assert world.playing()
+        assert meta.get("title") == "Says"
+        assert meta.get("album_art_url")
+        assert world.source.get_artwork() is not None
 
-    async def test_a_disconnect_with_no_address_still_ends_the_session(self, wired):
+    async def test_a_disconnect_with_no_address_still_ends_the_session(self, world):
         """Nothing tells two senders apart then, so the teardown stands — the
         trade that keeps a sender shairport reports no address for from holding
         the source ACTIVE for ever."""
-        source, feed = wired
-        await feed(_item("ssnc", "conn", b"192.168.1.42"),
-                   _bundle(RTP_A, "Says"),
-                   _item("ssnc", "pbeg"))
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"))
 
-        await feed(_item("ssnc", "disc"))
+        await world.send(ssnc("disc"))
 
-        assert source._device_connected is False
-        assert not {"title", "artist"} & set(source._metadata)
+        assert not world.active()
+        assert not {"title", "artist"} & set(world.meta())
 
-    async def test_the_client_name_is_published_as_the_source_label(self, wired):
+    async def test_the_client_name_is_published_as_the_source_label(self, world):
         """`snam` is X-Apple-Client-Name; it is what the source bar shows
         instead of a bare "AirPlay"."""
-        source, feed = wired
-        await feed(_item("ssnc", "snam", "Mac mini de Léo".encode()))
-        assert source._client_name == "Mac mini de Léo"
-        assert source._device_connected is True
+        await world.send(ssnc("snam", "Mac mini de Léo".encode()))
+
+        assert world.active()
+        assert world.meta().get("client_name") == "Mac mini de Léo"
 
 
 class TestTheDaemonDyingUnderTheSession:
@@ -663,253 +607,249 @@ class TestTheDaemonDyingUnderTheSession:
     audio back — and the source sat ACTIVE on "Pavilion" with is_playing true
     and a playhead frozen at 396000/396000 while the ALSA loopback read
     `closed`. Permanently: IDLE_STATES excludes ACTIVE so the 12 h sweep never
-    reclaims it, and the auto-stop timer is armed only by `pfls`/`pend`. It
-    reached AudioPlayerFull and the iPhone lock screen.
+    reclaims it, and nothing but a pause armed the auto-stop. It reached
+    AudioPlayerFull and the iPhone lock screen. The session now belongs to the
+    daemon's process (the base's pidfd watch).
     """
 
-    @staticmethod
-    async def _a_pid_that_has_exited() -> int:
-        """A real pid, really gone — reaped, so /proc no longer carries it."""
-        proc = await asyncio.create_subprocess_exec("true")
-        await proc.wait()
-        return proc.pid
+    async def test_a_dead_daemon_drops_the_session_and_says_so(self, world):
+        """The track and the cover go with it: left on the wire they are what
+        the lock screen keeps drawing over a daemon that no longer holds them."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-    @staticmethod
-    def _with_daemon(source, pid):
-        source._service_manager = Mock()
-        source._service_manager.main_pid = AsyncMock(return_value=pid)
+        await world.kill_daemon()
 
-    async def test_a_dead_daemon_drops_the_session_and_says_so(self, wired):
-        source, feed = wired
-        self._with_daemon(source, await self._a_pid_that_has_exited())
-        source.broadcast_error = Mock()
-        await feed(_item("ssnc", "conn", b"192.168.1.42"),
-                   _bundle(RTP_A, "Says"),
-                   _picture(RTP_A, _cover("navy")),
-                   _item("ssnc", "pbeg"))
-        assert source._device_connected is True
+        assert not world.active()
+        meta = world.meta()
+        assert meta.get("is_playing") is False
+        assert not {"title", "artist", "album", "album_art_url"} & set(meta)
+        assert world.source.get_artwork() is None
+        assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            for _ in range(200):
-                await asyncio.sleep(0.01)
-                if not source._device_connected:
-                    break
-            source._cancel_position_ticker()
+    async def test_a_session_after_a_source_restart_is_watched_against_the_new_daemon(self, world):
+        """A daemon kept across a source stop is a daemon that is dead when the
+        source comes back — and its death would read as the *new* session's
+        daemon having died, tearing down audible playback with a banner. And
+        the other way round: the new session must be watched at all, or a kill
+        of the new daemon would leave it ACTIVE for ever."""
+        await _on_air(world)
+        await world.leave()
+        await world.select()
 
-        assert source._device_connected is False
-        assert source._is_playing is False
-        assert not {"title", "artist", "album", "album_art_url"} & set(source._metadata)
-        assert source.get_artwork() is None
-        source.broadcast_error.assert_called_once_with(
-            SourceErrorReason.STREAM_DISCONNECTED
-        )
+        await _on_air(world)
+        await world.advance(3 * POSITION_TICK_SECONDS)
+        assert world.playing()
+        assert world.errors() == []
 
-    async def test_a_stopped_source_forgets_which_daemon_it_was_watching(self, wired):
-        """A pid kept across a source stop is a pid that will be dead when the
-        source comes back — and the ticker would read that as the *new*
-        session's daemon having died, tearing down audible playback with a
-        banner. `_reset_playback_state` runs on every `_do_start`.
-        """
-        source, feed = wired
-        self._with_daemon(source, await self._a_pid_that_has_exited())
-        await feed(_item("ssnc", "conn", b"192.168.1.42"))
-        assert source._daemon_pid is not None
+        await world.kill_daemon()
+        assert not world.active()
+        assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
-        source._reset_playback_state()
-
-        assert source._daemon_pid is None
-
-    async def test_a_session_that_never_saw_conn_is_still_watched(self, wired):
+    async def test_a_session_that_never_saw_conn_is_still_watched(self, world):
         """`conn` is not guaranteed first, or at all.
 
-        Three other messages open a session — a metadata bundle, the client
-        name, a play state — and each sets `_device_connected`. If only `conn`
-        recorded the daemon, a session opened by any of them would be watched
-        against the pid the previous session left behind.
+        Two other messages open a session — the client name and a stream
+        beginning (tags or a cover with no session are leftovers of one that
+        ended). If only `conn` bound the session to its daemon, a session
+        opened by either would never learn the daemon died.
         """
-        source, feed = wired
-        self._with_daemon(source, os.getpid())
+        await world.send(ssnc("pbeg"), *_bundle(RTP_A, "Says"))
+        assert world.active()
 
-        await feed(_bundle(RTP_A, "Says"))
+        await world.kill_daemon()
 
-        assert source._device_connected is True
-        assert source._daemon_pid == os.getpid()
+        assert not world.active()
+        assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
-    async def test_a_reconnect_takes_the_banner_down(self, wired):
+    async def test_a_reconnect_takes_the_banner_down(self, world):
         """This source raises exactly one error, and it is the one above.
 
         Nothing else clears it: AirPlay had no `broadcast_error` at all before
         the guard, so the banner it raises had no answering event and would
         have sat over a sender that came back fine.
         """
-        source, feed = wired
-        source.state_machine = Mock()
-        broadcast = source.state_machine.broadcast
-        self._with_daemon(source, await self._a_pid_that_has_exited())
-        await feed(_item("ssnc", "conn", b"192.168.1.42"), _item("ssnc", "pbeg"))
+        await _on_air(world)
+        await world.kill_daemon()
+        await world.systemd_restarts_it()
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            for _ in range(200):
-                await asyncio.sleep(0.01)
-                if not source._device_connected:
-                    break
-            source._cancel_position_ticker()
-        assert SourceError in [type(c.args[0]) for c in broadcast.call_args_list]
+        await world.connects()
 
-        self._with_daemon(source, os.getpid())
-        await feed(_item("ssnc", "conn", b"192.168.1.42"))
+        types = [e["type"] for e in world.recorder.envelopes if e["category"] == "source"]
+        assert "error" in types
+        assert "error_cleared" in types[types.index("error"):], "the banner outlived its cause"
 
-        assert SourceErrorCleared in [type(c.args[0]) for c in broadcast.call_args_list]
+    async def test_a_living_daemon_is_left_alone(self, world):
+        """The complement, and the one that matters most: a session on a healthy
+        daemon runs through tick after tick, so a guard that fired wrongly would
+        tear it down every POSITION_TICK_SECONDS."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), _progress(0, 30, 300))
 
-    async def test_a_living_daemon_is_left_alone(self, wired):
-        """The complement, and the one that matters most: this runs on every
-        tick of a healthy session, so a guard that fired wrongly would tear the
-        session down every POSITION_TICK_SECONDS."""
-        source, feed = wired
-        self._with_daemon(source, os.getpid())
-        source.broadcast_error = Mock()
-        await feed(_item("ssnc", "conn", b"192.168.1.42"),
-                   _bundle(RTP_A, "Says"),
-                   _item("ssnc", "pbeg"),
-                   _progress(0, 30, 300))
+        await world.advance(5 * POSITION_TICK_SECONDS)
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            await asyncio.sleep(0.15)
-            source._cancel_position_ticker()
+        assert world.playing()
+        assert world.meta().get("title") == "Says"
+        assert world.errors() == []
 
-        assert source._device_connected is True
-        assert source._metadata.get("title") == "Says"
-        source.broadcast_error.assert_not_called()
+    async def test_a_source_that_cannot_name_its_daemon_claims_nothing(self, world):
+        """A dev host injects no systemd manager, and a manager can fail to
+        answer. Failing open is the rule: an unanswerable question is not
+        evidence the session died."""
+        world.systemd.main_pid = AsyncMock(side_effect=OSError("no systemd here"))
+        await _on_air(world)
 
-    async def test_a_source_that_cannot_name_its_daemon_claims_nothing(self, wired):
-        """A dev host injects no systemd manager. Failing open is the rule:
-        an unanswerable question is not evidence the session died."""
-        source, feed = wired  # no _service_manager wired
-        source.broadcast_error = Mock()
-        await feed(_item("ssnc", "conn", b"192.168.1.42"), _item("ssnc", "pbeg"))
-        assert source._daemon_pid is None
+        await world.advance(5 * POSITION_TICK_SECONDS)
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            await asyncio.sleep(0.1)
-            source._cancel_position_ticker()
-
-        assert source._device_connected is True
-        source.broadcast_error.assert_not_called()
+        assert world.playing()
+        assert world.errors() == []
 
 
 class TestProgress:
     """`prgr` carries three RTP frame counts. It arrives every 5-15 s, not
-    continuously, so what is stored is a snapshot plus the time it was taken."""
+    continuously, so what is kept is a snapshot plus the time it was taken."""
 
-    async def test_a_snapshot_becomes_a_position_and_a_duration_in_ms(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        assert source._duration_ms == 300_000
-        assert abs(source._position_ms - 30_000) < 50
+    async def test_a_snapshot_becomes_a_position_and_a_duration_in_ms(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
 
-    async def test_a_track_that_does_not_start_at_zero_is_measured_from_its_start(self, wired):
+        assert world.meta()["duration"] == 300_000
+        assert abs(world.meta()["position"] - 30_000) < 50
+
+    async def test_a_track_that_does_not_start_at_zero_is_measured_from_its_start(self, world):
         """`start` is the track's own first frame, not the session's: a stream
         running for an hour has huge frame counts, and reading `current` as an
         absolute would show the position as the session's age."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(3600, 3610, 3900))
-        assert source._duration_ms == 300_000
-        assert abs(source._position_ms - 10_000) < 50
+        await _on_air(world)
+        await world.send(_progress(3600, 3610, 3900))
 
-    async def test_a_snapshot_that_makes_no_sense_is_ignored(self, wired):
+        assert world.meta()["duration"] == 300_000
+        assert abs(world.meta()["position"] - 10_000) < 50
+
+    async def test_a_snapshot_that_makes_no_sense_is_ignored(self, world):
         """`end <= start` is a zero-length track; taken at face value it makes
         the duration 0 and every position clamp to it."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        await feed(_progress(500, 500, 500))
-        assert source._duration_ms == 300_000
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
 
-    async def test_a_jump_is_broadcast_at_once(self, wired):
+        await world.send(_progress(500, 500, 500))
+
+        assert world.meta()["duration"] == 300_000
+
+    async def test_a_jump_is_broadcast_at_once(self, world):
         """A track change or a seek is an arbitrarily large move that the
         clients' local interpolation cannot guess."""
-        source, feed = wired
-        source.broadcast_position_update = Mock()
-        await feed(_item("ssnc", "pbeg"), _progress(0, 0, 300))
-        source.broadcast_position_update.reset_mock()
+        await _on_air(world)
+        await world.send(_progress(0, 0, 300))
+        marker = len(world.recorder.envelopes)
 
-        await feed(_progress(0, 200, 300))
-        source.broadcast_position_update.assert_called_once()
-        assert source.broadcast_position_update.call_args[0][0] > 199_000
+        await world.send(_progress(0, 200, 300))
 
-    async def test_a_snapshot_that_only_confirms_the_interpolation_is_not_broadcast(self, wired):
+        pushed = _pushes(world, marker)
+        assert len(pushed) == 1
+        assert pushed[0]["position"] > 199_000
+
+    async def test_a_snapshot_that_only_confirms_the_interpolation_is_not_broadcast(self, world):
         """A sender that emits `prgr` often would otherwise flood every
         connected client with values they had already worked out."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 100, 300))
-        source.broadcast_position_update = Mock()
+        await _on_air(world)
+        await world.send(_progress(0, 100, 300))
+        marker = len(world.recorder.envelopes)
 
         within = (POSITION_JUMP_TOLERANCE_MS / 1000) / 2
-        await feed(_progress(0, 100 + within, 300))
-        source.broadcast_position_update.assert_not_called()
+        await world.send(_progress(0, 100 + within, 300))
 
-    async def test_the_position_ages_while_the_track_plays(self, wired):
+        assert _pushes(world, marker) == []
+
+    async def test_the_position_ages_while_the_track_plays(self, world):
         """`prgr` is 5-15 s apart, so between two of them the position has to be
         derived from the clock or the bar stops."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        taken = source._current_position_ms()
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        taken = world.meta()["position"]
+        marker = len(world.recorder.envelopes)
 
-        source._position_at -= 5.0            # five seconds of wall clock
-        assert source._current_position_ms() - taken >= 4900
+        await world.advance(POSITION_TICK_SECONDS)
 
-    async def test_the_aged_position_never_runs_past_the_track(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        source._position_at -= 10_000.0
-        assert source._current_position_ms() == source._duration_ms
+        pushed = _pushes(world, marker)
+        assert pushed, "nothing pushed the aged position"
+        assert pushed[-1]["position"] - taken >= POSITION_TICK_SECONDS * 1000 - 100
+        assert world.meta()["position"] == pushed[-1]["position"]
 
-    async def test_a_paused_position_keeps_what_it_had_aged_to(self, wired):
+    async def test_the_aged_position_never_runs_past_the_track(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 295, 300))
+        marker = len(world.recorder.envelopes)
+
+        await world.advance(3 * POSITION_TICK_SECONDS)
+
+        pushed = _pushes(world, marker)
+        assert pushed, "nothing pushed the aged position"
+        assert all(p["position"] <= p["duration"] for p in pushed), pushed
+        assert pushed[-1]["position"] == pushed[-1]["duration"]
+
+    async def test_a_paused_position_keeps_what_it_had_aged_to(self, world):
         """The clock is moved on between the snapshot and the pause on purpose:
         with the two at the same instant, a freeze that forgot to bank the aged
         value would look identical to one that banked it."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        source._position_at -= 5.0            # five seconds of playing
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        await world.advance(5)                   # five seconds of playing
 
-        await feed(_item("ssnc", "pfls"))
+        await world.pauses()
 
-        assert source._position_at is None
-        frozen = source._current_position_ms()
-        assert frozen >= 34_900, \
-            f"the pause discarded the five seconds that had played: {frozen} ms"
-        time.sleep(0.05)
-        assert source._current_position_ms() == frozen
+        frozen = world.meta()["position"]
+        assert frozen >= 34_900, f"the pause discarded the five seconds that had played: {frozen} ms"
+        marker = len(world.recorder.envelopes)
+        await world.advance(30)
+        await world.send(ssnc("snam", "iPhone de Léo".encode()))   # any publish
+        assert world.meta()["position"] == frozen
+        assert _pushes(world, marker) == []
 
-    async def test_playing_again_resumes_ageing_from_the_frozen_point(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300),
-                   _item("ssnc", "pfls"))
-        frozen = source._position_ms
-        await feed(_item("ssnc", "prsm"))
+    async def test_playing_again_resumes_ageing_from_the_frozen_point(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        await world.pauses()
+        frozen = world.meta()["position"]
+        await world.advance(30)
 
-        assert source._position_at is not None
-        assert source._position_ms == frozen, "resuming restarted the track"
+        await world.resumes()
 
-    async def test_a_snapshot_taken_while_paused_does_not_start_ageing(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pfls"), _progress(0, 30, 300))
-        assert source._position_at is None
+        resumed = world.meta()["position"]
+        assert frozen <= resumed < frozen + 1000, "resuming restarted or skipped the track"
+        marker = len(world.recorder.envelopes)
+        await world.advance(POSITION_TICK_SECONDS)
+        pushed = _pushes(world, marker)
+        assert pushed and pushed[-1]["position"] > resumed + 5_000, "the playhead stayed frozen"
 
-    async def test_a_malformed_progress_payload_is_ignored(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        await feed(_item("ssnc", "prgr", b"not/a/number"))
-        assert source._duration_ms == 300_000
+    async def test_a_snapshot_taken_while_paused_does_not_start_ageing(self, world):
+        await _on_air(world)
+        await world.pauses()
+        await world.send(_progress(0, 30, 300))
+        taken = world.meta()["position"]
 
-    async def test_a_progress_payload_of_the_wrong_shape_is_ignored(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        await feed(_item("ssnc", "prgr", b"12345"))
-        assert source._duration_ms == 300_000
+        await world.advance(30)
+        await world.send(ssnc("snam", "iPhone de Léo".encode()))   # any publish
+
+        assert world.meta()["position"] == taken
+
+    async def test_a_malformed_progress_payload_is_ignored(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+
+        await world.send(ssnc("prgr", b"not/a/number"))
+
+        assert world.meta()["duration"] == 300_000
+        assert world.playing()
+
+    async def test_a_progress_payload_of_the_wrong_shape_is_ignored(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+
+        await world.send(ssnc("prgr", b"12345"))
+
+        assert world.meta()["duration"] == 300_000
+        assert world.playing()
 
 
 class TestThePositionTicker:
@@ -917,156 +857,173 @@ class TestThePositionTicker:
     connection's initial_state can be — a page refresh mid-track seeds its bar
     from `system_state.metadata["position"]`."""
 
-    async def test_it_pushes_the_aged_position_while_a_track_plays(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300))
-        source.broadcast_position_update = Mock()
+    async def test_it_pushes_the_aged_position_while_a_track_plays(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        marker = len(world.recorder.envelopes)
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            for _ in range(200):
-                await asyncio.sleep(0.01)
-                if source.broadcast_position_update.call_count >= 2:
-                    break
-            source._cancel_position_ticker()
+        await world.advance(2 * POSITION_TICK_SECONDS)
 
-        assert source.broadcast_position_update.call_count >= 2
-        position, duration = source.broadcast_position_update.call_args[0]
-        assert duration == 300_000
-        assert position >= 30_000
+        pushed = _pushes(world, marker)
+        assert len(pushed) >= 2
+        assert pushed[-1]["duration"] == world.meta()["duration"]
+        assert pushed[-1]["position"] > pushed[0]["position"] > 30_000
 
-    async def test_it_stays_quiet_while_nothing_is_playing(self, wired):
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"), _progress(0, 30, 300), _item("ssnc", "pfls"))
-        source.broadcast_position_update = Mock()
+    async def test_it_stays_quiet_while_nothing_is_playing(self, world):
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        await world.pauses()
+        marker = len(world.recorder.envelopes)
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            await asyncio.sleep(0.1)
-            source._cancel_position_ticker()
+        await world.advance(6 * POSITION_TICK_SECONDS)
 
-        source.broadcast_position_update.assert_not_called()
+        assert _pushes(world, marker) == []
 
-    async def test_it_stays_quiet_for_a_track_of_unknown_length(self, wired):
-        """A sender that never sends `prgr` leaves duration at 0; broadcasting
-        that would seed every new client's bar with a zero-length track."""
-        source, feed = wired
-        await feed(_item("ssnc", "pbeg"))
-        source.broadcast_position_update = Mock()
+    async def test_it_stays_quiet_for_a_track_of_unknown_length(self, world):
+        """A sender that never sends `prgr` leaves the duration unknown;
+        broadcasting that would seed every new client's bar with a zero-length
+        track."""
+        await _on_air(world)
+        marker = len(world.recorder.envelopes)
 
-        with patch("backend.sources.airplay.source.POSITION_TICK_SECONDS", 0.01):
-            source._start_position_ticker()
-            await asyncio.sleep(0.1)
-            source._cancel_position_ticker()
+        await world.advance(6 * POSITION_TICK_SECONDS)
 
-        source.broadcast_position_update.assert_not_called()
+        assert _pushes(world, marker) == []
+        assert "duration" not in world.meta()
 
-    async def test_starting_it_twice_cancels_the_first(self, wired):
-        """`_do_restart` starts it again. Two live tickers double every position
-        broadcast, and only the second is ever cancelled — the first outlives
-        the source and goes on publishing into a stopped session."""
-        source, _feed = wired
-        source._start_position_ticker()
-        first = source._position_task
-        source._start_position_ticker()
-        assert source._position_task is not first
+    async def test_transport_actions_never_stack_a_second_ticker(self, world):
+        """Every pause and resume stops and restarts the ticker. Two live tickers
+        double every position broadcast, and only one of them is ever stopped —
+        the other outlives the pause, or the session, and goes on publishing."""
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        for _ in range(3):
+            await world.pauses()
+            await world.resumes()
+        marker = len(world.recorder.envelopes)
 
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.wait_for(first, 2.0)
-        assert first.cancelled(), "the previous ticker was left running"
-        source._cancel_position_ticker()
+        await world.advance(3 * POSITION_TICK_SECONDS + 1)
 
-    async def test_cancelling_it_when_none_runs_is_harmless(self, wired):
-        source, _feed = wired
-        source._cancel_position_ticker()
-        assert source._position_task is None
+        assert len(_pushes(world, marker)) == 3
+
+    async def test_a_stopped_source_pushes_no_position(self, world):
+        """Left running, the ticker goes on broadcasting a position for a source
+        that is no longer active."""
+        await _on_air(world)
+        await world.send(_progress(0, 30, 300))
+        await world.leave()
+        marker = len(world.recorder.envelopes)
+
+        await world.advance(6 * POSITION_TICK_SECONDS)
+
+        assert _pushes(world, marker) == []
 
 
 class TestTheWireFormat:
-    """`_parse_item` reads what rtsp.c writes. Its refusals matter because a
+    """The reader parses what rtsp.c writes. Its refusals matter because a
     malformed item must not take the reader down with it — the loop that feeds
     it is the only thing that ever hears from the sender."""
 
-    async def test_an_item_missing_its_code_is_dropped(self, wired):
-        source, feed = wired
-        await feed("<item><type>73736e63</type><length>0</length></item>",
-                   _item("ssnc", "pbeg"))
-        assert source._is_playing is True, "a malformed item stopped the stream"
+    async def test_an_item_missing_its_code_is_dropped(self):
+        heard = _Collector()
+        reader = MetadataReader("/nonexistent", on_event=heard)
 
-    async def test_a_declared_length_of_zero_means_no_payload(self, wired):
+        await reader._process_buffer((
+            "<item><type>73736e63</type><length>0</length></item>" + _item("ssnc", "pbeg")
+        ).encode())
+
+        assert heard.kinds() == ["stream_begin"], "a malformed item stopped the stream"
+
+    async def test_a_declared_length_of_zero_means_no_payload(self):
         """rtsp.c writes `<length>0</length>` and no data element when the
         sender gave it no rtptime — that is how an un-stamped bundle arrives."""
-        source, feed = wired
-        await feed(_bundle(None, "Says"))
-        assert source._metadata.get("title") == "Says"
-        assert source._track_id is None
+        heard = _Collector()
+        reader = MetadataReader("/nonexistent", on_event=heard)
 
-    async def test_a_payload_that_is_not_base64_is_treated_as_absent(self, wired):
-        source, feed = wired
-        await feed("<item><type>73736e63</type><code>736e616d</code>"
-                   "<length>4</length><data encoding=\"base64\">!!!not!!!</data></item>",
-                   _item("ssnc", "pbeg"))
-        assert source._is_playing is True
+        await reader._process_buffer("".join(_item(*i) for i in _bundle(None, "Says")).encode())
 
-    async def test_a_type_that_is_not_hex_text_is_carried_through_verbatim(self):
+        assert heard.kinds() == ["tags"]
+        assert heard.events[0].value.get("title") == "Says"
+        assert heard.events[0].rtptime is None
+
+    async def test_a_payload_that_is_not_base64_is_treated_as_absent(self):
+        """A client name whose payload does not decode carries nothing, and the
+        item after it is still heard."""
+        heard = _Collector()
+        reader = MetadataReader("/nonexistent", on_event=heard)
+
+        await reader._process_buffer((
+            "<item><type>73736e63</type><code>736e616d</code>"
+            "<length>4</length><data encoding=\"base64\">!!!not!!!</data></item>"
+            + _item("ssnc", "pbeg")
+        ).encode())
+
+        assert heard.kinds() == ["stream_begin"]
+
+    def test_a_type_that_is_not_hex_text_is_carried_through_verbatim(self):
         """`_hex_to_str` falls back to the raw string rather than raising, so an
         item the receiver does not understand is skipped and not fatal."""
-        from backend.sources.airplay.metadata_reader import _hex_to_str
         assert _hex_to_str("73736e63") == "ssnc"
         assert _hex_to_str("zzzz") == "zzzz"
         assert _hex_to_str("ffff") == "ffff"
 
-    async def test_a_split_item_is_completed_by_the_next_read(self, wired, tmp_path):
+    async def test_a_split_item_is_completed_by_the_next_read(self):
         """The pipe hands over 64 KiB at a time, so an item is routinely cut in
-        half. Dropping the remainder loses one tag in every bufferful."""
-        reader = _Reader(str(tmp_path / "p"), on_metadata=AsyncMock(),
-                         on_play_state=AsyncMock(), on_artwork=AsyncMock())
-        whole = _item("core", "minm", b"Says").encode()
+        half. Dropping the remainder loses one item in every bufferful."""
+        heard = _Collector()
+        reader = MetadataReader("/nonexistent", on_event=heard)
+        whole = _item("ssnc", "snam", "Mac mini de Léo".encode()).encode()
         cut = len(whole) // 2
 
         left = await reader._process_buffer(whole[:cut])
         assert left == whole[:cut], "an incomplete item was thrown away"
+        assert heard.events == []
+
         assert await reader._process_buffer(left + whole[cut:]) == b""
-        assert reader._pending_metadata["title"] == "Says"
+        assert heard.kinds() == ["client_name"]
+        assert heard.events[0].value == "Mac mini de Léo"
 
-    async def test_the_tags_a_sender_can_send_all_land(self, wired):
-        source, feed = wired
-        await feed(
-            _item("ssnc", "mdst", RTP_A.encode()),
-            _item("core", "minm", b"Says"),
-            _item("core", "asar", b"Nils Frahm"),
-            _item("core", "asal", b"Spaces"),
-            _item("core", "asgn", b"Modern Classical"),
-            _item("ssnc", "mden", RTP_A.encode()),
+    async def test_the_tags_a_sender_can_send_all_land(self, world):
+        await _on_air(world)
+
+        await world.send(
+            ssnc("mdst", _stamp(RTP_A)),
+            ("core", "minm", b"Says"),
+            ("core", "asar", b"Nils Frahm"),
+            ("core", "asal", b"Spaces"),
+            ("core", "asgn", b"Modern Classical"),
+            ssnc("mden", _stamp(RTP_A)),
         )
-        assert source._metadata["title"] == "Says"
-        assert source._metadata["artist"] == "Nils Frahm"
-        assert source._metadata["album"] == "Spaces"
 
-    async def test_a_bundle_that_gathered_nothing_is_not_published_as_a_track(self, wired):
-        """An empty mdst/mden pair is routine. The title survives it either way
-        — `_on_metadata_update` falls back to what is already there — so what
-        actually separates the two is the PAIRING: published, the empty bundle
-        stamps the session with a new rtptime, and the cover that belongs to the
-        track still on screen is dropped for the rest of it.
+        meta = world.meta()
+        assert meta["title"] == "Says"
+        assert meta["artist"] == "Nils Frahm"
+        assert meta["album"] == "Spaces"
+
+    async def test_a_bundle_that_gathered_nothing_is_not_published_as_a_track(self, world):
+        """An empty mdst/mden pair is routine. What it must not do is re-stamp
+        the track on screen: published as a bundle, it would carry a new rtptime,
+        and the cover that belongs to the track still playing would be dropped
+        for the rest of it once the hold ran out.
         """
-        source, feed = wired
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-        assert source._metadata.get("album_art_url"), "no cover to lose"
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        assert world.meta().get("album_art_url"), "no cover to lose"
 
-        await feed(_item("ssnc", "mdst", RTP_B.encode()),
-                   _item("ssnc", "mden", RTP_B.encode()))
+        await world.send(ssnc("mdst", _stamp(RTP_B)), ssnc("mden", _stamp(RTP_B)))
+        await _after_the_hold(world)
 
-        assert source._metadata["title"] == "Says"
-        assert source._track_id == RTP_A, "an empty bundle re-stamped the track"
-        assert source._metadata.get("album_art_url"), \
+        assert world.meta()["title"] == "Says"
+        assert world.meta().get("album_art_url"), \
             "the cover was unpaired by a bundle that carried no track"
 
-    async def test_a_picture_with_no_bytes_is_not_published_as_a_cover(self, wired):
-        source, feed = wired
-        await feed(_bundle(RTP_A, "Says"), _item("ssnc", "pcst", RTP_A.encode()),
-                   _item("ssnc", "PICT"))
-        assert source.get_artwork() is None
+    async def test_a_picture_with_no_bytes_is_not_published_as_a_cover(self, world):
+        await _on_air(world)
+
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, None))
+
+        assert world.source.get_artwork() is None
+        assert "album_art_url" not in world.meta()
 
 
 class TestTheReadLoop:
@@ -1079,10 +1036,9 @@ class TestTheReadLoop:
     async def test_it_reopens_the_pipe_when_the_writer_lets_go(self, tmp_path):
         pipe = tmp_path / "pipe"
         os.mkfifo(pipe)
-        seen = []
-        reader = _Reader(str(pipe), on_metadata=AsyncMock(),
-                         on_play_state=AsyncMock(side_effect=lambda s: seen.append(s)),
-                         on_artwork=AsyncMock())
+        heard = _Collector()
+        reader = MetadataReader(str(pipe), on_event=heard)
+
         async def write_one_session():
             """A whole AirPlay session: attach, send one item, let go.
 
@@ -1109,19 +1065,19 @@ class TestTheReadLoop:
                     f"the reader never attached for session {session + 1}"
                 for _ in range(200):
                     await asyncio.sleep(0.01)
-                    if len(seen) >= session + 1:
+                    if len(heard.events) >= session + 1:
                         break
         finally:
             await asyncio.wait_for(reader.stop(), 2.0)
 
-        assert len(seen) >= 2, "the reader did not come back after the writer left"
+        assert heard.kinds()[:2] == ["stream_begin", "stream_begin"], \
+            "the reader did not come back after the writer left"
 
     async def test_a_pipe_that_is_not_there_yet_is_waited_for(self, tmp_path, caplog):
         """shairport-sync creates it on first start; the reader may be up first,
         and giving up here means no metadata for the whole session."""
         pipe = tmp_path / "not-yet"
-        reader = _Reader(str(pipe), on_metadata=AsyncMock(),
-                         on_play_state=AsyncMock(), on_artwork=AsyncMock())
+        reader = MetadataReader(str(pipe), on_event=_Collector())
         # No patching of asyncio.sleep: `metadata_reader` does a plain
         # `import asyncio`, so replacing it there replaces it for this test's own
         # awaits too, and the reader never gets a turn. The retry sleep is 2 s,
@@ -1144,8 +1100,7 @@ class TestTheReadLoop:
         be cancelled out of that wait."""
         pipe = tmp_path / "pipe"
         os.mkfifo(pipe)
-        reader = _Reader(str(pipe), on_metadata=AsyncMock(),
-                         on_play_state=AsyncMock(), on_artwork=AsyncMock())
+        reader = MetadataReader(str(pipe), on_event=_Collector())
         await reader.start()
 
         # Attach a writer and send nothing: read() now parks instead of EOFing.
@@ -1184,85 +1139,86 @@ class TestTheReadLoop:
         assert reader._task is None
 
     async def test_stopping_it_twice_is_harmless(self, tmp_path):
-        reader = _Reader(str(tmp_path / "p"), on_metadata=AsyncMock(),
-                         on_play_state=AsyncMock(), on_artwork=AsyncMock())
+        reader = MetadataReader(str(tmp_path / "p"), on_event=_Collector())
         await reader.start()
         await asyncio.wait_for(reader.stop(), 2.0)
         await asyncio.wait_for(reader.stop(), 2.0)
         assert reader._running is False
 
     async def test_stopping_one_that_never_started_is_harmless(self, tmp_path):
-        reader = _Reader(str(tmp_path / "p"), on_metadata=AsyncMock(),
-                         on_play_state=AsyncMock(), on_artwork=AsyncMock())
+        reader = MetadataReader(str(tmp_path / "p"), on_event=_Collector())
         await asyncio.wait_for(reader.stop(), 2.0)
 
 
 class TestTheMetadataPipe:
-    """`_ensure_metadata_pipe` runs on every start. It must never be fatal:
-    shairport-sync creates the pipe itself, so failing here would stop a source
-    that would have worked."""
+    """The source makes sure the pipe exists on every start. It must never be
+    fatal: shairport-sync creates the pipe itself, so failing here would stop a
+    source that would have worked."""
 
-    async def test_a_missing_pipe_is_created(self, tmp_path):
-        source = AirPlaySource(config={"metadata_pipe": str(tmp_path / "pipe")})
-        await source._ensure_metadata_pipe()
-        assert (tmp_path / "pipe").is_fifo()
+    async def test_a_missing_pipe_is_created(self, monkeypatch, tmp_path):
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        try:
+            await world.select()
+            assert (tmp_path / "shairport-sync-metadata").is_fifo()
+        finally:
+            await world.source.shutdown()
 
-    async def test_an_existing_pipe_is_left_alone(self, tmp_path):
-        pipe = tmp_path / "pipe"
+    async def test_an_existing_pipe_is_left_alone(self, monkeypatch, tmp_path):
+        pipe = tmp_path / "shairport-sync-metadata"
         os.mkfifo(pipe)
         before = pipe.stat().st_ino
-        source = AirPlaySource(config={"metadata_pipe": str(pipe)})
-        await source._ensure_metadata_pipe()
-        assert pipe.stat().st_ino == before
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        try:
+            await world.select()
+            assert pipe.stat().st_ino == before
+        finally:
+            await world.source.shutdown()
 
-    async def test_a_directory_we_cannot_write_only_warns(self, tmp_path, caplog, monkeypatch):
+    async def test_a_directory_we_cannot_write_only_warns(self, monkeypatch, tmp_path, caplog):
         """/tmp is world-writable on the appliance, but a hardened unit is not,
         and shairport-sync running as its own user creates the pipe anyway."""
-        source = AirPlaySource(config={"metadata_pipe": str(tmp_path / "pipe")})
+        world = AirPlayWorld(monkeypatch, tmp_path)
         monkeypatch.setattr(os, "mkfifo", Mock(side_effect=PermissionError(13, "denied")))
+        try:
+            with caplog.at_level("WARNING", logger=world.source._logger.name):
+                await world.select()
+            assert any("shairport-sync" in r.message for r in caplog.records)
+            assert world.state()["source_state"] == "ready"
+        finally:
+            await world.source.shutdown()
 
-        with caplog.at_level("WARNING", logger=source._logger.name):
-            await source._ensure_metadata_pipe()
-        assert any("shairport-sync" in r.message for r in caplog.records)
-
-    async def test_a_pipe_created_between_the_check_and_the_call_is_fine(self, tmp_path, monkeypatch):
+    async def test_a_pipe_created_between_the_check_and_the_call_is_fine(self, monkeypatch, tmp_path):
         """shairport-sync may create it in that window; the race is expected."""
-        source = AirPlaySource(config={"metadata_pipe": str(tmp_path / "pipe")})
+        world = AirPlayWorld(monkeypatch, tmp_path)
         monkeypatch.setattr(os, "mkfifo", Mock(side_effect=FileExistsError()))
-        await source._ensure_metadata_pipe()      # must not raise
+        try:
+            await world.select()
+            assert world.state()["source_state"] == "ready"
+        finally:
+            await world.source.shutdown()
 
 
 class TestArtworkHandoff:
-    async def test_the_cover_is_served_with_the_type_it_arrived_as(self, wired):
-        source, feed = wired
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
-        data, mime = source.get_artwork()
+    async def test_the_cover_is_served_with_the_type_it_arrived_as(self, world):
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+
+        data, mime = world.source.get_artwork()
+
         assert data[:8] == b"\x89PNG\r\n\x1a\n"
         assert mime == "image/png"
 
-    async def test_a_jpeg_cover_is_labelled_jpeg(self, wired):
-        source, feed = wired
+    async def test_a_jpeg_cover_is_labelled_jpeg(self, world):
+        await _on_air(world)
         jpeg = b"\xff\xd8\xff\xe0" + b"J" * 2048
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, jpeg))
-        assert source.get_artwork()[1] == "image/jpeg"
 
-    async def test_no_cover_yet_is_no_answer_at_all(self, wired):
-        source, _feed = wired
-        assert source.get_artwork() is None
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, jpeg))
 
-    async def test_the_same_image_arriving_for_a_new_track_republishes_it(self, wired):
-        """Two tracks off one album send identical bytes. The dedupe skips the
-        decode, but the pairing moved — without the republish the cover belongs
-        to a track that is no longer on screen."""
-        source, feed = wired
-        cover = _cover("navy")
-        await feed(_bundle(RTP_A, "One"), _picture(RTP_A, cover))
-        publishes = []
-        source._update_connection_state = Mock(
-            side_effect=lambda: publishes.append(source._artwork_id))
+        assert world.source.get_artwork()[1] == "image/jpeg"
 
-        await feed(_bundle(RTP_B, "Two"), _picture(RTP_B, cover))
-        assert RTP_B in publishes, "the cover stayed stamped for the previous track"
+    async def test_no_cover_yet_is_no_answer_at_all(self, world):
+        await _on_air(world)
+        assert world.source.get_artwork() is None
 
 
 class TestTheArtworkRoute:
@@ -1280,140 +1236,170 @@ class TestTheArtworkRoute:
         app.include_router(setup_airplay_routes(lambda: source), prefix="/api")
         return TestClient(app)
 
-    async def test_the_cover_is_served_with_the_type_it_arrived_as(self, wired):
-        source, feed = wired
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
+    async def test_the_cover_is_served_with_the_type_it_arrived_as(self, world):
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-        resp = self._client(source).get("/api/airplay/artwork")
+        resp = self._client(world.source).get(world.meta()["album_art_url"])
 
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "image/png"
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
 
-    async def test_it_is_cached_privately_and_immutably(self, wired):
+    async def test_it_is_cached_privately_and_immutably(self, world):
         """The URL carries the content hash, so the bytes behind it never
         change; `private` keeps a shared proxy from serving one household's
         cover to another."""
-        source, feed = wired
-        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-        cache = self._client(source).get("/api/airplay/artwork").headers["cache-control"]
+        cache = self._client(world.source).get(world.meta()["album_art_url"]).headers["cache-control"]
+
         assert "private" in cache and "immutable" in cache
 
-    def test_a_sender_that_pushed_no_cover_is_a_404_and_not_an_error(self, caplog):
+    async def test_a_sender_that_pushed_no_cover_is_a_404_and_not_an_error(self, world, caplog):
         """Plenty of senders push none. Logged at ERROR this would raise the
         WebSocket error banner on an ordinary AirPlay session."""
-        source = AirPlaySource()
+        await _on_air(world)
         with caplog.at_level("ERROR", logger="backend.sources.airplay.routes"):
-            resp = self._client(source).get("/api/airplay/artwork")
+            resp = self._client(world.source).get("/api/airplay/artwork")
 
         assert resp.status_code == 404
-        assert caplog.records == []
+        assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+    async def test_a_departed_senders_cover_is_no_longer_served(self, world):
+        """The route answers for the session on air: the previous sender's
+        cover served after its goodbye is what a page still holding the old
+        URL would keep drawing."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        url = world.meta()["album_art_url"]
+
+        await world.leaves(PHONE)
+
+        assert self._client(world.source).get(url).status_code == 404
 
 
 class TestLifecycle:
-    """`_do_start` / `_do_restart` — both build the reader and start the ticker,
-    and `_do_restart` is what releases an AirPlay session so the sender lets go.
-    """
+    """Start, release and stop build and tear down the reader; a reader left
+    behind splits the pipe's byte stream with its replacement."""
 
     @staticmethod
-    def _source(tmp_path):
-        source = AirPlaySource(config={"metadata_pipe": str(tmp_path / "pipe")})
-        source._bg = Mock()
-        source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
-        source._start_service_and_wait = AsyncMock(return_value=True)
-        source._restart_service_and_wait = AsyncMock(return_value=True)
-        source._load_auto_stop_config = AsyncMock()
-        source._update_connection_state = Mock()
-        return source
+    def _counted(monkeypatch) -> list:
+        """Every reader the source builds from here on, and whether it stopped."""
+        made: list = []
+        base = airplay_module.MetadataReader
 
-    async def test_a_start_brings_up_the_reader_on_the_configured_pipe(self, tmp_path):
-        source = self._source(tmp_path)
+        class Counted(base):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                self.stopped = False
+                made.append(self)
+
+            async def stop(self):
+                self.stopped = True
+                await super().stop()
+
+        monkeypatch.setattr(airplay_module, "MetadataReader", Counted)
+        return made
+
+    async def test_a_start_reads_the_configured_pipe(self, monkeypatch, tmp_path):
+        """The whole chain on a real FIFO: the reader is built on the configured
+        path and its one callback reaches the wire. An un-wired callback
+        silently disables every branch behind it — progress, the client name
+        and the AirPlay 2 connection events all once failed that way."""
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        monkeypatch.setattr(airplay_module, "MetadataReader", MetadataReader)
+        pipe = tmp_path / "shairport-sync-metadata"
         try:
-            assert await asyncio.wait_for(source._do_start(), 2.0) is True
-            assert source._metadata_reader is not None
-            assert source._metadata_reader._pipe_path == str(tmp_path / "pipe")
-            assert (tmp_path / "pipe").is_fifo()
-            assert source._position_task is not None
-        finally:
-            await asyncio.wait_for(source._cleanup(), 2.0)
+            await world.select()
+            fd = None
+            for _ in range(200):
+                try:
+                    fd = os.open(pipe, os.O_WRONLY | os.O_NONBLOCK)
+                    break
+                except OSError:
+                    await asyncio.sleep(0.01)   # ENXIO: no reader attached yet
+            assert fd is not None, "nothing reads the configured pipe"
+            try:
+                os.write(fd, (
+                    _item("ssnc", "conn", PHONE.encode())
+                    + _item("ssnc", "snam", "iPhone de Léo".encode())
+                ).encode())
+                for _ in range(200):
+                    await asyncio.sleep(0.01)
+                    if world.meta().get("client_name"):
+                        break
+            finally:
+                os.close(fd)
 
-    async def test_every_callback_is_wired_or_the_arm_behind_it_is_dead(self, tmp_path):
-        """Four of the seven are optional in the reader's signature, and an
-        un-wired one silently disables its whole branch — progress, the client
-        name, and the AirPlay 2 connection events all failed that way."""
-        source = self._source(tmp_path)
+            assert world.active()
+            assert world.meta().get("client_name") == "iPhone de Léo"
+        finally:
+            await world.leave()
+            await world.source.shutdown()
+
+    async def test_a_service_that_will_not_start_builds_no_reader(self, monkeypatch, tmp_path):
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        made = self._counted(monkeypatch)
+        world.systemd.start = AsyncMock(return_value=False)
         try:
-            await asyncio.wait_for(source._do_start(), 2.0)
-            r = source._metadata_reader
-            assert r._on_metadata == source._on_metadata_update
-            assert r._on_play_state == source._on_play_state
-            assert r._on_artwork == source._on_artwork
-            assert r._on_progress == source._on_progress
-            assert r._on_client_name == source._on_client_name
-            assert r._on_connection == source._on_connection
+            await world.select()
+            assert world.state()["source_state"] == "error"
+            assert made == []
         finally:
-            await asyncio.wait_for(source._cleanup(), 2.0)
+            await world.source.shutdown()
 
-    async def test_a_service_that_will_not_start_builds_no_reader(self, tmp_path):
-        source = self._source(tmp_path)
-        source._start_service_and_wait = AsyncMock(return_value=False)
-        assert await asyncio.wait_for(source._do_start(), 2.0) is False
-        assert source._metadata_reader is None
+    async def test_a_start_that_blows_up_tears_down_rather_than_half_starting(
+        self, monkeypatch, tmp_path
+    ):
+        """A reader that fails to start is stopped, not left holding the pipe
+        under a source that reported the start failed."""
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        made = self._counted(monkeypatch)
+        refusing = airplay_module.MetadataReader
 
-    async def test_a_start_that_blows_up_tears_down_rather_than_half_starting(self, tmp_path):
-        source = self._source(tmp_path)
-        source._load_auto_stop_config = AsyncMock(side_effect=RuntimeError("settings gone"))
-        source._cleanup = AsyncMock()
+        class Refusing(refusing):
+            async def start(self):
+                raise OSError("the pipe went away")
 
-        assert await asyncio.wait_for(source._do_start(), 2.0) is False
-        source._cleanup.assert_awaited_once()
+        monkeypatch.setattr(airplay_module, "MetadataReader", Refusing)
+        try:
+            await world.select()
+            assert world.state()["source_state"] == "error"
+            assert len(made) == 1 and made[0].stopped
+        finally:
+            await world.source.shutdown()
 
-    async def test_a_restart_replaces_the_reader_instead_of_stacking_one(self, tmp_path):
+    async def test_a_reroute_replaces_the_reader_instead_of_stacking_one(self, monkeypatch, tmp_path):
         """Two readers on one pipe split the byte stream between them and every
         item is parsed by whichever got that chunk."""
-        source = self._source(tmp_path)
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        made = self._counted(monkeypatch)
         try:
-            await asyncio.wait_for(source._do_start(), 2.0)
-            first = source._metadata_reader
+            await world.select()
+            await _on_air(world)
 
-            assert await asyncio.wait_for(source._do_restart(), 2.0) is True
-            assert source._metadata_reader is not first
-            assert first._running is False
+            await world.reroute()
+
+            assert len(made) == 2
+            assert made[0].stopped and not made[1].stopped
+            await world.connects(MAC, "Mac mini de Léo")
+            assert world.meta().get("client_name") == "Mac mini de Léo"
         finally:
-            await asyncio.wait_for(source._cleanup(), 2.0)
+            await world.source.shutdown()
 
-    async def test_a_restart_clears_the_previous_session(self, tmp_path):
-        source = self._source(tmp_path)
-        source._metadata = {"title": "Says"}
-        source._device_connected = True
-        source._artwork_data = b"x"
+    async def test_leaving_the_source_stops_the_reader(self, monkeypatch, tmp_path):
+        """Left running, the reader holds the pipe open for a source that is
+        off, and hears a sender that nothing will publish."""
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        made = self._counted(monkeypatch)
         try:
-            await asyncio.wait_for(source._do_restart(), 2.0)
-            assert source._device_connected is False
-            assert source.get_artwork() is None
+            await world.select()
+            await _on_air(world)
+
+            await world.leave()
+
+            assert len(made) == 1 and made[0].stopped
         finally:
-            await asyncio.wait_for(source._cleanup(), 2.0)
-
-    async def test_a_service_that_will_not_restart_gives_up_before_the_reader(self, tmp_path):
-        source = self._source(tmp_path)
-        source._restart_service_and_wait = AsyncMock(return_value=False)
-        assert await asyncio.wait_for(source._do_restart(), 2.0) is False
-        assert source._metadata_reader is None
-
-    async def test_cleanup_stops_the_reader_and_the_ticker(self, tmp_path):
-        """Left running, the ticker goes on broadcasting a position for a source
-        that is no longer active, and the reader holds the pipe open."""
-        source = self._source(tmp_path)
-        await asyncio.wait_for(source._do_start(), 2.0)
-        reader, ticker = source._metadata_reader, source._position_task
-
-        await asyncio.wait_for(source._cleanup(), 2.0)
-
-        assert source._metadata_reader is None
-        assert reader._running is False
-        # cancel() only requests it; the task observes it on its next turn.
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.wait_for(ticker, 2.0)
-        assert ticker.cancelled()
-        assert source._position_task is None
+            await world.source.shutdown()

@@ -18,7 +18,10 @@ Rules that keep the recording meaningful:
 - The one other re-recording: the phase that migrates a source changes its
   wire on purpose (phase 1: Radio, Podcast, Music Library — the playing flag
   now comes from mpv, not from Milō's command; phase 2: CD, which also hears
-  the drive from udev and names a disc in its own step). Then only that source's file
+  the drive from udev and names a disc in its own step; phase 3a: AirPlay,
+  whose phase follows what shairport-sync announces — a stream plays from its
+  first frame, `pfls` is no longer a pause, a session inherits nothing from
+  the previous one). Then only that source's file
   is re-recorded, after every differing envelope was reviewed and listed in
   the commit, with the MILO_DUMP_OLD_WIRE output of the run that was
   reviewed byte-identical to what is recorded.

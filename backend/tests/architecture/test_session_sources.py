@@ -134,9 +134,11 @@ def session_violations_scope(tree: ast.Module) -> bool:
 
 def test_migrated_sources_are_found():
     """Non-trivial first: phase 1 migrated Radio, Podcast and Music Library,
-    phase 2 the CD."""
+    phase 2 the CD, phase 3a AirPlay."""
     names = {cls.__name__ for cls in _migrated_classes()}
-    assert {"RadioSource", "PodcastSource", "MusicLibrarySource", "CdSource"} <= names
+    assert {
+        "RadioSource", "PodcastSource", "MusicLibrarySource", "CdSource", "AirPlaySource",
+    } <= names
 
 
 @pytest.mark.parametrize("cls", _migrated_classes(), ids=lambda c: c.__name__)

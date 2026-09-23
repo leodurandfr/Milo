@@ -15,16 +15,18 @@ from pydantic import BaseModel, ValidationError
 
 from backend.core.models.audio_state import AudioSource, NetworkRequirement, SourceState
 from backend.core.models.session import (
-    CommandScope, EndReason, IdlePolicy, IllegalTransition, Phase, ResumePoint,
-    ResumePolicy, Session, check_end,
+    CommandScope, DaemonSnapshot, EndReason, IdlePolicy, IllegalTransition, Phase,
+    ResumePoint, ResumePolicy, Session, check_end, event_towards,
 )
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import (
     SourceError,
     SourceErrorCleared,
+    SourceErrorReason,
     SourcePositionUpdate,
 )
 from backend.shared.background import BackgroundTaskSet
+from backend.shared.pidfd import ProcessWatch
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +165,11 @@ class _Lease:
 _handling: ContextVar[Optional[Tuple["BaseAudioSource", object, asyncio.Task]]] = ContextVar(
     "source_actor_handling", default=None
 )
+
+# How long a daemon asked to end its session (REQUEST_END) has to do it before
+# the restart is tried. Measured on shairport-sync 5.5.1: DropSession's `disc`
+# follows the reply at once.
+END_REQUEST_TIMEOUT_S = 10.0
 
 # Fields that travel on the position axis (broadcast_position_update), left out
 # of the projection compare so a playhead moving between two publishes is not
@@ -308,6 +315,8 @@ class BaseAudioSource(ABC):
         self._session: Optional[Session] = None
         self._resume_point: Optional[ResumePoint] = None
         self._session_bg: Optional[BackgroundTaskSet] = None
+        # The daemon process a SESSION_DAEMON source's session belongs to.
+        self._daemon_watch: Optional[ProcessWatch] = None
         self._feed_pending: List[Any] = []
         self._feed_posted = False
 
@@ -450,6 +459,7 @@ class BaseAudioSource(ABC):
                     future.set_result(self._interrupted_result(message, "shutdown"))
         for name in list(self._timers):
             self._disarm_timer(name)
+        self._close_daemon_watch()
         if self._session_bg is not None:
             await self._session_bg.cancel_all()
         await self._bg.cancel_all()
@@ -748,6 +758,17 @@ class BaseAudioSource(ABC):
         if name == "resume":
             await self._expire_resume()
             return None
+        if name == "idle" and self.IDLE_POLICY is IdlePolicy.REQUEST_END:
+            await self._request_idle_end()
+            return None
+        if name == "end_request":
+            session = self._session
+            if session is token and session.end_requested is not None:
+                self._logger.error(
+                    f"{self.service_name} took the request but the session did not end — restarting it"
+                )
+                await self._restart_to_end(session)
+            return None
         if name == "idle":
             self._logger.info(f"Auto-stopping after {self.auto_stop_delay}s pause")
             try:
@@ -777,6 +798,14 @@ class BaseAudioSource(ABC):
         if not self._feed_posted:
             self._feed_posted = True
             self._post(Feed())
+
+    def _discard_feed(self) -> None:
+        """Forget announcements not handled yet. For a feed whose events belong
+        to one run of its reader (AirPlay's pipe): the next run starts from
+        nothing, where mpv's facts outlive a session. A Feed still queued
+        finds nothing left and does nothing; the next announcement posts its own."""
+        self._feed_pending.clear()
+        self._feed_posted = False
 
     def _post_result(self, apply: Callable[[], Awaitable[Any]], token: object = None) -> None:
         """Apply `apply` in the actor, unless `token` (a session) ended since."""
@@ -813,12 +842,17 @@ class BaseAudioSource(ABC):
         source and published nothing (mpv refusing a load — E41) is published
         anyway. Compared, not repeated: a handler that did publish costs no
         second envelope."""
-        if self._published is None:
-            return
+        if self._published is not None and self._publish_changes():
+            self._logger.debug("State changed without a publish — published it")
+
+    def _publish_changes(self) -> bool:
+        """Publish the source when its projection differs from the last one
+        published, the position axis aside. True when it did."""
         projection = self._project()
-        if projection is not None and projection != self._published:
-            self._logger.debug("State changed without a publish — publishing it")
-            self._update_connection_state()
+        if projection is None or projection == self._published:
+            return False
+        self._update_connection_state()
+        return True
 
     def _update_connection_state(self) -> None:
         """The source's one publish site (overridden by every source)."""
@@ -855,6 +889,7 @@ class BaseAudioSource(ABC):
             # anticipated.
             self._logger.error(f"{e} — ending it anyway")
         self._session = None
+        self._close_daemon_watch()
         for name in [
             n for n, (_, token) in self._timers.items()
             if n != "resume" and not isinstance(token, DeviceToken)
@@ -914,6 +949,159 @@ class BaseAudioSource(ABC):
         self._set_resume_point(None)
         if self._session is None and self._published is not None:
             self._update_connection_state()
+
+    # === Sessions a daemon holds (docs: source architecture, "reconcile") ===
+    #
+    # Where a daemon holds the session (a sender on shairport-sync), Milō does
+    # not decide when it opens or ends: it follows what the daemon reports.
+    # reconcile() is the one way it does, and it is idempotent — the same
+    # report twice changes nothing. The session's daemon process is watched,
+    # so a daemon that dies without a goodbye ends it too; and the idle policy
+    # asks the daemon for the end (REQUEST_END) instead of doing it behind it.
+
+    async def reconcile(
+        self, snapshot: Optional[DaemonSnapshot], *, gone: EndReason = EndReason.SENDER_LEFT,
+    ) -> Optional[Session]:
+        """Make the live session match what the daemon reports, and return it.
+
+        None: the daemon holds no session — the live one ends for `gone`, or
+        for the reason Milō asked it to end for. A snapshot from another
+        sender ends the live session (that sender left) and opens the new
+        one. Otherwise the phase moves where the daemon says, through the
+        table. Publishes nothing: the caller does, once, after its burst.
+        """
+        session = self._session
+        if snapshot is None:
+            if session is not None:
+                await self.end_session(session.end_requested or gone)
+            return None
+        if (
+            session is not None and None not in (session.sender, snapshot.sender)
+            and session.sender != snapshot.sender
+        ):
+            await self.end_session(session.end_requested or EndReason.SENDER_LEFT)
+            session = None
+        if session is None:
+            session = self.open_session(self._daemon_session(snapshot))
+            self._daemon_phase_changed(session, None)
+            await self._watch_daemon(session)
+            return self._session
+        if session.sender is None:
+            session.sender = snapshot.sender
+        if self.SESSION_DAEMON and self._daemon_watch is None:
+            # A pid that could not be read when the session opened (systemctl
+            # slow on a busy card, MainPID 0 mid-restart) is asked again.
+            await self._watch_daemon(session)
+            if self._session is not session:
+                return self._session
+        before = session.phase
+        if snapshot.phase is not before:
+            try:
+                session.advance(event_towards(before, snapshot.phase))
+            except IllegalTransition as e:
+                self._logger.error(f"{e} (the daemon reported {snapshot.phase.value})")
+                return session
+            self._daemon_phase_changed(session, before)
+        return session
+
+    def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
+        """The session a daemon's report opens. Sources add their content."""
+        return Session(phase=snapshot.phase, sender=snapshot.sender)
+
+    def _daemon_phase_changed(self, session: Session, before: Optional[Phase]) -> None:
+        """The idle timeout follows the phase: armed in PAUSED, and leaving it
+        withdraws a request to end that has not been answered yet."""
+        if session.phase is Phase.PAUSED:
+            if (
+                before is not Phase.PAUSED and self.auto_stop_enabled
+                and self.IDLE_POLICY in (IdlePolicy.AUTO_STOP, IdlePolicy.REQUEST_END)
+            ):
+                self._arm_timer("idle", self.auto_stop_delay, session)
+        elif before is Phase.PAUSED:
+            self._disarm_timer("idle")
+            self._disarm_timer("end_request")
+            session.end_requested = None
+
+    async def _watch_daemon(self, session: Session) -> None:
+        """Bind `session` to the daemon process holding it (SESSION_DAEMON).
+
+        Read when the session opens, never kept across sessions: a pid kept
+        from the previous one is how a sender reconnecting to a restarted
+        daemon came to be watched against the dead one (E21). A daemon that
+        cannot be named is not watched — nothing is claimed about it.
+        """
+        if not self.SESSION_DAEMON:
+            return
+        pid = await self._service_main_pid()
+        if pid is None or self._session is not session:
+            return
+        self._close_daemon_watch()
+        self._daemon_watch = ProcessWatch(
+            pid, lambda: self._post_result(lambda: self._daemon_gone(session), token=session)
+        )
+
+    def _close_daemon_watch(self) -> None:
+        watch, self._daemon_watch = self._daemon_watch, None
+        if watch is not None:
+            watch.close()
+
+    async def _daemon_gone(self, session: Session) -> None:
+        """The daemon holding `session` exited. Unasked, that is DAEMON_DIED,
+        reported once; a restart Milō ordered to end the session is the end
+        it asked for."""
+        reason = session.end_requested or EndReason.DAEMON_DIED
+        if reason is EndReason.DAEMON_DIED:
+            self._logger.error(
+                f"{self.service_name} exited under the session — ending it; "
+                "the sender has to reconnect"
+            )
+        await self.end_session(reason)
+        self._update_connection_state()
+        if reason is EndReason.DAEMON_DIED:
+            self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
+
+    async def _request_idle_end(self) -> None:
+        """REQUEST_END: the pause outlived the delay — ask the daemon to end
+        the session; the end comes back through reconcile().
+
+        A daemon that does not take the request is restarted, the one lever
+        left on a process that no longer answers; its exit is then the end
+        Milō asked for. When even that fails the session stays: the daemon
+        still holds it.
+        """
+        session = self._session
+        if session is None or session.phase is not Phase.PAUSED:
+            return
+        session.end_requested = EndReason.IDLE_TIMEOUT
+        self._logger.info(
+            f"Paused for {self.auto_stop_delay:.0f}s — asking {self.service_name} to end the session"
+        )
+        try:
+            taken = await self._request_end(session)
+        except Exception as e:
+            self._logger.error(f"Asking {self.service_name} to end the session failed: {e}")
+            taken = False
+        if taken:
+            self._arm_timer("end_request", END_REQUEST_TIMEOUT_S, session)
+            return
+        self._logger.error(f"{self.service_name} did not take the request — restarting it")
+        await self._restart_to_end(session)
+
+    async def _restart_to_end(self, session: Session) -> None:
+        """Restart the daemon holding `session`: the one lever left on a
+        daemon that does not end it when asked. A watched daemon reports its
+        exit (the end Milō asked for); an unwatched one cannot, and the
+        restart has ended the session all the same."""
+        if not await self._restart_service():
+            self._logger.error(f"{self.service_name} could not be restarted — the session stays")
+            return
+        if self._daemon_watch is None and self._session is session:
+            await self.end_session(session.end_requested or EndReason.IDLE_TIMEOUT)
+            self._update_connection_state()
+
+    async def _request_end(self, session: Session) -> bool:
+        """Ask the daemon to end `session`. True when it took the request."""
+        return False
 
     # === Abstract methods for subclasses ===
 
@@ -998,9 +1186,10 @@ class BaseAudioSource(ABC):
 
         Sole entry point is the default _on_auto_stop() (auto-stop timer);
         there is no public restart() wrapper. Default: stop + start.
-        Override for custom restart logic (e.g., preserve state) — AirPlay does.
+        Override for custom restart logic (e.g., preserve state).
         A source that instead wants a different auto-stop *action* overrides
-        _on_auto_stop() (Spotify, DLNA, and the shared MpvAudioSource).
+        _on_auto_stop() (Spotify, DLNA, and the shared MpvAudioSource); one
+        whose session a daemon holds declares IdlePolicy.REQUEST_END instead.
 
         Returns:
             True if restart successful
@@ -1195,7 +1384,7 @@ class BaseAudioSource(ABC):
         manager, and a source that cannot name its daemon must claim nothing
         rather than declare the session dead.
         """
-        if not self.service_name:
+        if not self.service_name or self._service_manager is None:
             return None
 
         try:

@@ -45,6 +45,7 @@ class PhaseEvent(str, Enum):
     TRACK_CHANGE = "track_change"
     STALLED = "stalled"                  # the stream stopped delivering (mpv: paused-for-cache)
     STATE_WITHDRAWN = "state_withdrawn"  # the sender stops publishing a play state
+    STREAM_OPENED = "stream_opened"      # a connected sender starts a stream (AirPlay pbeg)
 
 
 class EndReason(str, Enum):
@@ -89,6 +90,11 @@ TRANSITIONS: Dict[Tuple[Phase, PhaseEvent], Phase] = {
     (Phase.CONNECTED, PhaseEvent.STATE_WITHDRAWN): Phase.CONNECTED,
     (Phase.PLAYING, PhaseEvent.STATE_WITHDRAWN): Phase.CONNECTED,
     (Phase.PAUSED, PhaseEvent.STATE_WITHDRAWN): Phase.CONNECTED,
+    # Measured on shairport-sync 5.5.1: a sender connects before it streams,
+    # and which kind of stream it opened (one that reports its pauses, or not)
+    # is known only once sound arrives.
+    (Phase.CONNECTED, PhaseEvent.STREAM_OPENED): Phase.LOADING,
+    (Phase.LOADING, PhaseEvent.STATE_WITHDRAWN): Phase.CONNECTED,
 }
 
 _ENDED_BY_MILO_OR_DAEMON = frozenset({
@@ -106,7 +112,11 @@ _ENDED_BY_CONTENT = frozenset({
 })
 
 ENDS: Dict[Phase, FrozenSet[EndReason]] = {
-    Phase.LOADING: _ENDED_BY_MILO_OR_DAEMON | _ENDED_BY_CONTENT | {EndReason.LOAD_FAILED},
+    # A sender can leave in the half-second between its stream opening and
+    # its first sound.
+    Phase.LOADING: _ENDED_BY_MILO_OR_DAEMON | _ENDED_BY_CONTENT | {
+        EndReason.LOAD_FAILED, EndReason.SENDER_LEFT,
+    },
     # Every LOADING end but LOAD_FAILED, which is "before the first sound" by
     # definition: a load failing after sound left is STREAM_LOST.
     Phase.PLAYING: _ENDED_BY_MILO_OR_DAEMON | _ENDED_BY_CONTENT | {EndReason.SENDER_LEFT},
@@ -116,7 +126,7 @@ ENDS: Dict[Phase, FrozenSet[EndReason]] = {
     },
     Phase.CONNECTED: frozenset({
         EndReason.SENDER_LEFT, EndReason.USER_STOP, EndReason.SOURCE_SWITCH,
-        EndReason.DAEMON_DIED,
+        EndReason.DAEMON_DIED, EndReason.REROUTE,
     }),
 }
 
@@ -127,6 +137,19 @@ def next_phase(phase: Phase, event: PhaseEvent) -> Phase:
         return TRANSITIONS[(phase, event)]
     except KeyError:
         raise IllegalTransition(f"{event.value} is not allowed in {phase.value}") from None
+
+
+def event_towards(phase: Phase, target: Phase) -> PhaseEvent:
+    """The one event that moves `phase` to `target`, for a daemon that reports
+    where its session stands rather than what happened to it. Whether the
+    table allows the pair is next_phase's to say."""
+    if target is Phase.PAUSED:
+        return PhaseEvent.PAUSED
+    if target is Phase.PLAYING:
+        return PhaseEvent.RESUMED if phase is Phase.PAUSED else PhaseEvent.SOUND_STARTED
+    if target is Phase.LOADING:
+        return PhaseEvent.STREAM_OPENED if phase is Phase.CONNECTED else PhaseEvent.STALLED
+    return PhaseEvent.STATE_WITHDRAWN
 
 
 def check_end(phase: Phase, reason: EndReason) -> None:
@@ -164,16 +187,34 @@ class Session:
 
     `heard` says whether sound ever left in this session — what tells a load
     that failed (LOAD_FAILED) from a stream that was lost (STREAM_LOST).
+
+    For a session a daemon holds: `sender` names who it belongs to (a
+    different sender is a different session), and `end_requested` is the
+    reason Milō asked the daemon to end it for — the end that comes back,
+    however it comes, is recorded under that reason.
     """
     phase: Phase
     id: str = field(default_factory=lambda: uuid4().hex)
     heard: bool = False
+    sender: Optional[str] = None
+    end_requested: Optional[EndReason] = None
 
     def advance(self, event: PhaseEvent) -> Phase:
         self.phase = next_phase(self.phase, event)
         if self.phase is Phase.PLAYING:
             self.heard = True
         return self.phase
+
+
+@dataclass(frozen=True)
+class DaemonSnapshot:
+    """Where a daemon says its session stands: whose it is, and its phase.
+
+    What `reconcile()` makes the live session match. None in its place means
+    the daemon holds no session.
+    """
+    sender: Optional[str]
+    phase: Phase
 
 
 @dataclass(frozen=True)

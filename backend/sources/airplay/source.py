@@ -2,42 +2,44 @@
 """
 AirPlay 2 audio source using shairport-sync.
 
-Handles AirPlay streaming from Apple devices via shairport-sync.
-Metadata (title, artist, album) flows through the metadata pipe
-and is broadcast to the frontend via WebSocket. Artwork is stored
-in memory and served via a dedicated HTTP endpoint.
+The session belongs to shairport-sync, not to Milō: a sender connects, streams,
+pauses and leaves on its own, and the daemon announces it on its metadata pipe.
+The source follows it through `reconcile()` (docs: source architecture,
+"reconcile"). Measured on shairport-sync 5.5.1 (2026-09-23, an iPhone and a
+Mac), which the phase follows:
 
-A sender-side pause is invisible here, and no amount of looking changes that.
-Measured on shairport-sync 5.2.1 with a macOS sender (2026-08-07), every channel
-the receiver has: `pfls`/`pend` never fire — only tearing the output down sends
-`pend`, and `disc` with it; `core/caps` stays 0x01 throughout; D-Bus
-`RemoteControl.PlayerState` still reads "Playing" 96 s into a pause (it only
-moves for a pause *we* command, and `RemoteControl.Available` is false, so there
-is no back-channel to ask); and `FramePosition` keeps advancing at 44.1 kHz
-because shairport goes on writing silence — the same shape as ROC on the Mac
-source, which is why the pause path there is closed too.
+- The stream type depends on the app. iPhone Music opens a **Buffered**
+  stream, which reports its pauses (`paus`/`pres`): PLAYING and PAUSED. A Mac's
+  system audio and Spotify open a **Realtime** stream, which reports nothing:
+  CONNECTED — a Mac goes on streaming silence through a pause.
+- A skip or a seek is `paus` then `pres` 160 ms later; it is applied as it
+  comes (an owner decision: the dip is invisible on the AirPlay screen and the
+  lock-screen pushes are coalesced at 1 s).
+- A sender that played and then sends nothing while still connected is
+  PAUSED: a paused iPhone tears its stream down after 29-184 s, Spotify 1 s
+  after a pause, and neither says goodbye.
+- The idle timeout asks the daemon to end the session (`DropSession`,
+  REQUEST_END): the sender gets a `disc` at once and falls back to its own
+  speaker. A killed daemon says nothing at all; its session ends when its
+  process does (the base's pidfd watch).
 
-The one thing that stops is the position the sender reports, so pause is
-*inferrable* from two `prgr` snapshots standing still — but only 5-15 s late, and
-sometimes not at all, because the sender may simply stop reporting. That
-inference was built and then dropped at the owner's call: the progress bar it
-existed to freeze is not drawn for AirPlay at all (AirPlaySource.vue), the sender
-draws its own. Consequence to know before wondering: `_start_pause_timer()` is
-reachable only from `pfls`/`pend`, so a paused session holds the source until the
-sender disconnects — IDLE_STATES excludes ACTIVE, so the 12 h sweep never gets it.
+Artwork is stored in memory and served via a dedicated HTTP endpoint.
 """
 import asyncio
 import hashlib
 import os
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.session import (
+    DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy, Session,
+)
 from backend.core.models.source_metadata import PlaybackMetadata
-from backend.core.models.ws_events import SourceErrorReason
-from backend.sources.airplay.metadata_reader import MetadataReader
+from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent
+from backend.sources.airplay.remote import drop_session
 from backend.shared.artwork import decode_artwork_dimensions
-from backend.shared.decorators import handle_errors
 
 # Sample rate for RTP frame to millisecond conversion
 AIRPLAY_SAMPLE_RATE = 44100
@@ -100,11 +102,72 @@ ARTWORK_SETTLE_SECONDS = 8.0
 # the screen mid-track on both senders.
 ARTWORK_PAIRING_TOLERANCE_FRAMES = int(0.250 * AIRPLAY_SAMPLE_RATE)
 
+# The stream type that reports its pauses; every other one (Realtime, a
+# classic AirPlay 1 stream) is CONNECTED while it flows.
+BUFFERED = "Buffered"
+
+# What opens a session when none is live: a sender connecting, naming itself,
+# or starting a stream (measured, every session opens with `conn`). Tags, a
+# cover, a progress report arriving with no session are about one that ended.
+_OPENINGS = frozenset({"conn", "client_name", "stream_begin"})
+
+
+@dataclass(eq=False)
+class Cover:
+    """The cover in hand and the rtptime it was stamped with."""
+    data: bytes
+    mime: str
+    hash: str
+    width: int
+    rtptime: Optional[str]
+
+    @property
+    def url(self) -> str:
+        return f"/api/airplay/artwork?v={self.hash}"
+
+
+@dataclass(eq=False)
+class AirPlaySession(Session):
+    """One sender's session: everything it owns goes with it (E19 — the next
+    sender used to inherit the previous track's position and duration).
+
+    The stream facts are what shairport-sync announced; the phase is computed
+    from them (`AirPlaySource._phase_of`).
+    """
+    client_name: Optional[str] = None
+    stream: bool = False                # pbeg .. pend
+    paused: bool = False                # paus .. pres
+    first_frame: bool = False           # pffr since this stream began
+    stream_type: Optional[str] = None   # styp, kept across the session's streams
+    streamed: bool = False              # sound ever arrived in this session
+    tags: Dict[str, str] = field(default_factory=dict)
+    track_id: Optional[str] = None      # the rtptime of the tags on screen
+    cover: Optional[Cover] = None
+    # Progress: `prgr` gives a snapshot; the time since it arrived ages it.
+    # position_at is None while nothing flows, which freezes the ageing.
+    position_ms: int = 0
+    duration_ms: int = 0
+    position_at: Optional[float] = None
+
 
 class AirPlaySource(BaseAudioSource):
     """AirPlay 2 source (Family B — passive player): external control, rich metadata."""
 
     NETWORK_REQUIREMENT = NetworkRequirement.LAN
+
+    IDLE_POLICY = IdlePolicy.REQUEST_END
+    # shairport-sync writes to the output it was started on: a multiroom toggle
+    # restarts it, and the sender has to reconnect.
+    REROUTE = ReroutePolicy.END_SESSION
+    # Milō cannot restart a sender's stream: nothing is kept.
+    RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
+    SESSION_DAEMON = True
+
+    # AirPlay 2 does not support remote playback control
+    # (shairport-sync AIRPLAY2.md: "Remote control facilities are not implemented"),
+    # so no commands are registered — command() rejects every command as unknown.
+    COMMANDS = {}
+    COMMAND_SCOPES = {}
 
     def __init__(
         self,
@@ -121,141 +184,157 @@ class AirPlaySource(BaseAudioSource):
             settings_service=settings_service,
             config=config
         )
-
         self._metadata_pipe = self._config.get("metadata_pipe", "/tmp/shairport-sync-metadata")
-
         self._metadata_reader: Optional[MetadataReader] = None
-
-        # State
-        self._metadata: Dict[str, Any] = {}
-        self._is_playing = False
-        self._device_connected = False
-        self._client_name: Optional[str] = None
-        self._connected_ip: Optional[str] = None
-        # The shairport-sync process the live session belongs to. A session is
-        # the daemon's, not the pipe's: see _daemon_still_holds_the_session.
-        self._daemon_pid: Optional[int] = None
-
-        # Artwork served via dedicated endpoint, and held apart from _metadata
-        # so it is merged in at publish time rather than written through it.
-        # _artwork_id is the rtptime the held cover was stamped with and
-        # _track_id the one on screen: a picture and its track arrive in
-        # separate messages in no guaranteed order (see MetadataReader), so the
-        # pairing is the id, never the arrival.
-        self._artwork_data: Optional[bytes] = None
-        self._artwork_mime: Optional[str] = None
-        self._artwork_hash: Optional[str] = None
-        self._artwork_url: Optional[str] = None
-        self._artwork_width: int = 0
-        self._artwork_id: Optional[str] = None
-        self._artwork_settle_task: Optional[asyncio.Task] = None
-        self._track_id: Optional[str] = None
-
-        # Progress tracking: `prgr` gives a position snapshot in RTP frames; the
-        # elapsed time since it arrived is what makes the position current.
-        # _position_at is None while paused/stopped, which freezes the ageing.
-        self._position_ms = 0
-        self._duration_ms = 0
-        self._position_at: Optional[float] = None
-        self._position_task: Optional[asyncio.Task] = None
-
-        # Auto-stop (uses BaseAudioSource timer infrastructure)
         self.auto_stop_enabled = True
-        self.auto_stop_delay = 10.0
 
-    def _reset_playback_state(self) -> None:
-        super()._reset_playback_state()
-        self._device_connected = False
-        self._client_name = None
-        self._connected_ip = None
-        # With the session, not after it: a pid kept across a source stop is a
-        # pid that will be dead when the source comes back, and the ticker
-        # would read that as the *new* session's daemon having died.
-        self._daemon_pid = None
-        self._cancel_position_ticker()
-        self._position_ms = 0
-        self._duration_ms = 0
-        self._position_at = None
-        self._track_id = None
-        self._clear_artwork()
+    # === Lifecycle ===
 
     async def _do_start(self) -> bool:
-        """Start shairport-sync service and metadata reader."""
+        """Start shairport-sync and the metadata reader."""
         try:
             if not await self._start_service_and_wait():
                 return False
-
-            self._reset_playback_state()
-            self._cancel_pause_timer()
-
-            # Load auto-stop config from settings
             await self._load_auto_stop_config()
-
             await self._ensure_metadata_pipe()
-
-            self._metadata_reader = MetadataReader(
-                pipe_path=self._metadata_pipe,
-                on_metadata=self._on_metadata_update,
-                on_play_state=self._on_play_state,
-                on_artwork=self._on_artwork,
-                on_progress=self._on_progress,
-                on_client_name=self._on_client_name,
-                on_connection=self._on_connection,
-            )
+            self._metadata_reader = MetadataReader(self._metadata_pipe, on_event=self._on_pipe_event)
             await self._metadata_reader.start()
-            self._start_position_ticker()
-
             self._update_connection_state()
             return True
-
         except Exception as e:
             self._logger.error(f"Start failed: {e}")
             await self._cleanup()
             return False
 
-    @handle_errors(default=False)
-    async def _do_restart(self) -> bool:
-        """Restart service with state reset."""
-        self._logger.info("Restarting AirPlay source")
+    async def _do_stop(self) -> bool:
+        await self.end_session(EndReason.SOURCE_SWITCH)
+        await self._cleanup()
+        return await self._stop_service()
 
-        self._cancel_pause_timer()
-        self._reset_playback_state()
+    async def _do_release(self) -> bool:
+        await self.end_session(EndReason.REROUTE)
+        await self._cleanup()
+        return await self._stop_service()
 
+    async def _cleanup(self) -> None:
         if self._metadata_reader:
             await self._metadata_reader.stop()
             self._metadata_reader = None
+        # What the reader posted and nobody handled belongs to this run: the
+        # next one starts from nothing.
+        self._discard_feed()
 
-        if not await self._restart_service_and_wait():
-            return False
+    async def _request_end(self, session: Session) -> bool:
+        return await drop_session()
 
-        await self._ensure_metadata_pipe()
-        self._metadata_reader = MetadataReader(
-            pipe_path=self._metadata_pipe,
-            on_metadata=self._on_metadata_update,
-            on_play_state=self._on_play_state,
-            on_artwork=self._on_artwork,
-            on_progress=self._on_progress,
-            on_client_name=self._on_client_name,
-            on_connection=self._on_connection,
+    # === The pipe ===
+
+    async def _on_pipe_event(self, event: PipeEvent) -> None:
+        """The reader's callback: it runs on the reader's task, so it posts."""
+        self._post_feed(event)
+
+    async def _handle_feed(self, events) -> None:
+        # A STOP or RELEASE that cuts this handler ends the session and
+        # discards the feed with it (_cleanup).
+        if self._metadata_reader is None:
+            return
+        while events:
+            await self._apply(events.pop(0))
+        session = self._session
+        if session is not None:
+            await self.reconcile(DaemonSnapshot(session.sender, self._phase_of(session)))
+            if self._session is session:
+                self._sync_clock(session)
+        # Compared, not repeated: a burst that only moved the playhead (`prgr`,
+        # every 5-15 s) travels on the position axis, never as a full state.
+        self._publish_changes()
+
+    async def _apply(self, event: PipeEvent) -> None:
+        """One announcement, applied to the session it is about."""
+        if event.kind == "disc":
+            await self._sender_left(event.value)
+            return
+        session = self._session
+        if session is None and event.kind not in _OPENINGS:
+            return
+        sender = event.value if event.kind == "conn" else (session.sender if session else None)
+        if event.kind == "conn":
+            self._logger.info(f"AirPlay client connected (IP: {event.value})")
+        # Another sender's session opens CONNECTED: nothing is known of it yet.
+        same = session is not None and (sender is None or session.sender in (None, sender))
+        session = await self.reconcile(
+            DaemonSnapshot(sender, session.phase if same else Phase.CONNECTED)
         )
-        await self._metadata_reader.start()
-        self._start_position_ticker()
+        if not isinstance(session, AirPlaySession):
+            return
+        kind = event.kind
+        if kind == "client_name":
+            session.client_name = event.value
+        elif kind == "stream_begin":
+            # A new stream is not paused until it says so: a Realtime one
+            # (Spotify, after Music was paused) never sends the `pres`.
+            session.stream, session.first_frame, session.paused = True, False, False
+        elif kind == "stream_end":
+            session.stream, session.first_frame = False, False
+        elif kind == "paused":
+            session.paused = True
+        elif kind == "resumed":
+            session.paused = False
+        elif kind == "first_frame":
+            session.first_frame = session.streamed = True
+        elif kind == "stream_type":
+            session.stream_type = event.value
+        elif kind == "tags":
+            self._on_tags(session, event.value, event.rtptime)
+        elif kind == "artwork":
+            self._on_artwork(session, event.value, event.rtptime)
+        elif kind == "progress":
+            self._on_progress(session, *event.value)
 
-        self._update_connection_state()
-        return True
+    async def _sender_left(self, ip: Optional[str]) -> None:
+        """A `disc` names the sender it is for, and it can arrive long after
+        that sender was replaced: measured 2026-09-03, a phone left at
+        19:12:13, the next sender was on air at 19:12:18, and the first one's
+        'disc' landed at 19:13:13 — sixty seconds into someone else's session.
+        A 'disc' for anyone but the sender on air is therefore ignored. When
+        either address is unknown there is nothing to tell them apart, and the
+        goodbye stands.
+        """
+        session = self._session
+        if session is None:
+            return
+        if ip is not None and session.sender is not None and ip != session.sender:
+            self._logger.info(
+                f"Ignoring a disconnect for {ip}, which is not the sender on air ({session.sender})"
+            )
+            return
+        self._logger.info(f"AirPlay client disconnected (IP: {ip})")
+        await self.reconcile(None)
 
-    # AirPlay 2 does not support remote playback control
-    # (shairport-sync AIRPLAY2.md: "Remote control facilities are not implemented"),
-    # so no commands are registered — command() rejects every command as unknown.
+    @staticmethod
+    def _phase_of(session: AirPlaySession) -> Phase:
+        """The phase the announced facts give (owner decisions 2026-09-23)."""
+        if session.paused:
+            return Phase.PAUSED
+        if not session.stream:
+            # Played, then sends nothing while still connected: a pause.
+            return Phase.PAUSED if session.streamed else Phase.CONNECTED
+        if not (session.first_frame and session.stream_type):
+            return Phase.LOADING
+        return Phase.PLAYING if session.stream_type == BUFFERED else Phase.CONNECTED
 
-    COMMANDS = {}
+    @staticmethod
+    def _flowing(session: AirPlaySession) -> bool:
+        """Sound is arriving (a Realtime stream included, silence or not)."""
+        return session.stream and session.first_frame and not session.paused
 
-    # === Metadata Callbacks ===
+    def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
+        return AirPlaySession(phase=snapshot.phase, sender=snapshot.sender)
 
-    async def _on_metadata_update(
-        self, metadata: Dict[str, Any], track_id: Optional[str]
-    ) -> None:
-        """Handle track metadata from pipe (title, artist, album).
+    # === Tags and cover ===
+
+    def _on_tags(self, session: AirPlaySession, tags: Dict[str, Any], track_id: Optional[str]) -> None:
+        """Track metadata from the pipe (title, artist, album).
 
         Recording which track is on screen is all that is needed to move the
         cover with it: the publish pairs the two by rtptime. A track whose
@@ -272,57 +351,16 @@ class AirPlaySource(BaseAudioSource):
         bundle reads as an amendment and keeps what it had — the same trade
         the cover makes there, and for the same want of anything to pair on.
         """
-        amendment = track_id is None or track_id == self._track_id
-        self._track_id = track_id
-        # Before the publish below, so it already sees the hold rather than
-        # emitting one coverless state and correcting it a task-turn later.
-        self._sync_artwork_hold()
-        self._metadata.update({
-            key: (
-                metadata.get(key, self._metadata.get(key, ""))
-                if amendment else metadata.get(key, "")
-            )
+        amendment = track_id is None or track_id == session.track_id
+        session.track_id = track_id
+        self._sync_artwork_hold(session)
+        session.tags = {
+            key: (tags.get(key, session.tags.get(key, "")) if amendment else tags.get(key, ""))
             for key in ("title", "artist", "album")
-        })
-        self._metadata["is_playing"] = self._is_playing
+        }
 
-        self._update_progress_metadata()
-        await self._mark_session_live()
-        self._update_connection_state()
-
-    async def _on_play_state(self, state: str) -> None:
-        """Handle play state change from pipe reader.
-
-        Note: pend (stop) only means the playback stream ended, NOT that the
-        device disconnected.  The device remains connected until we receive a
-        'disc' event via _on_connection.  We start the auto-stop timer
-        on both pause and stop so the UI resets to READY after a timeout.
-        """
-        if state == "play":
-            self._is_playing = True
-            await self._mark_session_live()
-            # Resume ageing from wherever the frozen snapshot left off.
-            if self._position_at is None and self._duration_ms > 0:
-                self._position_at = asyncio.get_running_loop().time()
-            self._cancel_pause_timer()
-        elif state == "pause":
-            self._freeze_position()
-            self._is_playing = False
-            self._start_pause_timer()
-        elif state == "stop":
-            self._freeze_position()
-            self._is_playing = False
-            # Device may still be connected — don't reset _device_connected.
-            # Start auto-stop timer as session idle timeout.
-            self._start_pause_timer()
-
-        self._metadata["is_playing"] = self._is_playing
-        self._update_progress_metadata()
-        self._update_connection_state()
-
-    @handle_errors(default=None)
-    async def _on_artwork(self, data: bytes, track_id: Optional[str]) -> None:
-        """Handle artwork from pipe: store in memory and serve via endpoint.
+    def _on_artwork(self, session: AirPlaySession, data: bytes, track_id: Optional[str]) -> None:
+        """Artwork from the pipe: kept in memory, served via the endpoint.
 
         Also decodes pixel dimensions so the frontend can gate the rich
         player on artwork quality: browser audio (no MediaSession cover) ends
@@ -335,271 +373,20 @@ class AirPlaySource(BaseAudioSource):
         the identical image, and the picture that changed nothing still moved
         which track the cover belongs to.
         """
-        paired_with, self._artwork_id = self._artwork_id, track_id
-        new_hash = hashlib.md5(data).hexdigest()[:12]
-        if new_hash == self._artwork_hash:
-            if track_id != paired_with:
-                self._sync_artwork_hold()
-                self._update_connection_state()
+        digest = hashlib.md5(data).hexdigest()[:12]
+        if session.cover is not None and session.cover.hash == digest:
+            session.cover.rtptime = track_id
+            self._sync_artwork_hold(session)
             return
-
-        # Detect image format from magic bytes (shairport-sync sends JPEG or PNG)
-        if data[:8] == b'\x89PNG\r\n\x1a\n':
-            self._artwork_mime = "image/png"
-        else:
-            self._artwork_mime = "image/jpeg"
-
+        # shairport-sync sends JPEG or PNG
+        mime = "image/png" if data[:8] == b'\x89PNG\r\n\x1a\n' else "image/jpeg"
         width, height = decode_artwork_dimensions(data, self._logger, "AirPlay")
+        session.cover = Cover(data=data, mime=mime, hash=digest, width=width, rtptime=track_id)
+        self._logger.info(f"AirPlay artwork {width}x{height} ({mime})")
+        self._sync_artwork_hold(session)
 
-        self._artwork_data = data
-        self._artwork_hash = new_hash
-        self._artwork_url = f"/api/airplay/artwork?v={new_hash}"
-        self._artwork_width = width
-        self._logger.info(f"AirPlay artwork {width}x{height} ({self._artwork_mime})")
-        self._sync_artwork_hold()
-        self._update_connection_state()
-
-    async def _on_client_name(self, name: str) -> None:
-        """Handle client name from pipe (X-Apple-Client-Name)."""
-        self._client_name = name
-        await self._mark_session_live()
-        self._update_connection_state()
-
-    async def _on_connection(self, state: str, client_ip: Optional[str] = None) -> None:
-        """Handle AirPlay 2 connection/disconnection events.
-
-        'conn' is sent as soon as a client selects this AirPlay output,
-        before any audio flows.  'disc' is sent when the client disconnects.
-
-        A 'disc' names the sender it is for, and it can arrive long after that
-        sender has been replaced: measured 2026-09-03, a phone left at 19:12:13,
-        the next sender was on air at 19:12:18, and the first one's 'disc' landed
-        at 19:13:13 -- sixty seconds into someone else's session. Applied blind
-        it emptied the live session: metadata, client name and cover all cleared
-        under playing audio, and since 'snam' is only sent once per session the
-        name never came back, so the card read "AirPlay" instead of the sender.
-        A 'disc' for anyone but the sender on air is therefore ignored. When
-        either address is unknown there is nothing to tell them apart, and the
-        teardown stands.
-        """
-        if state == "connected":
-            self._logger.info(f"AirPlay client connected (IP: {client_ip})")
-            self._connected_ip = client_ip
-            await self._mark_session_live()
-            self._cancel_pause_timer()
-            self._update_connection_state()
-        elif state == "disconnected":
-            if (
-                client_ip is not None
-                and self._connected_ip is not None
-                and client_ip != self._connected_ip
-            ):
-                self._logger.info(
-                    f"Ignoring a disconnect for {client_ip}, which is not the "
-                    f"sender on air ({self._connected_ip})"
-                )
-                return
-            self._logger.info(f"AirPlay client disconnected (IP: {client_ip})")
-            self._drop_session()
-
-    def _drop_session(self) -> None:
-        """Forget the live session and publish READY.
-
-        The body of a `disc`, reachable from two places: the sender saying
-        goodbye, and the daemon dying without the chance to say it on the
-        sender's behalf. One definition, because "no session" has to mean the
-        same thing whichever way it was reached — a second spelling is how one
-        of them comes to leave the cover or the client name behind.
-        """
-        self._connected_ip = None
-        self._cancel_pause_timer()
-        self._device_connected = False
-        self._is_playing = False
-        self._metadata = {}
-        self._client_name = None
-        self._daemon_pid = None
-        self._clear_artwork()
-        self._update_connection_state()
-
-    async def _mark_session_live(self) -> None:
-        """A sender is on air — and this is whose daemon the session belongs to.
-
-        Four messages can be the first sign of a session: `conn`, a metadata
-        bundle, the client name, or a play state. `conn` is not guaranteed to
-        come first or at all, which is why the other three set the flag too —
-        so the daemon identity has to be recorded by all four, or a session
-        that opened without `conn` would be watched against whatever pid the
-        previous one left behind. Read once per session rather than per
-        message: `_daemon_pid` is cleared with the session, and only a cleared
-        one is filled.
-        """
-        self._device_connected = True
-        if self._daemon_pid is None:
-            self._daemon_pid = await self._service_main_pid()
-
-    async def _daemon_still_holds_the_session(self) -> bool:
-        """Is the shairport-sync that opened this session still running?
-
-        The gap this closes, measured on the unit 2026-09-22. A `disc` is the
-        only thing that ends an AirPlay session, and it comes *from*
-        shairport-sync — so a daemon killed outright never sends one. The unit
-        carries `Restart=always`, so audio came back 5 s later under a new
-        process, but that process knows nothing of the old session and
-        announces nothing: no `conn`, no `disc`, no metadata. The source sat
-        ACTIVE on "Pavilion" with `is_playing: true` and a playhead frozen at
-        396000/396000 while the ALSA loopback read `closed` — and stayed there,
-        because IDLE_STATES excludes ACTIVE so the 12 h sweep never reclaims it
-        and the auto-stop timer is armed only by `pfls`/`pend`, which were
-        never coming. It reached the screen, and an APNs push put it on the
-        lock screen too. Only a source switch cleared it.
-
-        The pipe cannot answer this: shairport-sync closes the metadata FIFO
-        between sessions (checked — with the unit active and no sender, it
-        holds no descriptor on it), so a writer going away is an ordinary
-        end-of-session, not a death. The daemon's identity can, and systemd
-        already tracks it.
-        """
-        if self._daemon_pid is None:
-            return True
-        return os.path.exists(f"/proc/{self._daemon_pid}")
-
-    async def _on_progress(self, start: int, current: int, end: int) -> None:
-        """Handle progress update from pipe reader (RTP frames at 44100Hz).
-
-        Takes a fresh snapshot (a new track, a seek) and publishes it at once —
-        it can be an arbitrarily large jump, which local interpolation on the
-        clients cannot guess.
-        """
-        if end <= start:
-            return
-
-        predicted = self._current_position_ms()
-        self._duration_ms = int((end - start) / AIRPLAY_SAMPLE_RATE * 1000)
-        self._position_ms = max(0, int((current - start) / AIRPLAY_SAMPLE_RATE * 1000))
-        self._position_at = asyncio.get_running_loop().time() if self._is_playing else None
-        self._update_progress_metadata()
-
-        # Only a jump (new track, seek) is worth an immediate broadcast — the
-        # clients' local interpolation cannot guess it. A snapshot that merely
-        # confirms the interpolation is left to the ticker, so a sender that
-        # emits `prgr` often can't flood every connected client.
-        if abs(self._position_ms - predicted) > POSITION_JUMP_TOLERANCE_MS:
-            self.broadcast_position_update(self._position_ms, self._duration_ms)
-
-    # === Helpers ===
-
-    def _freeze_position(self) -> None:
-        """Stop ageing the position (pause/stop), keeping where it got to."""
-        self._position_ms = self._current_position_ms()
-        self._position_at = None
-
-    def _current_position_ms(self) -> int:
-        """Snapshot position aged by the time elapsed since it was taken."""
-        if self._position_at is None:
-            return self._position_ms
-        elapsed = (asyncio.get_running_loop().time() - self._position_at) * 1000
-        return min(self._position_ms + int(elapsed), self._duration_ms)
-
-    def _update_progress_metadata(self) -> None:
-        """Write the current position/duration into the metadata dict."""
-        if self._duration_ms <= 0:
-            return
-        self._metadata["duration"] = self._duration_ms
-        self._metadata["position"] = self._current_position_ms()
-
-    def _start_position_ticker(self) -> None:
-        """Keep the broadcast position (and thus system_state.metadata) aged."""
-        self._cancel_position_ticker()
-
-        async def tick():
-            while True:
-                await asyncio.sleep(POSITION_TICK_SECONDS)
-                try:
-                    if self._device_connected and not (
-                        await self._daemon_still_holds_the_session()
-                    ):
-                        self._logger.error(
-                            "shairport-sync died under the session (pid %s is gone) "
-                            "— dropping it; reconnect from the sender",
-                            self._daemon_pid,
-                        )
-                        # State first: broadcast_error carries full_state, so
-                        # the banner must not arrive with a record still
-                        # claiming the track is running.
-                        self._drop_session()
-                        self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
-                        continue
-
-                    if not self._is_playing or self._duration_ms <= 0:
-                        continue
-                    self._update_progress_metadata()
-                    self.broadcast_position_update(
-                        self._metadata["position"], self._duration_ms
-                    )
-                except Exception as e:
-                    self._logger.error(f"Position tick failed: {e}")
-
-        self._position_task = asyncio.create_task(tick())
-
-    def _cancel_position_ticker(self) -> None:
-        if self._position_task:
-            self._position_task.cancel()
-            self._position_task = None
-
-    async def _ensure_metadata_pipe(self) -> None:
-        """Ensure metadata pipe exists."""
-        if not os.path.exists(self._metadata_pipe):
-            try:
-                os.mkfifo(self._metadata_pipe)
-            except FileExistsError:
-                pass
-            except PermissionError:
-                self._logger.warning(
-                    f"Cannot create metadata pipe {self._metadata_pipe} "
-                    "(will be created by shairport-sync)"
-                )
-
-    def _update_connection_state(self) -> None:
-        """Update state based on device connection."""
-        # A live session is the answer to the only error this source raises —
-        # the daemon dying under the previous one. Without this the banner
-        # would outlive its cause and sit over a sender that reconnected fine;
-        # a no-op when no error is active, so it costs nothing on the path it
-        # is not for. Same shape as radio's, for the same reason.
-        if self._device_connected:
-            self.broadcast_error_cleared()
-        self.emit_connection_state(*self._connection_state())
-
-    def _connection_state(self):
-        core, extras = PlaybackMetadata.split(self._metadata)
-        core.is_playing = self._is_playing
-        # The cover is published for the track it was stamped for, and the
-        # width comes with it — both dropped first, because _metadata is the
-        # last publish handed back and either would otherwise round-trip
-        # through it and outlive the pairing that put it there. A pending
-        # settle keeps them for the few ms a newly-stamped track's own picture
-        # may still be in flight (ARTWORK_SETTLE_SECONDS).
-        core.album_art_url = None
-        extras.pop("album_art_width", None)
-        if self._artwork_url and (
-            self._artwork_is_current() or self._artwork_settle_task
-        ):
-            core.album_art_url = self._artwork_url
-            extras["album_art_width"] = self._artwork_width
-        extras["client_name"] = self._client_name
-        return self._device_connected, core, extras
-
-    async def _cleanup(self) -> None:
-        """Clean up resources."""
-        self._cancel_pause_timer()
-
-        if self._metadata_reader:
-            await self._metadata_reader.stop()
-            self._metadata_reader = None
-
-        self._reset_playback_state()
-
-    def _artwork_is_current(self) -> bool:
+    @staticmethod
+    def _artwork_is_current(session: AirPlaySession) -> bool:
         """Whether the cover in hand belongs to the tags on screen.
 
         Nearness, not equality, and the difference is a sender's. The rtptime
@@ -618,21 +405,24 @@ class AirPlaySource(BaseAudioSource):
         535 ms away, seventeen times further. ARTWORK_PAIRING_TOLERANCE_FRAMES
         carries the numbers.
         """
-        if self._artwork_id == self._track_id:
+        cover = session.cover
+        if cover is None:
+            return False
+        if cover.rtptime == session.track_id:
             return True
-        if self._artwork_id is None or self._track_id is None:
+        if cover.rtptime is None or session.track_id is None:
             return False
         try:
             # RTP timestamps are 32-bit and wrap, so the distance between two
             # of them is the serial one, not the integer one.
-            delta = (int(self._artwork_id) - int(self._track_id)) % (1 << 32)
+            delta = (int(cover.rtptime) - int(session.track_id)) % (1 << 32)
         except ValueError:
             return False
         if delta >= (1 << 31):
             delta -= 1 << 32
         return abs(delta) <= ARTWORK_PAIRING_TOLERANCE_FRAMES
 
-    def _sync_artwork_hold(self) -> None:
+    def _sync_artwork_hold(self, session: AirPlaySession) -> None:
         """Arm or release the hold on the cover in hand.
 
         The tags and the picture are two SET_PARAMETER requests in no
@@ -651,47 +441,119 @@ class AirPlaySource(BaseAudioSource):
         for a picture that was merely stamped a few milliseconds off its own
         track is what emptied the cover mid-track, on both senders.
         """
-        if self._artwork_url and not self._artwork_is_current():
-            self._start_artwork_settle()
+        if session.cover is not None and not self._artwork_is_current(session):
+            self._arm_timer("artwork", ARTWORK_SETTLE_SECONDS, session)
         else:
-            self._cancel_artwork_settle()
+            self._disarm_timer("artwork")
 
-    def _cancel_artwork_settle(self) -> None:
-        """Stop holding the previous cover: the pairing resolved, or is moot."""
-        if self._artwork_settle_task:
-            self._artwork_settle_task.cancel()
-            self._artwork_settle_task = None
+    # === Progress ===
 
-    def _start_artwork_settle(self) -> None:
-        """Hold the cover in hand while this track's own may still arrive."""
-        self._cancel_artwork_settle()
+    def _now(self) -> float:
+        return asyncio.get_running_loop().time()
 
-        async def drop_after_delay():
-            try:
-                await asyncio.sleep(ARTWORK_SETTLE_SECONDS)
-            except asyncio.CancelledError:
-                return
-            # Detached before the publish so it sees no hold and drops the
-            # cover -- the coverless state, once, instead of on every event.
-            self._artwork_settle_task = None
+    def _on_progress(self, session: AirPlaySession, start: int, current: int, end: int) -> None:
+        """A progress snapshot (RTP frames at 44100 Hz).
+
+        A fresh snapshot (a new track, a seek) can be an arbitrarily large
+        jump, which local interpolation on the clients cannot guess, so only a
+        jump is broadcast at once. A snapshot that merely confirms the
+        interpolation is left to the ticker, so a sender that emits `prgr`
+        often can't flood every connected client.
+        """
+        if end <= start:
+            return
+        predicted = self._position_of(session)
+        session.duration_ms = int((end - start) / AIRPLAY_SAMPLE_RATE * 1000)
+        session.position_ms = max(0, int((current - start) / AIRPLAY_SAMPLE_RATE * 1000))
+        session.position_at = self._now() if self._flowing(session) else None
+        if abs(session.position_ms - predicted) > POSITION_JUMP_TOLERANCE_MS:
+            self.broadcast_position_update(session.position_ms, session.duration_ms)
+
+    def _position_of(self, session: AirPlaySession) -> int:
+        """The snapshot, aged by the time elapsed since it was taken."""
+        if session.position_at is None:
+            return session.position_ms
+        elapsed = (self._now() - session.position_at) * 1000
+        return min(session.position_ms + int(elapsed), session.duration_ms)
+
+    def _sync_clock(self, session: AirPlaySession) -> None:
+        """The playhead ages while sound flows and freezes otherwise; the
+        ticker that keeps the published position fresh runs meanwhile."""
+        if self._flowing(session):
+            if session.position_at is None and session.duration_ms > 0:
+                session.position_at = self._now()
+            if not self._timer_armed("position"):
+                self._arm_timer("position", POSITION_TICK_SECONDS, session)
+        else:
+            session.position_ms = self._position_of(session)
+            session.position_at = None
+            self._disarm_timer("position")
+
+    async def _on_timer(self, name: str, token: object) -> None:
+        session = self._session
+        if session is not token or not isinstance(session, AirPlaySession):
+            return
+        if name == "artwork":
+            # The hold ran out: the cover goes, once, instead of on every event.
             self._update_connection_state()
+        elif name == "position" and self._flowing(session):
+            if session.duration_ms > 0:
+                self.broadcast_position_update(self._position_of(session), session.duration_ms)
+            self._arm_timer("position", POSITION_TICK_SECONDS, session)
 
-        self._artwork_settle_task = asyncio.create_task(drop_after_delay())
+    # === Publication ===
 
-    def _clear_artwork(self) -> None:
-        """Clear stored artwork data."""
-        self._cancel_artwork_settle()
-        self._artwork_data = None
-        self._artwork_mime = None
-        self._artwork_hash = None
-        self._artwork_url = None
-        self._artwork_width = 0
-        self._artwork_id = None
+    async def _ensure_metadata_pipe(self) -> None:
+        """Ensure metadata pipe exists."""
+        if not os.path.exists(self._metadata_pipe):
+            try:
+                os.mkfifo(self._metadata_pipe)
+            except FileExistsError:
+                pass
+            except PermissionError:
+                self._logger.warning(
+                    f"Cannot create metadata pipe {self._metadata_pipe} "
+                    "(will be created by shairport-sync)"
+                )
+
+    def _update_connection_state(self) -> None:
+        """Publish the session (or its absence)."""
+        # A live session is the answer to the only error this source raises —
+        # the daemon dying under the previous one. Without this the banner
+        # would outlive its cause and sit over a sender that reconnected fine;
+        # a no-op when no error is active.
+        if self._session is not None:
+            self.broadcast_error_cleared()
+        self.emit_connection_state(*self._connection_state())
+
+    def _connection_state(self):
+        session = self._session
+        if not isinstance(session, AirPlaySession):
+            return False, None, {}
+        phase = session.phase
+        core = PlaybackMetadata(
+            **session.tags,
+            is_playing=phase is Phase.PLAYING or (phase is Phase.CONNECTED and self._flowing(session)),
+            is_buffering=phase is Phase.LOADING,
+        )
+        if session.duration_ms > 0:
+            core.duration = session.duration_ms
+            core.position = self._position_of(session)
+        extras: Dict[str, Any] = {"client_name": session.client_name}
+        # The cover is published for the track it was stamped for, and the
+        # width comes with it; a pending hold keeps them for the few ms a
+        # newly-stamped track's own picture may still be in flight.
+        cover = session.cover
+        if cover is not None and (self._artwork_is_current(session) or self._timer_armed("artwork")):
+            core.album_art_url = cover.url
+            extras["album_art_width"] = cover.width
+        return True, core, extras
 
     # === Public API ===
 
     def get_artwork(self) -> Optional[Tuple[bytes, str]]:
         """Return current artwork as (data, mime_type), or None."""
-        if self._artwork_data and self._artwork_mime:
-            return self._artwork_data, self._artwork_mime
+        session = self._session
+        if isinstance(session, AirPlaySession) and session.cover is not None:
+            return session.cover.data, session.cover.mime
         return None

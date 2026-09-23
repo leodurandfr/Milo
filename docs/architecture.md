@@ -361,6 +361,12 @@ charts down, since its episodes come from the publisher.
 - Artwork arrives as binary JPEG/PNG (PICT items)
 - No remote playback control (AirPlay 2 protocol limitation) — controls are
   hidden in the UI; the source bar shows the connected device name
+- The session is shairport-sync's: Milō follows what it announces
+  (`reconcile`). A Buffered stream (iPhone Music) reports its pauses (`paus` /
+  `pres`); a Realtime one (a Mac's system audio, Spotify) does not and is shown
+  as connected. A long pause is ended by asking the daemon (D-Bus
+  `DropSession`), which hands the sender back its own speaker; a daemon killed
+  outright ends the session when its process exits (pidfd)
 
 **Configuration:**
 - Service: milo-airplay.service (shairport-sync)
