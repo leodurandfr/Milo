@@ -5,7 +5,7 @@ Two audio sources tail a systemd unit's journal to derive state: Spotify
 (go-librespot auth/track errors) and Mac (ROC connect/disconnect). Both spawned
 an identical `journalctl -f -u <unit>` subprocess + readline loop with their own
 hand-rolled teardown; `follow_unit` owns that skeleton so each source keeps only
-its per-line parsing. `read_unit` is the one-shot companion for startup scans.
+its per-line parsing.
 
 The rule a dying feed follows, here and in every other one Milō reads
 (`sources/bluetooth/monitor.py::_report_lost` is the other implementation):
@@ -22,7 +22,7 @@ import asyncio
 import contextlib
 import logging
 import signal
-from typing import AsyncIterator, Iterable, List, Optional
+from typing import AsyncIterator, Optional, Union
 
 
 async def follow_unit(
@@ -30,7 +30,8 @@ async def follow_unit(
     *,
     consequence: str,
     output: str = "cat",
-    tail: int = 0,
+    tail: Union[int, str] = 0,
+    since: Optional[str] = None,
     logger: Optional[logging.Logger] = None,
 ) -> AsyncIterator[str]:
     """Yield decoded, stripped, non-empty lines from `journalctl -f -u <unit>`.
@@ -44,9 +45,16 @@ async def follow_unit(
     things, and a generic line would tell the owner a process ended without
     telling them what it cost. Required and keyword-only, so a third consumer
     cannot be added without answering the question.
+
+    `tail` lines already written are replayed first (`"all"` for every one),
+    from `since` on when it is given — one process for replay and follow, so
+    no line falls between the two.
     """
+    args = ["journalctl", "-u", unit, "-f", "-n", str(tail), "-o", output]
+    if since is not None:
+        args += ["--since", since]
     proc = await asyncio.create_subprocess_exec(
-        "journalctl", "-u", unit, "-f", "-n", str(tail), "-o", output,
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -90,60 +98,3 @@ async def follow_unit(
                 proc.terminate()
                 await proc.wait()
 
-
-async def read_unit(
-    unit: str,
-    *,
-    tail: Optional[int] = None,
-    since: Optional[str] = None,
-    output: str = "cat",
-    drop_substrings: Iterable[str] = (),
-    keep_last: Optional[int] = None,
-    timeout: float = 10.0,
-    logger: Optional[logging.Logger] = None,
-) -> List[str]:
-    """One-shot `journalctl -u <unit>` read (exec, not shell — no shell-injection
-    surface, no grep pipeline).
-
-    Returns non-empty lines, with any line containing a `drop_substrings` token
-    filtered out; `keep_last` then trims to the last N survivors (mirrors a
-    trailing `| tail -N`). `output` matches follow_unit's default so both reads
-    feed one journal format. Returns [] on timeout or a non-zero exit.
-    """
-    args = ["journalctl", "-u", unit, "--no-pager", "-o", output]
-    if tail is not None:
-        args += ["-n", str(tail)]
-    if since is not None:
-        args += ["--since", since]
-
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        with contextlib.suppress(ProcessLookupError):
-            await proc.wait()
-        if logger:
-            logger.error("Timeout reading journalctl for %s", unit)
-        return []
-
-    if proc.returncode != 0:
-        return []
-
-    drop = tuple(drop_substrings)
-    out: List[str] = []
-    for line in stdout.decode("utf-8", errors="ignore").split("\n"):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if any(token in stripped for token in drop):
-            continue
-        out.append(stripped)
-
-    if keep_last is not None:
-        return out[-keep_last:]
-    return out

@@ -544,12 +544,10 @@
      "source": "system",
      "full_state": {
       "active_source": "mac",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "client_names": [
-        "Mac mini de Léo"
-       ]
+       "client_names": []
       },
       "error": null,
       "multiroom_enabled": false,
@@ -564,20 +562,16 @@
     "origin": "mac",
     "data": {
      "source": "mac",
-     "new_state": "active",
+     "new_state": "ready",
      "metadata": {
-      "client_names": [
-       "Mac mini de Léo"
-      ]
+      "client_names": []
      },
      "full_state": {
       "active_source": "mac",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
-       "client_names": [
-        "Mac mini de Léo"
-       ]
+       "client_names": []
       },
       "error": null,
       "multiroom_enabled": false,
@@ -635,34 +629,6 @@
        "client_names": [
         "Mac mini de Léo",
         "MacBook-Air-de-Camille"
-       ]
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "mac",
-    "data": {
-     "source": "mac",
-     "new_state": "active",
-     "metadata": {
-      "client_names": [
-       "Mac mini de Léo"
-      ]
-     },
-     "full_state": {
-      "active_source": "mac",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "client_names": [
-        "Mac mini de Léo"
        ]
       },
       "error": null,
@@ -748,6 +714,122 @@
     "equalizer_effects_enabled": false,
     "network_unavailable": null
    },
+   {
+    "active_source": "mac",
+    "source_state": "ready",
+    "transitioning": false,
+    "metadata": {
+     "client_names": []
+    },
+    "error": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false,
+    "network_unavailable": null
+   }
+  ]
+ },
+ "a_mac_that_left_before_select_is_not_replayed": {
+  "ws": [
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "mac",
+      "source_state": "starting",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "mac",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "client_names": []
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state_changed",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "new_state": "ready",
+     "metadata": {
+      "client_names": []
+     },
+     "full_state": {
+      "active_source": "mac",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {
+       "client_names": []
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_start",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": true,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "system",
+    "type": "transition_complete",
+    "origin": "system",
+    "data": {
+     "source": "system",
+     "full_state": {
+      "active_source": "none",
+      "source_state": "ready",
+      "transitioning": false,
+      "metadata": {},
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   }
+  ],
+  "rest": [
    {
     "active_source": "mac",
     "source_state": "ready",

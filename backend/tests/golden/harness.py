@@ -26,7 +26,9 @@ Rules that keep the recording meaningful:
   duplicate READY, a seek on the position axis; phase 3c: Qobuz, whose phase
   is the player's own state — a skip's load is loading, the app leaving is
   READY at once, the playhead on the position axis instead of a full state
-  per poll). Then only that source's file
+  per poll; phase 3d: Mac, whose replay covers the running roc-recv only and
+  names a sender after the transition instead of inside it). Then only that
+  source's file
   is re-recorded, after every differing envelope was reviewed and listed in
   the commit, with the MILO_DUMP_OLD_WIRE output of the run that was
   reviewed byte-identical to what is recorded.

@@ -65,7 +65,7 @@ class TestClassifyNonEvents:
 
     def test_connect_marker_without_address_yields_no_ip(self):
         # Marker present but no parseable address -> event fires with ip=None,
-        # and _process_log_line drops it (guards on ip).
+        # and the source's journal follow drops it (guards on ip).
         event, ip, port = classify_line("session group: creating session")
         assert event == "connect"
         assert ip is None and port is None

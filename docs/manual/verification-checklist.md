@@ -236,6 +236,8 @@ card and the player are both expected screens — see `sources/bluetooth/avrcp.p
 | Detection | Starting the ROC sender switches Milō to the Mac source on its own | targeted |
 | State | UI shows "Connected to [Mac name]"; "Ready to stream" when idle | targeted |
 | Audio | Continuous audio, no dropouts, at the configured latency profile | targeted |
+| Left while off | A Mac that picked another output while Milō played another source is not shown when Mac is selected again (`client_names` empty, READY) | targeted |
+| roc-recv killed | `kill -9` its MainPID mid-stream: READY and the banner at once; systemd restarts it ~5 s later and the Mac is back on screen by itself, banner gone | targeted |
 
 ## Volume and CamillaDSP
 

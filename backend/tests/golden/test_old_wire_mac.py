@@ -2,12 +2,20 @@
 
 The outside world is two programs: roc-recv, whose journal is the only thing
 that says a sender connected or left, and Avahi, which names the sender from
-its IP. Both are faked as the processes the source spawns — `journalctl`
-(the startup read and the follow) and `avahi-resolve`/`avahi-browse` — so a
-stimulus is a line roc-recv logs, and a name is what the LAN advertises.
+its IP. Both are faked as the processes the source spawns — `journalctl` and
+`avahi-resolve`/`avahi-browse` — so a stimulus is a line roc-recv logs, and a
+name is what the LAN advertises.
+
+The journal is timestamped: lines an earlier roc-recv wrote precede the
+running one's start, and `journalctl -f --since=@<start>` replays from there
+(phase 3d: the replay is bounded to the running process). A Mac already
+streaming when the source is selected reattaches to the new roc-recv within
+its first milliseconds, measured — before Milō follows the journal.
 """
 import asyncio
+import json
 from typing import Any, List, Optional, Tuple
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,7 +25,7 @@ from backend.shared import journalctl as journalctl_module
 from backend.sources.mac import source as mac_module
 from backend.sources.mac.source import MacSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, Wire, check_recording, instant_short_sleep, make_settings,
+    AsyncioProxy, LiveProcessWatch, Wire, check_recording, instant_short_sleep, make_settings,
     make_state_machine, make_systemd, settle,
 )
 
@@ -63,14 +71,16 @@ class _Pipe:
 
 
 class _FollowProcess:
-    """`journalctl -u milo-mac.service -f`: prints what roc-recv logs from now on."""
+    """`journalctl -u milo-mac.service -f -o json`: each entry with the pid of
+    the roc-recv that wrote it."""
 
     def __init__(self) -> None:
         self.stdout = _Pipe()
         self.returncode: Optional[int] = None
 
-    def print(self, line: str) -> None:
-        self.stdout.lines.put_nowait(f"{line}\n".encode())
+    def print(self, pid: int, line: str) -> None:
+        entry = json.dumps({"MESSAGE": line, "_PID": str(pid)})
+        self.stdout.lines.put_nowait(f"{entry}\n".encode())
 
     def terminate(self) -> None:
         self.returncode = -15
@@ -100,20 +110,30 @@ class _OneShotProcess:
         return self.returncode
 
 
+# When the running roc-recv started (µs), and its pid, as systemd reports them.
+START_USEC = 1_790_254_635_371_598
+ROC_PID = 4242
+
+
 class FakeLan:
     """roc-recv's journal and the LAN's mDNS, as the spawned processes see them."""
 
     def __init__(self) -> None:
-        self.history: List[str] = []      # journal lines logged before select
+        self.journal: List[Tuple[int, int, str]] = []   # (µs, pid, line)
         self.follow: Optional[_FollowProcess] = None
 
     async def exec(self, *argv: str, **_: Any):
         program = argv[0]
         if program == "journalctl":
-            if "-f" in argv:
-                self.follow = _FollowProcess()
-                return self.follow
-            return _OneShotProcess("".join(f"{line}\n" for line in self.history))
+            assert "-f" in argv, argv
+            self.follow = _FollowProcess()
+            since = argv[argv.index("--since") + 1] if "--since" in argv else None
+            if since is not None:
+                since_usec = round(float(since.lstrip("@")) * 1_000_000)
+                for usec, pid, line in self.journal:
+                    if usec >= since_usec:
+                        self.follow.print(pid, line)
+            return self.follow
         if program == "avahi-resolve":
             if "-a" in argv:
                 ip = argv[-1]
@@ -140,13 +160,16 @@ class Mac:
         monkeypatch.setattr(mac_module, "asyncio", fake)
         monkeypatch.setattr(journalctl_module, "asyncio", fake)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        monkeypatch.setattr(audio_source, "ProcessWatch", LiveProcessWatch, raising=False)
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
+        systemd = make_systemd()
+        systemd.main_start_usec = AsyncMock(return_value=START_USEC)
         self.source = MacSource(
             {},
             state_machine=self.machine,
             settings_service=make_settings(),
-            systemd_manager=make_systemd(),
+            systemd_manager=systemd,
         )
         self.machine.register_source(AudioSource.MAC, self.source)
 
@@ -159,11 +182,19 @@ class Mac:
         await settle()
 
     def logged_before_select(self, lines: List[str]) -> None:
-        self.lan.history.extend(lines)
+        """A sender already streaming at select: the new roc-recv logs it at
+        its start, before the source follows the journal."""
+        self.lan.journal.extend((START_USEC + i + 1, ROC_PID, line) for i, line in enumerate(lines))
+
+    def logged_by_an_earlier_run(self, lines: List[str]) -> None:
+        """What a roc-recv stopped before this select wrote (E28)."""
+        self.lan.journal.extend(
+            (START_USEC - 1_000_000 + i, ROC_PID - 1, line) for i, line in enumerate(lines)
+        )
 
     async def roc_logs(self, lines: List[str]) -> None:
         for line in lines:
-            self.lan.follow.print(line)
+            self.lan.follow.print(ROC_PID, line)
         await settle()
 
 
@@ -202,7 +233,7 @@ async def test_two_macs_then_one_leaves_then_the_other(mac):
 
 async def test_already_streaming_at_select(mac):
     # A sender that connected before the source was selected is only in the
-    # journal's history; a noise line and a trace line sit around it.
+    # replay of the running roc-recv; a noise line and a trace line sit around it.
     mac.logged_before_select([
         "roc-recv: starting receiver",
         *roc_connect(MINI_IP),
@@ -215,3 +246,13 @@ async def test_already_streaming_at_select(mac):
     await mac.wire.snapshot_rest()
     await mac.deselect()
     check_recording("mac", "already_streaming_at_select", mac.wire)
+
+
+async def test_a_mac_that_left_before_select_is_not_replayed(mac):
+    # An earlier roc-recv, stopped under a live session, wrote no goodbye
+    # (measured); the Mac has since picked another output.
+    mac.logged_by_an_earlier_run(roc_connect(MINI_IP))
+    await mac.select()
+    await mac.wire.snapshot_rest()
+    await mac.deselect()
+    check_recording("mac", "a_mac_that_left_before_select_is_not_replayed", mac.wire)

@@ -710,3 +710,44 @@ class TestUnitState:
             self._Reply(error="org.freedesktop.DBus.Error.AccessDenied"),
         )
         assert await manager.unit_state("milo-spotify.service") is None
+
+
+class TestMainStart:
+    """When the unit's running process started: the bound of a journal replay
+    that must cover this process's life and nothing older (the Mac source —
+    roc-recv's sessions die with it, unannounced). Microseconds, because a
+    reroute restarts the unit within a second and a whole-second bound would
+    replay the previous process's last lines."""
+
+    _bus = TestUnitState._bus
+    _Reply = TestUnitState._Reply
+
+    async def test_the_start_of_the_main_process_is_read_in_microseconds(self, manager, monkeypatch):
+        from dbus_next import Variant
+        calls = self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/milo_2dmac_2eservice"]),
+            self._Reply([Variant("t", 1790253847391212)]),
+        )
+        assert await manager.main_start_usec("milo-mac.service") == 1790253847391212
+        assert calls[1] == ("Get", ["org.freedesktop.systemd1.Service", "ExecMainStartTimestamp"])
+        assert calls[-1][0] == "disconnect"
+
+    async def test_a_unit_whose_process_never_started_has_no_start(self, manager, monkeypatch):
+        from dbus_next import Variant
+        self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/x"]),
+            self._Reply([Variant("t", 0)]),
+        )
+        assert await manager.main_start_usec("milo-mac.service") is None
+
+    async def test_a_unit_that_is_not_loaded_has_no_start(self, manager, monkeypatch):
+        self._bus(monkeypatch, self._Reply(error="org.freedesktop.systemd1.NoSuchUnit"))
+        assert await manager.main_start_usec("milo-mac.service") is None
+
+    async def test_an_unreachable_bus_is_not_an_answer(self, manager, monkeypatch):
+        async def refuse():
+            raise FileNotFoundError("no system bus")
+        self._bus(monkeypatch, connect=refuse)
+        assert await manager.main_start_usec("milo-mac.service") is None

@@ -29,6 +29,8 @@ IS_ACTIVE_TIMEOUT = 5.0
 UNIT_STATE_TIMEOUT = 2.0
 
 _SYSTEMD = "org.freedesktop.systemd1"
+# What _unit_properties answers for a unit systemd does not know.
+_NOT_LOADED = object()
 
 
 class SystemdServiceManager:
@@ -248,6 +250,36 @@ class SystemdServiceManager:
         with it (measured), which answered a stop someone asked for as a crash.
         Every step is bounded: the caller is a source's mailbox.
         """
+        values = await self._unit_properties(
+            service, (("Unit", "ActiveState"), ("Service", "Result")), "the state",
+        )
+        if values is _NOT_LOADED:
+            return "inactive", "success"
+        return None if values is None else (values[0], values[1])
+
+    async def main_start_usec(self, service: str) -> Optional[int]:
+        """When the unit's main process started, in microseconds since the
+        epoch, or None when none ever did (not loaded, never started) or it
+        cannot be read. systemd keeps the value after that process exits: it
+        is the last one's start, which may no longer be running.
+
+        What it is for: a daemon whose sessions die with its process, unannounced
+        (roc-recv), is described by the journal it wrote *since* then and by
+        nothing older — the bound of that source's replay, which still checks
+        whose each line is. Read over D-Bus like `unit_state`: the caller is a
+        source's mailbox.
+        """
+        values = await self._unit_properties(
+            service, (("Service", "ExecMainStartTimestamp"),), "the main process start",
+        )
+        if values is None or values is _NOT_LOADED:
+            return None
+        return values[0] or None
+
+    async def _unit_properties(self, service: str, props, what: str):
+        """The values of `props` ((interface, property), …) on `service`'s unit,
+        `_NOT_LOADED` when systemd knows no such unit, None when they cannot be
+        read. Every step is bounded."""
         bus = None
         try:
             bus = await asyncio.wait_for(
@@ -260,27 +292,27 @@ class SystemdServiceManager:
             )), UNIT_STATE_TIMEOUT)
             if unit.message_type is MessageType.ERROR:
                 if unit.error_name.endswith("NoSuchUnit"):
-                    return "inactive", "success"
-                self.logger.warning(f"Could not read the state of {service}: {unit.error_name}")
+                    return _NOT_LOADED
+                self.logger.warning(f"Could not read {what} of {service}: {unit.error_name}")
                 return None
             values = []
-            for interface, prop in (("Unit", "ActiveState"), ("Service", "Result")):
+            for interface, prop in props:
                 reply = await asyncio.wait_for(bus.call(Message(
                     destination=_SYSTEMD, path=unit.body[0],
                     interface="org.freedesktop.DBus.Properties", member="Get",
                     signature="ss", body=[f"{_SYSTEMD}.{interface}", prop],
                 )), UNIT_STATE_TIMEOUT)
                 if reply.message_type is MessageType.ERROR:
-                    self.logger.warning(f"Could not read the state of {service}: {reply.error_name}")
+                    self.logger.warning(f"Could not read {what} of {service}: {reply.error_name}")
                     return None
                 values.append(reply.body[0].value)
         except (OSError, asyncio.TimeoutError) as e:
-            self.logger.warning(f"Could not read the state of {service}: {e!r}")
+            self.logger.warning(f"Could not read {what} of {service}: {e!r}")
             return None
         finally:
             if bus is not None:
                 bus.disconnect()
-        return values[0], values[1]
+        return values
 
     async def is_active(self, service: str) -> bool:
         """Whether the unit is known to be active — an unreadable probe is not.
