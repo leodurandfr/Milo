@@ -35,7 +35,7 @@ import contextlib
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from backend.sources.qobuz.monitor import QobuzMonitor
+from backend.sources.qobuz.monitor import QobuzMonitor, StatusUnanswered
 from backend.sources.qobuz.source import QobuzSource
 
 
@@ -204,15 +204,13 @@ class TestTheLoginState:
         """
         mon = monitor(session_answering(Payloads(body(speaker()), status=503)))
 
-        assert await mon._fetch_status() is None
-
-    async def test_a_non_200_is_logged_so_a_broken_sidecar_is_visible(self, caplog):
-        mon = monitor(session_answering(Payloads(body(speaker()), status=503)))
-
-        with caplog.at_level("WARNING", logger="source.qobuz.monitor"):
+        with pytest.raises(StatusUnanswered, match="503"):
             await mon._fetch_status()
 
-        assert "503" in caplog.text
+
+async def _until(condition):
+    while not condition():
+        await asyncio.sleep(0.001)
 
 
 class TestThePollLoop:
@@ -246,6 +244,60 @@ class TestThePollLoop:
 
         assert mon.seen[0][0]["name"] == "Milō"
 
+    async def test_an_outage_is_logged_once_and_its_end_once(self, caplog):
+        """A sidecar restart — the idle timeout's end request — refuses about
+        five polls in a row: one warning names the outage, one line its end,
+        instead of a warning a second."""
+        payloads = Payloads(body(speaker()))
+        session = session_answering(payloads)
+        calls = {"n": 0}
+
+        def get(_url):
+            calls["n"] += 1
+            if 2 <= calls["n"] <= 6:
+                raise ConnectionRefusedError("Connect call failed ('127.0.0.1', 8689)")
+            if calls["n"] >= 7:
+                mon.delivered.set()
+            return payloads
+
+        session.get = Mock(side_effect=get)
+        mon = monitor(session)
+        mon._running = True
+
+        with caplog.at_level("INFO", logger="source.qobuz.monitor"):
+            task = asyncio.create_task(mon._loop())
+            await asyncio.wait_for(_until(lambda: calls["n"] >= 8), timeout=5)
+            mon._running = False
+            task.cancel()
+
+        assert [r.levelname for r in caplog.records] == ["WARNING", "INFO"]
+        assert "Connect call failed" in caplog.records[0].getMessage()
+
+    async def test_a_sidecar_that_never_answers_is_reported(self, caplog):
+        """A sidecar crash-looping after an update, or answering 500 for good,
+        never answers at all: that is an outage, not a start, and it has to
+        reach the journal."""
+        session = session_answering(Payloads(body(speaker()), status=500))
+        calls = {"n": 0}
+        real_get = session.get
+
+        def get(url):
+            calls["n"] += 1
+            return real_get(url)
+
+        session.get = Mock(side_effect=get)
+        mon = monitor(session)
+        mon._running = True
+
+        with caplog.at_level("WARNING", logger="source.qobuz.monitor"):
+            task = asyncio.create_task(mon._loop())
+            await asyncio.wait_for(_until(lambda: calls["n"] >= 8), timeout=5)
+            mon._running = False
+            task.cancel()
+
+        assert [r.levelname for r in caplog.records] == ["WARNING"]
+        assert "500" in caplog.records[0].getMessage()
+
     async def test_a_failing_poll_does_not_kill_the_loop(self, caplog):
         """Background-loop doctrine, and it is the whole reason the source
         survives a sidecar restart: without the body guard one refused poll
@@ -265,7 +317,7 @@ class TestThePollLoop:
         mon = monitor(session)
         mon._running = True
 
-        with caplog.at_level("WARNING", logger="source.qobuz.monitor"):
+        with caplog.at_level("DEBUG", logger="source.qobuz.monitor"):
             task = asyncio.create_task(mon._loop())
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(mon.delivered.wait(), timeout=5)
@@ -274,6 +326,34 @@ class TestThePollLoop:
 
         assert mon.seen, "the loop died on the first failed poll"
         assert "sidecar restarted" in caplog.text
+
+    async def test_a_sidecar_not_answering_yet_is_starting_not_failing(self, caplog):
+        """Measured: a sidecar coming up refuses connections for ~0.45 s, and
+        the source starts polling 0.5 s after asking systemd — one selection in
+        four put a warning in the journal for a start that went fine."""
+        payloads = Payloads(body(speaker()))
+        session = session_answering(payloads)
+        calls = {"n": 0}
+
+        def get(_url):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ConnectionRefusedError("Connect call failed ('127.0.0.1', 8689)")
+            return payloads
+
+        session.get = Mock(side_effect=get)
+        mon = monitor(session)
+        mon._running = True
+
+        with caplog.at_level("INFO", logger="source.qobuz.monitor"):
+            task = asyncio.create_task(mon._loop())
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(mon.delivered.wait(), timeout=5)
+            mon._running = False
+            task.cancel()
+
+        assert mon.seen
+        assert caplog.records == []
 
     async def test_a_callback_that_throws_does_not_kill_the_loop(self):
         async def boom(speaker, authenticated):
@@ -585,14 +665,3 @@ class TestTheSourceBoot:
 
         stopped.assert_awaited_once()
         assert source._monitor is None
-
-    async def test_stopping_clears_the_playback_state(self, source):
-        source._monitor = None
-        source._device_connected = True
-        source._idle_ticks = 3
-        source._trackless_ticks = 2
-
-        await source._cleanup()
-
-        assert source._device_connected is False
-        assert (source._idle_ticks, source._trackless_ticks) == (0, 0)

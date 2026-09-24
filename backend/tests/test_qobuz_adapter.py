@@ -1,8 +1,9 @@
 # backend/tests/test_qobuz_adapter.py
 """The gate that decides whether a qobuz-proxy release can be shipped.
 
-`rootfs/usr/local/bin/milo-qobuz` adds position/duration to the sidecar's status
-and holds its stream at unity gain — two things upstream offers no setting for.
+`rootfs/usr/local/bin/milo-qobuz` adds position/duration and the session's
+state to the sidecar's status and holds its stream at unity gain — three things
+upstream offers no setting for.
 Both bind to names, and `--check` is what refuses a release that moved one,
 before `_update_qobuz_proxy` restarts the service onto it.
 
@@ -80,3 +81,53 @@ def test_the_app_slider_is_honoured_only_behind_the_flag(adapter, tmp_path, monk
         (tmp_path / adapter.VOLUME_FLAG).write_text(flag)
 
     assert adapter._app_volume_allowed() is expected
+
+
+class _State:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Player:
+    def __init__(self, state):
+        self.state = _State(state)
+
+
+class _WsManager:
+    """The upstream shape: `is_renderer_active` also requires a connected,
+    confirmed WebSocket; `_renderer_active` is the cloud's last SET_ACTIVE."""
+
+    def __init__(self, active, connected=True):
+        self._renderer_active = active
+        self.is_renderer_active = active and connected
+
+
+def test_the_session_fields_are_what_the_source_reads(adapter):
+    """The contract between the two trees: every state the launcher refuses to
+    run without is one the source maps to a phase, spelled the way the launcher
+    writes it. A state the source has no entry for would read as loading for
+    ever — no error, a spinner over silence."""
+    from backend.sources.qobuz.source import _PHASES
+
+    written = {adapter.session_fields(_Player(state), None)["player_state"]
+               for state in adapter.PLAYER_STATES}
+    assert len(written) == 5
+    assert written == set(_PHASES)
+
+
+def test_a_speaker_not_started_yet_is_nobody_s_output(adapter):
+    """Either component can be missing while a speaker starts: no state, not
+    the app's output — never an AttributeError into the status API."""
+    assert adapter.session_fields(None, None) == {"player_state": None, "renderer_active": False}
+    assert adapter.session_fields(_Player("PAUSED"), _WsManager(True)) == {
+        "player_state": "paused", "renderer_active": True,
+    }
+
+
+def test_a_cloud_reconnect_is_not_the_app_leaving(adapter):
+    """`is_renderer_active` drops while the cloud WebSocket reconnects (a token
+    renewal, a network blip) with the audio still playing: read, it ended the
+    session over music. The app leaving is the cloud's SET_ACTIVE(false)."""
+    fields = adapter.session_fields(_Player("PLAYING"), _WsManager(True, connected=False))
+    assert fields["renderer_active"] is True
+    assert adapter.session_fields(_Player("STOPPED"), _WsManager(False))["renderer_active"] is False

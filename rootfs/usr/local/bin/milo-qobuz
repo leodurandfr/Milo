@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run qobuz-proxy with Milō's two adaptations, bound to names instead of to source text.
+"""Run qobuz-proxy with Milō's three adaptations, bound to names instead of to source text.
 
-Milō needs two things upstream does not offer as configuration:
+Milō needs three things upstream does not offer as configuration:
 
 1. **Volume policy.** CamillaDSP is the only attenuation stage in the audio path
    — the role `external_volume` plays for go-librespot and `ignore_volume_control`
@@ -16,6 +16,16 @@ Milō needs two things upstream does not offer as configuration:
    the only surface Milō can read. Without them the player's progress bar never
    moves.
 
+3. **The session as the player holds it.** The status folds the player's state
+   into `playing` / `paused` / `idle`, so a track loading (LOADING, ~100 ms at
+   every skip, measured), a track that failed (ERROR) and a speaker the app has
+   let go of all read `idle`, and Milō could only guess which with timers.
+   `player_state` is the player's own state, lowercased, and `renderer_active`
+   whether the Qobuz cloud has this speaker as the app's output — the value of
+   the server's last SET_ACTIVE, which is how the app picking another output is
+   told (measured 2026-09-24). Not upstream's `is_renderer_active`, which also
+   drops while the cloud WebSocket reconnects, with the music still playing.
+
 Both used to be applied by rewriting upstream's installed sources, anchored on
 exact lines. qobuz-proxy 1.6.0 moved one of those lines — `"volume"` left the
 `now_playing` literal for a conditional assignment, for a DLNA-only feature —
@@ -24,7 +34,8 @@ failed, rolled back, and nothing was wrong with the release: the anchor was
 reading formatting.
 
 So the adaptations wrap methods. What they bind to is `Speaker.get_status`,
-`AudioOutputStream.set_volume` and the player's two progress properties, which
+`AudioOutputStream.set_volume`, the player's state and two progress properties,
+and the WebSocket manager's `_renderer_active`, which
 only a real refactor moves — and `--check` says which one did, before the
 service is restarted onto it.
 
@@ -42,6 +53,8 @@ import os
 import sys
 
 VOLUME_FLAG = "allow_app_volume"
+# The player states Milo maps to a session phase (backend/sources/qobuz/source.py).
+PLAYER_STATES = {"STOPPED", "PLAYING", "PAUSED", "LOADING", "ERROR"}
 
 
 def _mentions_key(func, key):
@@ -67,7 +80,9 @@ def _mentions_key(func, key):
 def _bindings():
     """Everything the adaptations touch, with what to say when one has moved."""
     from qobuz_proxy import cli
+    from qobuz_proxy.backends import PlaybackState
     from qobuz_proxy.backends.local.stream import AudioOutputStream
+    from qobuz_proxy.connect import WsManager
     from qobuz_proxy.playback.player import QobuzPlayer
     from qobuz_proxy.speaker import Speaker
 
@@ -104,6 +119,26 @@ def _bindings():
             "there is no duration left to report",
         ),
         (
+            "QobuzPlayer.state",
+            hasattr(QobuzPlayer, "state"),
+            "the session's phase can no longer be read",
+        ),
+        (
+            "PlaybackState is exactly the five states Milo maps",
+            PLAYER_STATES == set(PlaybackState.__members__),
+            "a state was renamed, dropped or added — Milo would read it as loading",
+        ),
+        (
+            "Speaker keeps its WebSocket manager in _ws_manager",
+            "_ws_manager" in Speaker.__init__.__code__.co_names,
+            "the attribute the app's selection is read from was renamed",
+        ),
+        (
+            "WsManager keeps the cloud's SET_ACTIVE in _renderer_active",
+            "_renderer_active" in WsManager.__init__.__code__.co_names,
+            "the app picking another output can no longer be seen",
+        ),
+        (
             "AudioOutputStream.set_volume",
             callable(getattr(AudioOutputStream, "set_volume", None)),
             "the app slider can no longer be held at unity before CamillaDSP",
@@ -131,6 +166,18 @@ def check():
         return 1
     print(f"qobuz-proxy adaptations bind cleanly ({len(_bindings())} checks)")
     return 0
+
+
+def session_fields(player, ws_manager):
+    """`player_state` and `renderer_active`, from the speaker's two components.
+
+    Either can be missing on a speaker that has not finished starting, which
+    reads as no session: no state, not the app's output.
+    """
+    return {
+        "player_state": player.state.name.lower() if player is not None else None,
+        "renderer_active": bool(ws_manager is not None and ws_manager._renderer_active),
+    }
 
 
 def _app_volume_allowed():
@@ -164,6 +211,7 @@ def apply():
 
     def get_status(self):
         status = speaker_status(self)
+        status.update(session_fields(self._player, self._ws_manager))
         now_playing = status.get("now_playing")
         if now_playing is not None:
             # `current_position_ms` extrapolates from the last backend report, so

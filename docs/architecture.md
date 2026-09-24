@@ -424,9 +424,17 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   (~1 Hz) for `now_playing` (title/artist/album/album-art URL + position/duration).
   Upstream reports progress only to the Qobuz cloud, so the launcher
   [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz) adds
-  `position_ms`/`duration_ms` to that payload at runtime; the poll doubles as the
-  progress feed (the frontend interpolates between ticks) and the bar is
-  read-only — seeking belongs to the Qobuz app
+  `position_ms`/`duration_ms` to that payload at runtime, and `player_state` /
+  `renderer_active` beside it — the player's own state and whether the Qobuz
+  cloud has Milō as the app's output. The session follows those two: it opens
+  at the first track with a title, is LOADING for the ~100 ms of each skip, and
+  ends the moment the app picks another output. The poll doubles as the
+  progress feed (a correction every 10 s, the frontend interpolates) and the
+  bar is read-only — seeking belongs to the Qobuz app
+- A pause past `audio.auto_stop_delay` ends the session the only way that
+  works: a restart of the sidecar, after which the app falls back to its own
+  output (measured 2026-09-24; releasing ownership locally leaves the app on
+  Milō)
 - Artwork is a plain Qobuz CDN URL loaded directly by the kiosk — no binary
   artwork route
 - A **one-time Qobuz account login** is required (unlike Spotify's zeroconf) or

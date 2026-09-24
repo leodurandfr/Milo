@@ -22,6 +22,16 @@ import aiohttp
 
 logger = logging.getLogger("source.qobuz.monitor")
 
+# Polls in a row the sidecar may leave unanswered before it is an outage.
+# Measured: a sidecar coming up refuses connections for ~0.45 s, and a restart
+# Milō asks for (the idle timeout's end request) takes about a second — at
+# ~1 Hz, at most two polls. A third is a sidecar that is not coming back.
+OUTAGE_POLLS = 3
+
+
+class StatusUnanswered(Exception):
+    """The sidecar is up and answered something other than a status."""
+
 
 class QobuzMonitor:
     """Async poll loop over qobuz-proxy's GET /api/status."""
@@ -39,6 +49,7 @@ class QobuzMonitor:
         self._poll_interval = poll_interval
 
         self._running = False
+        self._failures = 0
         self._task: Optional[asyncio.Task] = None
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -47,6 +58,7 @@ class QobuzMonitor:
         if self._task:
             return
         self._running = True
+        self._failures = 0
         # Bounded per-request timeout so an unresponsive proxy can't wedge the
         # loop; a slow tick just retries next interval.
         self._session = aiohttp.ClientSession(
@@ -73,42 +85,46 @@ class QobuzMonitor:
 
         Background-loop doctrine: the body is wrapped so a transient poll error
         (proxy starting, network blip) is logged and skipped — fail open, keep
-        the last state, retry next tick — instead of killing the task.
+        the last state, retry next tick — instead of killing the task. A
+        refusal shorter than OUTAGE_POLLS is a start or a restart and stays at
+        debug; a longer one is reported once, and its end once.
         """
         while self._running:
             try:
-                status = await self._fetch_status()
-                if status is not None:
-                    await self._on_status(*status)
+                await self._on_status(*await self._fetch_status())
+                if self._failures >= OUTAGE_POLLS:
+                    logger.info("Qobuz status poll answers again")
+                self._failures = 0
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.warning("Qobuz status poll failed: %s", e)
+                self._failures += 1
+                if self._failures == OUTAGE_POLLS:
+                    logger.warning(
+                        "Qobuz status poll failed %d times in a row: %s", OUTAGE_POLLS, e
+                    )
+                else:
+                    logger.debug("Qobuz status not answered: %s", e)
             await asyncio.sleep(self._poll_interval)
 
-    async def _fetch_status(
-        self,
-    ) -> Optional[tuple[Optional[Dict[str, Any]], bool]]:
-        """Return (our speaker dict | None, account authenticated), or None.
+    async def _fetch_status(self) -> tuple[Optional[Dict[str, Any]], bool]:
+        """Return (our speaker dict | None, account authenticated).
 
-        None is "the sidecar did not answer", and the tick is skipped on it
-        exactly as the loop above skips a tick that raised. The two are one
-        failure — a status that could not be read — and only the transport
-        tells them apart: a sidecar that is down refuses the connection and
-        raises, one that is up and broken answers 5xx. Answering an absent
-        speaker instead, the second one read as "no session": three ticks of
-        the source's idle grace and the full-screen player was replaced by the
-        idle card, over audio that was still playing. It also flashed the
-        "connect your account" CTA at someone who is logged in, once per
-        hiccup, at ~1 Hz.
+        Raises when the sidecar did not answer a status, and the loop above
+        skips the tick. The two ways that happens are one failure — a status
+        that could not be read — and only the transport tells them apart: a
+        sidecar that is down refuses the connection, one that is up and broken
+        answers 5xx (StatusUnanswered). Answered as an absent speaker instead,
+        the second one read as "no session": the player was replaced by the
+        idle card over audio that was still playing, with the "connect your
+        account" CTA on it for someone who is logged in.
 
         The speaker inside the tuple is still optional, and means what it says:
         the status was read and names no speaker of ours.
         """
         async with self._session.get(self._status_url) as resp:
             if resp.status != 200:
-                logger.warning("Qobuz /api/status -> HTTP %s", resp.status)
-                return None
+                raise StatusUnanswered(f"/api/status -> HTTP {resp.status}")
             payload = await resp.json()
 
         authenticated = bool((payload.get("auth") or {}).get("authenticated"))

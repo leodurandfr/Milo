@@ -1,7 +1,7 @@
 """Qobuz's old wire, scenario by scenario (see harness.py for the rules).
 
-The outside world is qobuz-proxy's GET /api/status, polled about once a second.
-FakeQobuzProxy answers it; the real QobuzMonitor runs over it with its poll
+The outside world is qobuz-proxy's GET /api/status as milo-qobuz extends it,
+polled about once a second. FakeQobuzProxy answers it; the real QobuzMonitor runs over it with its poll
 sleep gated, so one `tick()` is one poll and a stimulus is the payload the
 proxy answers from then on. Qobuz takes no command (Family B).
 """
@@ -16,7 +16,7 @@ from backend.sources.qobuz import monitor as monitor_module
 from backend.sources.qobuz import source as qobuz_module
 from backend.sources.qobuz.source import QobuzSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, TickGate, Wire, check_recording, instant_short_sleep,
+    AsyncioProxy, LiveProcessWatch, TickGate, Wire, check_recording, instant_short_sleep,
     make_settings, make_state_machine, make_systemd, settle,
 )
 
@@ -62,6 +62,8 @@ class FakeQobuzProxy:
         self.authenticated = True
         self.speaker_status = "idle"
         self.now_playing = None
+        self.player_state = "stopped"
+        self.renderer_active = False
         self.polls = 0
 
     # -- aiohttp.ClientSession surface --------------------------------------
@@ -76,6 +78,8 @@ class FakeQobuzProxy:
             "name": "Milō",
             "status": self.speaker_status,
             "config": {"audio_device": "milo_qobuz"},
+            "player_state": self.player_state,
+            "renderer_active": self.renderer_active,
         }
         if self.now_playing is not None:
             speaker["now_playing"] = copy.deepcopy(self.now_playing)
@@ -88,11 +92,21 @@ class FakeQobuzProxy:
     # -- what the proxy reports ---------------------------------------------
 
     def reports(self, speaker_status, track=None, position_ms=None, duration_ms=None):
+        """The app's session on this speaker, in upstream's words. Its "idle"
+        under a session is a track loading (measured: ~100 ms at every skip)."""
         self.speaker_status = speaker_status
+        self.renderer_active = True
+        self.player_state = {"idle": "loading"}.get(speaker_status, speaker_status)
         if track is None:
             self.now_playing = {} if speaker_status in ("playing", "paused") else None
             return
         self.now_playing = {**track, "position_ms": position_ms, "duration_ms": duration_ms}
+
+
+    def app_leaves(self):
+        """The app picks another output: SET_ACTIVE(false), the player stopped."""
+        self.speaker_status, self.now_playing = "idle", None
+        self.renderer_active, self.player_state = False, "stopped"
 
 
 class _AiohttpProxy:
@@ -114,6 +128,7 @@ class Qobuz:
         monkeypatch.setattr(monitor_module, "aiohttp", _AiohttpProxy(self.proxy))
         monkeypatch.setattr(monitor_module, "asyncio", AsyncioProxy(self.gate.sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        monkeypatch.setattr(audio_source, "ProcessWatch", LiveProcessWatch)
         # The volume-policy flag lives under /var/lib/milo on a unit.
         self.volume_flag = tmp_path / "allow_app_volume"
         monkeypatch.setattr(qobuz_module, "QOBUZ_VOLUME_FLAG", self.volume_flag)
@@ -217,7 +232,7 @@ async def test_track_change_blips(qobuz):
 async def test_phone_disconnects(qobuz):
     await qobuz.select()
     await _phone_starts(qobuz)
-    qobuz.proxy.reports("idle")
+    qobuz.proxy.app_leaves()
     await qobuz.tick(3)                          # held through the idle grace
     await qobuz.wire.snapshot_rest()
     await qobuz.tick()                           # then committed to READY

@@ -23,7 +23,10 @@ Rules that keep the recording meaningful:
   first frame, `pfls` is no longer a pause, a session inherits nothing from
   the previous one; phase 3b: Spotify and Tidal, whose sessions open at their
   first track and follow the daemon's own state — no guessed spinner, no
-  duplicate READY, a seek on the position axis). Then only that source's file
+  duplicate READY, a seek on the position axis; phase 3c: Qobuz, whose phase
+  is the player's own state — a skip's load is loading, the app leaving is
+  READY at once, the playhead on the position axis instead of a full state
+  per poll). Then only that source's file
   is re-recorded, after every differing envelope was reviewed and listed in
   the commit, with the MILO_DUMP_OLD_WIRE output of the run that was
   reviewed byte-identical to what is recorded.

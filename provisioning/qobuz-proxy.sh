@@ -45,10 +45,10 @@ install_qobuz_proxy() {
     log_success "qobuz-proxy installed"
 }
 
-# Milō runs qobuz-proxy through its own launcher, which applies two adaptations
+# Milō runs qobuz-proxy through its own launcher, which applies three adaptations
 # upstream offers no configuration for: unity-gain volume policy (flag-gated on
-# the "allow app volume" setting — CamillaDSP owns volume) and position/duration
-# in /api/status. They bind to method names rather than to source text, and
+# the "allow app volume" setting — CamillaDSP owns volume), position/duration
+# in /api/status, and the player's state and the app's selection beside them. They bind to method names rather than to source text, and
 # `--check` refuses a release that moved any of them — the same gate the in-app
 # updater runs before restarting the service onto a new version.
 install_qobuz_adapter() {

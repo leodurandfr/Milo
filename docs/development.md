@@ -513,12 +513,16 @@ is driven entirely by an external app:
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
   backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
   restating the install (single source of truth).
-- **Two adaptations**, applied at runtime by the launcher the unit runs,
+- **Three adaptations**, applied at runtime by the launcher the unit runs,
   [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz): the
   local backend's stream is held at unity gain (CamillaDSP is the sole volume
-  authority, flag-gated on the "allow app volume" setting), and
+  authority, flag-gated on the "allow app volume" setting);
   `position_ms`/`duration_ms` are added to `now_playing` — the proxy tracks both
-  for its cloud state reports but omits them from `/api/status`. They wrap
+  for its cloud state reports but omits them from `/api/status`; and
+  `player_state`/`renderer_active` are added to the speaker — the player's own
+  state (upstream folds loading, failed and released into one `idle`) and
+  whether the Qobuz cloud has this speaker as the app's output, which is what
+  the source's session follows. They wrap
   methods rather than rewriting installed sources, so nothing is edited inside
   site-packages and the venv matches the released package exactly. `--check`
   answers whether a release still offers what they bind to; the image build runs

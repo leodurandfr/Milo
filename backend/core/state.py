@@ -528,8 +528,8 @@ class AudioStateMachine:
         Metadata only — unlike the post-start resync in transition_to_source(),
         which re-reads `source.state` as well. The difference is deliberate but
         narrow: a source that changes state re-publishes through
-        update_source_state() on its own, so there is nothing here to copy. Five
-        sources implement the hook (Spotify, CD, Podcast, Music Library,
+        update_source_state() on its own, so there is nothing here to copy. Six
+        sources implement the hook (Spotify, Qobuz, CD, Podcast, Music Library,
         Bluetooth). Spotify's reads go-librespot's /status and follows it through
         the same reconcile() its /events handler uses, publishing any change
         itself — this copy only carries the playhead it read.
