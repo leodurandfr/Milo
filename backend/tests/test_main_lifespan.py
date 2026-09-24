@@ -192,7 +192,7 @@ class TestStartup:
         boot["systemd"].stop.assert_awaited_once_with("milo-radio")
 
     async def test_a_source_that_owns_no_unit_is_never_probed(self, boot):
-        """Bluetooth and DLNA have `service_name = None`.
+        """Bluetooth has `service_name = None`.
 
         Passed through, `systemctl is-active None` is a spawn per boot with a
         nonsense argument, and its answer would decide a stop.

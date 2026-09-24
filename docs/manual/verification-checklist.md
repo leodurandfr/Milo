@@ -106,7 +106,7 @@ These are shared by every source; they break for all of them at once.
 | Source switch | radio → spotify → radio: the previous source stops audibly within ~1 s; no two sources audible at once | smoke |
 | No ghost state | After switching away, the old source's artwork/title never reappears behind the new one | smoke |
 | Transition drop | Switching sources rapidly 4–5 times ends on the source last selected, not on an intermediate one | targeted |
-| Progress bar | Advances in real time and matches the audio (±1 s) for spotify, cd, podcast, music_library, airplay, dlna, qobuz, tidal | targeted |
+| Progress bar | Advances in real time and matches the audio (±1 s) for spotify, cd, podcast, music_library, airplay, qobuz, tidal | targeted |
 | Seek | Dragging the bar moves the audio to that point (spotify, cd, podcast, music_library) | targeted |
 | WS resync | Background the tab ≥60 s, then return: volume, active source, metadata and multiroom state all match reality | smoke |
 | Reconnect | `sudo systemctl restart milo-backend` with the UI open: the UI reconnects on its own and shows the real state, no reload needed | targeted |
@@ -188,14 +188,6 @@ These are shared by every source; they break for all of them at once.
 
 > Artwork is the historical silent-failure point here (shairport-sync 5.1 shipped without
 > metadata and nothing detected it). Never skip the metadata row.
-
-### DLNA (B)
-
-| Check | Expected observable | Set |
-|---|---|---|
-| Discovery | "Milo" appears as a renderer in a DLNA/UPnP controller | targeted |
-| Playback | Pushing a track starts audio | targeted |
-| Metadata | Artwork, title, artist, album shown; no transport buttons | targeted |
 
 ### Qobuz Connect (B) ⚠ paid account
 

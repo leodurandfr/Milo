@@ -77,26 +77,10 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
       // loading (no cache_ready), ejecting, and no-drive windows stay on the
       // AudioSourceStatus card.
       return !!m.disc_present && !!m.cache_ready && !m.ejecting;
-    case 'dlna':
-      // Same gate as AirPlay, for the same reasons: untrusted external sender,
-      // so title, artist and a real cover (>300px) — and no is_playing clause,
-      // since a controller that pauses or stops keeps the renderer connected
-      // (gmediarender holds no session), so the flag alone says nothing about
-      // whether there is still a session to draw.
-      //
-      // What ends one is a disconnect *or* the source's own auto-stop, which a
-      // pause and a stop both arm: at T+audio.auto_stop_delay (2 min by
-      // default, not the 10 s placeholder in the constructor) DlnaSource resets
-      // and publishes READY, and the card comes back on its own. That is the
-      // bound on how long a paused controller can leave a stale cover here —
-      // the same bound AirPlay has, reached by resetting rather than by
-      // restarting the daemon.
-      return state === 'active' && !!m.title && !!m.artist &&
-        (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'qobuz':
     case 'tidal':
       // Trusted metadata providers (Qobuz/Tidal CDN cover, always full-size —
-      // no album_art_width is emitted). Unlike AirPlay/DLNA both report the end
+      // no album_art_width is emitted). Unlike AirPlay both report the end
       // of a session explicitly (the proxy goes idle, the tisoc daemon sends
       // releaseResources → READY) instead of leaving stale metadata behind, so
       // no is_playing gate is needed: title + artist is enough, like Spotify,
@@ -104,10 +88,10 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
       return state === 'active' && !!m.title && !!m.artist;
     case 'bluetooth':
       // Whatever AVRCP the sender published, if any: title + artist is the
-      // whole gate. Requiring the artist is what AirPlay/DLNA get from their
+      // whole gate. Requiring the artist is what AirPlay gets from its
       // cover-size gate — a browser tab or a video publishes a title and
       // rarely an artist, so it stays on the status card. No is_playing clause
-      // on purpose, unlike those two: this player draws transport controls,
+      // on purpose: this player draws transport controls,
       // and dropping to the card on pause would delete the button that was
       // just pressed. The link ending is what brings the card back (READY
       // clears the media fields).

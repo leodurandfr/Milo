@@ -1,7 +1,6 @@
 """Tests for the shared ArtworkResolver: cover art from text, via iTunes.
 
-Used by radio (in-band ICY, artist/title only), DLNA (controllers that publish
-no albumArtURI) and Bluetooth (AVRCP, which carries no image at all and also
+Used by radio (in-band ICY, artist/title only) and Bluetooth (AVRCP, which carries no image at all and also
 knows the album). It is the *only* cover source those sources have, so what this
 returns is what the player paints.
 

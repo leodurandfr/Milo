@@ -10,7 +10,7 @@ HTTP API (GET /api/status); the proxy exposes no push channel and no local
 control endpoints. Progress is there because rootfs/usr/local/bin/milo-qobuz adds
 position_ms/duration_ms to the now_playing payload — upstream reports
 them only to the Qobuz cloud. Album art is a Qobuz CDN URL loaded directly by the
-kiosk — there is no binary artwork route (unlike AirPlay/DLNA).
+kiosk — there is no binary artwork route (unlike AirPlay).
 """
 from typing import Any, Dict, Optional
 
@@ -228,7 +228,7 @@ class QobuzSource(BaseAudioSource):
             # resolves. Adopted, that zero does not correct the bar —
             # ProgressBar renders under `duration > 0` and carries a mount
             # animation, so it removes it and replays its entrance on the way
-            # back. Same lesson as DLNA's playhead (6d4df23d).
+            # back.
             if self._metadata and now.get("duration_ms"):
                 self._metadata["position"] = now["position_ms"]
                 self._metadata["duration"] = now["duration_ms"]

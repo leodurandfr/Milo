@@ -27,7 +27,7 @@ describe('nowPlayingSnapshot', () => {
   });
 
   it('refuses a half-populated update from a source gated on both fields', () => {
-    // Spotify/Tidal/Qobuz/AirPlay/DLNA only reach this player with an artist,
+    // Spotify/Tidal/Qobuz/AirPlay only reach this player with an artist,
     // so a snapshot missing one is mid-update — keeping it would blank an
     // artist the previous snapshot has.
     expect(nowPlayingSnapshot('spotify', { title: 'Says' })).toBeNull();

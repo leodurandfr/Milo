@@ -4,7 +4,7 @@
 
 # Milō
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Tidal Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, your own Music Library, DLNA, and Mac streaming.
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Tidal Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, your own Music Library, and Mac streaming.
 
 ## Audio Sources
 
@@ -48,10 +48,6 @@
     <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
     <td><b>macOS receiver</b><br>Stream your Mac's system audio with low latency (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/dlna.png" width="48"></td>
-    <td><b>DLNA/UPnP</b><br>Play music to Milō from any controller app</td>
   </tr>
 </table>
 
@@ -140,7 +136,6 @@ After setup:
 - **Tidal** → Select "Milō" in the Tidal app
 - **AirPlay** → Select "Milō" in your iPhone/iPad/Mac AirPlay outputs
 - **Bluetooth** → Connect to "Milō · Bluetooth"
-- **DLNA** → Select "Milo" as the renderer in any DLNA/UPnP controller app
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
 ### SSH
@@ -210,7 +205,7 @@ Control Milō from your other devices:
   </tr>
   <tr>
     <td><b>Audio</b></td>
-    <td>ALSA, CamillaDSP, Snapcast, mpv, Navidrome, go-librespot, qobuz-proxy, tidal-connect, shairport-sync, bluez-alsa, gmediarender, ROC</td>
+    <td>ALSA, CamillaDSP, Snapcast, mpv, Navidrome, go-librespot, qobuz-proxy, tidal-connect, shairport-sync, bluez-alsa, ROC</td>
   </tr>
   <tr>
     <td><b>Platform</b></td>

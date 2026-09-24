@@ -59,9 +59,9 @@ def _source_modules():
 
 
 def test_the_scan_reaches_every_source_class():
-    """Non-trivial first: eleven modules, each with its source class."""
+    """Non-trivial first: ten modules, each with its source class."""
     modules = _source_modules()
-    assert len(modules) == 11
+    assert len(modules) == 10
     for path in modules:
         tree = ast.parse(path.read_text())
         assert any(

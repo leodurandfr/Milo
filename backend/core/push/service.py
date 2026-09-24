@@ -403,7 +403,7 @@ class PushService:
 
         **The copy survives for the sources whose state cannot answer.** Only
         the four mpv sources override `_idle_metadata()`; the receivers —
-        AirPlay, DLNA, Qobuz, Bluetooth — and Spotify/Tidal publish the inert
+        AirPlay, Qobuz, Bluetooth — and Spotify/Tidal publish the inert
         pair alone when their sender goes, so rebuilding from that state gives
         a card with every field null, which on the phone is a media card with
         nothing in it. An AirPlay sender that disconnects and comes straight

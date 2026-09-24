@@ -77,7 +77,6 @@ backend/
 │   ├── radio/                # RadioSource + routes + browser_api
 │   ├── podcast/              # PodcastSource + routes + podcast_catalog + feed_resolver + rss_parser
 │   ├── cd/                   # CDSource + routes
-│   ├── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
 │   ├── qobuz/                # QobuzSource + monitor (qobuz-proxy /api/status poll)
 │   ├── tidal/                # TidalSource + controller_socket (tisoc Unix-socket client)
 │   └── music_library/        # MusicLibrarySource + navidrome_client + storage + data + routes
@@ -104,7 +103,6 @@ frontend/src/
 │   ├── audio/                # Shared audio player + screensaver + source layout
 │   ├── airplay/              # AirPlay source UI
 │   ├── cd/                   # CD source UI
-│   ├── dlna/                 # DLNA source UI
 │   ├── equalizer/            # Equalizer / DSP controls
 │   ├── lyrics/               # Lyrics app (full-screen synced view)
 │   ├── multiroom/            # Multiroom (Snapcast) controls
@@ -211,7 +209,6 @@ class AudioSource(Enum):
     AIRPLAY = "airplay"
     MAC = "mac"
     CD = "cd"
-    DLNA = "dlna"
     QOBUZ = "qobuz"
     TIDAL = "tidal"
     MUSIC_LIBRARY = "music_library"
@@ -304,7 +301,7 @@ playhead while sound plays; never hand-roll a monitor loop. A source with hardwa
 `DeviceToken`, which a stop neither voids nor cuts.
 
 **If a daemon holds the session** (a sender on shairport-sync, a phone on go-librespot or on the
-Tidal daemon; Qobuz, DLNA and Mac follow), Milō does not open or end it: after each burst of what
+Tidal daemon; Qobuz and Mac follow), Milō does not open or end it: after each burst of what
 the daemon announced, hand
 `reconcile(DaemonSnapshot(sender, phase))` where the daemon says the session stands — or
 `reconcile(None)` when it holds none — and publish if anything moved (`_publish_changes()`).
@@ -356,12 +353,11 @@ pcm.milo_mysource_direct {
 
 # Multiroom mode: via Snapcast loopback
 # Card 1 `Loopback` is FULL: slot 0 = DSP input, slots 1..7 = the seven original
-# sources. snd-aloop caps at 8 substreams/card (kernel limit), so DLNA opened a
-# *second* loopback card, `LoopbackDLNA` — but that card is NOT full: it has 8
-# subdevices (0..7) and only 4 are taken (0=DLNA, 1=Qobuz, 2=Music Library,
-# 3=Tidal, see provisioning/snapcast.sh). Use the next free subdevice on
-# LoopbackDLNA (4, then 5, 6, 7) — do NOT open a third loopback card until all
-# 8 are used.
+# sources. snd-aloop caps at 8 substreams/card (kernel limit), so the others live
+# on a *second* loopback card, `LoopbackDLNA` — and that card is NOT full: it has 8
+# subdevices (0..7) and only 3 are taken (1=Qobuz, 2=Music Library, 3=Tidal, see
+# provisioning/snapcast.sh). Take the free subdevice 0 first, then 4, 5, 6, 7 —
+# do NOT open a third loopback card until all 8 are used.
 # Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line in
 # /etc/snapserver.conf and its slug to the `meta:///...` aggregator.
 pcm.milo_mysource_multiroom {
@@ -370,7 +366,7 @@ pcm.milo_mysource_multiroom {
         type hw
         card LoopbackDLNA
         device 0
-        subdevice 3
+        subdevice 0
     }
 }
 ```
@@ -432,7 +428,7 @@ source enums (`schemas/api.js`, `schemas/ws.js`), the dock labels (`Dock.vue`,
 `DockSettings.vue`), the icon/status prop validators (`AppIcon.vue`,
 `AudioSourceStatus.vue`) and the dock-apps map (`settingsStore.js`).
 
-Full checklist (DLNA Phase 3 needed two follow-up commits because some of
+Full checklist (a source once needed two follow-up commits because some of
 these were missed — walk the whole table):
 
 | Touchpoint | What to add |
@@ -495,7 +491,7 @@ This is an excellent reference for building a complex audio source with external
 ### Sidecar source: Qobuz (Family B)
 
 Qobuz Connect (`backend/sources/qobuz/`) is a **Family B** source (passive
-receiver, `showControls=false`, like AirPlay/DLNA) backed by a reverse-engineered
+receiver, `showControls=false`, like AirPlay) backed by a reverse-engineered
 sidecar, **qobuz-proxy**. It is the reference for wiring a source whose playback
 is driven entirely by an external app:
 
@@ -506,8 +502,8 @@ is driven entirely by an external app:
   Artwork is a Qobuz CDN URL loaded straight by the kiosk. Position/duration ride
   the same poll (see the patch below), so the player adds
   `AudioPlayerFull :showProgress="true"` — a **read-only** bar above the source
-  bar (no seek: there is no local control channel). DLNA draws the same bar;
-  **AirPlay is the one passive player that does not**, because a Realtime sender
+  bar (no seek: there is no local control channel).
+  **AirPlay is the one passive player that does not draw it**, because a Realtime sender
   (a Mac's system audio, Spotify) never says it paused and the bar ran on through
   a paused track; only a Buffered one (iPhone Music) does (`AirPlaySource`'s
   docstring lists what was measured).

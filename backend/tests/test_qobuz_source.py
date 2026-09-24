@@ -76,8 +76,7 @@ class TestStatusToState:
         keys are there from a track's first tick and carry 0 until its length
         resolves. Published, that zero does not correct the bar: ProgressBar
         renders under `duration > 0` and carries a mount animation, so it
-        removes it and replays its entrance on the way back — the defect
-        6d4df23d fixed on DLNA, arriving here by a different road.
+        removes it and replays its entrance on the way back.
         """
         source, publish = qobuz
         await source._on_status({"status": "playing", "now_playing": NOW_PLAYING}, True)

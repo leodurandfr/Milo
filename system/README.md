@@ -85,13 +85,6 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: CdSource
 - **Notes**: `RuntimeDirectoryPreserve=yes` — shares `/run/milo` with the other mpv-based source units and milo-camilladsp; must not be dropped by a restart
 
-#### milo-dlna.service
-- **Role**: DLNA/UPnP renderer via gmediarender
-- **Port**: 49494
-- **Dependencies**: milo-backend.service, network-online.target, sound.target, milo-camilladsp.service
-- **ALSA Device**: milo_dlna (dynamic routing via routing.env)
-- **Managed By**: DlnaSource
-
 #### milo-music-library.service
 - **Role**: Music Library player via mpv (local USB/SMB/NFS library, served through Navidrome)
 - **IPC Socket**: /run/milo/music_library-ipc.sock
@@ -216,7 +209,6 @@ multi-user.target
        ├─ milo-podcast.service
        ├─ milo-airplay.service
        ├─ milo-cd.service
-       ├─ milo-dlna.service
        ├─ milo-music-library.service
        ├─ milo-qobuz.service
        ├─ milo-tidal.service

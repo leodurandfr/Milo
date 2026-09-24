@@ -56,8 +56,8 @@ const FALLBACK_IMAGES = {
  *     drawn as the deterministic SVG avatar generated from its name
  *     (utils/stationAvatar), which is the station's identity rather than a
  *     stand-in. Every other source reaching for that avatar is the bug this
- *     function exists to make impossible — it is how a DLNA renderer came to
- *     be announced full-screen as the word "DLNA" in a coloured tile.
+ *     function exists to make impossible — a receiver's track title drawn
+ *     full-screen as a generated avatar.
  *   - `image` — the bundled placeholder for that source.
  *   - `glyph` — the source's own AppIcon.
  *

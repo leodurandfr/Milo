@@ -206,7 +206,7 @@ async def test_recheck_fresh_bounded_by_timeout():
 
 
 async def test_limited_is_kept_distinct_from_none():
-    """LIMITED must not collapse into NONE: AirPlay/DLNA/Mac keep working on a
+    """LIMITED must not collapse into NONE: AirPlay/Mac keep working on a
     router with no route out, and only the level says so."""
     nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_LIMITED))
     message_bus_patch, _properties_iface = _patch_dbus(nm_iface)

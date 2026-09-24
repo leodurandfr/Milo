@@ -19,9 +19,9 @@
  * the sources whose artwork rides on `systemState.metadata` — the three browser
  * sources read their own Pinia store in both places, already a single source of
  * truth), and *what fills the slot when there is no cover*, which is every
- * source there is. The second is what let a DLNA renderer be announced
- * full-screen as the word "DLNA" in a coloured tile while the player behind it
- * showed the DLNA glyph.
+ * source there is. The second is what would draw a receiver's track title
+ * full-screen as a generated avatar while the player behind it shows the
+ * source's glyph.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -134,8 +134,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // The same cover and the same arrival are not enough — the two views also
     // have to accept and reject the same images. They did not: the player
     // promoted anything that decoded while the screensaver rejected anything
-    // under MIN_IMAGE_SIZE, so a 1×1 tracking pixel (DLNA senders push them,
-    // and a broken favicon behaves the same) drew a cover in one view and a
+    // under MIN_IMAGE_SIZE, so a 1×1 tracking pixel (or a broken favicon) drew a cover in one view and a
     // generated avatar in the other. Identical URL, opposite verdicts — which
     // the URL-parity assertions above cannot see, and which shows up precisely
     // during the leave crossfade, when the two are superimposed.
@@ -172,7 +171,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // nowPlayingArtwork and were still showing different things the moment it
     // answered '': the player painted its source glyph, the screensaver painted
     // a text avatar generated from whatever string was in `title` — an episode
-    // name, a track name, a phone's name, or the literal "DLNA".
+    // name, a track name, a phone's name, or a source's literal label.
     // Asserted on the import as well as the call: a view that shadows the name
     // with a local `const artworkFallback = …` still mentions it everywhere, so
     // matching the call alone stays green through the regression. Measured — it
@@ -214,8 +213,8 @@ describe('artwork parity between the player and the screensaver', () => {
   it('takes the screensaver layout from useRichDisplay instead of deciding again', () => {
     // Media card or status card is already answered, once, for the view sitting
     // behind the overlay. AirPlay and Bluetooth used to restate that rule here
-    // verbatim and DLNA never restated it at all — so DLNA drew a full media
-    // card over a status card that had refused it for want of a cover.
+    // verbatim; a source that restates it differently draws a full media card
+    // over a status card that had refused it for want of a cover.
     expect(screensaver).toMatch(/useRichDisplay\(\)/);
     expect(screensaver).toMatch(/richSource\.value === null \? simpleData/);
 

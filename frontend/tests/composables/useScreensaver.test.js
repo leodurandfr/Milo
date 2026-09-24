@@ -4,9 +4,8 @@
  * a finger on that display, and playback stopping. This file covers the
  * visibility half of useScreensaver, where those two live alongside the case
  * that must NOT end it: `is_playing` dips to false when a track ends on its own
- * (Spotify's `not_playing`, Tidal's BUFFERING/IDLE, DLNA's STOPPED), and a
- * screensaver keyed on that flag closed itself there — no touch, no user, just
- * the gap. A skip commanded from the sender never produced the dip, so the bug
+ * (Spotify's `not_playing`, Tidal's BUFFERING/IDLE), and a screensaver keyed
+ * on that flag closed itself there — no touch, no user, just the gap. A skip commanded from the sender never produced the dip, so the bug
  * read as random.
  *
  * Duration is the only thing that separates the gap from a pause, so the three

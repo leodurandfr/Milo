@@ -98,7 +98,7 @@
         :device-name="['Leo’s MacBook', 'Studio iMac']" />
     </GalleryVariant>
     <GalleryVariant label=":display-state=&quot;active&quot; with no sender to name — the generic playing line">
-      <AudioSourceStatus source-type="dlna" display-state="active" />
+      <AudioSourceStatus source-type="qobuz" display-state="active" />
     </GalleryVariant>
     <GalleryVariant label="the four CTAs — retry, Bluetooth disconnect, Qobuz connect, network settings">
       <AudioSourceStatus source-type="spotify" display-state="error" @retry="log = 'retry'" />
@@ -112,7 +112,7 @@
     <GalleryVariant label=":unavailable-reason — the prerequisite outranks the state it replaces">
       <AudioSourceStatus source-type="airplay" display-state="ready" unavailable-reason="no_network"
         @open-network-settings="log = 'network-settings'" />
-      <AudioSourceStatus source-type="dlna" display-state="active" device-name="Leo’s iPhone"
+      <AudioSourceStatus source-type="airplay" display-state="active" device-name="Leo’s iPhone"
         unavailable-reason="no_network" @open-network-settings="log = 'network-settings'" />
       <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="no_drive" />
     </GalleryVariant>

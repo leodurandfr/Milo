@@ -129,9 +129,9 @@ const props = defineProps({
     default: true
   },
   // Receiver-controlled sources (showControls=false) that still report
-  // position/duration: adds a read-only bar above the source bar. DLNA and
-  // Qobuz opt in — they broadcast position only every 30 s, and
-  // useSourceProgress interpolates between corrections. AirPlay passes false
+  // position/duration: adds a read-only bar above the source bar. Qobuz opts
+  // in — its position rides the ~1 Hz status poll, and useSourceProgress
+  // interpolates between corrections. AirPlay passes false
   // on purpose: nothing on that channel reports that the sender paused, so an
   // interpolated bar runs on through a paused track. Off by default for the
   // controlled sources, which draw their own bar next to the transport.
@@ -214,11 +214,11 @@ const isBuffering = computed(() =>
 );
 
 
-// Who is sending, when the channel says so: AirPlay's sender, DLNA's media
-// server. Nothing identifies the sender on the other receiver channels — UPnP
-// never names the control point, the Qobuz proxy only knows the speaker — so
-// the answer there is the source itself, read from the same key the status card
-// and the dock use, never a label a backend hardcoded in one language.
+// Who is sending, when the channel says so: AirPlay's sender. Nothing
+// identifies the sender on the other receiver channels — the Qobuz proxy only
+// knows the speaker — so the answer there is the source itself, read from the
+// same key the status card and the dock use, never a label a backend hardcoded
+// in one language.
 const sourceBarName = computed(
   () => unifiedStore.systemState.metadata?.client_name
     || t(AUDIO_SOURCE_LABEL_KEYS[props.source])

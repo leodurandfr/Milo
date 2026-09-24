@@ -12,7 +12,7 @@ def test_decode_dimensions_reads_real_image_header():
     buf = BytesIO()
     Image.new("RGB", (640, 480)).save(buf, format="PNG")
     logger = logging.getLogger("test.artwork")
-    assert decode_artwork_dimensions(buf.getvalue(), logger, "DLNA") == (640, 480)
+    assert decode_artwork_dimensions(buf.getvalue(), logger, "AirPlay") == (640, 480)
 
 
 def test_decode_dimensions_degrades_to_zero_on_garbage():

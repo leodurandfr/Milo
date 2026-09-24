@@ -17,7 +17,6 @@ class AudioSource(Enum):
     AIRPLAY = "airplay"
     MAC = "mac"
     CD = "cd"
-    DLNA = "dlna"
     QOBUZ = "qobuz"
     TIDAL = "tidal"
     MUSIC_LIBRARY = "music_library"
@@ -60,7 +59,7 @@ class NetworkRequirement(Enum):
     actually blocks the source they selected.
     """
     NONE = "none"          # Works with the network unplugged (Bluetooth, CD, Music Library)
-    LAN = "lan"            # Needs the local network only (AirPlay, DLNA, Mac/ROC)
+    LAN = "lan"            # Needs the local network only (AirPlay, Mac/ROC)
     INTERNET = "internet"  # Needs a route out (Spotify, Qobuz, Radio, Podcast)
 
 

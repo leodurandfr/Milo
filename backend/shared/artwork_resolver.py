@@ -2,11 +2,11 @@
 """Cover-art resolution from text metadata, via the iTunes API.
 
 For the sources whose feed carries artist/title text but no image: radio's
-in-band ICY metadata, DLNA controllers that publish no albumArtURI, and
-Bluetooth AVRCP — whose 1.6 cover-art feature rides an OBEX BIP channel BlueZ
-gives no client for, and which senders do not offer anyway (measured on an
-iPhone: the `Track` dict carries Title, TrackNumber, NumberOfTracks, Duration,
-Album and Artist, and the device advertises no BIP service at all). The resolved
+in-band ICY metadata, and Bluetooth AVRCP — whose 1.6 cover-art feature rides
+an OBEX BIP channel BlueZ gives no client for, and which senders do not offer
+anyway (measured on an iPhone: the `Track` dict carries Title, TrackNumber,
+NumberOfTracks, Duration, Album and Artist, and the device advertises no BIP
+service at all). The resolved
 URL lands in the same field a source with real artwork would fill, so the player
 looks the same either way.
 
@@ -84,10 +84,7 @@ _ARTISTS_MAX = 50
 _CATALOGUE_LIMIT = "200"
 
 # The size _upscale asks iTunes for, and therefore the width of every URL this
-# module returns. Declared rather than inlined because a consumer has to be able
-# to say how wide a resolved cover is: DLNA publishes it as album_art_width, and
-# the frontend's untrusted-sender gate judges a cover of unstated size as if it
-# had none -- which would make a resolved cover invisible.
+# module returns.
 RESOLVED_ARTWORK_PX = 600
 
 # Fraction of query tokens that must appear in the matched field for it to count

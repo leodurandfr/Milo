@@ -1,5 +1,5 @@
 # backend/shared/artwork.py
-"""Artwork helpers shared by passive-player sources (AirPlay, DLNA)."""
+"""Artwork helpers shared by passive-player sources (AirPlay)."""
 
 import logging
 from io import BytesIO

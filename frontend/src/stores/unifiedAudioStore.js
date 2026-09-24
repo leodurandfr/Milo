@@ -39,8 +39,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // performance.now() timestamp of the last position *anchor* received. Lets a
   // freshly-created position consumer (e.g. the Lyrics modal opened mid-song)
   // compensate for how stale the last broadcast is — position events are periodic
-  // and source-dependent (10s on AirPlay and TIDAL, 30s on DLNA and the four mpv
-  // sources, and Spotify publishes none between events), so the stored value can
+  // and source-dependent (10s on AirPlay and TIDAL, 30s on the four mpv sources,
+  // and Spotify publishes none between events), so the stored value can
   // lag by seconds. Stamped on every anchor, including one that repeats the
   // stored number: a Previous restarting a track re-sends the same 0 the last
   // anchor already carried, and the consumers interpolate locally — the arrival

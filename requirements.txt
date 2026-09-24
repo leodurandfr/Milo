@@ -8,7 +8,6 @@ httpx[http2]>=0.28.0  # fastapi.testclient.TestClient (tests) + the APNs provide
 PyJWT[crypto]>=2.10.0  # ES256 provider tokens for APNs (core/push); the extra pulls cryptography, without which PyJWT cannot sign ES256 at all
 ruff>=0.6.0
 aiohttp>=3.11.0
-async-upnp-client>=0.47.0  # DLNA/UPnP control-point bridge (sources/dlna) — GENA eventing to the local gmediarender
 dbus-next>=0.2.3
 aiofiles>=23.2.1
 lgpio>=0.2.2.0; platform_machine == "aarch64"  # Pi GPIO (rotary encoder) — needs liblgpio, unavailable on x86 CI

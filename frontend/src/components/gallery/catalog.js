@@ -318,7 +318,7 @@ export const ENTRIES = [
     group: 'layout',
     file: 'components/audio/AudioPlayerFull.vue',
     coupling: 'store',
-    summary: 'The player for the 7 sources with nothing to browse (Spotify, TIDAL, Bluetooth, CD, AirPlay, DLNA, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing record sits in the State section rather than the props table, and the booleans are two exclusive branches rather than four independent axes: showControls picks between the transport — which draws its own bar, seekable or not — and the receiver’s source bar, where showProgress alone decides whether a read-only bar sits above it. hideContent replaces the column outright, slot and all. Its progress is gated on active_source matching the source prop — point them at different sources and the bar freezes, which is the guard useSourceProgress exists for.',
+    summary: 'The player for the 6 sources with nothing to browse (Spotify, TIDAL, Bluetooth, CD, AirPlay, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing record sits in the State section rather than the props table, and the booleans are two exclusive branches rather than four independent axes: showControls picks between the transport — which draws its own bar, seekable or not — and the receiver’s source bar, where showProgress alone decides whether a read-only bar sits above it. hideContent replaces the column outright, slot and all. Its progress is gated on active_source matching the source prop — point them at different sources and the bar freezes, which is the guard useSourceProgress exists for.',
   },
   {
     id: 'AudioSourceLayout',
@@ -330,7 +330,7 @@ export const ENTRIES = [
     id: 'AudioSourceStatus',
     group: 'layout',
     file: 'components/audio/AudioSourceStatus.vue',
-    summary: 'The card shown whenever the active source has no rich display to give. Both lines are derived from (sourceType, displayState) over 11 sources and 6 states — the 4 backend ones plus CD\'s 2, its third screen being a prerequisite rather than a state — so the 3 selects below are the whole component. There is no fall-through: line 1 names the source and line 2 says what it is doing, except in the two cases that read as one sentence over two lines — "Démarrage de <source>" and "Connecté à <sender>" — where the phrase leads and the name takes the emphasis. 4 mutually exclusive CTAs hang off it, in the order it resolves them: network settings whenever a link is missing — which outranks the other three — then retry on error, Bluetooth disconnect while active, Qobuz connect while ready without an account.',
+    summary: 'The card shown whenever the active source has no rich display to give. Both lines are derived from (sourceType, displayState) over 10 sources and 6 states — the 4 backend ones plus CD\'s 2, its third screen being a prerequisite rather than a state — so the 3 selects below are the whole component. There is no fall-through: line 1 names the source and line 2 says what it is doing, except in the two cases that read as one sentence over two lines — "Démarrage de <source>" and "Connecté à <sender>" — where the phrase leads and the name takes the emphasis. 4 mutually exclusive CTAs hang off it, in the order it resolves them: network settings whenever a link is missing — which outranks the other three — then retry on error, Bluetooth disconnect while active, Qobuz connect while ready without an account.',
   },
   {
     id: 'AudioScreensaver',

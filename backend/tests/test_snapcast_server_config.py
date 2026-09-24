@@ -153,7 +153,7 @@ class TestReadingTheConfFile:
         assert parsed["stream"]["sampleformat"] == "48000:32:2"
 
     async def test_every_source_line_is_kept_not_just_the_last(self, service):
-        """`[stream]` carries one `source =` per audio source — eleven on this
+        """`[stream]` carries one `source =` per audio source — ten on this
         appliance. Storing them as a plain key would keep one and lose the rest,
         which is the list `provisioning/snapcast.sh` builds the whole ALSA loopback
         map from."""
@@ -277,7 +277,7 @@ class TestRewritingTheStreamSection:
         assert "buffer = 1500" not in out
 
     def test_everything_the_payload_does_not_name_is_preserved_byte_for_byte(self, service):
-        """The eleven `source =` lines are the ALSA loopback map. Losing one
+        """The `source =` lines are the ALSA loopback map. Losing one
         removes a whole audio source from multiroom."""
         out = service._modify_config_content(LIVE_CONF, {"chunk_ms": 20})
 

@@ -39,7 +39,6 @@ FAMILIES = {
     # B — passive player: external control, rich metadata. routes.py exists only
     # for what the sender can't deliver (binary artwork); Qobuz needs none.
     "airplay": ("B", {"source.py", "metadata_reader.py", "routes.py"}, set()),
-    "dlna": ("B", {"source.py", "metadata_reader.py", "routes.py"}, set()),
     "qobuz": ("B", {"source.py", "monitor.py"}, {"routes.py"}),
     # C — active player: controlled from Milō's UI, rich metadata.
     "spotify": ("C", {"source.py", "websocket.py", "models.py"}, {"routes.py"}),
@@ -316,12 +315,12 @@ def _is_property(method):
 def _collaborators(cls, package_names):
     """`self.<attr>` assigned something the source's own package builds.
 
-    Every method, not just `__init__`: five of the eleven sources construct
-    their collaborator in `_do_start` — airplay's reader, dlna's bridge,
-    qobuz's monitor, spotify's ws client, tidal's controller — because it holds
-    a socket that must not outlive a stopped source. Reading `__init__` alone
-    found nothing for them, and the rule below then *skipped* them, so it
-    covered 5 of 11 sources while its name claimed all of them.
+    Every method, not just `__init__`: four of the ten sources construct
+    their collaborator in `_do_start` — airplay's reader, qobuz's monitor,
+    spotify's ws client, tidal's controller — because it holds a socket that
+    must not outlive a stopped source. Reading `__init__` alone found nothing
+    for them, and the rule below then *skipped* them, so it covered a subset of
+    the sources while its name claimed all of them.
     """
     collaborators = {}
     for node in ast.walk(cls):
@@ -585,7 +584,7 @@ def test_only_the_mute_receiver_declares_itself_one(source_id):
 
 
 def test_the_idle_projections_are_not_all_the_base_default():
-    """Otherwise the rule below tests BaseAudioSource eleven times over."""
+    """Otherwise the rule below tests BaseAudioSource ten times over."""
     overriding = [s for s in SOURCE_IDS if len(bare_source(s)._idle_metadata()) > 2]
     assert overriding, (
         "no source projects an idle view of its own — bare_source() or the "

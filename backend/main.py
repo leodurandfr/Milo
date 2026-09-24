@@ -23,7 +23,6 @@ from backend.sources.radio.routes import setup_radio_routes
 from backend.sources.podcast.routes import setup_podcast_routes
 from backend.sources.airplay.routes import setup_airplay_routes
 from backend.sources.cd.routes import setup_cd_routes
-from backend.sources.dlna.routes import setup_dlna_routes
 from backend.sources.music_library.routes import setup_music_library_routes
 from backend.api.settings import create_settings_router
 from backend.api.system import create_system_router
@@ -283,11 +282,6 @@ cd_router = setup_cd_routes(
     lambda: state_machine.sources.get(AudioSource.CD)
 )
 app.include_router(cd_router, prefix="/api")
-
-dlna_router = setup_dlna_routes(
-    lambda: state_machine.sources.get(AudioSource.DLNA)
-)
-app.include_router(dlna_router, prefix="/api")
 
 music_library_router = setup_music_library_routes(
     lambda: state_machine.sources.get(AudioSource.MUSIC_LIBRARY)

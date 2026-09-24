@@ -24,7 +24,6 @@ const iconMapping = {
   'podcast': 'podcast',
   'airplay': 'airplay',
   'cd': 'cd',
-  'dlna': 'dlna',
   'qobuz': 'qobuz',
   'tidal': 'tidal',
   'music_library': 'music-library',

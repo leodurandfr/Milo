@@ -289,12 +289,6 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
-        "dlna_source": lambda: _import("backend.sources.dlna", "DlnaSource")(
-            config={"port": 49494},
-            state_machine=get_service("audio_state_machine"),
-            settings_service=get_service("settings_service"),
-            systemd_manager=get_service("systemd_manager")
-        ),
         "qobuz_source": lambda: _import("backend.sources.qobuz", "QobuzSource")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
@@ -474,7 +468,6 @@ async def initialize_services() -> None:
     state_machine.register_source(AudioSource.PODCAST, get_service("podcast_source"))
     state_machine.register_source(AudioSource.AIRPLAY, get_service("airplay_source"))
     state_machine.register_source(AudioSource.CD, get_service("cd_source"))
-    state_machine.register_source(AudioSource.DLNA, get_service("dlna_source"))
     state_machine.register_source(AudioSource.QOBUZ, get_service("qobuz_source"))
     state_machine.register_source(AudioSource.TIDAL, get_service("tidal_source"))
     state_machine.register_source(AudioSource.MUSIC_LIBRARY, get_service("music_library_source"))

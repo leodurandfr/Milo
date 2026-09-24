@@ -6,7 +6,7 @@
                      pause/resume/next/prev commands AudioPlayerFull uses. The
                      bar is interactive wherever the source can seek — Tidal
                      cannot, so it gets the buttons and a read-only bar.
-       - "metadata" (airplay, dlna, qobuz): name/artist + a read-only progress
+       - "metadata" (airplay, qobuz): name/artist + a read-only progress
                      bar (these are receiver-controlled — no transport surface
                      on the wire; ProgressBar already self-hides when a source
                      reports no duration, e.g. Qobuz).

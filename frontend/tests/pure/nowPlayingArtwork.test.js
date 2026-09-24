@@ -7,8 +7,8 @@
  * Only the branches that decide something are asserted — handing the helper an
  * album_art_url and checking it comes back would assert the language, not the
  * rule. What matters is that the no-cover answer is *per source*: the generated
- * station avatar belongs to radio alone (a DLNA renderer announced full-screen
- * as the word "DLNA" is what a global answer produced), the bundled disc and
+ * station avatar belongs to radio alone (a global answer draws a receiver's
+ * track title as a generated avatar), the bundled disc and
  * microphone belong to the sources that ship them, and everyone else falls to
  * their own glyph.
  */
@@ -43,7 +43,7 @@ describe('artworkFallback', () => {
   it('gives the generated station avatar to radio and to nothing else', () => {
     expect(artworkFallback('radio')).toEqual({ kind: 'avatar' });
 
-    for (const source of ['dlna', 'qobuz', 'bluetooth', 'airplay', 'spotify', 'tidal', 'mac']) {
+    for (const source of ['qobuz', 'bluetooth', 'airplay', 'spotify', 'tidal', 'mac']) {
       expect(artworkFallback(source).kind).not.toBe('avatar');
     }
   });
@@ -65,7 +65,7 @@ describe('artworkFallback', () => {
   it('sends every remaining source to its own glyph', () => {
     // The receivers and the connect players: their identity is the source, not
     // a stand-in cover, and AudioPlayerFull already paints exactly that.
-    for (const source of ['spotify', 'tidal', 'bluetooth', 'airplay', 'dlna', 'qobuz', 'mac']) {
+    for (const source of ['spotify', 'tidal', 'bluetooth', 'airplay', 'qobuz', 'mac']) {
       expect(artworkFallback(source)).toEqual({ kind: 'glyph' });
     }
   });

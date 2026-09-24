@@ -557,7 +557,7 @@ class TestServiceHelperFailureArms:
 
     Each one is `try: await manager.X(name) except: log + False`, and every
     `except` arm was at zero — as was the "no unit name" early return that the
-    metadata-only sources (Bluetooth, DLNA) take on every call.
+    metadata-only source (Bluetooth) takes on every call.
 
     What the arms buy: `SystemdServiceManager` already answers False for a
     non-zero systemctl, so an exception here is a *broken* privileged path — a
@@ -603,9 +603,9 @@ class TestServiceHelperFailureArms:
     async def test_a_source_with_no_unit_succeeds_without_calling_systemd(
         self, helper, manager_method
     ):
-        """Bluetooth and DLNA own no systemd unit; their `service_name` is None.
+        """Bluetooth owns no systemd unit; its `service_name` is None.
 
-        Answered False, every one of their starts and stops would fail. Passed to
+        Answered False, every one of its starts and stops would fail. Passed to
         systemd, `systemctl start None` is a spawn with a nonsense argument on a
         path the sudoers policy scopes by unit name.
         """

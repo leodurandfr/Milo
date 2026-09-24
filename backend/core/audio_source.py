@@ -1218,7 +1218,7 @@ class BaseAudioSource(ABC):
         there is no public restart() wrapper. Default: stop + start.
         Override for custom restart logic (e.g., preserve state).
         A source that instead wants a different auto-stop *action* overrides
-        _on_auto_stop() (DLNA, and the shared MpvAudioSource); one whose
+        _on_auto_stop() (the shared MpvAudioSource); one whose
         session a daemon holds declares IdlePolicy.REQUEST_END instead.
 
         Returns:

@@ -27,7 +27,7 @@ const ACTIVITY_THROTTLE_MS = 500;
 // below are armed by a connected sender instead, because neither is guaranteed
 // to report a play state at all. Bluetooth may nonetheless *have* one (see
 // isPlaybackStopped); Mac never does.
-const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'dlna', 'qobuz', 'music_library', 'spotify', 'cd', 'tidal'];
+const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'qobuz', 'music_library', 'spotify', 'cd', 'tidal'];
 const PASSIVE_SOURCES = ['bluetooth', 'mac'];
 
 /**
@@ -115,13 +115,12 @@ export function useScreensaver() {
    * gap. The sources carry that dip each from its own channel: Spotify's
    * `not_playing` event (published straight from the event, without re-reading
    * /status — which is why polling /status at 10 Hz across two boundaries never
-   * sees it), Tidal's BUFFERING/IDLE player states and DLNA's STOPPED transport
-   * state. A skip commanded from the sender never produced it, which is what
-   * made it look intermittent. AirPlay is absent from that list on purpose: its
-   * `pfls` flush was once assumed to carry the same dip, but shairport-sync
-   * sends neither `pfls` nor `pend` from a macOS sender (measured 2026-08-07,
-   * sources/airplay/source.py), which is also why an AirPlay pause never
-   * dismisses anything here.
+   * sees it) and Tidal's BUFFERING/IDLE player states. A skip commanded from the
+   * sender never produced it, which is what made it look intermittent. AirPlay
+   * is absent from that list on purpose: its `pfls` flush was once assumed to
+   * carry the same dip, but shairport-sync sends neither `pfls` nor `pend`
+   * from a macOS sender (measured 2026-08-07, sources/airplay/source.py), which
+   * is also why an AirPlay pause never dismisses anything here.
    */
   const screensaverStillApplies = computed(() => {
     // Pi-screen-only: a remote Mac/iPhone viewing the UI never shows it (matches
@@ -172,10 +171,8 @@ export function useScreensaver() {
    * loading what comes next is not paused. It is a bonus, not the mechanism —
    * only Spotify, Tidal, Music Library and CD ever set it, and Spotify clears it
    * for the sliver between `not_playing` and the next track's `metadata`. AirPlay
-   * and DLNA never set it at all, so their handovers are held by the wall clock
-   * alone: a DLNA controller taking more than PAUSE_DISMISS_MS between STOPPED
-   * and the next Play would read as a pause here. Measured against nothing —
-   * accepted as the price of one rule per source rather than four.
+   * never sets it at all, so its handovers are held by the wall clock alone.
+   * Accepted as the price of one rule per source rather than four.
    */
   const isPlaybackStopped = computed(() => {
     if (!reportsPlayState.value) return false;
@@ -260,11 +257,10 @@ export function useScreensaver() {
   // Which layout the screensaver draws is not its own decision: it mirrors
   // useRichDisplay, the rule that already picks between a rich player and the
   // AudioSourceStatus card for the view sitting behind this overlay. Deciding
-  // it twice is exactly how DLNA came to draw a full media card — with a
-  // generated text avatar standing in for the cover it did not have — over a
-  // status card that had already refused it for want of one. AirPlay and
-  // Bluetooth used to restate the rule here verbatim; they now read it from
-  // the same place as every other source, and the copies are gone.
+  // it twice would let a receiver draw a full media card over a status card
+  // that had already refused it for want of a cover. AirPlay and Bluetooth
+  // used to restate the rule here verbatim; they now read it from the same
+  // place as every other source, and the copies are gone.
   const { richSource } = useRichDisplay();
 
   /**
@@ -359,7 +355,7 @@ export function useScreensaver() {
       };
     }
 
-    // The four receivers, all drawn the same way — cover, title/artist, and a
+    // The three receivers, all drawn the same way — cover, title/artist, and a
     // bottom bar naming the other end. No progress bar: none of them shows one
     // in its main view either. They differ only in what fills that bar, and the
     // split below is the difference itself rather than a ternary hiding it.
@@ -380,12 +376,9 @@ export function useScreensaver() {
     if (source === 'bluetooth') return receiver(formatDeviceNames(metadata.device_name));
     if (source === 'airplay') return receiver(metadata.client_name || null);
 
-    // Named by the service. DLNA names the media server once resolved and Qobuz
-    // names nobody at all, so with no name on the record both read the source's
-    // own label rather than leaving a bar the user cannot interpret.
-    if (source === 'qobuz' || source === 'dlna') {
-      return receiver(metadata.client_name || t(AUDIO_SOURCE_LABEL_KEYS[source]));
-    }
+    // Named by the service. Qobuz names nobody at all, so the bar reads the
+    // source's own label rather than being left for the user to interpret.
+    if (source === 'qobuz') return receiver(t(AUDIO_SOURCE_LABEL_KEYS[source]));
 
     // Unreachable: a source with no branch here has no rich view either, so
     // richSource sent it to simpleData. Carries no `artwork` key on purpose —
@@ -431,7 +424,7 @@ export function useScreensaver() {
       };
     }
 
-    if (source === 'airplay' || source === 'dlna' || source === 'qobuz') {
+    if (source === 'airplay' || source === 'qobuz') {
       return {
         mode: 'simple',
         sourceType: source,

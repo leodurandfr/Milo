@@ -1,6 +1,6 @@
 // frontend/src/components/gallery/sources.js
 /**
- * The 11 audio sources, as pages of the gallery — the second axis.
+ * The 10 audio sources, as pages of the gallery — the second axis.
  *
  * The catalogue next door answers "what does this component do"; this file
  * answers "what does a source look like, in every state it can reach". The two
@@ -161,9 +161,9 @@ export const METADATA_READERS = [
  * the same kind of difference and worth the same tab. playbackBuffering answers
  * the spinner, useSourceProgress answers whether the playhead advances or is
  * frozen. That last one is the whole reason `is_playing` is still here: it used
- * to gate AirPlay's and DLNA's rich display, and when those clauses went it
- * stopped choosing a component — this list going red is how that was noticed —
- * but it still separates a paused player from a playing one.
+ * to gate AirPlay's rich display, and when that clause went it stopped choosing
+ * a component — this list going red is how that was noticed — but it still
+ * separates a paused player from a playing one.
  */
 export const DECIDERS = [
   'composables/useRichDisplay.js',
@@ -693,7 +693,7 @@ export const SOURCE_PAGES = [
       active(
         'qobuz',
         'Active, before now_playing',
-        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. No client_name: the proxy exposes no controller identity, so currentDeviceName is empty and the generic active line prints "Qobuz / playing", the same one DLNA lands on, which is why neither needs a branch of its own any more.',
+        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. No client_name: the proxy exposes no controller identity, so currentDeviceName is empty and the generic active line prints "Qobuz / playing", the shape every source without a sender to name lands on, which is why it needs no branch of its own any more.',
         { is_playing: true, account_authenticated: true }
       ),
       active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar, which names no device: with no client_name on the record the bar falls back to the source\'s own label, "Qobuz".', {
@@ -812,66 +812,6 @@ export const SOURCE_PAGES = [
         'airplay',
         'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. The sender name goes with it, so the source that most depends on naming its sender falls back to naming itself: "AirPlay / Error", with the retry.',
         'shairport-sync failed to start'
-      )
-    ]
-  },
-
-  {
-    id: `${SOURCE_PAGE_PREFIX}dlna`,
-    source: 'dlna',
-    title: 'DLNA',
-    family: 'B — passive player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress)',
-    via: 'dispatcher',
-    summary:
-      'Same untrusted-sender gate as AirPlay, and the same player — the difference is identity: UPnP exposes no "who is casting", so currentDeviceName hard-returns empty. That used to need a DLNA-only branch in the card; the generic active line ("DLNA / playing", whenever there is no sender to name) covers it now, and Qobuz’s twin went with it. client_name here is not a controller name either: it is the media *server* the audio is streamed from, resolved over SSDP seconds after playback starts, and absent until it is — the player’s source bar reads its own source label meanwhile.',
-    scenarios: [
-      starting('dlna'),
-      ready(
-        'dlna',
-        'Ready',
-        'The UPnP renderer is advertised, no controller has pushed anything. No client_name: nothing has been streamed yet, so no media server has been resolved — and an idle renderer would have none to name anyway.'
-      ),
-      active(
-        'dlna',
-        'Active, no cover',
-        'A controller pushing a bare title: no album_art_width, so the gate declines. The generic active line prints "DLNA / playing" — the shape every source without a sender to name lands on, and what used to be a per-source branch dodging an idle fallback.',
-        { title: 'Untitled', is_playing: true }
-      ),
-      active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing, and the SSDP sweep has come back — so the source bar names the media server the track is streamed from instead of the source. Position is corrected every 30 s — the longest interval of any source that has one — so most of what the bar shows here is useSourceProgress interpolating.', {
-        title: 'Hammers',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        client_name: 'Freebox Server',
-        album_art_width: MEDIA_APP_COVER_PX,
-        position: 88000,
-        duration: 331000
-      }),
-      active(
-        'dlna',
-        'Paused',
-        'Same record, is_playing false — and the player stays, exactly as AirPlay\'s does: the gate has no playing clause, because a controller that pauses keeps the renderer connected and the flag alone cannot tell that from a session still going. What it *is* is the start of a countdown. A pause arms the source\'s auto-stop, and at T+audio.auto_stop_delay (two minutes by default — the 10 s in the constructor is a placeholder the settings overwrite) DlnaSource resets and publishes READY, which lands the screen on the idle card above with the phone still paused and still connected. AirPlay ends the same way by restarting shairport; the difference is invisible here and is the whole of why neither needs an is_playing clause.',
-        {
-          title: 'Hammers',
-          artist: 'Nils Frahm',
-          album_art_url: musicPlaceholder,
-          is_playing: false,
-          client_name: 'Freebox Server',
-          album_art_width: MEDIA_APP_COVER_PX,
-          position: 88000,
-          duration: 331000
-        }
-      ),
-      offline(
-        'dlna',
-        'no_network',
-        'Same LAN requirement as AirPlay, same single case. A controller that cannot see the renderer is indistinguishable from a renderer that never advertised, which is why the card names the link rather than the source.'
-      ),
-      errored(
-        'dlna',
-        'The renderer failing to advertise. DLNA has no device name to lose, so the error screen is the same two-line shape as its idle one — the source, then the phrase — and the phrase is the whole difference, which is the point of dropping the fallback.',
-        'UPnP renderer failed to advertise'
       )
     ]
   },
@@ -1381,7 +1321,7 @@ export function isSourcePageId(id) {
   return typeof id === 'string' && id.startsWith(SOURCE_PAGE_PREFIX);
 }
 
-/** Every envelope the 11 pages can emit, for the checks against the models. */
+/** Every envelope the 10 pages can emit, for the checks against the models. */
 export function allEvents() {
   return SOURCE_PAGES.flatMap(page => page.scenarios.flatMap(entry => entry.events));
 }

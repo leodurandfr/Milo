@@ -3,7 +3,7 @@ architecture, "reconcile"): reconcile(), the daemon's process watch, and the
 idle timeout that asks the daemon for the end (REQUEST_END).
 
 AirPlay is their first user (tests/test_airplay_sessions.py); Spotify, Tidal,
-Qobuz, DLNA and Mac follow in phases 3b-3d on the same three, so they are
+Qobuz and Mac follow in phases 3b-3d on the same three, so they are
 pinned here on a source that is nothing but a daemon's session. The outside
 world is systemd (the daemon's pid, its restart), the daemon's answer to an
 end request, and the kernel (a real process, a real pidfd).

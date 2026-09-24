@@ -29,10 +29,6 @@
         <AirPlaySource />
       </div>
 
-      <div v-else-if="shouldShowDLNA" :key="contentKey" class="audio-source-slot">
-        <DLNASource />
-      </div>
-
       <div v-else-if="shouldShowQobuz" :key="contentKey" class="audio-source-slot">
         <QobuzSource />
       </div>
@@ -83,9 +79,6 @@ const CDSource = defineAsyncComponent(() =>
 );
 const MusicLibrarySource = defineAsyncComponent(() =>
   import('../music-library/MusicLibrarySource.vue')
-);
-const DLNASource = defineAsyncComponent(() =>
-  import('../dlna/DLNASource.vue')
 );
 const QobuzSource = defineAsyncComponent(() =>
   import('../qobuz/QobuzSource.vue')
@@ -142,7 +135,6 @@ const shouldShowPodcast = computed(() => richSource.value === 'podcast');
 const shouldShowCD = computed(() => richSource.value === 'cd');
 const shouldShowMusicLibrary = computed(() => richSource.value === 'music_library');
 const shouldShowAirPlay = computed(() => richSource.value === 'airplay');
-const shouldShowDLNA = computed(() => richSource.value === 'dlna');
 const shouldShowQobuz = computed(() => richSource.value === 'qobuz');
 const shouldShowTidal = computed(() => richSource.value === 'tidal');
 const shouldShowBluetooth = computed(() => richSource.value === 'bluetooth');
@@ -172,13 +164,6 @@ const currentDeviceName = computed(() => {
       return meta.client_names || [];
     case 'airplay':
       return meta.client_name || '';
-    case 'dlna':
-      // Passive receiver: client_name is the player source bar's label — the
-      // media server the audio comes from, or the static "DLNA" — never a
-      // controller identity, which UPnP does not expose. And an idle renderer
-      // has no server either, so there is nothing to name on the status card.
-      // Keep it generic (handled in AudioSourceStatus).
-      return '';
     case 'qobuz':
       // Passive receiver: the proxy exposes no controller identity, only the
       // speaker name. Keep the status card generic (handled in AudioSourceStatus).

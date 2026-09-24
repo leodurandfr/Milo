@@ -135,13 +135,13 @@ const UNAVAILABLE_PHRASE_KEYS = {
 
 /**
  * The sources a session is opened *to*, from the other end: a phone picks the
- * speaker (Spotify, Qobuz), a sender casts (AirPlay, DLNA), a device pairs
+ * speaker (Spotify, Qobuz), a sender casts (AirPlay), a device pairs
  * (Bluetooth, Mac). Their idle line invites that connection. The other four —
  * Radio, Podcasts, CD, Music Library — are played from Milō itself and say they
  * are ready to play. Two phrases derived from who starts a session, instead of
  * one written per source.
  */
-const SENDER_DRIVEN_SOURCES = ['spotify', 'qobuz', 'tidal', 'airplay', 'dlna', 'bluetooth', 'mac'];
+const SENDER_DRIVEN_SOURCES = ['spotify', 'qobuz', 'tidal', 'airplay', 'bluetooth', 'mac'];
 
 /**
  * "Démarrage de <source>" reads as one sentence broken over two lines, and
@@ -158,7 +158,6 @@ const STARTING_PHRASE_KEYS = {
   spotify: 'status.loadingOf',
   podcast: 'status.loadingOf',
   airplay: 'status.loadingOf',
-  dlna: 'status.loadingOf',
   qobuz: 'status.loadingOf',
   tidal: 'status.loadingOf',
   music_library: 'status.loadingOf'

@@ -869,7 +869,7 @@ class TestBlockedTransitionBanner:
         source.state = SourceState.ERROR
         source.metadata = {}
         source.NETWORK_REQUIREMENT = requirement
-        state_machine.register_source(AudioSource.DLNA, source)
+        state_machine.register_source(AudioSource.AIRPLAY, source)
         state_machine.connectivity_service = Mock(level=level)
         state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
 
@@ -881,7 +881,7 @@ class TestBlockedTransitionBanner:
             await original(event)
 
         state_machine.broadcast = capture
-        await state_machine.transition_to_source(AudioSource.DLNA)
+        await state_machine.transition_to_source(AudioSource.AIRPLAY)
         return events
 
     async def test_no_banner_when_the_link_explains_it(self, state_machine):

@@ -16,16 +16,16 @@ Milō is built around a client-server architecture with real-time synchronizatio
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           Backend (Python FastAPI)                          │
 │                        State machine + Audio routing                        │
-└──┬───────┬───────┬───────┬──────┬───────┬───────┬───────┬─────┬────────┬────┘
-   │       │       │       │      │       │       │       │     │        │
- ┌─▼──┐ ┌──▼──┐ ┌──▼──┐ ┌──▼──┐ ┌─▼──┐ ┌──▼──┐ ┌──▼───┐ ┌─▼─┐ ┌─▼──┐ ┌───▼────┐
- │Spo-│ │Qobuz│ │Tidal│ │Air- │ │DLNA│ │Blue-│ │Music │ │Ra-│ │Pod-│ │Mac (roc│
- │tify│ │(qob-│ │(SDK │ │Play │ │(gme│ │tooth│ │Libra-│ │dio│ │cast│ │) + CD  │
- │(li-│ │uz-  │ │dae- │ │(sha-│ │dia-│ │(blu-│ │ry    │ │(mp│ │(mpv│ │        │
- │bre-│ │pro- │ │mon) │ │irpo-│ │rend│ │ez)  │ │(navi-│ │v) │ │)   │ │        │
- │spot│ │xy)  │ │     │ │rt)  │ │er) │ │     │ │drome)│ │   │ │    │ │        │
- └─┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └─┬──┘ └──┬──┘ └──┬───┘ └─┬─┘ └─┬──┘ └───┬────┘
-   └───────┴───────┴───────┴──────┴───────┴───────┴───────┴─────┴────────┘
+└──┬───────┬───────┬───────┬───────┬───────┬───────┬─────┬────────────┬───────┘
+   │       │       │       │       │       │       │     │            │
+ ┌─▼──┐ ┌──▼──┐ ┌──▼──┐ ┌──▼──┐ ┌──▼──┐ ┌──▼───┐ ┌─▼─┐ ┌─▼──┐ ┌───────▼───────┐
+ │Spo-│ │Qobuz│ │Tidal│ │Air- │ │Blue-│ │Music │ │Ra-│ │Pod-│ │Mac (roc) + CD │
+ │tify│ │(qob-│ │(SDK │ │Play │ │tooth│ │Libra-│ │dio│ │cast│ │               │
+ │(li-│ │uz-  │ │dae- │ │(sha-│ │(blu-│ │ry    │ │(mp│ │(mpv│ │               │
+ │bre-│ │pro- │ │mon) │ │irpo-│ │ez)  │ │(navi-│ │v) │ │)   │ │               │
+ │spot│ │xy)  │ │     │ │rt)  │ │     │ │drome)│ │   │ │    │ │               │
+ └─┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬───┘ └─┬─┘ └─┬──┘ └───────┬───────┘
+   └───────┴───────┴───────┴───────┴───────┴───────┴─────┴────────────┘
                                        │
                                        ▼
                              ┌───────────────────┐
@@ -137,7 +137,7 @@ The two network values are computed by the **backend**, in
   fail-open value and reads as `full`.
 - **The active source's `NETWORK_REQUIREMENT`** (`none` / `lan` / `internet`),
   a class attribute on `BaseAudioSource`: `internet` for Spotify, Qobuz, Tidal,
-  Radio and Podcast; `lan` for AirPlay, DLNA and Mac (ROC); `none` for
+  Radio and Podcast; `lan` for AirPlay and Mac (ROC); `none` for
   Bluetooth, CD and the Music Library.
 
 So a router with no route out blocks Spotify and leaves AirPlay alone, and
@@ -404,39 +404,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Audio output: ALSA (milo_cd)
 - Data: `/var/lib/milo/cd_data.json` (TOC cache), `cd_covers/` (cover art)
 
-### 8. DLNA/UPnP Media Renderer (gmediarender)
-
-**What is it?**
-- DLNA renderer (DMR role) — any control point (BubbleUPnP, a NAS, Plex,
-  Audirvana, foobar2000…) can push audio to Milō, rich metadata included
-- [**Go to gmrender-resurrect repository**](https://github.com/hzeller/gmrender-resurrect)
-
-**How does it work?**
-- `gmediarender` announces Milō as a UPnP renderer via SSDP and does the full
-  UPnP device work (AVTransport / RenderingControl) + GStreamer→ALSA output
-- gmediarender emits no metadata on a pipe, so the backend acts as a UPnP
-  **control point toward the local renderer**: `DlnaBridge` builds a `DmrDevice`
-  from the fixed description URL, subscribes via **GENA** to the renderer's
-  `LastChange` events (title/artist/album/artwork-URI/state pushed on change),
-  and polls `GetPositionInfo` for progress
-- Artwork arrives as a DIDL-Lite URL; the backend fetches it, decodes its
-  dimensions, caches it in memory, and serves it via `GET /api/dlna/artwork`
-- No remote playback control (the sender drives playback — Family B, like
-  AirPlay); controls are hidden in the UI, only now-playing is shown
-- Volume is ignored (fixed 0 dB, `--gstout-initial-volume-db 0`) — CamillaDSP is
-  authoritative, as with AirPlay's `ignore_volume_control`
-- **Not** a remote audio output: DLNA "Play To" pushes a whole media file to a
-  screenless renderer — no video/TV/film audio, no lip-sync
-
-**Configuration:**
-- Service: milo-dlna.service (gmediarender, fixed port `49494` + fixed UUID)
-- Bridge library: `async-upnp-client` (the one Home Assistant uses)
-- Audio output: ALSA (milo_dlna) — GStreamer plugins: base/good/bad + `alsa` +
-  `libav` (`avdec_alac` for ALAC); covers FLAC (incl. 24/192), ALAC, AAC, WAV, MP3
-- Visible name: "Milo" (ASCII — the apt gmediarender v0.3 crashes on "Milō")
-- `MemoryMax=256M` (measured ~70 MiB RSS on hi-res FLAC 24/192)
-
-### 9. Qobuz Connect (qobuz-proxy)
+### 8. Qobuz Connect (qobuz-proxy)
 
 **What is it?**
 - Qobuz Connect receiver — any Qobuz app (mobile/desktop) can cast lossless
@@ -450,7 +418,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - `qobuz-proxy` announces Milō as a Qobuz Connect device via mDNS and receives
   the Qobuz cloud's play/pause/seek commands (protobuf) — there is **no local
   playback-control API**, so control belongs to the Qobuz app (Family B, like
-  AirPlay/DLNA); the UI hides controls and shows only now-playing
+  AirPlay); the UI hides controls and shows only now-playing
 - The proxy's `local` (PortAudio) backend renders to the named ALSA PCM
   `milo_qobuz`; Milō's `QobuzMonitor` **polls `GET http://127.0.0.1:8689/api/status`**
   (~1 Hz) for `now_playing` (title/artist/album/album-art URL + position/duration).
@@ -477,7 +445,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   handshake on a non-ASCII device name; Milō's own UI still shows "Qobuz")
 - Data: `/var/lib/milo/qobuz/` (venv + `config.yaml` + OAuth `credentials.json`)
 
-### 10. Music Library (Navidrome + mpv)
+### 9. Music Library (Navidrome + mpv)
 
 **What is it?**
 - The user's own music, played from a **USB key** or **SMB/NFS network share** — an indexed
@@ -553,7 +521,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Data: `/var/lib/milo/navidrome/` (DB + cache + service-account cred), `music_library_data.json`
   (network-share config, non-secret); share passwords live in root-only cred files, never here
 
-### 11. Tidal Connect (Tidal Connect Device SDK)
+### 10. Tidal Connect (Tidal Connect Device SDK)
 
 **What is it?**
 - Tidal Connect receiver — any Tidal app (mobile/desktop) casts to Milō and keeps
@@ -744,18 +712,19 @@ Loopback subdevice layout (**card 1 `Loopback`**):
 - subdevice 6: AirPlay (multiroom)
 - subdevice 7: CD (multiroom)
 
-Card 1 is full: DSP fills slot 0 and the seven sources fill slots 1..7. `snd-aloop` caps at **8 substreams per card** (kernel limit), so an 8th source cannot share the card. DLNA therefore lives on a **second loopback card** created by the same module:
+Card 1 is full: DSP fills slot 0 and the seven sources fill slots 1..7. `snd-aloop` caps at **8 substreams per card** (kernel limit), so the remaining sources live on a **second loopback card** (card 2, id `LoopbackDLNA` — historical, only an id) created by the same module:
 
 ```
 options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
 ```
 
-- **card 2 `LoopbackDLNA`**, subdevice 0: DLNA (multiroom) — gmediarender writes `hw:2,0,0`, Snapserver reads `hw:2,1,0`.
+- **card 2 `LoopbackDLNA`**, subdevice 0: free — the next source takes it.
 - **card 2 `LoopbackDLNA`**, subdevice 1: Qobuz (multiroom) — qobuz-proxy writes `hw:LoopbackDLNA,0,1`, Snapserver reads `hw:2,1,1`.
 - **card 2 `LoopbackDLNA`**, subdevice 2: Music Library (multiroom) — mpv writes `hw:LoopbackDLNA,0,2`, Snapserver reads `hw:2,1,2`. Direct mode routes `pcm.milo_music_library` → `camilladsp`, the same trio pattern as `milo_cd`/`milo_qobuz`.
 - **card 2 `LoopbackDLNA`**, subdevice 3: Tidal (multiroom) — the Tidal Connect daemon writes `hw:LoopbackDLNA,0,3`, Snapserver reads `hw:2,1,3`.
+- **card 2 `LoopbackDLNA`**, subdevices 4..7: free.
 
-Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options, written once in `pi-gen/stage-milo/02-install-milo/01-run.sh`).
+A new source takes subdevice 0 of card 2 first, then 4..7; only once all eight are taken does it need another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options, written once in `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
 ### High-quality resampling (44.1 → 48 kHz)
 
@@ -995,7 +964,6 @@ milo-mac                  # Mac receiver (ROC)
 milo-radio                # Radio player (mpv)
 milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
-milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
 milo-tidal                # Tidal Connect (proprietary armhf daemon, backend-managed)
 milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from provisioning/navidrome.sh (before milo-navidrome)

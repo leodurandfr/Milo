@@ -190,7 +190,7 @@ const fallback = computed(() => artworkFallback(props.sourceType));
 // identity, not a stand-in. Reading `title` as well as `stationName` is
 // deliberate — a station with no recognised track puts its own name in `title`
 // — but the helper is what decides this branch is reachable at all, which is
-// what stops a DLNA renderer being announced as the word "DLNA" in a tile.
+// what stops a receiver's track title being drawn as a generated avatar.
 const stationAvatarSvg = computed(() => {
   if (fallback.value.kind !== 'avatar') return '';
   const name = props.stationName || props.title;
@@ -205,8 +205,8 @@ const haloUrl = computed(() => {
   return null;
 });
 // The name alone gates the bar: a glyph with nothing to label is not a bar.
-// Deliberate — DLNA renderers routinely send no client name, and useScreensaver
-// passes `stationIcon` unconditionally for them, expecting the bar to hide.
+// Deliberate — a receiver session not fully up publishes no sender name, and
+// useScreensaver passes `stationIcon` unconditionally, expecting the bar to hide.
 const showBottomBar = computed(() => !!props.stationName);
 
 // Emit immediately; the parent flips isVisible and <Transition> plays the leave
