@@ -99,6 +99,8 @@ class TestTheAvrcpAdoption:
         ctrl = AvrcpController.__new__(AvrcpController)
         ctrl._logger = logging.getLogger("source.bluetooth.avrcp")
         ctrl._bus = Mock()
+        ctrl._player_path = None
+        ctrl._device = None
         ctrl._adopt_player = Mock()
         ctrl._mark_dirty = Mock()
         return ctrl
@@ -119,7 +121,7 @@ class TestTheAvrcpAdoption:
             PLAYER_PATH: {MEDIA_PLAYER_IFACE: props},
         }))
 
-        await controller._adopt_existing_player()
+        await controller._rescan()
 
         controller._adopt_player.assert_called_once_with(PLAYER_PATH, props)
         controller._mark_dirty.assert_called_once()
@@ -133,7 +135,7 @@ class TestTheAvrcpAdoption:
             DEVICE_PATH: {"org.bluez.Device1": {}},
         }))
 
-        await controller._adopt_existing_player()
+        await controller._rescan()
 
         controller._adopt_player.assert_not_called()
 
@@ -148,7 +150,7 @@ class TestTheAvrcpAdoption:
             },
         }))
 
-        await controller._adopt_existing_player()
+        await controller._rescan()
 
         assert controller._adopt_player.call_count == 1
 
@@ -164,10 +166,10 @@ class TestTheAvrcpAdoption:
         )
 
         with caplog.at_level(logging.DEBUG, logger="source.bluetooth.avrcp"):
-            await controller._adopt_existing_player()
+            await controller._rescan()
 
         controller._adopt_player.assert_not_called()
-        assert any("no pre-existing player adopted" in r.message for r in caplog.records)
+        assert any("no player adopted" in r.message for r in caplog.records)
 
 
 class TestTheAvrcpPositionPoll:

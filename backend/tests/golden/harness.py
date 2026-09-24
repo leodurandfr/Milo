@@ -27,7 +27,10 @@ Rules that keep the recording meaningful:
   is the player's own state — a skip's load is loading, the app leaving is
   READY at once, the playhead on the position axis instead of a full state
   per poll; phase 3d: Mac, whose replay covers the running roc-recv only and
-  names a sender after the transition instead of inside it). Then only that
+  names a sender after the transition instead of inside it; phase 4:
+  Bluetooth, whose player counts only for the phone holding the link — no
+  READY carrying another's player — and is read when a link predating the
+  source is adopted). Then only that
   source's file
   is re-recorded, after every differing envelope was reviewed and listed in
   the commit, with the MILO_DUMP_OLD_WIRE output of the run that was

@@ -107,12 +107,18 @@ from backend.shared.decorators import handle_errors
 
 # Called with (device_address, snapshot) whenever the player state moved.
 UpdateCallback = Callable[[str, Dict[str, Any]], Awaitable[None]]
+# Called with False when bluetoothd leaves the bus and True when a new one's
+# adapter is up — synchronously, from the D-Bus handler.
+DaemonCallback = Callable[[bool], None]
 
 BLUEZ_SERVICE = "org.bluez"
 MEDIA_PLAYER_IFACE = "org.bluez.MediaPlayer1"
 PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
 OBJECT_MANAGER_IFACE = "org.freedesktop.DBus.ObjectManager"
 DEVICE_PATH_TOKEN = "dev_"
+ADAPTER_IFACE = "org.bluez.Adapter1"
+MEDIA_CONTROL_IFACE = "org.bluez.MediaControl1"
+DBUS_DAEMON = "org.freedesktop.DBus"
 
 # AVRCP playback states that mean audio is moving. The two seek states are the
 # sender running its own fast-forward/rewind: Milō offers no such button, but a
@@ -167,8 +173,16 @@ COMMAND_ATTRIBUTION_S = 3.0
 _MATCH_RULES = (
     f"type='signal',interface='{PROPERTIES_IFACE}',member='PropertiesChanged',"
     f"arg0='{MEDIA_PLAYER_IFACE}'",
+    # Which of a device's players is the live one — measured, a phone can
+    # publish two (one per app: "Musique" and "Spotify" side by side).
+    f"type='signal',interface='{PROPERTIES_IFACE}',member='PropertiesChanged',"
+    f"arg0='{MEDIA_CONTROL_IFACE}'",
     f"type='signal',interface='{OBJECT_MANAGER_IFACE}',member='InterfacesAdded'",
     f"type='signal',interface='{OBJECT_MANAGER_IFACE}',member='InterfacesRemoved'",
+    # bluetoothd itself. Measured: killed, it removes nothing from the bus —
+    # its player object is simply gone with its name, and nothing else says so.
+    f"type='signal',sender='{DBUS_DAEMON}',interface='{DBUS_DAEMON}',"
+    f"member='NameOwnerChanged',arg0='{BLUEZ_SERVICE}'",
 )
 
 
@@ -240,6 +254,11 @@ def parse_track(track: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _value(variant: Any) -> Any:
+    """A D-Bus Variant's value (None stays None)."""
+    return getattr(variant, "value", variant)
+
+
 class AvrcpController:
     """Watches the connected sender's `org.bluez.MediaPlayer1` object.
 
@@ -261,6 +280,7 @@ class AvrcpController:
         self._status: str = ""
         self._position: Optional[int] = None
         self._on_update: Optional[UpdateCallback] = None
+        self._on_daemon: Optional[DaemonCallback] = None
         self._dirty: asyncio.Queue = asyncio.Queue(maxsize=1)
         self._notify_task: Optional[asyncio.Task] = None
         self._poll_task: Optional[asyncio.Task] = None
@@ -269,18 +289,60 @@ class AvrcpController:
         self._settling_since: float = 0.0
         self._pending_track: Optional[Dict[str, Any]] = None
         self._settle_task: Optional[asyncio.Task] = None
+        self._rescan_task: Optional[asyncio.Task] = None
+        # Players announced but not followed (a phone's other app), with their
+        # properties kept current: BlueZ naming one the live player is then
+        # followed at once, never through a moment with no player at all.
+        self._others: Dict[str, Dict[str, Any]] = {}
+        # The device holding the link, when there is one: only its players
+        # are followed (a phone being turned away publishes one too).
+        self._device: Optional[str] = None
         self._own_playhead_from: Optional[float] = None
         self._command_at: float = 0.0
         self._stopped = False
 
-    def set_callback(self, on_update: UpdateCallback) -> None:
-        """Set the coroutine notified after each coalesced player change."""
+    def set_callbacks(
+        self, *, on_update: UpdateCallback, on_daemon: Optional[DaemonCallback] = None,
+    ) -> None:
+        """Set the coroutine notified after each coalesced player change, and
+        the callable told when bluetoothd leaves the bus or its successor's
+        adapter is up."""
         self._on_update = on_update
+        self._on_daemon = on_daemon
 
     @property
     def has_player(self) -> bool:
         """Whether a sender is currently publishing an AVRCP player."""
         return self._player_path is not None
+
+    def follow_device(self, address: Optional[str]) -> None:
+        """Follow only `address`'s players from now on (None: any). A player
+        already followed that is another device's gives way to one of this
+        device's, announced or still to be found on the bus."""
+        self._device = address.upper() if address else None
+        if self._player_path is None:
+            if self._take_other():
+                self._mark_dirty()
+            return
+        if self._wanted(self._player_path):
+            return
+        self._clear_player()
+        if not self._take_other():
+            self._schedule_rescan()
+        self._mark_dirty()
+
+    def _wanted(self, path: Optional[str]) -> bool:
+        if path is None:
+            return False
+        address = self._address_from_path(path)
+        return self._device is None or (address or "").upper() == self._device
+
+    @property
+    def status(self) -> str:
+        """The player's AVRCP Status as BlueZ reports it (`playing`, `paused`,
+        `stopped`, …), or "" while it has reported none — measured: a Mac says
+        nothing for 100 s after connecting."""
+        return self._status if self._player_path else ""
 
     @property
     def device_address(self) -> Optional[str]:
@@ -315,7 +377,7 @@ class AvrcpController:
 
         # A player already exists whenever the backend restarted under a live
         # session: the signals above only report changes from here on.
-        await self._adopt_existing_player()
+        await self._rescan()
 
         self._logger.info("AVRCP player listener active")
         return True
@@ -325,7 +387,7 @@ class AvrcpController:
         self._stopped = True
 
         for task in (self._notify_task, self._poll_task, self._reread_task,
-                     self._settle_task):
+                     self._settle_task, self._rescan_task):
             if task and not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -334,6 +396,7 @@ class AvrcpController:
         self._poll_task = None
         self._reread_task = None
         self._settle_task = None
+        self._rescan_task = None
 
         if self._bus:
             with contextlib.suppress(Exception):
@@ -342,6 +405,7 @@ class AvrcpController:
                 self._bus.disconnect()
             self._bus = None
 
+        self._others.clear()
         self._clear_player()
 
     async def send(self, member: str) -> bool:
@@ -458,8 +522,12 @@ class AvrcpController:
 
     # === D-Bus plumbing ===
 
-    async def _adopt_existing_player(self) -> None:
-        """Adopt a player object that predates our listener, if any."""
+    async def _rescan(self, prefer: Optional[str] = None) -> None:
+        """Adopt the player on the bus that should be followed now: `prefer`
+        if it exists, else one a device's MediaControl1 names as its live
+        player, else any. Run at start (a player predating our listener — a
+        backend restart under a live session) and whenever the one followed
+        is gone or BlueZ names another, since a phone can publish two."""
         reply = await self._bus.call(Message(
             destination=BLUEZ_SERVICE,
             path="/",
@@ -467,36 +535,103 @@ class AvrcpController:
             member="GetManagedObjects",
         ))
         if reply is None or reply.message_type == MessageType.ERROR:
-            self._logger.debug("GetManagedObjects unavailable, no pre-existing player adopted")
+            self._logger.debug("GetManagedObjects unavailable, no player adopted")
             return
 
-        for path, interfaces in (reply.body[0] or {}).items():
-            if MEDIA_PLAYER_IFACE in interfaces:
-                self._adopt_player(path, interfaces[MEDIA_PLAYER_IFACE])
-                self._mark_dirty()
-                return
+        objects = reply.body[0] or {}
+        players = {p: i[MEDIA_PLAYER_IFACE] for p, i in objects.items() if MEDIA_PLAYER_IFACE in i}
+        named = [
+            _value(i[MEDIA_CONTROL_IFACE].get("Player"))
+            for i in objects.values() if MEDIA_CONTROL_IFACE in i
+        ]
+        chosen = next(
+            (p for p in [prefer, *named, *players]
+             if p is not None and p in players and self._wanted(p)),
+            None,
+        )
+        if chosen is None or chosen == self._player_path:
+            return
+        self._adopt_player(chosen, players[chosen])
+        self._mark_dirty()
+
+    def _schedule_rescan(self, prefer: Optional[str] = None) -> None:
+        """A D-Bus handler cannot await: the rescan runs beside it. A newer
+        one replaces a pending one — it reads the bus later, so it knows more."""
+        if self._stopped or not self._bus:
+            return
+        if self._rescan_task and not self._rescan_task.done():
+            self._rescan_task.cancel()
+        self._rescan_task = asyncio.create_task(self._rescan_guarded(prefer))
+
+    async def _rescan_guarded(self, prefer: Optional[str]) -> None:
+        try:
+            if not self._stopped and self._bus:
+                await self._rescan(prefer)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._logger.error(f"AVRCP player rescan failed: {e}")
 
     def _on_dbus_message(self, msg) -> None:
         """Route one BlueZ signal into the mirrored player state (synchronous)."""
         if msg.message_type != MessageType.SIGNAL or not msg.body:
             return
 
-        if msg.member == "InterfacesAdded" and len(msg.body) >= 2:
+        if msg.member == "NameOwnerChanged" and len(msg.body) >= 3:
+            if msg.sender != DBUS_DAEMON or msg.body[0] != BLUEZ_SERVICE or msg.body[2]:
+                return
+            self._bluez_gone()
+
+        elif msg.member == "InterfacesAdded" and len(msg.body) >= 2:
             path, interfaces = msg.body[0], msg.body[1]
+            if ADAPTER_IFACE in interfaces:
+                # A new bluetoothd's adapter: what Milō set on the old one
+                # (exposure, agent) is gone with it — measured.
+                if self._on_daemon:
+                    self._on_daemon(True)
+                return
             if MEDIA_PLAYER_IFACE not in interfaces:
+                return
+            if path != self._player_path and (
+                self._player_path is not None or not self._wanted(path)
+            ):
+                # A second player (another app on the same phone, or a phone
+                # being turned away): the one followed stays until BlueZ names
+                # another live one, or it goes.
+                self._logger.debug(f"AVRCP player at {path} not followed")
+                self._others[path] = dict(interfaces[MEDIA_PLAYER_IFACE])
                 return
             self._adopt_player(path, interfaces[MEDIA_PLAYER_IFACE])
 
         elif msg.member == "InterfacesRemoved" and len(msg.body) >= 2:
             path, interfaces = msg.body[0], msg.body[1]
-            if path != self._player_path or MEDIA_PLAYER_IFACE not in interfaces:
+            if MEDIA_PLAYER_IFACE not in interfaces:
+                return
+            if path != self._player_path:
+                self._others.pop(path, None)
                 return
             self._clear_player()
+            if not self._take_other():
+                # Another player may still be on the bus unannounced to us.
+                self._schedule_rescan()
 
         elif msg.member == "PropertiesChanged" and len(msg.body) >= 2:
-            if msg.body[0] != MEDIA_PLAYER_IFACE or msg.path != self._player_path:
+            if msg.body[0] == MEDIA_CONTROL_IFACE:
+                named = _value(msg.body[1].get("Player"))
+                if not named or named == self._player_path or not self._wanted(named):
+                    return
+                if not self._take_other(named):
+                    self._schedule_rescan(prefer=named)
+                    return
+            elif msg.body[0] != MEDIA_PLAYER_IFACE:
                 return
-            self._apply_props(msg.body[1])
+            elif msg.path in self._others:
+                self._others[msg.path].update(msg.body[1])
+                return
+            elif msg.path != self._player_path:
+                return
+            else:
+                self._apply_props(msg.body[1])
 
         else:
             return
@@ -505,6 +640,8 @@ class AvrcpController:
 
     def _adopt_player(self, path: str, props: Dict[str, Any]) -> None:
         """Take a player object as the current one and seed it from its props."""
+        # Followed now: its signals are the current player's, not a spare's.
+        self._others.pop(path, None)
         if path != self._player_path:
             self._logger.info(f"AVRCP player at {path}")
             self._player_path = path
@@ -520,6 +657,28 @@ class AvrcpController:
             self._pending_track = None
             self._settling_since = 0.0
         self._apply_props(props)
+
+    def _take_other(self, path: Optional[str] = None) -> bool:
+        """Follow a player already announced: `path`, or any when None.
+        False when there is none to take."""
+        if path is None:
+            path = next((p for p in self._others if self._wanted(p)), None)
+        props = self._others.pop(path, None) if path and self._wanted(path) else None
+        if props is None:
+            return False
+        # The one followed until now is not kept: its properties stopped being
+        # tracked, and a rescan reads them fresh if BlueZ names it again.
+        self._adopt_player(path, props)
+        return True
+
+    def _bluez_gone(self) -> None:
+        """bluetoothd left the bus: whatever player it published is gone too,
+        announced or not."""
+        self._logger.warning("bluetoothd left the bus — its AVRCP player is gone")
+        self._others.clear()
+        self._clear_player()
+        if self._on_daemon:
+            self._on_daemon(False)
 
     def _clear_player(self) -> None:
         """Forget the current player (sender gone, or AVRCP dropped).

@@ -117,8 +117,8 @@ def monitor(**callbacks):
     mon = BlueAlsaMonitor()
     mon.on_connect = callbacks.get("on_connect", AsyncMock())
     mon.on_disconnect = callbacks.get("on_disconnect", AsyncMock())
-    mon.set_callbacks(mon.on_connect, mon.on_disconnect,
-                      callbacks.get("on_lost", AsyncMock()))
+    mon.set_callbacks(on_connect=mon.on_connect, on_disconnect=mon.on_disconnect,
+                      on_lost=callbacks.get("on_lost", AsyncMock()))
     mon.on_lost = mon._on_lost
     return mon
 

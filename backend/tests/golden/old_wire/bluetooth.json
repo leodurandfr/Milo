@@ -396,47 +396,31 @@
     "origin": "bluetooth",
     "data": {
      "source": "bluetooth",
-     "new_state": "ready",
+     "new_state": "active",
      "metadata": {
-      "is_playing": false,
+      "is_playing": true,
       "is_buffering": false,
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "position": 0,
+      "duration": 511000,
+      "device_name": "iPhone de Léo",
       "has_avrcp": true
      },
      "full_state": {
       "active_source": "bluetooth",
-      "source_state": "ready",
+      "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
+       "is_playing": true,
        "is_buffering": false,
-       "has_avrcp": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "bluetooth",
-    "data": {
-     "source": "bluetooth",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
-      "has_avrcp": true
-     },
-     "full_state": {
-      "active_source": "bluetooth",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false,
+       "title": "Says",
+       "artist": "Nils Frahm",
+       "album": "Spaces",
+       "position": 0,
+       "duration": 511000,
+       "device_name": "iPhone de Léo",
        "has_avrcp": true
       },
       "error": null,
@@ -2254,38 +2238,9 @@
       "source_state": "active",
       "transitioning": false,
       "metadata": {
-       "is_playing": false,
+       "is_playing": true,
        "is_buffering": false,
-       "device_name": "Mac mini de Léo",
-       "has_avrcp": true
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "bluetooth",
-    "data": {
-     "source": "bluetooth",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
-      "device_name": "Mac mini de Léo",
-      "has_avrcp": true
-     },
-     "full_state": {
-      "active_source": "bluetooth",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false,
+       "position": 9874000,
        "device_name": "Mac mini de Léo",
        "has_avrcp": true
       },

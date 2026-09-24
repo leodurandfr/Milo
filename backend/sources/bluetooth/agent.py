@@ -5,6 +5,7 @@ Bluetooth D-Bus agent for auto-pairing.
 Implements the org.bluez.Agent1 interface to automatically accept
 incoming Bluetooth connections without user interaction.
 """
+import contextlib
 import logging
 import uuid
 from typing import Optional
@@ -62,10 +63,11 @@ class BluetoothAgent(ServiceInterface):
             # Register and set as default
             await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
             await agent_iface.call_request_default_agent(self._path)
-        except Exception:
+        except BaseException:
             # Nothing else will: unregister() returns early on a failed
             # registration, so the socket would live until the process dies and
-            # the next source start would open another.
+            # the next source start would open another. A cancellation too — a
+            # stop cutting the registration short.
             self._disconnect()
             raise
 
@@ -103,6 +105,18 @@ class BluetoothAgent(ServiceInterface):
 
         self._logger.info("Agent unregistered")
         return True
+
+    async def register_again(self) -> bool:
+        """Register with a bluetoothd that replaced the one this agent was
+        registered with. The old registration died with that daemon, so there
+        is nothing to unregister — only our side of it to drop. Measured: a
+        bluetoothd with no agent refuses every audio connection."""
+        if self._bus:
+            with contextlib.suppress(Exception):
+                self._bus.unexport(self._path)
+            self._disconnect()
+        self._registered = False
+        return await self.register()
 
     def _disconnect(self) -> None:
         """Close the system-bus connection this agent opened."""

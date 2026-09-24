@@ -2,19 +2,36 @@
 """
 Bluetooth audio source using BlueALSA for audio and BlueZ AVRCP for control.
 
-Family C (active player): UI control, rich metadata. Two independent feeds
-answer two different questions, and neither can answer the other's:
+Family C (active player): UI control, rich metadata. A phone holding the A2DP
+link is a session a daemon holds (docs: source architecture, phase 4), and
+three feeds describe it, none of which can answer another's question:
 
-  - `monitor.py` watches BlueALSA PCM add/remove — is a sender *connected*,
-    and what is it called. This is the one that decides ACTIVE vs READY.
+  - `monitor.py` watches BlueALSA — is a sender *linked* (PCM added/removed),
+    is its stream *flowing* (`Running`), and is BlueALSA itself still there.
   - `avrcp.py` watches BlueZ's org.bluez.MediaPlayer1 — what is *playing*, and
-    it is also how Milō drives the sender's transport.
+    how Milō drives the sender's transport; and bluetoothd itself.
+  - systemd, through the base's process watch on BlueALSA (SESSION_DAEMON).
 
-They arrive in either order and the AVRCP one is optional: an AVRCP target is
-not mandatory and plenty of senders publish an empty track, so the source stays
-perfectly usable with no metadata at all. That is exactly what the frontend's
-rich-display gate keys on — no title/artist means the device-name status card,
-a title means the shared player.
+What was measured on the unit (2026-09-24, the owner's iPhone and Mac mini)
+decides how they combine into the session's phase:
+
+  - A pause stops nothing: the player says `paused` and the stream keeps
+    running (the Mac streams silence). So a pause is the player's word alone.
+  - A sender can say `playing` while sending nothing — the Mac switching its
+    output to its own speakers keeps the link, the PCM and a `playing` player,
+    and only BlueALSA's `Running` goes false. The owner's reading: that is
+    "connected to X", at once.
+  - The Mac publishes no Status for 100 s after connecting; a phone may publish
+    no player at all. Both are "connected": nothing says whether it plays.
+
+Hence: paused → PAUSED; playing and flowing → PLAYING; anything else →
+CONNECTED. A paused phone keeps the link for as long as it wants
+(KEEP_WHILE_LINKED, owner decision): a pause here is resumed in an instant and
+tearing the link down would make the player's own pause button undo itself.
+
+The AVRCP player counts only for the phone holding the link: a player can
+outlive its link (1.0 s measured) or belong to a phone the appliance turned
+away, and neither may name, or take the commands of, the one connected (E30).
 
 There is no seek. AVRCP offers only hold-style FastForward/Rewind, not a
 position command, so the progress bar is read-only (`:seekable="false"` on the
@@ -28,32 +45,33 @@ best-effort and asynchronous: a miss leaves the player's source glyph.
 
 The playhead is the one thing no feed reports reliably (again, see avrcp.py:
 BlueZ signals it only when it re-anchors, and between those it extrapolates —
-sometimes from an anchor that is minutes wrong). Five sources implement
-`refresh_metadata()`; this is the one that would have no playhead at all
-without it. The other four re-read a position they also publish periodically
-(mpv's `time-pos` for CD/Podcast/Music Library, go-librespot's /status for
-Spotify), so their hook sharpens a value a reconnecting client already has —
-here it is the only thing that ever moves it, since nothing notifies a moved
-playhead over AVRCP and the stored one is whatever the last track change
-captured.
+sometimes from an anchor that is minutes wrong). `refresh_metadata()` is what
+moves it for a client arriving mid-track: nothing notifies a moved playhead
+over AVRCP, and the stored one is whatever the last track change captured.
 
 Features:
 - Multi-service management: bluetooth, bluealsa, bluealsa-aplay
 - D-Bus agent for automatic pairing (NoInputNoOutput mode)
-- Single device connection enforcement (via BlueALSA monitor callbacks)
-- BlueALSA PCM monitoring for real-time connection events
+- Single device enforcement (a second phone's link is dropped)
+- Recovery from a bluetoothd or BlueALSA that died under the source
 - AVRCP metadata + transport via BlueZ
 """
 import asyncio
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.session import (
+    CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy,
+    ReroutePolicy, Session,
+)
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.bluetooth.adapter import BluetoothAdapter
 from backend.sources.bluetooth.agent import BluetoothAgent
-from backend.sources.bluetooth.avrcp import AvrcpController
+from backend.sources.bluetooth.avrcp import PLAYING_STATES, AvrcpController
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.shared.decorators import handle_errors
@@ -65,6 +83,36 @@ from backend.shared.decorators import handle_errors
 # therefore kept below the poll so our own ticks always get through.
 POSITION_BROADCAST_MIN_INTERVAL = 2.0
 
+# A new bluetoothd's adapter is announced while AutoEnable may still be
+# powering it, and BlueZ answers Busy to a write meanwhile: the configuration
+# is tried again, a few times, before the failure is reported.
+ADAPTER_CONFIGURE_ATTEMPTS = 5
+ADAPTER_CONFIGURE_RETRY_S = 0.5
+
+
+@dataclass(eq=False)
+class BluetoothSession(Session):
+    """One phone holding the A2DP link; `sender` is its address.
+
+    `playback` is its AVRCP player's snapshot (keyed like PlaybackMetadata),
+    `status` that player's Status, `running` whether BlueALSA says its stream
+    flows. Cover art is resolved from the track text and held apart from
+    `playback`: the position poll replaces that dict wholesale, and the key
+    it was resolved for is what keeps a new track from inheriting it.
+    """
+    name: str = ""
+    playback: Dict[str, Any] = field(default_factory=dict)
+    has_player: bool = False
+    status: str = ""
+    running: bool = False
+    artwork_url: Optional[str] = None
+    artwork_key: tuple = ()
+    last_progress_broadcast: float = 0.0
+
+
+def _same_device(a: Optional[str], b: Optional[str]) -> bool:
+    return bool(a and b) and a.upper() == b.upper()
+
 
 class BluetoothSource(BaseAudioSource):
     """
@@ -72,17 +120,18 @@ class BluetoothSource(BaseAudioSource):
 
     Family C (active player): the sender starts playback, Milō displays it and
     drives its transport back over AVRCP. Commands route through
-    `/api/audio/control/bluetooth` to `_handle_command`. Extends
-    BaseAudioSource — implements `_do_start / _do_stop / _handle_command`.
+    `/api/audio/control/bluetooth` to `_handle_command`.
     """
 
-    # AVRCP does report a pause (BlueZ signals `Status = paused`, which is what
-    # the player's own pause button reads back), so the reason there is no
-    # auto-stop here is not that the signal is missing — it is that acting on it
-    # would be wrong: a paused phone is still connected and resumes instantly,
-    # and tearing the link down would make the player's pause button undo
-    # itself. The 12 h INACTIVITY_TIMEOUT in AudioStateMachine is the backstop.
     AUTO_STOP_SUPPORTED = False
+    # A paused phone keeps the link (owner decision): see the module docstring.
+    IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
+    # bluez + bluealsa hold the link; only bluealsa-aplay, the writer, moves.
+    REROUTE = ReroutePolicy.KEEP_SESSION
+    # Milō cannot start a phone's playback: nothing is kept.
+    RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
+    # The session's link lives in BlueALSA: its death ends the session.
+    SESSION_DAEMON = True
 
     def __init__(
         self,
@@ -108,45 +157,28 @@ class BluetoothSource(BaseAudioSource):
         self.stop_bluetooth_on_exit = self._config.get("stop_bluetooth_on_exit", True)
         self.auto_agent = self._config.get("auto_agent", True)
 
-        self.connected_device: Optional[Dict[str, str]] = None
-        # Half of the exposure authority below. SourceState cannot carry it:
-        # READY means both "started, waiting for a sender" and "stopped".
+        # The service axis, which the session cannot carry: started and
+        # waiting for a sender is READY exactly like stopped is. Half of the
+        # exposure authority below.
         self._running = False
+        # bluealsa-aplay is off on purpose while a multiroom reroute holds it.
+        self._released = False
+        # Whether BlueALSA is there: without it there is no A2DP sink, so a
+        # phone must not be offered one (half of the exposure rule too).
+        self._bluealsa_up = False
 
         self.adapter = BluetoothAdapter()
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
         self.avrcp = AvrcpController()
-
-        # Last AVRCP snapshot, keyed like PlaybackMetadata. Kept even while no
-        # PCM is up: the player object and the PCM appear in either order, and
-        # _update_connection_state reads this whichever arrives second.
-        self._playback: Dict[str, Any] = {}
-        # What the last broadcast said about has_avrcp — see _on_avrcp_update.
-        self._avrcp_published = False
-        self._last_progress_broadcast = 0.0
-
-        # Cover art resolved from the track text, and the track it belongs to.
-        # Held apart from _playback rather than written into it: the position
-        # poll replaces that dict wholesale every few seconds with a fresh AVRCP
-        # snapshot, which carries no artwork and would wipe it. Keeping the key
-        # alongside is also what expires it — a new track cannot inherit the
-        # previous one's cover.
         self._artwork = ArtworkResolver(self._settings_service)
-        self._artwork_url: Optional[str] = None
-        self._artwork_key: tuple = ()
-
-    def _reset_playback_state(self) -> None:
-        super()._reset_playback_state()
-        self.connected_device = None
-        self._playback = {}
-        self._artwork_url = None
-        self._artwork_key = ()
 
     async def _do_start(self) -> bool:
         """Start Bluetooth services and monitoring."""
         try:
             self._running = True
+            self._released = False
+            self._bluealsa_up = True
 
             # 1. Start system services
             for service in [self.bluetooth_service, self.bluealsa_service]:
@@ -166,44 +198,43 @@ class BluetoothSource(BaseAudioSource):
                 if not await self.agent.register():
                     self._logger.warning("Agent registration failed")
 
-            # 5. Set up and start BlueALSA monitor (event-based connection detection)
+            # 5. BlueALSA: who is linked, whose stream flows, whether it lives.
             self.monitor.set_callbacks(
-                self._on_device_connected,
-                self._on_device_disconnected,
-                self._on_monitor_lost
+                on_connect=self._on_pcm_added,
+                on_disconnect=self._on_pcm_removed,
+                on_lost=self._on_monitor_lost,
+                on_running=self._on_stream,
+                on_service=self._on_bluealsa,
             )
             if not await self.monitor.start():
                 raise RuntimeError("BlueALSA monitor failed to start")
 
-            # 6. Start the AVRCP player feed (metadata + transport). Best-effort:
-            # a sender that exposes no AVRCP target, or a BlueZ that will not
-            # answer, costs the metadata and nothing else — the audio path and
-            # the connection state come from BlueALSA, not from here.
-            self.avrcp.set_callback(self._on_avrcp_update)
+            # 6. The AVRCP player feed (metadata + transport) and bluetoothd.
+            # Best-effort: a sender that exposes no AVRCP target, or a BlueZ
+            # that will not answer, costs the metadata and nothing else.
+            self.avrcp.set_callbacks(on_update=self._on_avrcp_update, on_daemon=self._on_bluez)
             if not await self.avrcp.start():
                 self._logger.warning("AVRCP feed unavailable — no track metadata")
 
-            # 7. Detect already-connected device (e.g. backend restart during active stream)
-            await self._detect_connected_device()
+            # 7. A link that predates us (backend restart during a stream)
+            await self._adopt_linked_device()
 
             # 8. Re-evaluate exposure: finding a sender here means the appliance
             # must already be hidden, and step 3 opened it.
             await self._apply_exposure()
 
-            # 9. Update state
             self._update_connection_state()
-
             return True
 
         except Exception as e:
             self._logger.error(f"Start failed: {e}")
             await self._cleanup()
+            await self.end_session(EndReason.USER_STOP)
             # A failure past step 3 leaves the adapter open and the senders
             # unblocked while the source settles in ERROR — the one state that
             # is neither started nor stopped, and the one _apply_exposure would
             # never be called from again.
             self._running = False
-            self.connected_device = None
             await self._apply_exposure()
             return False
 
@@ -217,7 +248,7 @@ class BluetoothSource(BaseAudioSource):
         # running, so the adapter stays powered and a paired phone would
         # otherwise still be able to dial in with the source off.
         self._running = False
-        self.connected_device = None
+        await self.end_session(EndReason.SOURCE_SWITCH)
         await self._apply_exposure()
 
         # Stop BlueALSA services
@@ -230,7 +261,6 @@ class BluetoothSource(BaseAudioSource):
             if not (bt_remote and bt_remote.get('enabled')):
                 await self._stop_service(self.bluetooth_service)
 
-        self._reset_playback_state()
         # Released last: _apply_exposure above needed it, and _cleanup runs
         # before that on purpose — blocking a peer while the monitor is still
         # reading would echo back as a disconnect event.
@@ -243,25 +273,29 @@ class BluetoothSource(BaseAudioSource):
         CamillaDSP input it feeds in direct mode is freed for the snapcast
         reconcile (snapclient feeds that same CamillaDSP in multiroom mode).
 
-        bluealsa + bluetooth.service keep running, so the A2DP link — and
-        self.connected_device — survive; unlike _do_stop(), which tears the
-        whole stack down and kicks the phone off. The BlueALSA monitor tracks
-        PCM add/remove driven by the bluealsa daemon (i.e. the phone's A2DP
-        transport), not by the bluealsa-aplay consumer, so bouncing the writer
-        alone never surfaces as a disconnect.
+        bluealsa + bluetooth.service keep running, so the A2DP link — and the
+        session — survive; unlike _do_stop(), which tears the whole stack down
+        and kicks the phone off. The BlueALSA monitor tracks PCM add/remove
+        driven by the bluealsa daemon (i.e. the phone's A2DP transport), not by
+        the bluealsa-aplay consumer, so bouncing the writer alone never
+        surfaces as a disconnect.
         """
+        self._released = True
         return await self._stop_service(self.bluealsa_aplay_service)
 
     async def _do_acquire(self) -> bool:
         """Multiroom reroute (acquire half): restart bluealsa-aplay under the
-        new MILO_MODE and re-publish state. The device stayed connected and the
-        monitor kept self.connected_device current, so re-broadcasting the
-        connection state restores ACTIVE (the transition set it to STARTING).
+        new MILO_MODE and re-publish state (the transition set it to STARTING).
         """
+        self._released = False
         if not await self._start_service(self.bluealsa_aplay_service):
             return False
         self._update_connection_state()
         return True
+
+    async def shutdown(self) -> None:
+        await super().shutdown()
+        await self._cleanup()
 
     COMMANDS = {
         "disconnect": None,
@@ -269,6 +303,12 @@ class BluetoothSource(BaseAudioSource):
         "resume": None,
         "next": None,
         "prev": None,
+    }
+    # The transport acts on the phone holding the link; disconnect acts on the
+    # link itself, and says so when there is none.
+    COMMAND_SCOPES = {
+        **{name: CommandScope.SESSION for name in COMMANDS},
+        "disconnect": CommandScope.DEVICE,
     }
 
     # Milō command -> AVRCP method on org.bluez.MediaPlayer1. The two spellings
@@ -284,10 +324,13 @@ class BluetoothSource(BaseAudioSource):
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Bluetooth-specific commands."""
+        session = self._session
         if cmd == "disconnect":
-            return await self._cmd_disconnect()
+            if not isinstance(session, BluetoothSession):
+                return self.error_response("No device connected")
+            return await self._cmd_disconnect(session)
 
-        if not self.avrcp.has_player:
+        if not session.has_player or not _same_device(self.avrcp.device_address, session.sender):
             return self.error_response("Connected device exposes no AVRCP player")
 
         # An AVRCP target answers NotSupported per method — a sender may take
@@ -298,7 +341,7 @@ class BluetoothSource(BaseAudioSource):
 
         return self.success_response()
 
-    async def _cmd_disconnect(self) -> Dict[str, Any]:
+    async def _cmd_disconnect(self, session: BluetoothSession) -> Dict[str, Any]:
         """Drop the sender currently holding the source.
 
         Logged at info, which is not decoration: this is the only command a
@@ -307,133 +350,298 @@ class BluetoothSource(BaseAudioSource):
         one whose link was taken back seconds later by a second paired device.
         The line names the sender, so the journal says which one left.
         """
-        if not self.connected_device:
-            return self.error_response("No device connected")
-
-        address = self.connected_device.get("address")
-        name = self.connected_device.get("name")
-        self._logger.info(f"Disconnect requested for {name} ({address})")
-
-        if not await self.adapter.disconnect_device(address):
-            return self.error_response(f"{name} did not release the link")
+        self._logger.info(f"Disconnect requested for {session.name} ({session.sender})")
+        session.end_requested = EndReason.USER_STOP
+        if not await self.adapter.disconnect_device(session.sender):
+            session.end_requested = None
+            return self.error_response(f"{session.name} did not release the link")
 
         return self.success_response("Device disconnected")
 
-    # === BlueALSA Monitor Callbacks ===
+    # === Feeds: every callback posts; the mailbox applies ===
 
-    async def _on_device_connected(self, address: str, name: str) -> None:
-        """Handle device connection from BlueALSA monitor."""
-        # Single device enforcement: disconnect if another device is already connected
-        if self.connected_device and self.connected_device.get("address") != address:
-            self._logger.info(f"Disconnecting {name} ({address}) - another device already connected")
-            await self.adapter.disconnect_device(address)
-            return
+    async def _on_pcm_added(self, address: str, name: str) -> None:
+        self._post_feed(("linked", address, name))
 
-        if not self.connected_device:
-            self.connected_device = {"address": address, "name": name}
-            self._logger.info(f"Device connected: {name} ({address})")
-            # Hide first: the appliance now has a sender, so it must stop
-            # offering itself to a second one instead of kicking it afterwards.
-            await self._apply_exposure()
-            self._update_connection_state()
+    async def _on_pcm_removed(self, address: str, name: str) -> None:
+        self._post_feed(("unlinked", address, name))
+
+    async def _on_stream(self, address: str, running: bool) -> None:
+        self._post_feed(("stream", address, running))
+
+    async def _on_bluealsa(self, up: bool) -> None:
+        self._post_feed(("bluealsa", up))
 
     async def _on_monitor_lost(self, reason: str) -> None:
+        self._post_feed(("monitor_lost", reason))
+
+    async def _on_avrcp_update(self, address: str, snapshot: Dict[str, Any]) -> None:
+        self._post_feed(("player", address))
+
+    def _on_bluez(self, up: bool) -> None:
+        self._post_feed(("bluez", up))
+
+    async def _handle_feed(self, events) -> None:
+        """What BlueALSA, BlueZ and bluetoothd announced, in order, then one
+        publish: a full state when something the screen cannot interpolate
+        moved, a drift correction when only the playhead did."""
+        if not self._running:
+            return
+        session = self._session
+        duration_before = session.playback.get("duration") if isinstance(session, BluetoothSession) else None
+        arrived = False
+        banners = []
+        player_moved = False
+        for event in events:
+            kind = event[0]
+            if kind == "player":
+                # Read below: an event is when to look, the controller is
+                # what to believe.
+                player_moved = True
+            elif kind == "linked":
+                arrived = await self._link_up(event[1], event[2]) or arrived
+            elif kind == "unlinked":
+                await self._link_down(event[1])
+            elif kind == "stream":
+                self._stream_moved(event[1], event[2])
+            elif kind == "bluealsa":
+                banners += await self._bluealsa_moved(event[1])
+            elif kind == "bluez":
+                banners += await self._bluez_moved(event[1])
+            elif kind == "monitor_lost":
+                banners += await self._monitor_lost(event[1])
+        session = self._session
+        if isinstance(session, BluetoothSession):
+            self._read_player(session)
+            await self._follow(session)
+        duration = session.playback.get("duration") if isinstance(session, BluetoothSession) else None
+        if not self._publish_changes():
+            if duration != duration_before:
+                self._update_connection_state()
+            elif player_moved:
+                self._broadcast_progress()
+        # The state first, then the banner: an event carrying the state it
+        # reports on must carry the state after it.
+        for reason in banners:
+            self.broadcast_error(reason)
+        if arrived:
+            self.broadcast_error_cleared()
+
+    async def _follow(self, session: "BluetoothSession") -> None:
+        """Move the session where its facts say it stands."""
+        await self.reconcile(DaemonSnapshot(session.sender, self._phase_of(session)))
+
+    async def _link_up(self, address: str, name: str, running: Optional[bool] = None) -> bool:
+        """A phone's PCM: its session opens, unless another phone holds the
+        link — then it is turned away. True when a session opened."""
+        session = self._session
+        if session is not None:
+            if not _same_device(session.sender, address):
+                self._logger.info(f"Disconnecting {name} ({address}) - another device already connected")
+                # Beside the mailbox: a Disconnect was measured at ~3 s, and the
+                # phone holding the link must not wait behind it. Its answer
+                # changes nothing here — the PCM leaving says the rest.
+                self._bg.spawn(self.adapter.disconnect_device(address), label="turn_away")
+            return False
+        session = await self.reconcile(DaemonSnapshot(address.upper(), Phase.CONNECTED))
+        if not isinstance(session, BluetoothSession):
+            return False
+        session.name = name
+        session.running = bool(running)
+        # Only this phone's players count from now on (E30).
+        self.avrcp.follow_device(session.sender)
+        self._read_player(session)
+        await self._follow(session)
+        self._logger.info(f"Device connected: {name} ({address})")
+        # Hide first: the appliance now has a sender, so it must stop
+        # offering itself to a second one instead of kicking it afterwards.
+        await self._apply_exposure()
+        return True
+
+    async def _link_down(self, address: str) -> None:
+        session = self._session
+        if not isinstance(session, BluetoothSession) or not _same_device(session.sender, address):
+            return
+        if await self._unit_stopped_on_purpose():
+            # Measured on a backend restart: BlueALSA stopping cleanly removes
+            # its PCMs before it says it stopped. That is not a phone leaving,
+            # and the appliance must not reopen behind a backend going away —
+            # bluetooth.service outlives it.
+            self._bluealsa_up = False
+            self._logger.info(f"{self.bluealsa_service} is stopping — ending {session.name}'s session")
+            await self.reconcile(None, gone=EndReason.USER_STOP)
+            return
+        self._logger.info(f"Device disconnected: {session.name} ({address})")
+        await self.reconcile(None)
+
+    def _stream_moved(self, address: str, running: bool) -> None:
+        session = self._session
+        if isinstance(session, BluetoothSession) and _same_device(session.sender, address):
+            session.running = running
+
+    def _read_player(self, session: BluetoothSession) -> None:
+        """The AVRCP player, if it is this phone's (E30), and a cover lookup
+        when its track changed."""
+        mine = self.avrcp.has_player and _same_device(self.avrcp.device_address, session.sender)
+        before = self._track_key(session.playback)
+        session.has_player = mine
+        session.playback = self.avrcp.snapshot() if mine else {}
+        session.status = self.avrcp.status if mine else ""
+        track = self._track_key(session.playback)
+        if track != before and any(track) and self._session_bg is not None:
+            self._session_bg.spawn(self._resolve_artwork(session, track), label="avrcp_artwork")
+
+    def _phase_of(self, session: BluetoothSession) -> Phase:
+        """Paused is the player's word; playing needs the stream too (a Mac
+        switched to its own speakers says `playing` over nothing, measured);
+        anything else — no player, no Status yet, stopped — cannot be told."""
+        if session.status == "paused":
+            return Phase.PAUSED
+        if session.status in PLAYING_STATES and session.running:
+            return Phase.PLAYING
+        return Phase.CONNECTED
+
+    async def _bluealsa_moved(self, up: bool) -> list:
+        """BlueALSA died (every link with it, measured: no PCMRemoved) or came
+        back. systemd restarts it, but not bluealsa-aplay, which `BindsTo=` it
+        (measured) — without the writer, a phone that comes back is silent."""
+        if not up:
+            self._bluealsa_up = False
+            session = self._session
+            if session is not None:
+                await self._daemon_gone(session)
+            return []
+        self._bluealsa_up = True
+        banners = []
+        if not self._released and not await self._start_service(self.bluealsa_aplay_service):
+            self._logger.error(
+                f"{self.bluealsa_aplay_service} could not be started after BlueALSA came back "
+                f"— a phone linking now would be silent"
+            )
+            banners.append(SourceErrorReason.SERVICE_UNREACHABLE)
+        # A sink again: the appliance may offer itself.
+        await self._apply_exposure()
+        return banners
+
+    async def _daemon_gone(self, session: Session) -> None:
+        """BlueALSA's process ended under the session (its watch, or the
+        monitor's `ServiceStopped`, whichever is heard first): no sink until it
+        is back, so nothing is offered meanwhile — not even after a backend
+        restart, which stops BlueALSA and leaves bluetooth.service running."""
+        self._bluealsa_up = False
+        await super()._daemon_gone(session)
+
+    async def _bluez_moved(self, up: bool) -> list:
+        """bluetoothd left the bus or a new one's adapter is up.
+
+        Killed, it announced nothing (measured): a session still open here is
+        a death. Back, it knows nothing of what Milō set on its predecessor —
+        measured, it starts closed and with no agent, and refuses every audio
+        connection while the screen says ready (E75).
+        """
+        if not up:
+            if self._session is None:
+                return []
+            if await self._bluez_stopped_on_purpose():
+                self._logger.info("bluetoothd was stopped under the session — ending it")
+                await self.end_session(EndReason.USER_STOP)
+                return []
+            self._logger.error("bluetoothd exited under the session — ending it; the sender has to reconnect")
+            await self.end_session(EndReason.DAEMON_DIED)
+            return [SourceErrorReason.STREAM_DISCONNECTED]
+        self._logger.info("bluetoothd is back — applying the adapter configuration and the agent again")
+        # Beside the mailbox: a daemon still powering up answers Busy, each
+        # write can wait its D-Bus timeout, and a few are retried.
+        self._bg.spawn(self._reconfigure_bluez(), label="reconfigure_bluez")
+        return []
+
+    async def _reconfigure_bluez(self) -> None:
+        """Power the new daemon's adapter and give it the agent; the exposure,
+        which reads the source's state, is applied back in the mailbox."""
+        powered = False
+        for attempt in range(ADAPTER_CONFIGURE_ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(ADAPTER_CONFIGURE_RETRY_S)
+            if await self.adapter.power_on() and await self.adapter.set_discoverable_timeout(0):
+                powered = True
+                break
+        agent_ok = not self.auto_agent or await self.agent.register_again()
+        self._post_result(lambda: self._bluez_reconfigured(powered, agent_ok))
+
+    async def _bluez_reconfigured(self, powered: bool, agent_ok: bool) -> None:
+        exposed = powered and await self._apply_exposure()
+        if exposed and agent_ok:
+            return
+        self._logger.error(
+            "A restarted bluetoothd could not be "
+            f"{'configured' if not exposed else 'given the pairing agent'} — "
+            "phones will be refused until the source is selected again"
+        )
+        self.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
+
+    async def _bluez_stopped_on_purpose(self) -> bool:
+        """Whether bluetooth.service ended as asked (a `systemctl restart`),
+        not killed. Its Result is the one reliable word: read a few ms after
+        the name left the bus, a restart is already `activating` again, while
+        a kill is `activating` with Result `signal` (Restart=on-failure). A
+        clean SIGTERM from elsewhere is not restarted at all (on-failure), so
+        it too reads as a stop someone chose. Unreadable: a death."""
+        state = await self._unit_state(self.bluetooth_service)
+        return bool(state) and state[1] == "success"
+
+    async def _monitor_lost(self, reason: str) -> list:
         """The BlueALSA feed died — say what it costs, and leave the state alone.
 
         Nothing is transitioned here. The monitor is the only thing that knows a
-        sender is connected, so a source that reacted by dropping
-        `connected_device` would be guessing: the audio may well still be
-        flowing through bluealsa-aplay. The monitor already logged the failure at
-        error level (hence the UI banner); this names the source it belongs to,
-        which is what tells the owner *which* card has stopped updating.
+        sender is connected, so dropping the session would be guessing: the
+        audio may well still be flowing through bluealsa-aplay. Reported on
+        screen, since `source.*` loggers never reach the banner — unless
+        BlueALSA is being stopped on purpose: a backend restart signals the
+        monitor child with everything else in its cgroup (measured).
         """
+        if await self._unit_stopped_on_purpose():
+            self._logger.info(f"BlueALSA feed ended with {self.bluealsa_service} ({reason})")
+            return []
         self._logger.error(
             f"BlueALSA feed lost ({reason}) — connect/disconnect will no longer be "
             f"detected; switch away from Bluetooth and back to restart it"
         )
+        return [SourceErrorReason.SERVICE_UNREACHABLE]
 
-    async def _on_device_disconnected(self, address: str, name: str) -> None:
-        """Handle device disconnection from BlueALSA monitor."""
-        # Check if current device
-        if not self.connected_device:
-            return
-        if self.connected_device.get("address") != address:
-            return
+    def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
+        return BluetoothSession(phase=snapshot.phase, sender=snapshot.sender)
 
-        # Drop the whole playback view with the link, not just the published
-        # half. emit_connection_state already withholds media fields on READY,
-        # but a device reconnecting before its AVRCP player is back would
-        # otherwise re-publish the previous track — and clearing `_playback`
-        # alone left two things behind: the cover (`_artwork_url`, which nothing
-        # re-resolves until the next track change) and `_is_playing`, the object
-        # property hardware/playback_dispatch.py reads to choose pause vs resume
-        # for the rotary and the BT remote. One reset, one fact.
-        self._reset_playback_state()
-        self._logger.info(f"Device disconnected: {name} ({address})")
-        # Nothing holds the appliance any more: offer it again.
-        await self._apply_exposure()
-        self._update_connection_state()
+    async def _session_ended(self, session: Session, reason: EndReason) -> None:
+        """Nothing holds the appliance any more: offer it again, to any phone."""
+        self.avrcp.follow_device(None)
+        if self._running:
+            await self._apply_exposure()
 
-    # === AVRCP Callbacks ===
-
-    # What the frontend cannot interpolate: any change here owes a full
-    # broadcast, a moved position alone owes only a drift correction. Whether a
-    # player exists at all is compared alongside them (it is not a snapshot
-    # field) — see _on_avrcp_update.
-    SUBSTANTIVE_FIELDS = ("title", "artist", "album", "duration", "is_playing")
-
-    async def _on_avrcp_update(self, address: str, snapshot: Dict[str, Any]) -> None:
-        """Apply one coalesced AVRCP player change.
-
-        The snapshot is stored even when no PCM is up yet — the player object
-        and the BlueALSA PCM race, and whichever lands second publishes both.
-        """
-        connected = (self.connected_device or {}).get("address")
-        if connected and connected.upper() != address.upper():
-            return
-
-        # The player's presence rides in the comparison because it is published
-        # (has_avrcp) and a snapshot cannot carry it: a player that vanishes
-        # arrives here as an empty snapshot, which for a sender that published
-        # no track text and was not playing is *identical* to the one before it
-        # — a Mac mini, exactly the case has_avrcp exists for. Compared on the
-        # fields alone, that departure broadcasts nothing and leaves has_avrcp
-        # true for good, gating the screensaver on a play state nobody reports.
-        before = (self._avrcp_published, *(self._playback.get(k) for k in self.SUBSTANTIVE_FIELDS))
-        before_track = self._track_key(self._playback)
-        self._playback = snapshot
-        self._is_playing = bool(snapshot.get("is_playing"))
-
-        track = self._track_key(snapshot)
-        if track != before_track and any(track):
-            self._bg.spawn(self._resolve_artwork(track), label="avrcp_artwork")
-
-        after = (self.avrcp.has_player, *(snapshot.get(k) for k in self.SUBSTANTIVE_FIELDS))
-        if before != after:
-            self._update_connection_state()
-        else:
-            self._broadcast_progress()
+    # === AVRCP helpers ===
 
     @staticmethod
     def _track_key(playback: Dict[str, Any]) -> tuple:
         """What identifies a track for artwork purposes."""
         return (playback.get("title"), playback.get("artist"), playback.get("album"))
 
-    async def _resolve_artwork(self, track: tuple) -> None:
-        """Look a cover up from the track text and publish it if still current.
+    async def _resolve_artwork(self, session: BluetoothSession, track: tuple) -> None:
+        """Look a cover up from the track text, beside the mailbox.
 
         AVRCP carries no image (see avrcp.py), so the only thing left is the
-        text it does carry. Runs off the AVRCP feed via `_bg`; a newer track
-        that arrived during the lookup must not be given the old one's cover,
-        hence the re-check. A miss is silent — the player draws its glyph.
+        text it does carry. A miss is silent — the player draws its glyph.
         """
         title, artist, album = track
         url = await self._artwork.resolve(artist or "", title or "", album or "")
-        if not url or track != self._track_key(self._playback):
-            return
+        if url:
+            self._post_result(lambda: self._artwork_found(session, track, url), token=session)
 
-        self._artwork_url = url
-        self._artwork_key = track
+    async def _artwork_found(self, session: BluetoothSession, track: tuple, url: str) -> None:
+        # A newer track that arrived during the lookup must not be given the
+        # old one's cover.
+        if track != self._track_key(session.playback):
+            return
+        session.artwork_url = url
+        session.artwork_key = track
         self._update_connection_state()
 
     async def refresh_metadata(self) -> bool:
@@ -445,26 +653,30 @@ class BluetoothSource(BaseAudioSource):
         mid-track would be handed that and interpolate from it, which is a
         progress bar that restarts at 0:00 on every refresh.
         """
-        if not self.avrcp.has_player:
+        session = self._session
+        if not isinstance(session, BluetoothSession) or not session.has_player:
             return False
 
         await self.avrcp.read_position()
-        self._playback = self.avrcp.snapshot()
+        self._read_player(session)
         self._update_connection_state()
         return True
 
     def _broadcast_progress(self) -> None:
-        """Drift-correct the playhead, at most every POSITION_BROADCAST_INTERVAL."""
-        position = self._playback.get("position")
-        duration = self._playback.get("duration")
+        """Drift-correct the playhead, at most every POSITION_BROADCAST_MIN_INTERVAL."""
+        session = self._session
+        if not isinstance(session, BluetoothSession):
+            return
+        position = session.playback.get("position")
+        duration = session.playback.get("duration")
         if position is None or not duration:
             return
 
         now = asyncio.get_running_loop().time()
-        if now - self._last_progress_broadcast < POSITION_BROADCAST_MIN_INTERVAL:
+        if now - session.last_progress_broadcast < POSITION_BROADCAST_MIN_INTERVAL:
             return
 
-        self._last_progress_broadcast = now
+        session.last_progress_broadcast = now
         self.broadcast_position_update(position, duration)
 
     # === Helper Methods ===
@@ -473,18 +685,20 @@ class BluetoothSource(BaseAudioSource):
         """The one authority for "may a sender connect right now?".
 
         The rule, in full: Milō is discoverable and connectable only while the
-        Bluetooth source is running *and* nothing holds it. Every exposure
-        decision reads this, so the four transitions cannot drift apart.
+        Bluetooth source is running, BlueALSA is there to be the sink, *and* no
+        phone holds it. Every exposure
+        decision reads this, so the transitions cannot drift apart.
         """
-        return self._running and self.connected_device is None
+        return self._running and self._bluealsa_up and self._session is None
 
     async def _apply_exposure(self) -> bool:
         """Make the appliance's Bluetooth exposure match the state it is in.
 
-        Called from the four transitions that can change the answer — source
-        start, sender connected, sender disconnected, source stop — rather than
-        being set once at start and cleared once at stop, which is how the
-        appliance came to keep advertising while a sender already held it.
+        Called from every transition that can change the answer — source
+        start, a phone linking, a session ending, source stop, a new
+        bluetoothd — rather than being set once at start and cleared once at
+        stop, which is how the appliance came to keep advertising while a
+        sender already held it.
 
         Two mechanisms, because one does not cover the other's case:
           - Discoverable/Pairable stop a *new* device finding or pairing with
@@ -500,7 +714,7 @@ class BluetoothSource(BaseAudioSource):
         the reconciliation that recovers it.
         """
         may_accept = self._may_accept_sender()
-        holder = self.connected_device.get("address") if self.connected_device else None
+        holder = self._session.sender if self._session is not None else None
 
         exposed = await self.adapter.set_exposure(discoverable=may_accept, pairable=may_accept)
         unblocked = await self.adapter.set_audio_peers_blocked(
@@ -528,8 +742,8 @@ class BluetoothSource(BaseAudioSource):
         return await self._apply_exposure()
 
     @handle_errors(default=None)
-    async def _detect_connected_device(self) -> None:
-        """Detect currently connected A2DP device via BlueALSA PCM list.
+    async def _adopt_linked_device(self) -> None:
+        """Adopt an A2DP link that predates the monitor (BlueALSA's PCM list).
 
         Uses bluealsa-cli list-pcms instead of bluetoothctl to only detect
         actual audio devices, filtering out HID devices (e.g. BT remotes).
@@ -546,75 +760,64 @@ class BluetoothSource(BaseAudioSource):
             self._logger.error("Timeout listing BlueALSA PCMs")
             return
 
-        if proc.returncode == 0:
-            for line in stdout.decode().splitlines():
-                device_info = self.monitor.parse_pcm_path(line.strip())
-                if device_info:
-                    address = device_info["address"]
-                    name = await self.monitor.resolve_device_name(address)
-                    self.connected_device = {"address": address, "name": name}
-                    # The monitor's collection is the one that authorises a
-                    # departure — a PCM adopted here and not handed over is a
-                    # sender that can never be seen leaving.
-                    self.monitor.adopt_device(device_info, name)
-                    return
-
-        # No A2DP device found
-        self.connected_device = None
+        if proc.returncode != 0:
+            return
+        for line in stdout.decode().splitlines():
+            device_info = self.monitor.parse_pcm_path(line.strip())
+            if device_info:
+                address = device_info["address"]
+                name = await self.monitor.resolve_device_name(address)
+                running = await self.monitor.read_running(device_info["path"])
+                # The monitor's collection is the one that authorises a
+                # departure — a PCM adopted here and not handed over is a
+                # sender that can never be seen leaving.
+                self.monitor.adopt_device(device_info, name)
+                await self._link_up(address, name, running)
+                return
 
     async def _cleanup(self) -> None:
-        """Clean up resources."""
-        # Stop BlueALSA monitor
+        """Stop the feeds and the agent, and forget what they said."""
         await self.monitor.stop()
-
-        # Stop the AVRCP feed
         await self.avrcp.stop()
-
-        # Unregister agent
         if self.auto_agent:
             await self.agent.unregister()
+        self._discard_feed()
 
     def _update_connection_state(self) -> None:
         """Publish connection + playback state.
 
         Broadcast metadata (WS source/state_changed → system_state.metadata):
         device_name — the extra the status card draws when the sender publishes
-        no track — plus whatever AVRCP supplied of title, artist, album,
-        position, duration, is_playing, plus album_art_url when a cover was
+        no track — plus whatever the phone's AVRCP player supplied of title,
+        artist, album, position, duration, plus album_art_url when a cover was
         resolved from the track text. AVRCP itself never carries one (see
-        avrcp.py); the resolver is the only reason that field is ever set, and
-        the player draws its source glyph when the lookup found nothing.
+        avrcp.py); the resolver is the only reason that field is ever set.
 
-        has_avrcp says whether that second feed exists at all, and it is on the
-        wire because nothing else on it can answer: PlaybackMetadata always
-        serializes is_playing, so a sender publishing no player is
-        indistinguishable from one sitting paused. The screensaver is the
-        consumer — it dismisses itself on a pause and must not do so for a sender
-        that never claimed to be playing.
+        is_playing is the session's phase: PLAYING only.
 
-        Why the flag and not a guess at the track text: what a sender registers
-        and what it *serves* are two different things. Measured on the unit
-        2026-09-18 — a Mac mini registers a MediaPlayer1 whose play/pause is
-        accurate while answering no track metadata at all (no title, no artist:
-        it never serves GetElementAttributes, unlike an iPhone). Read from
-        title/artist, that sender would have looked like one with no transport,
-        which is the one reading that must not happen.
+        has_avrcp says whether the phone holding the link publishes a player at
+        all, and it is on the wire because nothing else on it can answer:
+        PlaybackMetadata always serializes is_playing, so a sender publishing no
+        player is indistinguishable from one sitting paused. The screensaver is
+        the consumer — it dismisses itself on a pause and must not do so for a
+        sender that never claimed to be playing. Measured on the unit
+        2026-09-18: a Mac mini registers a MediaPlayer1 whose play/pause is
+        accurate while answering no track metadata at all.
         """
-        self._avrcp_published = self.avrcp.has_player
         self.emit_connection_state(*self._connection_state())
 
     def _connection_state(self):
-        device = self.connected_device or {}
-        playback = dict(self._playback)
-        if self._artwork_url and self._artwork_key == self._track_key(playback):
-            playback["album_art_url"] = self._artwork_url
+        session = self._session
+        if not isinstance(session, BluetoothSession):
+            return False, PlaybackMetadata(), {"has_avrcp": False}
+
+        playback = dict(session.playback)
+        playback["is_playing"] = session.phase is Phase.PLAYING
+        if session.artwork_url and session.artwork_key == self._track_key(playback):
+            playback["album_art_url"] = session.artwork_url
 
         return (
-            self.connected_device is not None,
+            True,
             PlaybackMetadata.model_validate(playback),
-            {
-                "device_name": device.get("name"),
-                "has_avrcp": self.avrcp.has_player,
-            },
+            {"device_name": session.name, "has_avrcp": session.has_player},
         )
-

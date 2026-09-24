@@ -8,6 +8,7 @@ connections and disconnections via PCM add/remove events.
 import asyncio
 import contextlib
 import logging
+import signal
 from typing import Dict, Any, Optional, Callable, Awaitable
 
 from dbus_next.aio import MessageBus
@@ -18,12 +19,24 @@ from backend.shared.decorators import handle_errors
 
 # Type for async callbacks
 ConnectionCallback = Callable[[str, str], Awaitable[None]]
+RunningCallback = Callable[[str, bool], Awaitable[None]]
+ServiceCallback = Callable[[bool], Awaitable[None]]
 
 # bluealsa-cli monitor event tokens (the scraped programmatic contract) and the
 # PCM object-path structure. Pinned here + tested in test_bluetooth_pcm.py so a
 # change is a deliberate edit, not a silent break.
 PCM_ADDED_PREFIX = "PCMAdded"
 PCM_REMOVED_PREFIX = "PCMRemoved"
+# `-p`: "PropertyChanged <pcm path> Running true" — the sender's stream opened
+# or stopped. Measured: a pause does not stop it (a paused phone keeps
+# streaming, the Mac streams silence); a sender sending nothing does.
+PROPERTY_CHANGED_PREFIX = "PropertyChanged"
+RUNNING_PROPERTY = "Running"
+# The BlueALSA daemon itself, printed once when the monitor starts and again
+# on every change. Measured: BlueALSA killed, the monitor prints
+# `ServiceStopped` and keeps running — its PCMs go without a PCMRemoved.
+SERVICE_RUNNING_LINE = "ServiceRunning org.bluealsa"
+SERVICE_STOPPED_LINE = "ServiceStopped org.bluealsa"
 DEVICE_PATH_PREFIX = "dev_"        # …/dev_XX_XX_XX_XX_XX_XX/…
 A2DP_PROFILE_TOKEN = "a2dp"        # profile segment, e.g. a2dpsnk
 PCM_SOURCE_DIRECTION = "source"    # incoming audio (vs. sink)
@@ -48,6 +61,11 @@ class BlueAlsaMonitor:
         self._read_task: Optional[asyncio.Task] = None
         self._bus: Optional[MessageBus] = None  # BlueZ system bus for name lookups
         self._on_lost: Optional[Callable[[str], Awaitable[None]]] = None
+        self._on_running: Optional[RunningCallback] = None
+        self._on_service: Optional[ServiceCallback] = None
+        # What the monitor said of BlueALSA last; None until its first line,
+        # which states the daemon as it was found and is not a change.
+        self._service_up: Optional[bool] = None
         self._alive = False
 
     @property
@@ -57,22 +75,31 @@ class BlueAlsaMonitor:
 
     def set_callbacks(
         self,
+        *,
         on_connect: ConnectionCallback,
         on_disconnect: ConnectionCallback,
         on_lost: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_running: Optional[RunningCallback] = None,
+        on_service: Optional[ServiceCallback] = None,
     ) -> None:
         """
-        Set connection/disconnection callbacks.
+        Set the callbacks.
 
         Args:
             on_connect: Called with (address, name) on device connection
             on_disconnect: Called with (address, name) on device disconnection
             on_lost: Called with a reason when the feed itself dies, i.e. when
                 connection detection has gone mute for good
+            on_running: Called with (address, running) when a sender's stream
+                opens or stops
+            on_service: Called with False when BlueALSA goes (every PCM went
+                with it, unannounced) and True when it is back
         """
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
         self._on_lost = on_lost
+        self._on_running = on_running
+        self._on_service = on_service
 
     @handle_errors(default=False)
     async def start(self) -> bool:
@@ -83,6 +110,7 @@ class BlueAlsaMonitor:
             True if monitoring started successfully
         """
         self._stopped = False
+        self._service_up = None
 
         # Connect a persistent BlueZ system bus for device-name lookups.
         # Best-effort: fail open so dev machines without BlueZ still run.
@@ -183,11 +211,12 @@ class BlueAlsaMonitor:
         fact it asserts (here `BluetoothSource._on_monitor_lost`, which
         deliberately changes nothing).
 
-        No automatic restart, deliberately: `bluealsa-cli monitor` reaches EOF
-        when the bluealsa daemon itself went away, and respawning the client
-        against a dead daemon would busy-loop for as long as it stays down. The
-        recovery gesture is a source restart, which _do_start performs in full —
-        this makes it visible so it can be asked for.
+        No automatic restart, deliberately: the client dying is not the daemon
+        dying — measured, BlueALSA killed leaves `bluealsa-cli monitor` running
+        and printing `ServiceStopped` (see `_handle_service`) — so an EOF here
+        is the client itself failing, and respawning it blindly could busy-loop.
+        The recovery gesture is a source restart, which _do_start performs in
+        full; this makes it visible so it can be asked for.
         """
         if self._stopped or not self._alive:
             return
@@ -204,7 +233,11 @@ class BlueAlsaMonitor:
                 await asyncio.wait_for(self._process.wait(), 1.0)
             reason = f"{reason} (exit={self._process.returncode})"
 
-        self._logger.error(
+        # A SIGTERM is logged at info: a backend restart signals this child with
+        # everything else in its cgroup (measured). Whether that was all it was
+        # is the source's to say — it asks systemd, and reports it otherwise.
+        terminated = self._process is not None and self._process.returncode == -signal.SIGTERM
+        (self._logger.info if terminated else self._logger.error)(
             f"BlueALSA monitor lost — Bluetooth connection detection is down until "
             f"the source is restarted: {reason}{f': {detail}' if detail else ''}"
         )
@@ -225,6 +258,36 @@ class BlueAlsaMonitor:
             await self._handle_pcm_added(line)
         elif line.startswith(PCM_REMOVED_PREFIX):
             await self._handle_pcm_removed(line)
+        elif line.startswith(PROPERTY_CHANGED_PREFIX):
+            await self._handle_property(line)
+        elif line in (SERVICE_RUNNING_LINE, SERVICE_STOPPED_LINE):
+            await self._handle_service(line == SERVICE_RUNNING_LINE)
+
+    async def _handle_property(self, line: str) -> None:
+        """`PropertyChanged <path> Running true|false`; other properties
+        (Volume, Delay) are not the monitor's business."""
+        parts = line.split()
+        if len(parts) != 4 or parts[2] != RUNNING_PROPERTY:
+            return
+        device_info = self.parse_pcm_path(parts[1])
+        if device_info and self._on_running:
+            await self._on_running(device_info["address"], parts[3] == "true")
+
+    async def _handle_service(self, up: bool) -> None:
+        """BlueALSA went or came back. Its PCMs went with it, unannounced, so
+        the collection that authorizes departures is emptied here."""
+        first, self._service_up = self._service_up is None, up
+        if first:
+            return
+        if not up:
+            self._connected_devices.clear()
+            # Info, not error: stopped on purpose (a backend restart) looks the
+            # same from here, and the source says which it was.
+            self._logger.info("BlueALSA exited — every Bluetooth link it carried is gone")
+        else:
+            self._logger.info("BlueALSA is back")
+        if self._on_service:
+            await self._on_service(up)
 
     async def _handle_pcm_added(self, line: str) -> None:
         """Handle PCM added event."""
@@ -280,6 +343,32 @@ class BlueAlsaMonitor:
                 # Notify callback
                 if self._on_disconnect:
                     await self._on_disconnect(address, name)
+
+    async def read_running(self, path: str) -> bool:
+        """Whether a PCM's stream is running now (`bluealsa-cli info`), for a
+        link found outside the event stream. False when it cannot be read."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bluealsa-cli", "info", path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as e:
+            self._logger.warning(f"Could not read the state of {path}: {e}")
+            return False
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
+            self._logger.warning(f"Timeout reading the state of {path}")
+            return False
+        for line in stdout.decode().splitlines():
+            key, _, value = line.partition(":")
+            if key.strip() == RUNNING_PROPERTY:
+                return value.strip() == "true"
+        return False
 
     def parse_pcm_path(self, path: str) -> Optional[Dict[str, Any]]:
         """

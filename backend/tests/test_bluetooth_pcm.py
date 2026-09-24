@@ -52,7 +52,7 @@ class TestProcessLineDispatch:
         seen = []
 
         # Both callbacks are awaited by the handlers, and the source passes
-        # coroutine functions (`_on_device_connected`/`_on_device_disconnected`).
+        # coroutine functions (`_on_pcm_added`/`_on_pcm_removed`).
         # A sync lambda returns None, `await None` raises, and `@handle_errors`
         # logs it away *after* the append — so the assertion held while the
         # handler never reached its end.
@@ -164,7 +164,7 @@ class TestFeedDeath:
         async def on_lost(reason):
             seen.append(reason)
 
-        monitor.set_callbacks(AsyncMock(), AsyncMock(), on_lost)
+        monitor.set_callbacks(on_connect=AsyncMock(), on_disconnect=AsyncMock(), on_lost=on_lost)
         monitor._process = self._dead_process()
         monitor._alive = True
 
@@ -176,7 +176,7 @@ class TestFeedDeath:
     async def test_our_own_stop_is_not_a_death(self, monitor, caplog):
         """stop() closes the same stream; that must stay silent."""
         on_lost = AsyncMock()
-        monitor.set_callbacks(AsyncMock(), AsyncMock(), on_lost)
+        monitor.set_callbacks(on_connect=AsyncMock(), on_disconnect=AsyncMock(), on_lost=on_lost)
         monitor._process = self._dead_process(returncode=0)
         monitor._alive = True
         monitor._stopped = True

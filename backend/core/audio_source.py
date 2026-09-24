@@ -1020,7 +1020,10 @@ class BaseAudioSource(ABC):
         elif before is Phase.PAUSED:
             self._disarm_timer("idle")
             self._disarm_timer("end_request")
-            session.end_requested = None
+            # Only the idle end is withdrawn: an end asked for otherwise (a
+            # user's disconnect) stands whatever the phase does meanwhile.
+            if session.end_requested is EndReason.IDLE_TIMEOUT:
+                session.end_requested = None
 
     async def _watch_daemon(self, session: Session) -> None:
         """Bind `session` to the daemon process holding it (SESSION_DAEMON).
@@ -1078,17 +1081,23 @@ class BaseAudioSource(ABC):
         `deactivating` with a Result that is not `success`. False when systemd
         cannot be asked: the watch alone then says what it has always said.
         """
-        if self._service_manager is None or not self.service_name:
-            return False
-        try:
-            state = await self._service_manager.unit_state(self.service_name)
-        except Exception as e:
-            self._logger.warning(f"Could not read the state of {self.service_name}: {e}")
-            return False
+        state = await self._unit_state()
         if not state:
             return False
         active, result = state
         return active in ("inactive", "deactivating") and result == "success"
+
+    async def _unit_state(self, unit: Optional[str] = None) -> Optional[Tuple[str, str]]:
+        """(ActiveState, Result) of `unit` (the source's own by default), or
+        None when systemd cannot be asked."""
+        unit = unit or self.service_name
+        if self._service_manager is None or not unit:
+            return None
+        try:
+            return await self._service_manager.unit_state(unit)
+        except Exception as e:
+            self._logger.warning(f"Could not read the state of {unit}: {e}")
+            return None
 
     async def _request_idle_end(self) -> None:
         """REQUEST_END: the pause outlived the delay — ask the daemon to end
