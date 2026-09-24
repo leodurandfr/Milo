@@ -18,7 +18,7 @@ from backend.sources.tidal import controller_socket as controller_module
 from backend.sources.tidal import source as tidal_module
 from backend.sources.tidal.source import TidalSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, TickGate, Wire, check_recording, instant_short_sleep,
+    AsyncioProxy, LiveProcessWatch, TickGate, Wire, check_recording, instant_short_sleep,
     make_state_machine, make_systemd, settle,
 )
 
@@ -149,6 +149,22 @@ class Tidal:
         source_asyncio.get_running_loop = lambda: self.clock
         monkeypatch.setattr(tidal_module, "asyncio", source_asyncio)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        # The daemon's process: a restart underneath is its death, which the
+        # session's pidfd watch hears.
+        self.watches = []
+        watches = self.watches
+
+        class Watch(LiveProcessWatch):
+            def __init__(self, pid, on_exit, *a, **k):
+                super().__init__(pid, on_exit)
+                self.on_exit = on_exit
+                watches.append(self)
+
+            def close(self):
+                if self in watches:
+                    watches.remove(self)
+
+        monkeypatch.setattr(audio_source, "ProcessWatch", Watch)
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         self.source = TidalSource(
@@ -179,6 +195,8 @@ class Tidal:
 
     async def hangs_up_and_returns(self):
         """The socket closes (daemon restart); the retry delay passes."""
+        for watch in list(self.watches):
+            watch.on_exit()
         self.daemon.hang_up()
         await settle()
         await self.gate.tick()

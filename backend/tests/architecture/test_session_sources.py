@@ -134,10 +134,11 @@ def session_violations_scope(tree: ast.Module) -> bool:
 
 def test_migrated_sources_are_found():
     """Non-trivial first: phase 1 migrated Radio, Podcast and Music Library,
-    phase 2 the CD, phase 3a AirPlay."""
+    phase 2 the CD, phase 3a AirPlay, phase 3b Spotify and Tidal."""
     names = {cls.__name__ for cls in _migrated_classes()}
     assert {
         "RadioSource", "PodcastSource", "MusicLibrarySource", "CdSource", "AirPlaySource",
+        "SpotifySource", "TidalSource",
     } <= names
 
 

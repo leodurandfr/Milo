@@ -1110,6 +1110,27 @@ class TestRerouteActiveSource:
         assert await transition is True
         mock_source.start.assert_awaited_once()
 
+    async def test_a_failed_output_switch_still_reacquires_the_source(
+        self, state_machine, mock_source
+    ):
+        """E08: a switch that raised (snapcast refusing to move) left the source
+        released — Spotify's output parked on `null`, any other source stopped —
+        although the mode had not changed. The source is taken back under the
+        mode in force, and the failure still reaches the caller."""
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+
+        async def switch_output():
+            raise RuntimeError("Failed to start snapcast services")
+
+        with pytest.raises(RuntimeError):
+            await state_machine.reroute_active_source(switch_output)
+
+        mock_source.acquire_after_reroute.assert_awaited_once()
+
     async def test_the_starting_state_reaches_the_ui_live(self, state_machine, mock_source):
         """The reroute deliberately does NOT set `transitioning`.
 

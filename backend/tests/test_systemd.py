@@ -630,3 +630,83 @@ class TestEnablement:
 
         assert exec_mock.call_args.args[0] != "sudo"
         assert exec_mock.call_args.args == ("systemctl", "is-enabled", "ssh.service")
+
+
+class TestUnitState:
+    """What a source asks when its daemon's process is gone: is the unit going
+    down because someone asked (a stop) or because it failed (a crash, an OOM
+    stop)? Read over D-Bus in the backend's own process — a `systemctl` child
+    dies with the backend's cgroup on a restart, which is exactly when the
+    question is asked."""
+
+    class _Reply:
+        def __init__(self, body=None, error=None):
+            from dbus_next import MessageType
+            self.message_type = MessageType.ERROR if error else MessageType.METHOD_RETURN
+            self.error_name, self.body = error, body
+
+    def _bus(self, monkeypatch, *replies, connect=None):
+        from backend.core import systemd as systemd_module
+        calls = []
+
+        class Bus:
+            def __init__(self, **k):
+                pass
+
+            async def connect(self):
+                if connect is not None:
+                    await connect()
+                return self
+
+            async def call(self, message):
+                calls.append((message.member, message.body))
+                return replies[len(calls) - 1]
+
+            def disconnect(self):
+                calls.append(("disconnect", None))
+
+        monkeypatch.setattr(systemd_module, "MessageBus", Bus)
+        return calls
+
+    async def test_the_unit_is_asked_its_state_and_its_result(self, manager, monkeypatch):
+        from dbus_next import Variant
+        calls = self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/milo_2dspotify_2eservice"]),
+            self._Reply([Variant("s", "activating")]),
+            self._Reply([Variant("s", "signal")]),
+        )
+        assert await manager.unit_state("milo-spotify.service") == ("activating", "signal")
+        assert calls[0] == ("GetUnit", ["milo-spotify.service"])
+        assert calls[1] == ("Get", ["org.freedesktop.systemd1.Unit", "ActiveState"])
+        assert calls[2] == ("Get", ["org.freedesktop.systemd1.Service", "Result"])
+        assert calls[-1][0] == "disconnect"
+
+    async def test_a_unit_that_is_not_loaded_was_stopped(self, manager, monkeypatch):
+        self._bus(monkeypatch, self._Reply(error="org.freedesktop.systemd1.NoSuchUnit"))
+        assert await manager.unit_state("milo-spotify.service") == ("inactive", "success")
+
+    async def test_an_unreachable_bus_is_not_an_answer(self, manager, monkeypatch):
+        async def refuse():
+            raise FileNotFoundError("no system bus")
+        self._bus(monkeypatch, connect=refuse)
+        assert await manager.unit_state("milo-spotify.service") is None
+
+    async def test_a_bus_that_never_answers_the_handshake_is_not_waited_on(self, manager, monkeypatch):
+        """The question is asked from a source's mailbox: a stalled connect
+        would hold every command and stop queued behind it."""
+        from backend.core import systemd as systemd_module
+        monkeypatch.setattr(systemd_module, "UNIT_STATE_TIMEOUT", 0.01)
+
+        async def stall():
+            await asyncio.Event().wait()
+        self._bus(monkeypatch, connect=stall)
+        assert await manager.unit_state("milo-spotify.service") is None
+
+    async def test_a_refused_read_is_not_an_answer(self, manager, monkeypatch):
+        self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/x"]),
+            self._Reply(error="org.freedesktop.DBus.Error.AccessDenied"),
+        )
+        assert await manager.unit_state("milo-spotify.service") is None

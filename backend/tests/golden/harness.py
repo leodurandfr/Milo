@@ -21,7 +21,9 @@ Rules that keep the recording meaningful:
   the drive from udev and names a disc in its own step; phase 3a: AirPlay,
   whose phase follows what shairport-sync announces — a stream plays from its
   first frame, `pfls` is no longer a pause, a session inherits nothing from
-  the previous one). Then only that source's file
+  the previous one; phase 3b: Spotify and Tidal, whose sessions open at their
+  first track and follow the daemon's own state — no guessed spinner, no
+  duplicate READY, a seek on the position axis). Then only that source's file
   is re-recorded, after every differing envelope was reviewed and listed in
   the commit, with the MILO_DUMP_OLD_WIRE output of the run that was
   reviewed byte-identical to what is recorded.
@@ -75,6 +77,18 @@ def make_systemd() -> Mock:
     manager.probe_active = AsyncMock(return_value=False)
     manager.main_pid = AsyncMock(return_value=4242)
     return manager
+
+
+class LiveProcessWatch:
+    """The pidfd watch a daemon-held session opens (SESSION_DAEMON), on a
+    daemon the scenario never kills: it never fires. The harness's systemd
+    names pid 4242, which the real watch would find already gone."""
+
+    def __init__(self, pid: int, on_exit: Any, *a: Any, **k: Any) -> None:
+        self.pid = pid
+
+    def close(self) -> None:
+        return None
 
 
 def make_settings(values: Optional[Dict[str, Any]] = None) -> Mock:

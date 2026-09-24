@@ -122,7 +122,9 @@ These are shared by every source; they break for all of them at once.
 | Metadata | Album artwork, title, artist appear and change with the track | smoke |
 | Transport | Play/pause, next/previous from the Milō UI are reflected in the phone app, and vice versa | targeted |
 | Seek | Progress bar drag moves playback | targeted |
-| Auto-disconnect | With the setting on, the source releases after the configured delay of inactivity | targeted |
+| Auto-disconnect | With the setting on, a pause past the configured delay ends the session: the phone lets go of Milō, no banner | targeted |
+| Multiroom toggle | Mid-play, the track keeps playing across the toggle; the card never shows "paused" meanwhile | targeted |
+| Daemon death | `kill -9` of go-librespot mid-play: the card leaves "playing" at once with a banner; the phone can reconnect ~5 s later | targeted |
 
 ### Radio (C)
 
@@ -203,7 +205,10 @@ These are shared by every source; they break for all of them at once.
 | Discovery | Milō appears in the Qobuz app's device list | targeted |
 | Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances; no transport buttons | targeted |
 
-### Tidal Connect (C) ⚠ paid account
+### Tidal Connect (C)
+
+A free account casts from the desktop app (30 s previews, a track change every 30 s without a
+hand on the sender); the phone app needs a paid one.
 
 | Check | Expected observable | Set |
 |---|---|---|
@@ -212,6 +217,8 @@ These are shared by every source; they break for all of them at once.
 | Transport | Pause/resume and prev/next from Milō act on the audio and the Tidal app follows | targeted |
 | No seek | The progress bar cannot be dragged (the protocol exposes none) | targeted |
 | Session recovery | Restarting milo-tidal, then casting again from the phone, starts a session — the daemon wedges for good if `startService` was missed | targeted |
+| Pause auto-stop | Paused past the configured delay, the sender lets go of Milō (the daemon is restarted: no tisoc command ends a session), no banner | targeted |
+| Daemon death | `kill -9` of the daemon mid-play: the card leaves "playing" at once with a banner | targeted |
 
 ### Bluetooth (C — active player)
 

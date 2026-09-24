@@ -1048,8 +1048,16 @@ class BaseAudioSource(ABC):
     async def _daemon_gone(self, session: Session) -> None:
         """The daemon holding `session` exited. Unasked, that is DAEMON_DIED,
         reported once; a restart Milō ordered to end the session is the end
-        it asked for."""
-        reason = session.end_requested or EndReason.DAEMON_DIED
+        it asked for, and so is a stop systemd was asked for — a backend
+        restart stops the source units first (BindsTo + After=), while the
+        backend still runs."""
+        reason = session.end_requested
+        if reason is None:
+            if await self._unit_stopped_on_purpose():
+                self._logger.info(f"{self.service_name} was stopped under the session — ending it")
+                reason = EndReason.USER_STOP
+            else:
+                reason = EndReason.DAEMON_DIED
         if reason is EndReason.DAEMON_DIED:
             self._logger.error(
                 f"{self.service_name} exited under the session — ending it; "
@@ -1059,6 +1067,28 @@ class BaseAudioSource(ABC):
         self._update_connection_state()
         if reason is EndReason.DAEMON_DIED:
             self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
+
+    async def _unit_stopped_on_purpose(self) -> bool:
+        """Whether the unit is going down because someone asked, as opposed
+        to failing or coming back.
+
+        Measured 2026-09-24, read when the pidfd fired: a stop leaves the unit
+        `inactive` with Result `success`, a crash `activating` (auto-restart)
+        with `signal`; systemd also stops a unit that failed (an OOM stop),
+        `deactivating` with a Result that is not `success`. False when systemd
+        cannot be asked: the watch alone then says what it has always said.
+        """
+        if self._service_manager is None or not self.service_name:
+            return False
+        try:
+            state = await self._service_manager.unit_state(self.service_name)
+        except Exception as e:
+            self._logger.warning(f"Could not read the state of {self.service_name}: {e}")
+            return False
+        if not state:
+            return False
+        active, result = state
+        return active in ("inactive", "deactivating") and result == "success"
 
     async def _request_idle_end(self) -> None:
         """REQUEST_END: the pause outlived the delay — ask the daemon to end
@@ -1188,8 +1218,8 @@ class BaseAudioSource(ABC):
         there is no public restart() wrapper. Default: stop + start.
         Override for custom restart logic (e.g., preserve state).
         A source that instead wants a different auto-stop *action* overrides
-        _on_auto_stop() (Spotify, DLNA, and the shared MpvAudioSource); one
-        whose session a daemon holds declares IdlePolicy.REQUEST_END instead.
+        _on_auto_stop() (DLNA, and the shared MpvAudioSource); one whose
+        session a daemon holds declares IdlePolicy.REQUEST_END instead.
 
         Returns:
             True if restart successful

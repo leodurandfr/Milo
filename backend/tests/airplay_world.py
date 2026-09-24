@@ -173,6 +173,11 @@ class AirPlayWorld:
         systemd.is_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         systemd.probe_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid)
+        # What systemd says of the unit once its process is gone (measured
+        # 2026-09-24): (ActiveState, Result) is `activating`/`signal` after a
+        # crash (auto-restart), `inactive`/`success` after a stop.
+        self.unit_state = ("inactive", "success")
+        systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)
         self.systemd = systemd       # for a scenario where systemd itself misbehaves
 
         async def sleep(delay: float, *a: Any, **k: Any) -> Any:
@@ -204,6 +209,7 @@ class AirPlayWorld:
 
     def _spawn(self) -> None:
         self.pid = next(self._pids)
+        self.unit_state = ("active", "success")
         self.live_pids.add(self.pid)
 
     def _die(self) -> None:
@@ -224,6 +230,7 @@ class AirPlayWorld:
         return True
 
     async def _unit_stop(self, *_: Any) -> bool:
+        self.unit_state = ("inactive", "success")
         self._die()
         return True
 
@@ -239,6 +246,7 @@ class AirPlayWorld:
 
     async def kill_daemon(self) -> None:
         """SIGKILL: no goodbye. systemd's Restart= brings a new one up 5 s later."""
+        self.unit_state = ("activating", "signal")
         self._die()
         await settle()
 

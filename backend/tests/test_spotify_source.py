@@ -1,14 +1,20 @@
 # backend/tests/test_spotify_source.py
 """
-Unit tests for SpotifySource (features/spotify/source.py).
+Unit tests for SpotifySource (sources/spotify/source.py).
 
 Tests cover:
 - BaseAudioSource compliance
-- Lifecycle (start, stop, restart)
-- WebSocket event handling
-- Metadata refresh
-- Command handling
-- Auto-stop timer
+- Lifecycle (start, stop)
+- Commands, as they reach go-librespot
+- /status as the one writer of the session (unreadable reads, retries, /events reconnects)
+- Metadata transform
+- The multiroom reroute
+- The managed config and the journal bridge
+
+The session itself (a phone transferring, pausing, leaving; the daemon dying;
+the idle end request) is driven in test_spotify_sessions.py. Every test here
+that needs a live session uses the same `SpotifyWorld` (tests/spotify_world.py):
+go-librespot's HTTP API and /events as measured, systemd, and a virtual clock.
 
 The start path is driven through its real `_wait_for_playback_ready`,
 `_start_websocket` and `_start_log_monitor`: the `go_librespot` helper below
@@ -30,24 +36,15 @@ from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.sources.spotify.source import SpotifySource
-from backend.sources.spotify.models import NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.ws_events import SourceErrorReason, SourceError, SourceErrorCleared
+from backend.tests.golden.harness import AsyncioProxy, instant_short_sleep
+from backend.tests.spotify_world import (
+    ACCOUNT, LE_CHEMIN, PARAPLUIE, SpotifyWorld, track,
+)
 
-
-# A go-librespot GET /status body for a live session, shaped like the daemon's.
-TRACK_STATUS = {
-    "track": {
-        "name": "Breathe",
-        "artist_names": ["Telepopmusik"],
-        "album_name": "Genetic World",
-        "album_cover_url": "https://i.scdn.co/image/cover",
-        "duration": 275000,
-        "position": 42000,
-    },
-    "paused": False,
-}
+DELAY = 120   # make_settings' audio.auto_stop_delay, which SpotifyWorld uses
 
 
 def librespot_api(payload, status=200):
@@ -110,15 +107,15 @@ async def go_librespot(source, session, journal=None):
             source._stop_log_monitor()
 
 
-def deaf_daemon_clock():
-    """A monotonic source that expires the readiness poll's cap on the 2nd read.
+def deaf_daemon_clock(polls=1):
+    """A monotonic source that expires the readiness poll's cap after `polls` reads.
 
     `_do_start` calls `_wait_for_playback_ready()` with its production
     defaults, so a daemon that never answers is 10 s of real polling. Only
     `backend.sources.spotify.source`'s own module-global `time` is replaced —
     never the process-wide module, which the event loop reads.
     """
-    values = iter([0.0, 1.0, 999.0])
+    values = iter([0.0, *range(1, polls + 1), 999.0])
     last = [0.0]
 
     def monotonic():
@@ -195,27 +192,17 @@ def wired(spotify_source):
 
 
 @pytest.fixture
-async def pause_clock(spotify_source, monkeypatch):
-    """The auto-stop's clock (the pause timer sleeps in core/audio_source.py),
-    moved by the test; the source's mailbox is closed at the end."""
-    from backend.core import audio_source
-    from backend.tests.golden.harness import AsyncioProxy, VirtualClock
-
-    clock = VirtualClock()
-    monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
-    yield clock
-    await spotify_source.shutdown()
+async def world(monkeypatch, tmp_path):
+    """Spotify selected on a real state machine, go-librespot up, no phone yet."""
+    w = SpotifyWorld(monkeypatch, tmp_path)
+    await w.select()
+    yield w
+    await w.source.shutdown()
 
 
-def player_stops(session):
-    """How many times the source told go-librespot to end the Connect session."""
-    return [command for command, _ in posted_commands(session)].count("stop")
-
-
-def published_state(publish):
-    """The (state, metadata) of the last push to the state machine."""
-    source, state, metadata = publish.call_args.args
-    return state, metadata
+def commands_sent(world):
+    """The names of the POST /player/* the source issued, in order."""
+    return [command for command, _ in world.daemon.posted]
 
 
 class TestSpotifySourceConfig:
@@ -247,30 +234,35 @@ class TestSpotifySourceLifecycle:
     """Test SpotifySource lifecycle methods."""
 
     @pytest.mark.asyncio
-    async def test_start_success(self, spotify_source):
-        """A start over a daemon that answers wires the WS and the journal.
+    async def test_start_success(self, monkeypatch, tmp_path):
+        """A start over a daemon that answers opens /events and follows the journal.
 
-        The three steps `_do_start` ends on are the ones a start exists for:
-        the /events socket built on the config's URL and the source's own
-        handlers, sharing the HTTP session, and the monitor following
+        The steps `_do_start` ends on are the ones a start exists for: the
+        /events socket opened on the config's URL through the daemon's own HTTP
+        session, what it says reaching the screen, and the monitor following
         go-librespot's unit.
         """
-        session = librespot_api({"playback_ready": True})
+        world = SpotifyWorld(monkeypatch, tmp_path)
         journal = JournalDouble()
+        monkeypatch.setattr("backend.sources.spotify.source.follow_unit", journal)
+        opened = []
+        connect = world.daemon.ws_connect
 
-        async with go_librespot(spotify_source, session, journal) as ws_cls:
-            result = await spotify_source.start()
-            await asyncio.sleep(0)  # let the monitor task reach follow_unit
+        def ws_connect(url, *args, **kwargs):
+            opened.append(url)
+            return connect(url, *args, **kwargs)
 
-            assert result is True
-            ws_cls.assert_called_once()
-            kwargs = ws_cls.call_args.kwargs
-            assert kwargs["ws_url"] == "ws://localhost:3678/events"
-            assert kwargs["session"] is session
-            assert kwargs["on_event"] == spotify_source._handle_ws_event
-            assert kwargs["on_connect"] == spotify_source._reconcile_on_connect
-            ws_cls.return_value.start.assert_awaited_once()
+        monkeypatch.setattr(world.daemon, "ws_connect", ws_connect)
+        try:
+            await world.select()
+
+            assert world.state()["active_source"] == "spotify"
+            assert opened == ["ws://localhost:3678/events"]
             assert journal.units == ["milo-spotify"]
+            await world.phone_plays(PARAPLUIE)
+            assert world.playing()
+        finally:
+            await world.source.shutdown()
 
     @pytest.mark.asyncio
     async def test_start_no_config_file(self):
@@ -284,69 +276,57 @@ class TestSpotifySourceLifecycle:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_stop_success(self, spotify_source):
-        """Stop posts /player/stop (graceful) before cleanup + service stop."""
-        spotify_source._api_url = "http://localhost:3678"
-        spotify_source._session = MagicMock()
-        spotify_source._session.close = AsyncMock()
+    async def test_stop_success(self, world):
+        """Stop posts /player/stop (graceful) before the service stop."""
+        await world.phone_plays(PARAPLUIE)
+        stops_at_unit_stop = []
+        unit_stop = world.systemd.stop.side_effect
 
-        # Mock the POST /player/stop async context manager
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        spotify_source._session.post.return_value = mock_cm
-        post_mock = spotify_source._session.post
+        async def stop(*args):
+            stops_at_unit_stop.append(world.stops_sent())
+            return await unit_stop(*args)
 
-        spotify_source._ws_client = AsyncMock()
-        spotify_source._ws_client.stop = AsyncMock()
-        spotify_source._device_connected = True
+        world.systemd.stop.side_effect = stop
 
-        result = await spotify_source.stop()
+        await world.leave()
 
-        assert result is True
-        assert spotify_source._device_connected is False
-        assert spotify_source._session is None
-        # Graceful /player/stop was sent, then the service was stopped
-        post_mock.assert_called_once()
-        assert "/player/stop" in post_mock.call_args.args[0]
-        spotify_source._service_manager.stop.assert_called_once()
+        assert stops_at_unit_stop == [1]
+        world.systemd.stop.assert_awaited_once_with("milo-spotify.service")
+        assert world.source.state == SourceState.READY
+        assert world.state()["active_source"] == "none"
 
     @pytest.mark.asyncio
-    async def test_wait_for_playback_ready_returns_on_200(self, spotify_source):
+    async def test_wait_for_playback_ready_returns_on_200(self, spotify_source, caplog):
         """Readiness poll returns as soon as GET / answers 200, regardless of
         the playback_ready flag (false in zeroconf with no session at start)."""
-        spotify_source._api_url = "http://localhost:3678"
-        spotify_source._session = MagicMock()
+        session = librespot_api({"playback_ready": False})
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={"playback_ready": False})
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        spotify_source._session.get.return_value = mock_cm
+        async with go_librespot(spotify_source, session) as ws_cls:
+            with caplog.at_level(logging.WARNING):
+                assert await spotify_source.start() is True
 
-        result = await spotify_source._wait_for_playback_ready(timeout=1.0, interval=0.01)
-
-        assert result is True
-        assert spotify_source._session.get.call_args.args[0].endswith("/")
+        assert [call.args[0] for call in session.get.call_args_list] == ["http://localhost:3678/"]
+        assert "not reachable" not in caplog.text
+        ws_cls.return_value.start.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_wait_for_playback_ready_gives_up_after_the_cap(
-        self, spotify_source, caplog
+        self, spotify_source, caplog, monkeypatch
     ):
-        """A daemon that refuses every connection ends the poll at the cap, with
-        a warning and a False verdict — it must not wedge the start."""
-        spotify_source._api_url = "http://localhost:3678"
-        spotify_source._session = refusing_session()
+        """A daemon that refuses every connection is polled again until the
+        cap, which ends the poll with a warning — it must not wedge the start."""
+        session = refusing_session()
+        monkeypatch.setattr(
+            "backend.sources.spotify.source.asyncio", AsyncioProxy(instant_short_sleep)
+        )
 
-        with caplog.at_level(logging.WARNING):
-            result = await spotify_source._wait_for_playback_ready(
-                timeout=0.05, interval=0.01
-            )
+        async with go_librespot(spotify_source, session):
+            with patch('backend.sources.spotify.source.time', deaf_daemon_clock(polls=3)), \
+                    caplog.at_level(logging.WARNING):
+                result = await spotify_source.start()
 
-        assert result is False
-        assert spotify_source._session.get.call_count > 1
+        assert result is True
+        assert session.get.call_count == 3
         assert "not reachable" in caplog.text
 
     @pytest.mark.asyncio
@@ -385,43 +365,50 @@ class TestSpotifySourceLifecycle:
 
 
 class TestSpotifySourceCommands:
-    """Test SpotifySource command handling."""
+    """Test SpotifySource command handling: what reaches go-librespot."""
 
     @pytest.mark.asyncio
-    async def test_playpause_command(self, spotify_source):
-        """The hardware toggle passes straight through to go-librespot."""
-        spotify_source._session = MagicMock()
-        spotify_source._api_url = "http://localhost:3678"
+    async def test_playpause_command(self, world):
+        """The hardware toggle passes straight through to go-librespot, which
+        resolves the edge."""
+        await world.phone_plays(PARAPLUIE)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-
-        # Properly mock async context manager
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        spotify_source._session.post.return_value = mock_cm
-
-        result = await spotify_source.command("playpause", {})
+        result = await world.command("playpause")
 
         assert result["success"] is True
+        assert world.daemon.posted == [("playpause", {})]
+        assert world.active() and not world.playing()
 
     @pytest.mark.asyncio
-    async def test_seek_command(self, spotify_source):
+    async def test_seek_command(self, world):
         """Test seek command."""
-        spotify_source._session = MagicMock()
-        spotify_source._api_url = "http://localhost:3678"
+        await world.phone_plays(PARAPLUIE)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-
-        # Properly mock async context manager
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        spotify_source._session.post.return_value = mock_cm
-
-        result = await spotify_source.command("seek", {"position_ms": 30000})
+        result = await world.command("seek", {"position_ms": 30000})
 
         assert result["success"] is True
+        assert world.daemon.posted == [("seek", {"position": 30000})]
+
+    @pytest.mark.asyncio
+    async def test_a_seek_past_the_end_of_the_track_is_refused(self, world):
+        """The bound is the duration go-librespot reported for the track on
+        screen; a position past it never reaches the daemon."""
+        await world.phone_plays(PARAPLUIE)
+
+        result = await world.command("seek", {"position_ms": PARAPLUIE["duration"] + 1})
+
+        assert result["success"] is False
+        assert world.daemon.posted == []
+
+    @pytest.mark.asyncio
+    async def test_a_command_with_no_session_never_reaches_the_daemon(self, world):
+        """Nothing plays until a phone picks the speaker: a transport press has
+        nothing to act on, and is refused before go-librespot is asked."""
+        result = await world.command("playpause")
+
+        assert result["success"] is False
+        assert world.daemon.posted == []
+
 
 class TestNextPrevCommands:
     """`next` / `prev`, the one command arm the suite never entered.
@@ -434,25 +421,25 @@ class TestNextPrevCommands:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("cmd", ["next", "prev"])
-    async def test_a_bare_skip_carries_no_target(self, spotify_source, cmd):
+    async def test_a_bare_skip_carries_no_target(self, world, cmd):
         """No URI given, no URI sent — not a null one."""
-        session = mock_librespot_api(spotify_source)
+        await world.phone_plays(PARAPLUIE)
 
-        result = await spotify_source._handle_command(cmd, NextPrevParams())
+        result = await world.command(cmd)
 
         assert result["success"] is True
-        assert posted_commands(session) == [(cmd, {})]
+        assert world.daemon.posted == [(cmd, {})]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("cmd", ["next", "prev"])
-    async def test_a_targeted_skip_carries_the_uri(self, spotify_source, cmd):
+    async def test_a_targeted_skip_carries_the_uri(self, world, cmd):
         """The queue view jumps to a track by URI through this same command."""
-        session = mock_librespot_api(spotify_source)
+        await world.phone_plays(PARAPLUIE)
         uri = "spotify:track:0eGsygTp906u18L0Oimnem"
 
-        await spotify_source._handle_command(cmd, NextPrevParams(uri=uri))
+        await world.command(cmd, {"uri": uri})
 
-        assert posted_commands(session) == [(cmd, {"uri": uri})]
+        assert world.daemon.posted == [(cmd, {"uri": uri})]
 
     @pytest.mark.asyncio
     async def test_an_unknown_command_is_refused_rather_than_forwarded(self, spotify_source):
@@ -466,256 +453,124 @@ class TestNextPrevCommands:
         assert posted_commands(session) == []
 
 
-class TestWebSocketEvents:
-    """Test WebSocket event handling."""
-
-    @pytest.mark.asyncio
-    async def test_device_active_event(self, spotify_source, wired):
-        """A device_active event publishes the track go-librespot reports."""
-        publish, _ = wired
-        spotify_source._session = librespot_api(TRACK_STATUS)
-
-        await spotify_source._on_device_active()
-
-        assert spotify_source._device_connected is True
-        state, metadata = published_state(publish)
-        assert state == SourceState.ACTIVE
-        assert metadata["title"] == TRACK_STATUS["track"]["name"]
-
-    @pytest.mark.asyncio
-    async def test_device_inactive_event(self, spotify_source):
-        """Test handling device inactive event."""
-        spotify_source._device_connected = True
-        spotify_source._is_playing = True
-        spotify_source._metadata = {"title": "Test"}
-
-        await spotify_source._on_device_inactive()
-
-        assert spotify_source._device_connected is False
-        assert spotify_source._is_playing is False
-        # Metadata is cleared in _on_device_inactive
-        assert "title" not in spotify_source._metadata or spotify_source._metadata.get("title") is None
-
-    @pytest.mark.asyncio
-    async def test_playback_playing_event(self, spotify_source, wired):
-        """Test handling playing event."""
-        publish, _ = wired
-        spotify_source._session = librespot_api(TRACK_STATUS)
-
-        await spotify_source._on_playback_state(True)
-
-        assert spotify_source._is_playing is True
-        assert spotify_source._device_connected is True
-        assert published_state(publish)[0] == SourceState.ACTIVE
-
-    @pytest.mark.asyncio
-    async def test_playback_paused_event(self, spotify_source, wired):
-        """Test handling paused event."""
-        spotify_source._session = librespot_api({**TRACK_STATUS, "paused": True})
-
-        await spotify_source._on_playback_state(False)
-
-        assert spotify_source._is_playing is False
-
-    @pytest.mark.asyncio
-    async def test_seek_event(self, spotify_source, wired):
-        """A seek republishes the playhead go-librespot reports."""
-        publish, _ = wired
-        seeked = {**TRACK_STATUS, "track": {**TRACK_STATUS["track"], "position": 45000}}
-        spotify_source._session = librespot_api(seeked)
-
-        await spotify_source._on_seek()
-
-        assert published_state(publish)[1]["position"] == seeked["track"]["position"]
-
-
 class TestProducerTruth:
-    """ACTIVE must mean "there is a track".
+    """ACTIVE must mean "there is a track", and only /status says there is.
 
-    The four event handlers set _device_connected optimistically — a
-    go-librespot event *is* a session — and then ask the daemon what is
-    playing. When that answer never arrives, publishing anyway announces a
-    session with no title, and the status card, having nothing to render, draws
-    its idle line over playing audio. These pin that it doesn't.
+    Every /events burst sends the source to read GET /status, and that read is
+    the one writer of the session. When the answer never arrives, publishing
+    anyway announces a change nobody can describe; a status with no title is a
+    session with nothing to draw, and the status card, having nothing to
+    render, would draw its idle line over playing audio. These pin that it
+    doesn't.
     """
 
     @pytest.mark.asyncio
-    async def test_unreadable_status_publishes_nothing(self, spotify_source, wired):
-        """A daemon answering 500 teaches us nothing: keep the last published
-        state rather than announcing a session we cannot describe."""
-        publish, _ = wired
-        spotify_source._session = librespot_api(TRACK_STATUS)
-        await spotify_source._on_device_active()
-        before = published_state(publish)
-        publish.reset_mock()
+    async def test_unreadable_status_publishes_nothing(self, world):
+        """A daemon answering 503 teaches us nothing: keep the last published
+        state rather than announcing a change we cannot describe."""
+        await world.phone_plays(PARAPLUIE)
+        before = world.published()
+        world.daemon.status_answers = False
+        world.daemon.track = dict(LE_CHEMIN)
 
-        spotify_source._session = librespot_api({}, status=500)
-        await spotify_source._on_metadata_update()
+        await world._says({"type": "metadata", "uri": LE_CHEMIN["uri"]})
 
-        publish.assert_not_called()
-        assert spotify_source.state == before[0]
-        assert spotify_source.metadata["title"] == before[1]["title"]
+        assert world.published() == before
+        assert world.playing()
+        assert world.meta()["title"] == "Parapluie"
 
     @pytest.mark.asyncio
-    async def test_unreadable_status_retries(self, spotify_source, wired):
-        """The daemon emits an event only on change, so a refresh we failed to
+    async def test_unreadable_status_retries(self, world):
+        """The daemon emits an event only on change, so a status we failed to
         read is never re-announced — the source must go back for it itself."""
-        publish, spawned = wired
-        spotify_source.STATUS_RETRY_DELAY = 0
-        spotify_source._session = librespot_api({}, status=500)
-
-        await spotify_source._on_device_active()
-        publish.assert_not_called()
+        d = world.daemon
+        d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, dict(PARAPLUIE), False, False
+        d.status_answers = False
+        await world._says({"type": "active"}, {"type": "metadata", "uri": PARAPLUIE["uri"]},
+                          {"type": "playing"})
+        assert not world.active()
 
         # The daemon is answering again by the time the retry fires.
-        spotify_source._session = librespot_api(TRACK_STATUS)
-        await asyncio.gather(*spawned)
+        d.status_answers = True
+        await world.advance(SpotifySource.STATUS_RETRY_DELAY + 0.1)
 
-        state, metadata = published_state(publish)
-        assert state == SourceState.ACTIVE
-        assert metadata["title"] == TRACK_STATUS["track"]["name"]
+        assert world.playing()
+        assert world.meta()["title"] == "Parapluie"
 
     @pytest.mark.asyncio
-    async def test_session_without_a_track_title_publishes_ready(
-        self, spotify_source, wired
-    ):
+    async def test_session_without_a_track_title_publishes_ready(self, world):
         """A readable status whose track carries no name is a session with
-        nothing to draw — publish the idle state, not a titleless ACTIVE."""
-        publish, _ = wired
-        untitled = {"track": {"artist_names": ["Telepopmusik"]}, "paused": False}
-        spotify_source._session = librespot_api(untitled)
+        nothing to draw — the source stays READY, not a titleless ACTIVE."""
+        d = world.daemon
+        d.session, d.account, d.paused, d.buffering = True, ACCOUNT, False, False
+        d.track = {"uri": "spotify:track:untitled", "artist_names": ["Telepopmusik"],
+                   "duration": 275000, "position": 0}
 
-        await spotify_source._on_device_active()
+        await world._says({"type": "active"}, {"type": "playing"})
 
-        assert published_state(publish)[0] == SourceState.READY
+        assert world.state()["source_state"] == SourceState.READY.value
 
 
-class TestReconcileOnConnect:
-    """Reconciliation against the daemon after an un-commanded WS drop."""
+class TestEventsReconnect:
+    """/events coming back after a drop the source did not ask for.
 
-    @pytest.mark.asyncio
-    async def test_reconcile_on_connect_idle_daemon_resets_to_ready(
-        self, spotify_source, pause_clock
-    ):
-        """On (re)connect to an idle daemon (crash + systemd restart), reconcile
-        pulls GET /status, finds no session, and resets the stale 'now playing'
-        state to READY — and drops the pause timer the old session left, so it
-        cannot fire /player/stop on whatever session the phone opens next."""
-        session = mock_librespot_api(spotify_source, paused=True)
-        await spotify_source._on_playback_state(False)   # paused: auto-stop armed
-        assert spotify_source.state == SourceState.ACTIVE
-
-        # The daemon died and systemd brought it back with no session.
-        session.get = librespot_api({}).get
-        await spotify_source._reconcile_on_connect()
-
-        assert spotify_source.state == SourceState.READY
-        assert "title" not in spotify_source.metadata
-        await pause_clock.advance(spotify_source.auto_stop_delay)
-        assert player_stops(session) == 0
+    go-librespot emits events only on change, so what happened in the gap is
+    learned from GET /status, read on every (re)connection.
+    """
 
     @pytest.mark.asyncio
-    async def test_reconcile_on_connect_live_session_stays_active(self, spotify_source):
-        """On reconnect with a live session, reconcile refreshes metadata and the
-        source stays ACTIVE (also heals any events missed during the gap)."""
-        async def live_refresh():
-            spotify_source._device_connected = True
-            spotify_source._metadata = {"title": "Breathe", "is_playing": True}
-            return True
+    async def test_a_session_that_ended_in_the_gap_resets_to_ready(self, world):
+        """The phone left while /events was down: the reconnect reads 204, and
+        the stale "now playing" goes — and with it the pause's end request, so
+        it cannot fire /player/stop on whatever session the phone opens next."""
+        await world.phone_plays(PARAPLUIE)
+        await world.phone_pauses()
+        d = world.daemon
+        d.session, d.track = False, None      # its `inactive` went unheard
 
-        with patch.object(spotify_source, 'refresh_metadata', side_effect=live_refresh):
-            await spotify_source._reconcile_on_connect()
+        await world.events_blip()
 
-        assert spotify_source._device_connected is True
-        assert spotify_source.state == SourceState.ACTIVE
+        assert world.state()["source_state"] == SourceState.READY.value
+        assert "title" not in world.meta()
+        await world.advance(DELAY + 1)
+        assert world.stops_sent() == 0
 
     @pytest.mark.asyncio
-    async def test_reconcile_on_connect_unreachable_resets_defensively(
-        self, spotify_source, pause_clock
-    ):
-        """If GET /status is unreachable on reconnect (daemon API not up yet after
-        a crash+restart), refresh_metadata returns False without clearing the
-        flags. Reconcile must still reset defensively to READY rather than
-        re-affirm the stale 'now playing' (the WS loop retries in 2s), and drop
-        the old session's pause timer."""
-        session = mock_librespot_api(spotify_source, paused=True)
-        await spotify_source._on_playback_state(False)   # paused: auto-stop armed
-        assert spotify_source.metadata["title"] == "Track"
+    async def test_a_live_session_is_healed_on_reconnect(self, world):
+        """With a live session the source stays ACTIVE, and what the gap hid
+        (here, a skip) is read back."""
+        await world.phone_plays(PARAPLUIE)
+        world.daemon.track = dict(LE_CHEMIN)  # skipped while nobody listened
 
-        session.get = Mock(side_effect=aiohttp.ClientOSError("connection refused"))
-        await spotify_source._reconcile_on_connect()
+        await world.events_blip()
 
-        assert "title" not in spotify_source.metadata  # ghost track cleared
-        assert spotify_source.state == SourceState.READY
-        await pause_clock.advance(spotify_source.auto_stop_delay)
-        assert player_stops(session) == 0
+        assert world.playing()
+        assert world.meta()["title"] == "Le Chemin"
 
 
 class TestAutoStop:
-    """Test auto-stop timer functionality."""
+    """Test auto-stop timer functionality.
+
+    The pause that outlives the delay, and the resume that withdraws it, are
+    driven in test_spotify_sessions.py (the control for the test below).
+    """
 
     @pytest.mark.asyncio
-    async def test_a_pause_left_alone_ends_the_session_after_the_delay(
-        self, spotify_source, pause_clock
-    ):
-        """The phone paused and walked away: after the delay the Connect session
-        is ended, once, and the screen can sleep. The control for the two
-        tests below — without it their silence proves nothing."""
-        session = mock_librespot_api(spotify_source, paused=True)
-
-        await spotify_source._on_playback_state(False)
-        await pause_clock.advance(spotify_source.auto_stop_delay)
-
-        assert player_stops(session) == 1
-
-    @pytest.mark.asyncio
-    async def test_a_play_before_the_delay_keeps_the_session(
-        self, spotify_source, pause_clock
-    ):
-        """A resume from the phone disarms the auto-stop; otherwise the music
-        is cut one delay after the last pause, mid-track."""
-        session = mock_librespot_api(spotify_source, paused=True)
-
-        await spotify_source._on_playback_state(False)
-        await pause_clock.advance(spotify_source.auto_stop_delay / 2)
-        await spotify_source._on_playback_state(True)
-        await pause_clock.advance(spotify_source.auto_stop_delay)
-
-        assert player_stops(session) == 0
-
-    @pytest.mark.asyncio
-    async def test_no_auto_stop_when_the_delay_is_zero(self, spotify_source, pause_clock):
+    async def test_no_auto_stop_when_the_delay_is_zero(self, monkeypatch, tmp_path):
         """0 in Settings means off: a paused session stays on the phone's
         speaker list as the selected output, however long it waits."""
-        spotify_source._settings_service = Mock()
-        spotify_source._settings_service.get_setting = AsyncMock(return_value=0)
-        await spotify_source.reload_auto_stop_config()
-        session = mock_librespot_api(spotify_source, paused=True)
+        world = SpotifyWorld(monkeypatch, tmp_path, settings={"audio.auto_stop_delay": 0})
+        try:
+            await world.select()
+            await world.phone_plays(PARAPLUIE)
+            await world.phone_pauses()
 
-        await spotify_source._on_playback_state(False)
-        await pause_clock.advance(3600)
+            await world.advance(3600)
 
-        assert player_stops(session) == 0
-
-    @pytest.mark.asyncio
-    async def test_on_auto_stop_posts_player_stop(self, spotify_source):
-        """Auto-stop ends the session via /player/stop, no process bounce."""
-        spotify_source._api_url = "http://localhost:3678"
-        spotify_source._session = MagicMock()
-
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        spotify_source._session.post.return_value = mock_cm
-
-        await spotify_source._on_auto_stop()
-
-        spotify_source._session.post.assert_called_once()
-        assert "/player/stop" in spotify_source._session.post.call_args.args[0]
-        # Daemon stays alive — no systemctl restart/stop on auto-stop
-        spotify_source._service_manager.restart.assert_not_called()
-        spotify_source._service_manager.stop.assert_not_called()
+            assert world.stops_sent() == 0
+            assert world.active()
+        finally:
+            await world.source.shutdown()
 
     @pytest.mark.asyncio
     async def test_reload_auto_stop_config_disabled(self, spotify_source):
@@ -737,26 +592,6 @@ class TestAutoStop:
         assert result is True
         assert spotify_source.auto_stop_enabled is True
         assert spotify_source.auto_stop_delay == 30.0
-
-
-class TestConnectionState:
-    """Test connection state management."""
-
-    def test_update_state_no_device(self, spotify_source):
-        """Test state is READY with no device."""
-        spotify_source._device_connected = False
-        spotify_source._update_connection_state()
-
-        assert spotify_source.state == SourceState.READY
-
-    def test_update_state_with_device(self, spotify_source):
-        """Test state is ACTIVE with device."""
-        spotify_source._device_connected = True
-        spotify_source._is_playing = True
-        spotify_source._metadata = {"title": "Test"}
-        spotify_source._update_connection_state()
-
-        assert spotify_source.state == SourceState.ACTIVE
 
 
 class TestLibrespotWebSocket:
@@ -792,38 +627,20 @@ class TestMetadataTransform:
     """Test metadata transformation."""
 
     @pytest.mark.asyncio
-    async def test_transform_track_metadata(self, spotify_source):
-        """Test metadata transformation from API response."""
-        spotify_source._session = MagicMock()
-        spotify_source._api_url = "http://localhost:3678"
+    async def test_transform_track_metadata(self, world):
+        """go-librespot's track, as a state request (GET /api/audio/state)
+        hands it to the screen."""
+        song = track("Test Song", 180000, artists=("Artist 1", "Artist 2"), album="Test Album")
+        await world.phone_plays(song)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "track": {
-                "name": "Test Song",
-                "artist_names": ["Artist 1", "Artist 2"],
-                "album_name": "Test Album",
-                "album_cover_url": "https://example.com/cover.jpg",
-                "duration": 180000,
-                "position": 45000
-            },
-            "paused": False
-        })
+        metadata = (await world.get_state())["metadata"]
 
-        # Properly mock async context manager for get
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        spotify_source._session.get.return_value = mock_cm
-
-        result = await spotify_source.refresh_metadata()
-
-        assert result is True
-        assert spotify_source._metadata["title"] == "Test Song"
-        assert spotify_source._metadata["artist"] == "Artist 1, Artist 2"
-        assert spotify_source._metadata["album"] == "Test Album"
-        assert spotify_source._metadata["duration"] == 180000
-        assert spotify_source._metadata["is_playing"] is True
+        assert metadata["title"] == "Test Song"
+        assert metadata["artist"] == "Artist 1, Artist 2"
+        assert metadata["album"] == "Test Album"
+        assert metadata["album_art_url"] == song["album_cover_url"]
+        assert metadata["duration"] == 180000
+        assert metadata["is_playing"] is True
 
 
 def mock_librespot_api(source, *, paused=True, post_status=200):
@@ -831,13 +648,12 @@ def mock_librespot_api(source, *, paused=True, post_status=200):
 
     A small stateful fake rather than a fixed answer: /status reports what the
     POSTs did to it, so the source has to actually pause the daemon to observe a
-    paused daemon. A canned `paused` would let a release that never pauses pass.
-    `post_status` != 200 simulates a daemon that cannot be driven.
+    paused daemon. `post_status` != 200 simulates a daemon that cannot be driven.
     """
     state = {"paused": paused}
 
-    source._session = MagicMock()
-    source._session.close = AsyncMock()  # awaited by _cleanup on the fallback path
+    source._http = MagicMock()
+    source._http.close = AsyncMock()  # awaited by _cleanup on the fallback path
     source._api_url = "http://localhost:3678"
 
     async def status():
@@ -854,7 +670,7 @@ def mock_librespot_api(source, *, paused=True, post_status=200):
     get_response.json = AsyncMock(side_effect=status)
     get_cm = AsyncMock()
     get_cm.__aenter__.return_value = get_response
-    source._session.get.return_value = get_cm
+    source._http.get.return_value = get_cm
 
     post_response = MagicMock()
     post_response.status = post_status
@@ -867,9 +683,9 @@ def mock_librespot_api(source, *, paused=True, post_status=200):
             state["paused"] = command == "pause"
         return post_cm
 
-    source._session.post = MagicMock(side_effect=post)
+    source._http.post = MagicMock(side_effect=post)
 
-    return source._session
+    return source._http
 
 
 def posted_commands(session):
@@ -883,7 +699,7 @@ def posted_commands(session):
 class TestMultiroomReroute:
     """Keeping the Connect session across a multiroom toggle.
 
-    AudioRoutingService._apply_transition releases the source, reconciles
+    AudioStateMachine.reroute_active_source releases the source, reconciles
     snapcast, then re-acquires it. Before go-librespot 0.8.0 that meant a full
     daemon bounce: the phone lost the speaker and playback stopped. These hooks
     park the output instead — and the order they do it in is load-bearing, so
@@ -891,36 +707,41 @@ class TestMultiroomReroute:
     """
 
     @pytest.mark.asyncio
-    async def test_release_pauses_before_parking_the_output(self, spotify_source):
+    async def test_release_pauses_before_parking_the_output(self, world, monkeypatch):
         """Pause must land BEFORE the switch, and the service must stay up.
 
         RELEASE_DEVICE does not rate-limit: switching to it while playing runs
         the track to its end in seconds (measured on the unit). Pausing after
         the switch would be too late.
         """
-        session = mock_librespot_api(spotify_source, paused=False)
+        monkeypatch.setenv("MILO_MODE", "direct")
+        await world.phone_plays(PARAPLUIE)
 
-        assert await spotify_source.release_for_reroute() is True
+        await world.reroute()
 
-        assert posted_commands(session) == [
+        assert world.daemon.posted == [
             ("pause", {}),
             ("output", {"device": "null"}),
+            ("output", {"device": "milo_spotify_direct"}),
+            ("resume", {}),
         ]
-        spotify_source._service_manager.stop.assert_not_called()
+        world.systemd.stop.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_release_of_a_paused_session_skips_the_pause(self, spotify_source):
+    async def test_release_of_a_paused_session_skips_the_pause(self, world):
         """Nothing to pause: the output is parked straight away."""
-        session = mock_librespot_api(spotify_source, paused=True)
+        await world.phone_plays(PARAPLUIE)
+        await world.phone_pauses()
 
-        assert await spotify_source.release_for_reroute() is True
+        await world.reroute()
 
-        assert posted_commands(session) == [("output", {"device": "null"})]
+        assert world.daemon.posted[0] == ("output", {"device": "null"})
+        assert "pause" not in commands_sent(world)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("mode", ["direct", "multiroom"])
     async def test_acquire_reopens_on_the_device_of_the_new_mode(
-        self, spotify_source, monkeypatch, mode
+        self, world, monkeypatch, mode
     ):
         """The explicit device is what makes the reroute work without a restart.
 
@@ -928,50 +749,46 @@ class TestMultiroomReroute:
         environment, frozen at its start — it would still name the old mode.
         """
         monkeypatch.setenv("MILO_MODE", mode)
-        session = mock_librespot_api(spotify_source)
-        spotify_source._soft_reroute = True
-        spotify_source._reroute_was_playing = False
+        await world.phone_plays(PARAPLUIE)
+        pid = world.pid
 
-        assert await spotify_source.acquire_after_reroute() is True
+        await world.reroute()
 
-        assert posted_commands(session) == [("output", {"device": f"milo_spotify_{mode}"})]
-        spotify_source._service_manager.start.assert_not_called()
+        assert world.daemon.output == f"milo_spotify_{mode}"
+        assert world.pid == pid
+        assert world.restarts == []
+        assert world.playing()
 
     @pytest.mark.asyncio
-    async def test_acquire_resumes_only_what_was_playing(self, spotify_source, monkeypatch):
+    async def test_acquire_resumes_only_what_was_playing(self, world):
         """A session paused by the user must not come back playing."""
-        monkeypatch.setenv("MILO_MODE", "direct")
-        session = mock_librespot_api(spotify_source, paused=False)
-        spotify_source._soft_reroute = True
-        spotify_source._reroute_was_playing = True
+        await world.phone_plays(PARAPLUIE)
+        await world.phone_pauses()
 
-        await spotify_source.acquire_after_reroute()
+        await world.reroute()
 
-        assert posted_commands(session)[-1] == ("resume", {})
+        assert "resume" not in commands_sent(world)
+        assert world.active() and not world.playing()
 
     @pytest.mark.asyncio
-    async def test_unreachable_daemon_falls_back_to_a_full_stop(self, spotify_source):
+    async def test_unreachable_daemon_falls_back_to_a_full_stop(self, world):
         """A source still holding the loopback would block snapclient.
 
-        So a daemon that cannot be driven must lose its session rather than keep
-        the device: the fallback is the base stop(), not a silent no-op.
+        So a daemon that cannot be read must lose its session rather than keep
+        the device: the fallback is the full stop, not a silent no-op — and the
+        re-acquire then starts a fresh daemon, there being no session left to
+        reopen an output on.
         """
-        mock_librespot_api(spotify_source, paused=True, post_status=500)
+        await world.phone_plays(PARAPLUIE)
+        world.daemon.status_answers = False
+        pid = world.pid
 
-        assert await spotify_source.release_for_reroute() is True
+        await world.reroute()
 
-        spotify_source._service_manager.stop.assert_called_once_with("milo-spotify.service")
-        assert spotify_source._soft_reroute is False
-
-    @pytest.mark.asyncio
-    async def test_a_hard_release_is_re_acquired_by_a_full_start(self, spotify_source):
-        """After the fallback there is no session left to reopen an output on."""
-        spotify_source._soft_reroute = False
-
-        with patch.object(spotify_source, '_do_start', new_callable=AsyncMock, return_value=True) as full_start:
-            assert await spotify_source.acquire_after_reroute() is True
-
-        full_start.assert_awaited_once()
+        world.systemd.stop.assert_awaited_once_with("milo-spotify.service")
+        assert ("output", {"device": "null"}) not in world.daemon.posted
+        assert world.pid not in (None, pid)
+        assert not world.active()
 
 
 class TestManagedConfig:
@@ -1095,90 +912,26 @@ class TestManagedConfig:
         assert self._read(spotify_source._config_path)["crossfade_duration"] == 6000
 
 
-class TestWebSocketEventDispatch:
-    """go-librespot's event vocabulary, mapped to the handlers that serve it.
+class TestTheEventThatIsNotRead:
+    """go-librespot's event vocabulary, as the source reads it.
 
-    The handlers below each had a test; the map that reaches them had none. The
-    only test that named `_handle_ws_event` asserted it was *wired* as the
-    socket's `on_event` — `TestSpotifySourceLifecycle` still does — and the
-    event tests call `_on_playback_state(True)` and friends directly, so all
-    eight of these wire names sat at 0% of lines. A name go-librespot renames,
-    or an arm typed `not-playing` for `not_playing`, would reach nothing and
-    fail in silence: the daemon keeps streaming and the screen keeps showing
-    whatever it last published.
-
-    Two handlers hang off this map alone (`_on_stopped`, `_on_not_playing`) and
-    were unreachable for the whole suite as a result.
-
-    The spies WRAP the real handlers rather than replace them, so each case
-    still runs the production handler; what they add is *which* one ran. And
-    every case demands exactly one — several arms leave the same trace
-    (`stopped`, `not_playing` and `paused` all clear `_is_playing`), so an
-    assertion on the trace alone would not tell them apart.
+    Every burst of /events is a reason to read GET /status, whatever its
+    names, so a name go-librespot renames can no longer reach nothing and fail
+    in silence. One name is taken at its word: `inactive` is the daemon saying
+    the session is over, and /status may fail right after it.
     """
 
-    HANDLERS = [
-        "_on_device_active", "_on_device_inactive", "_on_playback_state",
-        "_on_metadata_update", "_on_seek", "_on_stopped", "_on_not_playing",
-    ]
-
-    @contextlib.contextmanager
-    def _spies(self, source):
-        with contextlib.ExitStack() as stack:
-            yield {
-                name: stack.enter_context(
-                    patch.object(source, name, wraps=getattr(source, name))
-                )
-                for name in self.HANDLERS
-            }
-
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("wire_name, handler, args", [
-        ("active", "_on_device_active", ()),
-        ("inactive", "_on_device_inactive", ()),
-        ("playing", "_on_playback_state", (True,)),
-        ("paused", "_on_playback_state", (False,)),
-        ("metadata", "_on_metadata_update", ()),
-        ("seek", "_on_seek", ()),
-        ("stopped", "_on_stopped", ()),
-        ("not_playing", "_on_not_playing", ()),
-    ])
-    async def test_each_wire_event_reaches_its_own_handler(
-        self, spotify_source, wired, wire_name, handler, args
-    ):
-        """One event name in, exactly one handler out, with the arguments it owes.
+    async def test_inactive_ends_the_session_even_when_status_cannot_be_read(self, world):
+        """Read instead, a failed /status keeps the session — and a phone that
+        picked another output would leave its track on screen."""
+        await world.phone_plays(PARAPLUIE)
+        world.daemon.status_answers = False
 
-        `playing` and `paused` share a handler and differ only by the flag, which
-        is why the argument is asserted and not just the call.
-        """
-        spotify_source._session = librespot_api(TRACK_STATUS)
+        await world._says({"type": "inactive"}, {"type": "stopped"})
 
-        with self._spies(spotify_source) as spies:
-            await spotify_source._handle_ws_event({"type": wire_name})
-
-        assert spies[handler].await_args.args == args
-        assert [n for n, spy in spies.items() if spy.await_count] == [handler]
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("event", [
-        {"type": "volume"},
-        {"type": "not_playing_yet"},
-        {},
-    ])
-    async def test_an_unhandled_event_reaches_no_handler_at_all(
-        self, spotify_source, wired, event
-    ):
-        """The fall-through is silence, not a wrong guess.
-
-        go-librespot sends more than Milō consumes (volume rides CamillaDSP, not
-        this socket), and a missing `type` is what a truncated frame looks like.
-        Neither may be routed to a handler by accident — `not_playing_yet` is
-        here because a prefix match would take it for `not_playing`.
-        """
-        with self._spies(spotify_source) as spies:
-            await spotify_source._handle_ws_event(event)
-
-        assert [n for n, spy in spies.items() if spy.await_count] == []
+        assert world.state()["source_state"] == SourceState.READY.value
+        assert "title" not in world.meta()
 
 
 class TestLogBridge:

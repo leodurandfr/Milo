@@ -88,6 +88,17 @@ class Pids:
         self.systemd = Mock()
         self.systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid)
         self.systemd.restart = AsyncMock(side_effect=self._restart)
+        # What systemd says of the unit once its process is gone (measured
+        # 2026-09-24), as (ActiveState, Result): a crash leaves it
+        # `activating`/`signal` (auto-restart), a stop someone asked for
+        # `inactive`/`success`.
+        self.unit_state = ("activating", "signal")
+        self.systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)
+
+    def stopped_by_systemd(self) -> None:
+        """`systemctl stop` (a backend restart takes the unit down with it)."""
+        self.unit_state = ("inactive", "success")
+        self.exit()
 
     def exit(self) -> None:
         dead, self.pid = self.pid, (self.pid or 100) + 1
@@ -183,6 +194,38 @@ async def test_the_session_is_watched_against_the_daemon_that_holds_it(daemon, p
     assert daemon.ends == [EndReason.DAEMON_DIED]
     assert daemon.state.value == "ready"
     assert pids.watched == []
+
+
+async def test_a_unit_that_systemd_stopped_is_not_a_death(daemon, pids, caplog):
+    """A backend restart stops the source units first (BindsTo + After=), while
+    the backend still runs: the process ends under the session, and that is a
+    stop someone asked for, not a crash — no ERROR, no banner."""
+    await _report(daemon, "phone", Phase.PLAYING)
+    with caplog.at_level("INFO"):
+        pids.stopped_by_systemd()
+        await settle()
+    assert daemon.ends == [EndReason.USER_STOP]
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+async def test_a_unit_state_that_cannot_be_read_is_still_a_death(daemon, pids):
+    """Fail open to what the watch alone says."""
+    pids.systemd.unit_state = AsyncMock(return_value=None)
+    await _report(daemon, "phone", Phase.PLAYING)
+    pids.stopped_by_systemd()
+    await settle()
+    assert daemon.ends == [EndReason.DAEMON_DIED]
+
+
+async def test_a_unit_stopped_after_a_failure_is_still_a_death(daemon, pids):
+    """systemd also stops a unit after a failure (OOMPolicy=stop on a
+    MemoryMax overrun): `deactivating`, but with a Result that is not success.
+    That end is a crash, reported as one."""
+    await _report(daemon, "phone", Phase.PLAYING)
+    pids.unit_state = ("deactivating", "oom-kill")
+    pids.exit()
+    await settle()
+    assert daemon.ends == [EndReason.DAEMON_DIED]
 
 
 async def test_each_session_reads_the_pid_anew(daemon, pids):

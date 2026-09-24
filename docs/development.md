@@ -303,14 +303,17 @@ playhead while sound plays; never hand-roll a monitor loop. A source with hardwa
 (the CD's drive) keeps that device state apart from the session and tags the work on it with a
 `DeviceToken`, which a stop neither voids nor cuts.
 
-**If a daemon holds the session** (a sender on shairport-sync; Spotify, Tidal, Qobuz, DLNA and Mac
-follow), Milō does not open or end it: after each burst of what the daemon announced, hand
+**If a daemon holds the session** (a sender on shairport-sync, a phone on go-librespot or on the
+Tidal daemon; Qobuz, DLNA and Mac follow), Milō does not open or end it: after each burst of what
+the daemon announced, hand
 `reconcile(DaemonSnapshot(sender, phase))` where the daemon says the session stands — or
 `reconcile(None)` when it holds none — and publish if anything moved (`_publish_changes()`).
 Declare `SESSION_DAEMON = True` so the base watches the daemon's process (a pidfd; a daemon killed
 without a goodbye ends the session `DAEMON_DIED`), and `IDLE_POLICY = IdlePolicy.REQUEST_END` with a
 `_request_end()` that asks the daemon for the end: the end comes back through `reconcile`, recorded
-as the idle timeout. `airplay/` is the reference.
+as the idle timeout. Open no session before the daemon names a track. `airplay/` is the reference
+for a daemon that only announces; `spotify/` for one that can also be asked where it stands (read
+that answer once per burst and let it alone decide the phase — a failed read changes nothing).
 
 The authoritative shape is the family table in [CLAUDE.md](../CLAUDE.md) § *Audio sources* plus an
 existing source — `radio/` is the reference for family C, `qobuz/` for family B, `bluetooth/` for

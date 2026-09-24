@@ -3,7 +3,11 @@ Manager for systemd services.
 """
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
+
+from dbus_next import Message, MessageType
+from dbus_next.aio import MessageBus
+from dbus_next.constants import BusType
 
 from backend.shared.decorators import handle_errors
 
@@ -21,6 +25,10 @@ CONTROL_TIMEOUT = 12.5
 SETTLE_PROBES = 6
 SETTLE_INTERVAL = 0.5
 IS_ACTIVE_TIMEOUT = 5.0
+# A property read on systemd's bus; systemd answers in milliseconds.
+UNIT_STATE_TIMEOUT = 2.0
+
+_SYSTEMD = "org.freedesktop.systemd1"
 
 
 class SystemdServiceManager:
@@ -224,6 +232,55 @@ class SystemdServiceManager:
         if not raw.isdigit():
             return None
         return int(raw) or None
+
+    async def unit_state(self, service: str) -> Optional[Tuple[str, str]]:
+        """The unit's (ActiveState, Result), or None when it cannot be read.
+
+        What a source asks when its daemon's process is gone: a stop someone
+        asked for leaves (`inactive` or `deactivating`, `success`), a crash
+        (`activating`, `signal`) on its way to Restart=, an OOM stop
+        (`deactivating`, `oom-kill`) — measured 2026-09-24, read when the pidfd
+        fired. A unit that is not loaded any more was stopped.
+
+        Read over D-Bus, in this process, on purpose: when that exit is a
+        backend restart, systemd sends SIGTERM to this unit's whole cgroup some
+        25 ms later, and a `systemctl show` child spawned meanwhile was killed
+        with it (measured), which answered a stop someone asked for as a crash.
+        Every step is bounded: the caller is a source's mailbox.
+        """
+        bus = None
+        try:
+            bus = await asyncio.wait_for(
+                MessageBus(bus_type=BusType.SYSTEM).connect(), UNIT_STATE_TIMEOUT
+            )
+            unit = await asyncio.wait_for(bus.call(Message(
+                destination=_SYSTEMD, path="/org/freedesktop/systemd1",
+                interface=f"{_SYSTEMD}.Manager", member="GetUnit",
+                signature="s", body=[service],
+            )), UNIT_STATE_TIMEOUT)
+            if unit.message_type is MessageType.ERROR:
+                if unit.error_name.endswith("NoSuchUnit"):
+                    return "inactive", "success"
+                self.logger.warning(f"Could not read the state of {service}: {unit.error_name}")
+                return None
+            values = []
+            for interface, prop in (("Unit", "ActiveState"), ("Service", "Result")):
+                reply = await asyncio.wait_for(bus.call(Message(
+                    destination=_SYSTEMD, path=unit.body[0],
+                    interface="org.freedesktop.DBus.Properties", member="Get",
+                    signature="ss", body=[f"{_SYSTEMD}.{interface}", prop],
+                )), UNIT_STATE_TIMEOUT)
+                if reply.message_type is MessageType.ERROR:
+                    self.logger.warning(f"Could not read the state of {service}: {reply.error_name}")
+                    return None
+                values.append(reply.body[0].value)
+        except (OSError, asyncio.TimeoutError) as e:
+            self.logger.warning(f"Could not read the state of {service}: {e!r}")
+            return None
+        finally:
+            if bus is not None:
+                bus.disconnect()
+        return values[0], values[1]
 
     async def is_active(self, service: str) -> bool:
         """Whether the unit is known to be active — an unreadable probe is not.

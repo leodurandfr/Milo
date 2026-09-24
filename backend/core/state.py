@@ -194,8 +194,11 @@ class AudioStateMachine:
         live. Every path that does not end in the source publishing its own
         start — `apply_mode` raising, ACQUIRE answering False or raising —
         republishes the source's real state, so STARTING is never the last word.
-        `apply_mode` raising is re-raised; an ACQUIRE failure is not, since the
-        mode itself is committed and the user can retry the source.
+        ACQUIRE follows RELEASE even when `apply_mode` raised: the mode in force
+        is then the old one, and a source left released would stay silent under
+        it (E08: Spotify's output parked on `null`). `apply_mode` raising is
+        re-raised after that; an ACQUIRE failure is not, since the mode itself is
+        committed and the user can retry the source.
         """
         async with self._transition_lock:
             active = self.system_state.active_source
@@ -222,7 +225,11 @@ class AudioStateMachine:
                     await instance.release_for_reroute()
                     await asyncio.sleep(self.ALSA_RELEASE_SETTLE_S)
 
-                    await apply_mode()
+                    switch_failed: Optional[BaseException] = None
+                    try:
+                        await apply_mode()
+                    except Exception as e:
+                        switch_failed = e
 
                     logger.info("Re-acquiring source %s", active.value)
                     reacquired = False
@@ -238,6 +245,8 @@ class AudioStateMachine:
                             "Source %s re-acquire failed after the reroute (non-fatal): %s",
                             active.value, e,
                         )
+                    if switch_failed is not None:
+                        raise switch_failed
                 if not reacquired:
                     await self.update_source_state(
                         source=active, new_state=instance.state, metadata=instance.metadata
@@ -521,13 +530,9 @@ class AudioStateMachine:
         narrow: a source that changes state re-publishes through
         update_source_state() on its own, so there is nothing here to copy. Five
         sources implement the hook (Spotify, CD, Podcast, Music Library,
-        Bluetooth) and four of them cannot move state inside it — their state is
-        derived from a session this call does not touch. Spotify is the one that
-        can: a /status read finding no track clears its metadata without
-        publishing, so a client connecting in that window is handed ACTIVE with
-        an empty record. The window is bounded by _reconcile_on_connect(), which
-        is what actually repairs an ended session; widening this method to paper
-        over it would put a second reconciliation path next to the real one.
+        Bluetooth). Spotify's reads go-librespot's /status and follows it through
+        the same reconcile() its /events handler uses, publishing any change
+        itself — this copy only carries the playhead it read.
         """
         active = self.system_state.active_source
         if active == AudioSource.NONE:

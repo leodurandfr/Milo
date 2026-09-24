@@ -19,7 +19,7 @@ from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify import websocket as websocket_module
 from backend.sources.spotify.source import SpotifySource
 from backend.tests.golden.harness import (
-    AsyncioProxy, TickGate, Wire, check_recording, instant_short_sleep,
+    AsyncioProxy, LiveProcessWatch, TickGate, Wire, check_recording, instant_short_sleep,
     make_settings, make_state_machine, make_systemd, settle,
 )
 
@@ -109,6 +109,9 @@ class FakeLibrespot:
 
     def get(self, url, *a, **k):
         if url.endswith("/status"):
+            # Measured on 0.10.0: 204 when no phone holds the speaker.
+            if self.track is None:
+                return _Exchange(_Response(204))
             body = {"track": copy.deepcopy(self.track), "paused": self.paused}
             return _Exchange(_Response(200, body))
         return _Exchange(_Response(200, {"playback_ready": self.track is not None}))
@@ -178,6 +181,7 @@ class Spotify:
         # The /events reconnect delay becomes a step the scenario takes.
         monkeypatch.setattr(websocket_module, "asyncio", AsyncioProxy(self.gate.sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        monkeypatch.setattr(audio_source, "ProcessWatch", LiveProcessWatch)
         config = tmp_path / "config.yml"
         # crossfade_duration already matches the (absent) setting, so the start
         # path leaves the file alone.

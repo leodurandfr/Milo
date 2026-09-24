@@ -5,7 +5,8 @@
 Unix socket, and the event mapping against the source. Every *failure* arm
 under those was uncovered at 39ff9daf: `send` refusing on a dead writer,
 `_run_connection`'s three early returns, `_read_frame`'s framing violations,
-the reconnect loop's body guard, and the source's boot and stop paths.
+the reconnect loop's body guard, and the source's boot and stop paths — the
+last two driven through systemd and the daemon of `tests/tidal_world.py`.
 
 The reason these matter more than usual is in the module's own docstring: the
 `tisoc` protocol is undocumented and was read off a live session, and every
@@ -32,8 +33,10 @@ import struct
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+from backend.core.models.audio_state import AudioSource
+from backend.sources.tidal import controller_socket as controller_module
 from backend.sources.tidal.controller_socket import TidalControllerSocket
-from backend.sources.tidal.source import TidalSource
+from backend.tests.tidal_world import TidalWorld
 
 START = b"\xff\x02"
 END = b"\xff\x03"
@@ -318,130 +321,154 @@ class TestDispatchingToTheSource:
         assert "bad map" in caplog.text
 
 
+def refusing(world, command, raising=None):
+    """The daemon, with one command never answered (or its write failing)."""
+    heard = world.daemon.heard
+
+    def hear(message):
+        if message["command"] != command:
+            return heard(message)
+        if raising is not None:
+            raise raising
+        world.daemon.received.append(command)
+
+    world.daemon.heard = hear
+
+
 class TestTheSourceBoot:
-    def source(self):
-        src = TidalSource()
-        src._service_manager = Mock()
-        src._service_manager.start = AsyncMock(return_value=True)
-        src._service_manager.stop = AsyncMock(return_value=True)
-        src._service_manager.is_active = AsyncMock(return_value=True)
-        src.emit_connection_state = Mock()
-        return src
+    """`_do_start`, driven through systemd and the daemon (tests/tidal_world.py)."""
 
-    async def test_a_daemon_that_will_not_start_stops_the_boot(self):
-        src = self.source()
-        src._start_service_and_wait = AsyncMock(return_value=False)
+    @pytest.mark.parametrize("unit_start", [
+        AsyncMock(return_value=False),
+        AsyncMock(side_effect=RuntimeError("systemd busy")),
+    ], ids=["refused", "crashed"])
+    async def test_a_daemon_that_will_not_start_stops_the_boot(
+        self, monkeypatch, tmp_path, unit_start
+    ):
+        """No unit, no controller: nothing may knock on a socket that no daemon
+        owns, and the card says the source failed rather than "ready"."""
+        world = TidalWorld(monkeypatch, tmp_path)
+        world.systemd.start = unit_start
+        try:
+            await world.select()
 
-        assert await src._do_start() is False
+            assert world.state()["source_state"] == "error"
+            assert world.daemon.connections == 0
+            world.systemd.stop.assert_awaited()
+        finally:
+            await world.source.shutdown()
 
-    async def test_a_daemon_that_never_becomes_ready_is_torn_down(self, caplog):
+    async def test_a_daemon_that_never_becomes_ready_is_torn_down(
+        self, monkeypatch, tmp_path, caplog
+    ):
         """`wait_ready()` failing means `startService` was never answered: the
         daemon is still in STARTING and would reject every phone session. The
-        source must not report started over that."""
-        src = self.source()
-        src._start_service_and_wait = AsyncMock(return_value=True)
-        ctl = MagicMock(start=AsyncMock(), wait_ready=AsyncMock(return_value=False))
-        src._cleanup = AsyncMock()
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("backend.sources.tidal.source.TidalControllerSocket",
-                       lambda **kw: ctl)
+        source must not report started over that, and the controller it
+        attached must not live on to reattach to the next daemon."""
+        world = TidalWorld(monkeypatch, tmp_path)
+        refusing(world, "startService")
+        # wait_ready's real timeout, shortened: nothing here measures it.
+        real_wait_for = asyncio.wait_for
+        monkeypatch.setattr(
+            controller_module.asyncio, "wait_for",
+            lambda aw, timeout: real_wait_for(aw, min(timeout, 0.05)),
+        )
+        try:
             with caplog.at_level("ERROR", logger="source.tidal"):
-                assert await src._do_start() is False
+                assert await world.source.start() is False
+            assert "never became ready" in caplog.text
+            assert world.daemon.connections == 1
 
-        src._cleanup.assert_awaited_once()
-        assert "never became ready" in caplog.text
+            await world.kill_daemon()
+            await world.systemd_restarts_it()
+            await world.advance(5)
 
-    async def test_the_controller_is_attached_inside_the_start_sequence(self):
+            assert world.daemon.connections == 1
+        finally:
+            await world.source.shutdown()
+
+    async def test_the_controller_is_attached_inside_the_start_sequence(
+        self, monkeypatch, tmp_path
+    ):
         """Ordering is load-bearing, not tidy: the daemon advertises over mDNS
         as soon as it is up, and a phone session arriving before `startService`
-        is rejected AND wedges the SessionManager until a restart."""
-        src = self.source()
-        order = []
-        src._start_service_and_wait = AsyncMock(
-            side_effect=lambda: order.append("service") or True
-        )
-        ctl = MagicMock(
-            start=AsyncMock(side_effect=lambda: order.append("attach")),
-            wait_ready=AsyncMock(return_value=True),
-        )
+        is rejected AND wedges the SessionManager until a restart. So the unit
+        starts first, and the source is not up until the daemon has answered."""
+        world = TidalWorld(monkeypatch, tmp_path)
+        unit_start = world.systemd.start.side_effect
+        attached_at_unit_start = []
 
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("backend.sources.tidal.source.TidalControllerSocket",
-                       lambda **kw: ctl)
-            assert await src._do_start() is True
+        async def start(*a):
+            attached_at_unit_start.append(world.daemon.connections)
+            return await unit_start(*a)
 
-        assert order == ["service", "attach"]
+        world.systemd.start.side_effect = start
+        try:
+            await world.machine.transition_to_source(AudioSource.TIDAL)
 
-    async def test_a_crash_mid_start_tears_down_what_was_built(self):
-        src = self.source()
-        src._start_service_and_wait = AsyncMock(side_effect=RuntimeError("systemd busy"))
-        src._cleanup = AsyncMock()
-
-        assert await src._do_start() is False
-        src._cleanup.assert_awaited_once()
+            assert attached_at_unit_start == [0]
+            assert world.daemon.received == ["startService"]
+            assert world.state()["source_state"] == "ready"
+        finally:
+            await world.source.shutdown()
 
 
 class TestTheSourceStop:
-    def source(self):
-        src = TidalSource()
-        src._service_manager = Mock()
-        src._service_manager.stop = AsyncMock(return_value=True)
-        src.emit_connection_state = Mock()
-        src._cleanup = AsyncMock()
-        src._stop_service = AsyncMock(return_value=True)
-        return src
+    """`_do_stop`, driven through a source switch."""
 
-    async def test_the_speaker_is_withdrawn_before_the_unit_stops(self):
+    @pytest.fixture
+    async def world(self, monkeypatch, tmp_path):
+        w = TidalWorld(monkeypatch, tmp_path)
+        await w.select()
+        yield w
+        await w.source.shutdown()
+
+    async def test_the_speaker_is_withdrawn_before_the_unit_stops(self, world):
         """`stopService` is what makes the speaker disappear from the phone
         instead of timing out on it."""
-        src = self.source()
-        src._controller = MagicMock(connected=True, send=AsyncMock(return_value=True))
+        unit_stop = world.systemd.stop.side_effect
+        heard_at_unit_stop = []
 
-        assert await src._do_stop() is True
+        async def stop(*a):
+            heard_at_unit_stop.append(list(world.daemon.received))
+            return await unit_stop(*a)
 
-        src._controller.send.assert_awaited_once_with("stopService")
+        world.systemd.stop.side_effect = stop
 
-    async def test_a_daemon_that_will_not_answer_does_not_block_the_stop(self, caplog):
-        """The comment above the arm is the contract: the notification is a
-        courtesy, the unit stop is the actual obligation. A source switch is
-        waiting on this, and a source that never stops holds the loopback."""
-        src = self.source()
-        src._controller = MagicMock(
-            connected=True, send=AsyncMock(side_effect=RuntimeError("socket gone"))
-        )
+        await world.leave()
 
-        with caplog.at_level("ERROR", logger="source.tidal"):
-            assert await src._do_stop() is True
+        assert heard_at_unit_stop and heard_at_unit_stop[0][-1] == "stopService"
+        assert world.pid is None
 
-        src._stop_service.assert_awaited_once()
-        assert "stopService was not delivered" in caplog.text
+    async def test_a_daemon_that_will_not_answer_does_not_block_the_stop(self, world):
+        """The notification is a courtesy, the unit stop is the actual
+        obligation. A source switch is waiting on this, and a source that never
+        stops holds the loopback."""
+        refusing(world, "stopService", raising=BrokenPipeError("socket gone"))
 
-    async def test_a_disconnected_controller_is_not_asked_to_send(self):
-        src = self.source()
-        src._controller = MagicMock(connected=False, send=AsyncMock())
+        await world.leave()
 
-        await src._do_stop()
+        world.systemd.stop.assert_awaited()
+        assert world.pid is None
+        assert world.state()["active_source"] == "none"
 
-        src._controller.send.assert_not_awaited()
-        src._stop_service.assert_awaited_once()
+    async def test_a_daemon_already_gone_still_lets_the_unit_stop(self, world):
+        """The daemon killed, its socket closed: there is nobody to withdraw
+        the speaker from, and the source switch still stops the unit."""
+        await world.kill_daemon()
 
-    async def test_a_source_that_never_attached_still_stops_the_unit(self):
-        src = self.source()
-        src._controller = None
+        await world.leave()
 
-        assert await src._do_stop() is True
-        src._stop_service.assert_awaited_once()
+        assert "stopService" not in world.daemon.received
+        world.systemd.stop.assert_awaited()
 
-    async def test_cleanup_drops_the_controller(self):
+    async def test_the_controller_does_not_outlive_the_source(self, world):
         """Left behind, its reconnect loop keeps reopening the socket of a
         source that is no longer selected."""
-        src = TidalSource()
-        src.emit_connection_state = Mock()
-        stopped = AsyncMock()
-        src._controller = MagicMock(stop=stopped)
+        await world.leave()
+        connections = world.daemon.connections
 
-        await src._cleanup()
+        await world.systemd_restarts_it()
+        await world.advance(5)
 
-        stopped.assert_awaited_once()
-        assert src._controller is None
+        assert world.daemon.connections == connections

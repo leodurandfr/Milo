@@ -13,9 +13,11 @@ Two things are covered, both invisible to every other guardrail:
     daemon here: what is asserted is the bytes the controller put on the wire
     and what it did with the bytes it got back.
 
-  - **The event → state mapping** (`TidalSource`). The frames below are what a
-    live session pushes; what is asserted is what the source published to the
-    state machine, which is what the shared player draws.
+  - **The event → state mapping** (`TidalSource`). The frames are what a live
+    session pushes, fed through the daemon of `tests/tidal_world.py`; what is
+    asserted is what the wire says, which is what the shared player draws, and
+    what the daemon received. The session scenarios live in
+    `test_tidal_sessions.py`.
 """
 import asyncio
 import contextlib
@@ -23,14 +25,13 @@ import json
 import logging
 import struct
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.tidal.controller_socket import TidalControllerSocket
-from backend.sources.tidal.source import TidalSource
+from backend.tests.tidal_world import HYPNOTIZE, STILL_DRE, TidalWorld, media, status
 
 # The wire format, restated here on purpose: the production encoder is what
 # these tests exist to check, so they must not borrow it.
@@ -125,27 +126,6 @@ async def attached(tmp_path):
     finally:
         await socket.stop()
         await daemon.stop()
-
-
-@pytest.fixture
-def tidal():
-    """A Tidal source wired to a state machine that records what it publishes."""
-    source = TidalSource()
-    state_machine = Mock()
-    state_machine.broadcast = AsyncMock()
-    state_machine.update_source_state = AsyncMock()
-    state_machine.update_position_metadata = AsyncMock()
-    state_machine.system_state = Mock(active_source=AudioSource.TIDAL)
-    source.state_machine = state_machine
-    source._bg = Mock()
-    source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
-    return source, state_machine
-
-
-def published(state_machine):
-    """The (state, metadata) of the last push to the state machine."""
-    _, state, metadata = state_machine.update_source_state.call_args.args
-    return state, metadata
 
 
 class TestFramingAndHandshakes:
@@ -268,68 +248,87 @@ class TestRefusedHandshakes:
         assert caplog.text == ""
 
 
+
+
+# === The source, driven through the daemon (tests/tidal_world.py) ===
+
+@pytest.fixture
+async def world(monkeypatch, tmp_path):
+    w = TidalWorld(monkeypatch, tmp_path)
+    await w.select()
+    yield w
+    await w.source.shutdown()
+
+
+# A media frame shaped like the daemon's, with the three covers out of width order.
+MAD_AGAIN = {
+    "command": "notifyMediaChanged",
+    "mediaInfo": {
+        "mediaId": "mad-again",
+        "metadata": {
+            "title": "Mad Again",
+            "artists": ["BunnaB", "Guest"],
+            "albumTitle": "Ice Cream Summer",
+            "duration": 237000,
+            "images": {
+                "low": {"url": "https://cdn/320.jpg", "width": 320},
+                "high": {"url": "https://cdn/1280.jpg", "width": 1280},
+                "medium": {"url": "https://cdn/640.jpg", "width": 640},
+            },
+        },
+    },
+}
+
+
+def transport(world):
+    return world.meta().get("is_playing"), world.meta().get("is_buffering")
+
+
 class TestEventMapping:
     """tisoc frame → what the shared player is told."""
 
-    MEDIA = {
-        "command": "notifyMediaChanged",
-        "mediaInfo": {
-            "metadata": {
-                "title": "Mad Again",
-                "artists": ["BunnaB", "Guest"],
-                "albumTitle": "Ice Cream Summer",
-                "duration": 237000,
-                "images": {
-                    "low": {"url": "https://cdn/320.jpg", "width": 320},
-                    "high": {"url": "https://cdn/1280.jpg", "width": 1280},
-                    "medium": {"url": "https://cdn/640.jpg", "width": 640},
-                },
-            }
-        },
-    }
+    async def test_a_track_is_published_active_with_the_widest_cover(self, world):
+        await world.mac_picks_the_speaker()
+        await world.sends(MAD_AGAIN, status("PAUSED", 0, 237000))
 
-    async def test_a_track_is_published_active_with_the_widest_cover(self, tidal):
-        source, state_machine = tidal
+        assert world.active()
+        meta = world.meta()
+        assert meta["title"] == "Mad Again"
+        assert meta["artist"] == "BunnaB, Guest"
+        assert meta["album"] == "Ice Cream Summer"
+        assert meta["album_art_url"] == "https://cdn/1280.jpg"
 
-        await source._handle_event(self.MEDIA)
+    async def test_a_media_frame_alone_does_not_claim_buffering(self, world):
+        """Buffering belongs to the player status. A track running into the
+        next is announced by its media alone (measured); a media frame that
+        latched the spinner on would draw it over a track that is audibly
+        playing."""
+        await world.mac_plays(STILL_DRE)
 
-        state, metadata = published(state_machine)
-        assert state == SourceState.ACTIVE
-        assert metadata["title"] == "Mad Again"
-        assert metadata["artist"] == "BunnaB, Guest"
-        assert metadata["album"] == "Ice Cream Summer"
-        assert metadata["album_art_url"].endswith("1280.jpg")
+        await world.sends(media(HYPNOTIZE))
 
-    async def test_a_media_frame_alone_does_not_claim_buffering(self, tidal):
-        """Buffering belongs to the player status. A media frame that latched it
-        on would leave a spinner over a track that is audibly playing, since
-        nothing else ever clears it."""
-        source, state_machine = tidal
+        assert world.meta()["title"] == HYPNOTIZE
+        assert transport(world) == (True, False)
 
-        await source._handle_event(self.MEDIA)
+    async def test_player_status_drives_playing_and_buffering(self, world):
+        await world.mac_picks_the_speaker()
+        await world.sends(MAD_AGAIN)
 
-        _, metadata = published(state_machine)
-        assert metadata["is_buffering"] is False
+        seen = {}
+        for state in ("BUFFERING", "PLAYING", "PAUSED", "IDLE"):
+            await world.sends(status(state, 500))
+            seen[state] = transport(world)
 
-    async def test_player_status_drives_playing_and_buffering(self, tidal):
-        source, state_machine = tidal
-        await source._handle_event(self.MEDIA)
+        assert seen == {
+            "BUFFERING": (False, True),
+            "PLAYING": (True, False),
+            "PAUSED": (False, False),
+            # A skip's first millisecond, or nothing left to play: not playing.
+            "IDLE": (False, False),
+        }
+        assert world.active()
 
-        await source._handle_event({
-            "command": "notifyPlayerStatusChanged",
-            "playerState": "BUFFERING", "progress": 0, "duration": 30066,
-        })
-        _, metadata = published(state_machine)
-        assert (metadata["is_playing"], metadata["is_buffering"]) == (False, True)
-
-        await source._handle_event({
-            "command": "notifyPlayerStatusChanged",
-            "playerState": "PLAYING", "progress": 500, "duration": 30066,
-        })
-        _, metadata = published(state_machine)
-        assert (metadata["is_playing"], metadata["is_buffering"]) == (True, False)
-
-    async def test_a_playback_error_takes_the_transport_off_the_track(self, tidal):
+    async def test_a_playback_error_takes_the_transport_off_the_track(self, world):
         """A track that failed to play is not playing and is not loading.
 
         The error frame is the only thing tisoc sends — the protocol has no
@@ -337,99 +336,86 @@ class TestEventMapping:
         AudioPlayerFull drawing a pause button and useSourceProgress advancing
         a playhead over a track that never started.
         """
-        source, state_machine = tidal
-        await source._handle_event(self.MEDIA)
-        await source._handle_event({
-            "command": "notifyPlayerStatusChanged",
-            "playerState": "PLAYING", "progress": 500, "duration": 30066,
-        })
+        await world.mac_plays(STILL_DRE)
+        await world.plays_on(1)
+        assert "position" in world.meta()
 
-        await source._handle_event({"command": "notifyPlaybackError", "errorCode": 4})
+        await world.playback_fails(4)
 
-        state, metadata = published(state_machine)
-        assert (metadata["is_playing"], metadata["is_buffering"]) == (False, False)
-        assert "position" not in metadata
+        assert transport(world) == (False, False)
+        assert "position" not in world.meta()
         # The session survives: the phone is still attached and the card stays
         # actionable, so the track it failed on is still named.
-        assert state == SourceState.ACTIVE
-        assert metadata["title"] == "Mad Again"
-        assert state_machine.broadcast.call_args.args[0].reason == (
-            SourceErrorReason.PLAYBACK_FAILED
-        )
+        assert world.active()
+        assert world.meta()["title"] == STILL_DRE
+        assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
 
-    async def test_a_moved_playhead_alone_skips_the_full_broadcast(self, tidal):
+    async def test_a_moved_playhead_alone_skips_the_full_broadcast(self, world):
         """The daemon ticks about twice a second. A full_state per tick would
         push the whole system state to every client at that rate; the frontend
         interpolates locally and only needs the drift correction."""
-        source, state_machine = tidal
-        playing = {
-            "command": "notifyPlayerStatusChanged",
-            "playerState": "PLAYING", "duration": 30066,
-        }
-        await source._handle_event({**playing, "progress": 500})
-        publishes = state_machine.update_source_state.call_count
+        await world.mac_plays(STILL_DRE)
+        publishes = len(world.published())
 
-        await source._handle_event({**playing, "progress": 1000})
-        await source._handle_event({**playing, "progress": 1500})
+        await world.plays_on(3)
 
-        assert state_machine.update_source_state.call_count == publishes
-        assert source._bg.spawn.called, "no drift correction was broadcast either"
+        assert len(world.published()) == publishes
+        corrections = world.envelopes("source", "position_update")
+        assert corrections, "no drift correction was broadcast either"
+        assert len(corrections) < 6, "every tick was broadcast"
 
-    async def test_a_state_that_cannot_be_read_leaves_the_screen_alone(self, tidal):
-        """`releaseResources` is what the end of a session is read from. A
-        session frame with no usable state must not be the thing that wipes a
-        playing track off the screen."""
-        source, state_machine = tidal
-        await source._handle_event(self.MEDIA)
-        publishes = state_machine.update_source_state.call_count
+    async def test_a_state_that_cannot_be_read_leaves_the_screen_alone(self, world):
+        """`releaseResources` and `notifySessionState 0` are what the end of a
+        session is read from. A session frame with no usable state must not be
+        the thing that wipes a playing track off the screen."""
+        await world.mac_plays(STILL_DRE)
+        publishes = len(world.published())
 
-        await source._handle_event({"command": "notifySessionState"})
+        await world.sends({"command": "notifySessionState"})
+        await world.sends({"command": "notifySessionState", "state": "gone"})
 
-        assert state_machine.update_source_state.call_count == publishes
-        assert source.metadata["title"] == "Mad Again"
+        assert len(world.published()) == publishes
+        assert world.playing() and world.meta()["title"] == STILL_DRE
 
-    async def test_an_explicit_zero_ends_the_session(self, tidal):
-        source, state_machine = tidal
-        await source._handle_event(self.MEDIA)
+    async def test_an_explicit_zero_ends_the_session(self, world):
+        await world.mac_plays(STILL_DRE)
 
-        await source._handle_event({"command": "notifySessionState", "state": 0})
+        await world.sends({"command": "notifySessionState", "state": 0})
 
-        state, metadata = published(state_machine)
-        assert state == SourceState.READY
-        assert "title" not in metadata
+        assert world.state()["source_state"] == "ready"
+        assert "title" not in world.meta()
+        assert world.errors() == []
 
-    async def test_released_resources_end_the_session(self, tidal):
-        source, state_machine = tidal
-        await source._handle_event(self.MEDIA)
+    async def test_released_resources_end_the_session(self, world):
+        await world.mac_plays(STILL_DRE)
 
-        await source._handle_event({"command": "releaseResources"})
+        await world.sends({"command": "releaseResources"})
 
-        state, _ = published(state_machine)
-        assert state == SourceState.READY
+        assert world.state()["source_state"] == "ready"
+        assert "title" not in world.meta()
+        assert world.errors() == []
 
 
 class TestCommands:
-    """Milō's vocabulary → the daemon's own spelling, over a real socket."""
+    """Milō's vocabulary → the daemon's own spelling."""
 
-    async def test_a_command_reaches_the_daemon_under_its_own_name(self, tidal, tmp_path):
-        source, _ = tidal
-        async with attached(tmp_path) as (daemon, socket, _events):
-            source._controller = socket
-            assert await daemon.next_frame() == {"command": "startService"}
+    @pytest.mark.parametrize("cmd, spelling", [
+        ("pause", "pause"), ("resume", "play"), ("next", "next"), ("prev", "previous"),
+    ])
+    async def test_a_command_reaches_the_daemon_under_its_own_name(self, world, cmd, spelling):
+        await world.mac_plays(STILL_DRE)
+        heard = len(world.daemon.received)
 
-            assert (await source.command("prev", None))["success"] is True
+        assert (await world.command(cmd))["success"] is True
 
-            assert await daemon.next_frame() == {"command": "previous"}
+        assert world.daemon.received[heard:] == [spelling]
 
-    async def test_an_unregistered_command_never_reaches_the_daemon(self, tidal, tmp_path):
+    async def test_an_unregistered_command_never_reaches_the_daemon(self, world):
         """`command()` rejects the name before dispatch, which is what makes an
         unregistered arm unreachable rather than half-wired."""
-        source, _ = tidal
-        async with attached(tmp_path) as (daemon, socket, _events):
-            source._controller = socket
-            await daemon.next_frame()
+        await world.mac_plays(STILL_DRE)
+        heard = len(world.daemon.received)
 
-            assert (await source.command("seek", {"position": 10}))["success"] is False
+        assert (await world.command("seek", {"position": 10}))["success"] is False
 
-            with pytest.raises(asyncio.TimeoutError):
-                await daemon.next_frame(timeout=0.3)
+        assert world.daemon.received[heard:] == []

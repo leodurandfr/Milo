@@ -67,32 +67,6 @@
     }
    },
    {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
     "category": "system",
     "type": "transition_start",
     "origin": "system",
@@ -218,88 +192,10 @@
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
+      "is_buffering": true,
       "title": "Mad Again",
       "artist": "BunnaB, Guest",
       "album": "Ice Cream Summer",
@@ -312,50 +208,12 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "duration": 237000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-      "position": 0,
-      "duration": 30066
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
        "is_buffering": true,
        "title": "Mad Again",
        "artist": "BunnaB, Guest",
        "album": "Ice Cream Summer",
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 237000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -573,88 +431,10 @@
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
+      "is_buffering": true,
       "title": "Mad Again",
       "artist": "BunnaB, Guest",
       "album": "Ice Cream Summer",
@@ -667,50 +447,12 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "duration": 237000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-      "position": 0,
-      "duration": 30066
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
        "is_buffering": true,
        "title": "Mad Again",
        "artist": "BunnaB, Guest",
        "album": "Ice Cream Summer",
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 237000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -1041,88 +783,10 @@
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
+      "is_buffering": true,
       "title": "Mad Again",
       "artist": "BunnaB, Guest",
       "album": "Ice Cream Summer",
@@ -1135,50 +799,12 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "duration": 237000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-      "position": 0,
-      "duration": 30066
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
        "is_buffering": true,
        "title": "Mad Again",
        "artist": "BunnaB, Guest",
        "album": "Ice Cream Summer",
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 237000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -1635,88 +1261,10 @@
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
+      "is_buffering": true,
       "title": "Mad Again",
       "artist": "BunnaB, Guest",
       "album": "Ice Cream Summer",
@@ -1729,50 +1277,12 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "duration": 237000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-      "position": 0,
-      "duration": 30066
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
        "is_buffering": true,
        "title": "Mad Again",
        "artist": "BunnaB, Guest",
        "album": "Ice Cream Summer",
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 237000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -1849,32 +1359,6 @@
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
        "position": 8000,
        "duration": 30066
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
       },
       "error": null,
       "multiroom_enabled": false,
@@ -2035,88 +1519,10 @@
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
+      "is_buffering": true,
       "title": "Mad Again",
       "artist": "BunnaB, Guest",
       "album": "Ice Cream Summer",
@@ -2129,50 +1535,12 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "duration": 237000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-      "position": 0,
-      "duration": 30066
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
        "is_buffering": true,
        "title": "Mad Again",
        "artist": "BunnaB, Guest",
        "album": "Ice Cream Summer",
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 237000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -2221,34 +1589,6 @@
    },
    {
     "category": "source",
-    "type": "error",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "reason": "playback_failed",
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 500,
-       "duration": 30066
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
     "type": "state_changed",
     "origin": "tidal",
     "data": {
@@ -2263,6 +1603,33 @@
       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
       "duration": 30066
      },
+     "full_state": {
+      "active_source": "tidal",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": false,
+       "title": "Mad Again",
+       "artist": "BunnaB, Guest",
+       "album": "Ice Cream Summer",
+       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
+       "duration": 30066
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "reason": "playback_failed",
      "full_state": {
       "active_source": "tidal",
       "source_state": "active",
@@ -2414,88 +1781,10 @@
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
+      "is_buffering": true,
       "title": "Mad Again",
       "artist": "BunnaB, Guest",
       "album": "Ice Cream Summer",
@@ -2508,50 +1797,12 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": false,
-       "title": "Mad Again",
-       "artist": "BunnaB, Guest",
-       "album": "Ice Cream Summer",
-       "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "duration": 237000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-      "position": 0,
-      "duration": 30066
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
        "is_buffering": true,
        "title": "Mad Again",
        "artist": "BunnaB, Guest",
        "album": "Ice Cream Summer",
        "album_art_url": "https://resources.tidal.example/mad/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 237000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -2626,84 +1877,18 @@
    },
    {
     "category": "source",
-    "type": "state_changed",
+    "type": "error",
     "origin": "tidal",
     "data": {
      "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
+     "reason": "stream_disconnected",
      "full_state": {
       "active_source": "tidal",
-      "source_state": "active",
+      "source_state": "ready",
       "transitioning": false,
       "metadata": {
        "is_playing": false,
        "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
-      "title": "Teardrop",
-      "artist": "Massive Attack",
-      "album": "Mezzanine",
-      "album_art_url": "https://resources.tidal.example/teardrop/1280.jpg",
-      "duration": 330000
-     },
-     "full_state": {
-      "active_source": "tidal",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false,
-       "title": "Teardrop",
-       "artist": "Massive Attack",
-       "album": "Mezzanine",
-       "album_art_url": "https://resources.tidal.example/teardrop/1280.jpg",
-       "duration": 330000
       },
       "error": null,
       "multiroom_enabled": false,
@@ -2726,8 +1911,7 @@
       "artist": "Massive Attack",
       "album": "Mezzanine",
       "album_art_url": "https://resources.tidal.example/teardrop/1280.jpg",
-      "position": 0,
-      "duration": 30066
+      "duration": 330000
      },
      "full_state": {
       "active_source": "tidal",
@@ -2740,8 +1924,33 @@
        "artist": "Massive Attack",
        "album": "Mezzanine",
        "album_art_url": "https://resources.tidal.example/teardrop/1280.jpg",
-       "position": 0,
-       "duration": 30066
+       "duration": 330000
+      },
+      "error": null,
+      "multiroom_enabled": false,
+      "equalizer_effects_enabled": false,
+      "network_unavailable": null
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "error_cleared",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "full_state": {
+      "active_source": "tidal",
+      "source_state": "active",
+      "transitioning": false,
+      "metadata": {
+       "is_playing": false,
+       "is_buffering": true,
+       "title": "Teardrop",
+       "artist": "Massive Attack",
+       "album": "Mezzanine",
+       "album_art_url": "https://resources.tidal.example/teardrop/1280.jpg",
+       "duration": 330000
       },
       "error": null,
       "multiroom_enabled": false,

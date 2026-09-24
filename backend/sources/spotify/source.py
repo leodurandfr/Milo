@@ -1,16 +1,29 @@
 # backend/sources/spotify/source.py
 """
-Spotify audio source using go-librespot.
+Spotify Connect via go-librespot.
 
-This source handles streaming audio from Spotify Connect via go-librespot.
-It provides real-time metadata updates through WebSocket connection and
-supports playback control via REST API.
+The session belongs to go-librespot, not to Milō: a phone picks the speaker,
+plays, pauses and leaves on its own. The source follows it through
+`reconcile()` (docs: source architecture, "reconcile"), and one thing decides
+where the session stands: go-librespot's own GET /status, read once after
+every burst of /events. An event is when to look, never what to believe — two
+writers (the event and /status) is how the screen said "playing" while the
+auto-stop counted down a pause (E11). Measured on go-librespot 0.10.0
+(2026-09-24, an iPhone), which the phase follows:
 
-Features:
-- WebSocket for real-time events (playing, paused, metadata, etc.)
-- REST API for playback commands (play, pause, seek, etc.)
-- Auto-stop timer after pause (configurable)
-- Metadata tracking with album art and position
+- /status answers 204 when no phone holds the speaker, 200 otherwise; between
+  `will_play` and `metadata` it reports `buffering` and no track yet.
+- A transfer loads the track paused at the phone's position and plays 1.6 s
+  later; a skip is 70 ms of loading; a track's end is `not_playing` and a
+  paused /status for 250-350 ms before the next one (autoplay never lets a
+  context end).
+- POST /player/stop ends the session (`inactive`, /status 204) and the phone
+  lets go: the idle timeout's REQUEST_END. A phone picking another output says
+  the same.
+- A killed daemon says nothing; its session ends when its process does (the
+  base's pidfd watch).
+
+Commands go through POST /player/<cmd>; no routes.py.
 """
 import asyncio
 from backend.core.models.ws_events import SourceErrorReason
@@ -19,20 +32,58 @@ import os
 import re
 import time
 import yaml
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 
 import aiofiles
 import aiohttp
 from pydantic import BaseModel
 
-from backend.core.audio_source import BaseAudioSource
+from backend.core.audio_source import BaseAudioSource, Result
 from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.session import (
+    CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
+    Session,
+)
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.spotify.models import SeekParams, NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 from backend.shared.journalctl import follow_unit
+
+# A position further than this from the aged one is a jump (a seek), which the
+# clients' interpolation cannot guess: it goes out on the position axis.
+POSITION_JUMP_TOLERANCE_MS = 2000
+
+
+@dataclass(frozen=True)
+class LibrespotStatus:
+    """What GET /status said: whose session it is, and where it stands."""
+    account: Optional[str]
+    track: Optional[Dict[str, Any]]
+    paused: bool
+    buffering: bool
+
+
+class _Unreadable:
+    """/status could not be read: nothing was learned."""
+
+
+UNREADABLE = _Unreadable()
+
+
+@dataclass(eq=False)
+class SpotifySession(Session):
+    """One Connect session: the track on screen and where its playhead was.
+
+    `position_at` is the loop time `position_ms` was read at while the track
+    plays; None freezes it (paused, loading).
+    """
+    track: Dict[str, Any] = field(default_factory=dict)
+    uri: Optional[str] = None
+    position_ms: int = 0
+    position_at: Optional[float] = None
 
 
 class SpotifySource(BaseAudioSource):
@@ -45,6 +96,14 @@ class SpotifySource(BaseAudioSource):
     """
 
     NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
+
+    IDLE_POLICY = IdlePolicy.REQUEST_END
+    # go-librespot reopens its output in place (POST /player/output): a
+    # multiroom toggle moves the writer and keeps the session.
+    REROUTE = ReroutePolicy.KEEP_SESSION
+    # Milō cannot start a Connect session: nothing is kept.
+    RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
+    SESSION_DAEMON = True
 
     # The one go-librespot config key Milō owns. Every other key in config.yml
     # (device_name, zeroconf_backend, server, external_volume) is written once
@@ -65,7 +124,7 @@ class SpotifySource(BaseAudioSource):
     # into the next one in about two seconds.
     RELEASE_DEVICE = "null"
 
-    # How long to wait before re-reading /status after a failed refresh. Short
+    # How long to wait before re-reading /status after a failed read. Short
     # enough that a transient blip doesn't leave a visibly stale screen, long
     # enough to clear a daemon restart's unreachable window.
     STATUS_RETRY_DELAY = 2.0
@@ -92,19 +151,10 @@ class SpotifySource(BaseAudioSource):
         self._api_url: Optional[str] = None
         self._ws_url: Optional[str] = None
 
-        self._session: Optional[aiohttp.ClientSession] = None
-
+        self._http: Optional[aiohttp.ClientSession] = None
         self._ws_client: Optional[LibrespotWebSocket] = None
 
-        # State
-        self._metadata: Dict[str, Any] = {}
-        self._is_playing = False
-        self._device_connected = False
-        self._status_retry_pending = False
-
-        # Auto-stop (uses BaseAudioSource timer infrastructure)
         self.auto_stop_enabled = True
-        self.auto_stop_delay = 10.0
 
         # Multiroom reroute: whether the release went through /player/output
         # (session kept) or fell back to a full stop, and what to restore.
@@ -115,10 +165,6 @@ class SpotifySource(BaseAudioSource):
         self._log_monitor_task: Optional[asyncio.Task] = None
         self._connection_error_count = 0
         self._last_error_time = 0.0
-
-    def _reset_playback_state(self) -> None:
-        super()._reset_playback_state()
-        self._device_connected = False
 
     async def _do_start(self) -> bool:
         """Start go-librespot service and WebSocket."""
@@ -135,37 +181,31 @@ class SpotifySource(BaseAudioSource):
             if not await self._start_service():
                 return False
 
-            # 3. Reset state
-            self._reset_playback_state()
-            self._cancel_pause_timer()
-
-            # 4. Create HTTP session. Bounded per-request timeout so an
-            # unresponsive daemon can't block /player/stop or the startup poll.
-            # The WS connect passes its own timeout, so the long-lived /events
-            # stream is unaffected.
-            self._session = aiohttp.ClientSession(
+            # 3. HTTP session. Bounded per-request timeout so an unresponsive
+            # daemon can't block /player/stop or the startup poll. The WS
+            # connect passes its own timeout, so the long-lived /events stream
+            # is unaffected.
+            self._http = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=3.0)
             )
 
-            # 5. Wait until the daemon's API is reachable before connecting.
+            # 4. Wait until the daemon's API is reachable before connecting.
             # Not fatal — the WS loop reconnects on its own — but the source is
-            # about to report ACTIVE over a daemon that never answered, so the
-            # timeout has to leave a trace at banner level. _wait_for_playback_ready
-            # only warns.
+            # about to report itself started over a daemon that never answered,
+            # so the timeout has to leave a trace at banner level.
+            # _wait_for_playback_ready only warns.
             if not await self._wait_for_playback_ready():
                 self._logger.error(
                     "go-librespot never answered; starting anyway — playback may not work"
                 )
 
-            # 6. Start WebSocket
+            # 5. /events: every (re)connection and every event is posted.
             await self._start_websocket()
 
-            # 7. Start log monitor for error detection
+            # 6. Start log monitor for error detection
             self._start_log_monitor()
 
-            # 8. Update state
             self._update_connection_state()
-
             return True
 
         except Exception as e:
@@ -174,7 +214,7 @@ class SpotifySource(BaseAudioSource):
             return False
 
     async def _do_stop(self) -> bool:
-        """Stop Spotify gracefully, then stop the service.
+        """End the session, stop Spotify gracefully, then stop the service.
 
         POST /player/stop first to disconnect the Connect session and release
         the ALSA Loopback in-process, so the next source can grab it without
@@ -184,6 +224,7 @@ class SpotifySource(BaseAudioSource):
 
         A /player/stop failure must NOT block the service stop — log + continue.
         """
+        await self.end_session(EndReason.SOURCE_SWITCH)
         result = await self._send_api_command("stop")
         if not result.get("success"):
             self._logger.warning(
@@ -193,18 +234,13 @@ class SpotifySource(BaseAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    async def _on_auto_stop(self) -> None:
-        """Auto-stop after the pause delay (Spotify stays the selected source).
-
-        End the idle Connect session via POST /player/stop instead of bouncing
-        the process: the daemon stays alive and advertised for an instant
-        reconnect, while the resulting `inactive` WS event drives Spotify back
-        to READY — behaviorally equal to the old post-restart state, minus the
-        SIGTERM bounce.
-        """
+    async def _request_end(self, session: Session) -> bool:
+        """REQUEST_END: POST /player/stop. The `inactive` that follows (3 ms,
+        measured) ends the session through reconcile()."""
         result = await self._send_api_command("stop")
         if not result.get("success"):
-            self._logger.warning(f"Auto-stop /player/stop failed: {result.get('error')}")
+            self._logger.warning(f"Asking go-librespot to end the session failed: {result.get('error')}")
+        return bool(result.get("success"))
 
     # === Multiroom reroute ===
 
@@ -218,28 +254,33 @@ class SpotifySource(BaseAudioSource):
 
         Pause first, and wait for the daemon to confirm it: RELEASE_DEVICE does
         not rate-limit, so an unpaused switch races through the rest of the
-        track. Any step that does not answer falls back to the base stop(): a
+        track. Any step that does not answer falls back to a full stop: a
         source still holding the loopback would block snapclient, which is the
         one outcome worse than a dropped session.
+
+        The pause's own `paused` event waits in the mailbox the reroute holds,
+        and is read against /status after the reacquire's resume (E09: it used
+        to publish "paused" over the reroute and arm the auto-stop).
         """
         self._soft_reroute = False
         self._reroute_was_playing = False
 
-        if not self._session or not self._api_url:
-            return await super()._do_release()
+        if not self._http or not self._api_url:
+            return await self._release_by_stopping()
 
-        # Ground truth before pausing rather than the cached flag: a stale
-        # _is_playing=False (WS dropped mid-playback) would skip the pause and
-        # hand a live stream to a sink that does not rate-limit.
-        if not await self.refresh_metadata():
+        # Ground truth before pausing rather than the session's phase: a stale
+        # phase (a WS that dropped mid-playback) would skip the pause and hand
+        # a live stream to a sink that does not rate-limit.
+        status = await self._read_status()
+        if status is UNREADABLE:
             self._logger.warning("Reroute: daemon unreachable, falling back to a full stop")
-            return await super()._do_release()
+            return await self._release_by_stopping()
 
-        self._reroute_was_playing = self._is_playing
+        self._reroute_was_playing = status is not None and not status.paused
 
         if self._reroute_was_playing and not await self._pause_and_confirm():
             self._logger.warning("Reroute: pause unconfirmed, falling back to a full stop")
-            return await super()._do_release()
+            return await self._release_by_stopping()
 
         result = await self._send_api_command("output", {"device": self.RELEASE_DEVICE})
         if not result.get("success"):
@@ -247,21 +288,28 @@ class SpotifySource(BaseAudioSource):
                 f"Reroute: releasing the output failed ({result.get('error')}), "
                 "falling back to a full stop"
             )
-            return await super()._do_release()
+            return await self._release_by_stopping()
 
         self._soft_reroute = True
         self._logger.info("Reroute: output parked, Connect session kept")
         return True
+
+    async def _release_by_stopping(self) -> bool:
+        await self.end_session(EndReason.REROUTE)
+        return await self._run_stop()
 
     async def _do_acquire(self) -> bool:
         """Reopen the output on the device the new MILO_MODE selects.
 
         The device name is explicit rather than the `milo_spotify` alias: that
         alias resolves MILO_MODE from the daemon's own environment, frozen when
-        it started, so with no restart it would still name the old mode.
+        it started, so with no restart it would still name the old mode — which
+        is also why a reopen that fails restarts the daemon (E08): a start is a
+        no-op on a unit already running, and the daemon would go on writing to
+        `null`, every later session silent.
 
-        _apply_transition left the source in STARTING and nothing else clears it
-        without the usual start(), hence the final state emission here.
+        The reroute left the source in STARTING and nothing else clears it
+        without the usual start(), hence the unconditional publish.
         """
         if not self._soft_reroute:
             return await super()._do_acquire()
@@ -273,16 +321,26 @@ class SpotifySource(BaseAudioSource):
         if not result.get("success"):
             self._logger.warning(
                 f"Reroute: reopening on {device} failed ({result.get('error')}), "
-                "restarting the source"
+                "restarting go-librespot"
             )
-            return await super()._do_acquire()
+            await self.end_session(EndReason.REROUTE)
+            await self._do_stop()
+            return await self._run_start()
 
+        resumed = False
         if self._reroute_was_playing:
-            resumed = await self._send_api_command("resume")
-            if not resumed.get("success"):
-                self._logger.warning(f"Reroute: resume failed: {resumed.get('error')}")
+            answer = await self._send_api_command("resume")
+            resumed = bool(answer.get("success"))
+            if not resumed:
+                self._logger.warning(f"Reroute: resume failed: {answer.get('error')}")
 
-        await self.refresh_metadata()
+        # After a resume the session keeps the phase it had: /status lags the
+        # command (why the release confirms its pause), and read now it could
+        # still say paused. The `playing` it answers with is read in turn.
+        if not resumed:
+            status = await self._read_status()
+            if status is not UNREADABLE:
+                await self._apply_status(status)
         self._update_connection_state()
         self._logger.info(f"Reroute: output reopened on {device}")
         return True
@@ -308,9 +366,10 @@ class SpotifySource(BaseAudioSource):
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if not await self.refresh_metadata():
+            status = await self._read_status()
+            if status is UNREADABLE:
                 return False
-            if not self._is_playing:
+            if status is None or status.paused:
                 return True
             await asyncio.sleep(interval)
 
@@ -327,11 +386,12 @@ class SpotifySource(BaseAudioSource):
         "next": NextPrevParams,
         "prev": NextPrevParams,
     }
+    COMMAND_SCOPES = {name: CommandScope.SESSION for name in COMMANDS}
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
         if cmd == "seek":
-            duration = self._metadata.get("duration", 0)
+            duration = self._session.track.get("duration") or 0
             if duration > 0 and params.position_ms > duration:
                 return self.error_response(
                     f"position_ms ({params.position_ms}) exceeds duration ({duration}ms)"
@@ -446,8 +506,7 @@ class SpotifySource(BaseAudioSource):
         The value always reaches config.yml, so it is live at the next daemon
         start whatever happens here. `apply_now` additionally restarts the unit
         — what the settings page's "restart to apply" button asks for, and the
-        only way to change crossfade on a running daemon. The restart is
-        absorbed by the existing WS retry loop + _reconcile_on_connect.
+        only way to change crossfade on a running daemon.
 
         A stopped daemon is left stopped: `systemctl restart` on an inactive
         unit STARTS it, which would raise a Spotify Connect speaker named after
@@ -462,198 +521,146 @@ class SpotifySource(BaseAudioSource):
         if not apply_now:
             return True
 
+        return await self._submit(Result(self._restart_for_settings))
+
+    async def _restart_for_settings(self) -> bool:
+        """The restart itself, in the mailbox: it ends the session it restarts
+        under (the user's own request, not a death)."""
         if not await self._is_service_active():
             self._logger.info("Crossfade stored; go-librespot is stopped, it applies at its next start")
             return True
 
+        if await self.end_session(EndReason.USER_STOP) is not None:
+            self._update_connection_state()
         return await self._restart_service()
 
-    # === WebSocket ===
+    # === /events ===
 
     async def _start_websocket(self) -> None:
         """Start WebSocket connection."""
-        if not self._session or not self._ws_url:
+        if not self._http or not self._ws_url:
             return
 
         self._ws_client = LibrespotWebSocket(
             ws_url=self._ws_url,
-            session=self._session,
-            on_event=self._handle_ws_event,
-            on_connect=self._reconcile_on_connect
+            session=self._http,
+            on_event=self._on_librespot_event,
+            on_connect=self._on_events_connected,
         )
         await self._ws_client.start()
 
-    async def _handle_ws_event(self, event: Dict[str, Any]) -> None:
-        """Handle WebSocket event from go-librespot.
+    async def _on_librespot_event(self, event: Dict[str, Any]) -> None:
+        """The /events callback: it runs on the client's task, so it posts.
 
         go-librespot sends flat events (fields at root level, no "data" wrapper):
         {"type": "seek", "position": 12345, "uri": "spotify:track:..."}
         """
-        event_type = event.get("type")
+        self._post_feed(event)
 
-        if event_type == "active":
-            await self._on_device_active()
+    async def _on_events_connected(self) -> None:
+        """Every (re)connection of /events: go-librespot emits events only on
+        change, so an idle daemon after a restart would say nothing on its own."""
+        self._post_feed({"type": "connected"})
 
-        elif event_type == "inactive":
-            await self._on_device_inactive()
+    async def _handle_feed(self, events) -> None:
+        """A burst of /events: one /status read, one reconcile, one publish.
 
-        elif event_type == "playing":
-            await self._on_playback_state(True)
-
-        elif event_type == "paused":
-            await self._on_playback_state(False)
-
-        elif event_type == "metadata":
-            await self._on_metadata_update()
-
-        elif event_type == "seek":
-            await self._on_seek()
-
-        elif event_type == "stopped":
-            await self._on_stopped()
-
-        elif event_type == "not_playing":
-            await self._on_not_playing()
-
-    async def _publish_after_refresh(self, context: str, **overrides: Any) -> None:
-        """Re-read go-librespot's /status, then publish what it reported.
-
-        The event handlers below optimistically set _device_connected before
-        calling this, because a go-librespot event *is* a session. But a failed
-        refresh (daemon unreachable, non-200) means we learned nothing:
-        publishing anyway announces ACTIVE carrying whatever stale — or empty —
-        metadata we happen to hold, which is how the screen ends up claiming
-        "ready" over audible playback. So on failure, keep the last published
-        state, broadcast nothing, and re-read once shortly after.
-
-        `overrides` are the fields the event carries and /status does not (the
-        buffering edge on a track change).
+        `inactive` needs no read — it is the daemon saying the session is over,
+        and /status could fail right after it. Anything else sends Milō to look.
         """
-        if not await self.refresh_metadata():
-            self._logger.warning(
-                f"{context}: go-librespot status unavailable — keeping last published state"
-            )
-            self._schedule_status_retry()
+        if self._http is None:
             return
-
-        self._metadata.update(overrides)
-
-        # A session whose track carries no name: nothing to render, so publish
-        # the idle state rather than an ACTIVE the UI cannot draw.
-        if self._device_connected and not self._metadata.get("title"):
-            self._logger.warning(
-                f"{context}: go-librespot reports a session with no track title — "
-                f"publishing READY"
-            )
-            self._device_connected = False
-
-        self._update_connection_state()
-
-    def _schedule_status_retry(self) -> None:
-        """Re-read /status once, shortly, after a failed refresh.
-
-        go-librespot emits an event only on change, so it will not re-announce
-        the one we just failed to read: without this the source stays on the
-        previous state until the next user action. Coalesced — a burst of failing
-        events schedules one retry, not one each.
-        """
-        if self._status_retry_pending:
+        gone = False
+        for event in events:
+            kind = event.get("type")
+            if kind == "inactive":
+                gone = True
+            elif kind in ("active", "connected"):
+                gone = False
+        status = None if gone else await self._read_status()
+        if status is UNREADABLE:
+            self._logger.warning("go-librespot status unavailable — keeping the session as it stands")
+            if not self._timer_armed("status"):
+                self._arm_timer("status", self.STATUS_RETRY_DELAY)
             return
-        self._status_retry_pending = True
-        self._bg.spawn(self._retry_status(), label="status_retry")
+        await self._apply_status(status)
+        self._publish_changes()
 
-    async def _retry_status(self) -> None:
-        """The delayed half of _schedule_status_retry (drained by stop())."""
-        try:
-            await asyncio.sleep(self.STATUS_RETRY_DELAY)
-            if await self.refresh_metadata():
-                self._update_connection_state()
-            else:
-                self._logger.warning(
-                    "go-librespot status still unavailable after retry — "
-                    "leaving the source on its last published state"
-                )
-        finally:
-            self._status_retry_pending = False
+    async def _on_timer(self, name: str, token: object) -> None:
+        """The one re-read after a failed one. go-librespot emits an event only
+        on change, so it will not re-announce what could not be read."""
+        if name != "status" or self._http is None:
+            return
+        status = await self._read_status()
+        if status is UNREADABLE:
+            self._logger.warning(
+                "go-librespot status still unavailable after retry — "
+                "leaving the session as it stands"
+            )
+            return
+        await self._apply_status(status)
+        self._publish_changes()
 
-    async def _on_device_active(self) -> None:
-        """Handle device active event."""
-        self._device_connected = True
-        await self._publish_after_refresh("device active")
+    async def _apply_status(self, status: Optional[LibrespotStatus]) -> None:
+        """Make the session match what /status said.
 
-    async def _on_device_inactive(self) -> None:
-        """Handle device inactive event."""
-        self._cancel_pause_timer()
-        self._device_connected = False
-        self._is_playing = False
-        self._metadata = {}
-        self._update_connection_state()
-
-    async def _on_playback_state(self, is_playing: bool) -> None:
-        """Handle playback state change."""
-        self._is_playing = is_playing
-        self._device_connected = True
-
-        if is_playing:
-            self._cancel_pause_timer()
-        else:
-            self._start_pause_timer()
-
-        await self._publish_after_refresh(
-            "playback state", is_playing=is_playing, is_buffering=False
-        )
-
-    async def _on_metadata_update(self) -> None:
-        """Handle metadata update event.
-
-        Set is_buffering=true so the frontend shows a spinner while the new
-        track loads.  Cleared when the 'playing' event arrives.
+        A session opens at its first displayable track (E14): go-librespot
+        reports a session before it knows the track, and a phone that picked
+        the speaker without playing has nothing to draw.
         """
-        await self._publish_after_refresh("metadata update", is_buffering=True)
+        if status is None:
+            await self.reconcile(None)
+            return
+        titled = bool(status.track and status.track.get("name"))
+        if not titled:
+            session = self._session
+            if session is None:
+                return
+            if None not in (session.sender, status.account) and session.sender != status.account:
+                # Another account took the speaker and names no track yet: the
+                # session on screen is over, the new one opens at its track.
+                await self.reconcile(None)
+                return
+        session = await self.reconcile(DaemonSnapshot(status.account, self._phase_of(status)))
+        if not isinstance(session, SpotifySession):
+            return
+        if status.track:
+            content = self.transform_track_metadata(status.track)
+            position = content.pop("position") or 0
+            uri = status.track.get("uri")
+            if uri == session.uri and abs(position - self._position_of(session)) > POSITION_JUMP_TOLERANCE_MS:
+                self.broadcast_position_update(position, content.get("duration") or 0)
+            session.track, session.uri, session.position_ms = content, uri, position
+        self._sync_clock(session)
 
-    async def _on_seek(self) -> None:
-        """Handle seek event."""
-        await self._publish_after_refresh("seek")
+    @staticmethod
+    def _phase_of(status: LibrespotStatus) -> Phase:
+        if status.buffering:
+            return Phase.LOADING
+        if status.paused or not status.track:
+            return Phase.PAUSED
+        return Phase.PLAYING
 
-    async def _on_stopped(self) -> None:
-        """Handle stopped event - context ended, nothing more to play."""
-        self._logger.info("Playback stopped - context ended")
-        self._is_playing = False
-        self._metadata["is_buffering"] = False
-        self._start_pause_timer()
-        self._update_connection_state()
+    def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
+        return SpotifySession(phase=snapshot.phase, sender=snapshot.sender)
 
-    async def _on_not_playing(self) -> None:
-        """Handle not_playing event - track finished naturally."""
-        self._logger.debug("Track finished playing")
-        self._is_playing = False
-        self._metadata["is_buffering"] = False
-        self._start_pause_timer()
-        self._update_connection_state()
+    # === Position ===
 
-    async def _reconcile_on_connect(self) -> None:
-        """Reconcile state with go-librespot on every WS (re)connection.
+    def _now(self) -> float:
+        return asyncio.get_running_loop().time()
 
-        go-librespot emits events only on change, so after an un-commanded WS
-        drop (daemon crash + systemd restart, transient blip) the daemon can be
-        back idle with no session while Milō still shows the last track. Pull
-        ground truth from GET /status: a live session refreshes metadata (also
-        heals any events missed during the gap); an idle daemon — or an
-        unreachable one (API not yet up after a restart, so state is unknown) —
-        resets the source to READY rather than re-affirming a stale track. The
-        WS loop retries every 2s, so a too-early reconcile self-corrects. The
-        normal source-switch / auto-stop paths already manage state — this only
-        catches the un-commanded case.
-        """
-        refreshed = await self.refresh_metadata()
-        if not refreshed or not self._device_connected:
-            # No session, or state unknown: drop any stale pause timer (so a
-            # leftover auto-stop can't later fire /player/stop on a fresh
-            # session) and clear the ghost metadata before re-broadcasting.
-            self._cancel_pause_timer()
-            self._device_connected = False
-            self._metadata = {}
-        self._update_connection_state()
+    def _position_of(self, session: SpotifySession) -> int:
+        """The last position read, aged by the time it has played since."""
+        if session.position_at is None:
+            return session.position_ms
+        elapsed = int((self._now() - session.position_at) * 1000)
+        duration = session.track.get("duration") or 0
+        position = session.position_ms + elapsed
+        return min(position, duration) if duration else position
+
+    def _sync_clock(self, session: SpotifySession) -> None:
+        """The playhead ages while the track plays and freezes otherwise."""
+        session.position_at = self._now() if session.phase is Phase.PLAYING else None
 
     # === Metadata ===
 
@@ -687,7 +694,7 @@ class SpotifySource(BaseAudioSource):
         startup path actually needs. Falls back to proceeding after the cap so a
         slow/unreachable daemon can't wedge startup (the WS loop reconnects).
         """
-        if not self._session or not self._api_url:
+        if not self._http or not self._api_url:
             return False
 
         deadline = time.monotonic() + timeout
@@ -697,7 +704,7 @@ class SpotifySource(BaseAudioSource):
                 aiohttp.ClientOSError,
                 asyncio.TimeoutError,
             ):
-                async with self._session.get(f"{self._api_url}/") as resp:
+                async with self._http.get(f"{self._api_url}/") as resp:
                     if resp.status == 200:
                         ready = (await resp.json()).get("playback_ready")
                         self._logger.info(
@@ -711,35 +718,44 @@ class SpotifySource(BaseAudioSource):
         )
         return False
 
-    async def refresh_metadata(self) -> bool:
-        """Refresh metadata from go-librespot API."""
-        if not self._session or not self._api_url:
-            return False
+    async def _read_status(self) -> Union[LibrespotStatus, None, _Unreadable]:
+        """GET /status: a session, None (204: no phone holds the speaker), or
+        UNREADABLE — the one failure rule (E10): a read that failed learned
+        nothing, and nothing is changed on it."""
+        if not self._http or not self._api_url:
+            return UNREADABLE
 
         try:
-            async with self._session.get(f"{self._api_url}/status") as resp:
+            async with self._http.get(f"{self._api_url}/status") as resp:
+                if resp.status == 204:
+                    return None
                 if resp.status != 200:
-                    return False
-
+                    return UNREADABLE
                 data = await resp.json()
-
-                self._device_connected = bool(data.get("track"))
-                self._is_playing = not data.get("paused", True)
-
-                if data.get("track"):
-                    self._metadata = self.transform_track_metadata(data["track"])
-                    self._metadata["is_playing"] = self._is_playing
-                else:
-                    self._metadata = {}
-
-                return True
-
-        except (aiohttp.ClientConnectorError, aiohttp.ClientOSError):
-            self._logger.debug("Metadata refresh skipped: go-librespot not reachable")
-            return False
+        except (aiohttp.ClientConnectorError, aiohttp.ClientOSError, asyncio.TimeoutError):
+            self._logger.debug("Status read skipped: go-librespot not reachable")
+            return UNREADABLE
         except Exception as e:
-            self._logger.error(f"Metadata refresh failed: {e}")
+            self._logger.error(f"Status read failed: {e}")
+            return UNREADABLE
+
+        return LibrespotStatus(
+            account=data.get("username"),
+            track=data.get("track"),
+            paused=bool(data.get("paused", True)),
+            buffering=bool(data.get("buffering", False)),
+        )
+
+    async def refresh_metadata(self) -> bool:
+        """A state request (GET /api/audio/state): read /status, follow it, and
+        hand the state machine the current record, playhead included."""
+        status = await self._read_status()
+        if status is UNREADABLE:
             return False
+        await self._apply_status(status)
+        if not self._publish_changes():
+            self._metadata = self._compose(*self._connection_state())[1]
+        return True
 
     async def _send_api_command(
         self,
@@ -747,11 +763,11 @@ class SpotifySource(BaseAudioSource):
         payload: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Send command to go-librespot API."""
-        if not self._session or not self._api_url:
+        if not self._http or not self._api_url:
             return self.error_response("Session not active")
 
         try:
-            async with self._session.post(
+            async with self._http.post(
                 f"{self._api_url}/player/{command}",
                 json=payload or {}
             ) as resp:
@@ -855,24 +871,32 @@ class SpotifySource(BaseAudioSource):
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
-        self._cancel_pause_timer()
+        self._disarm_timer("status")
         self._stop_log_monitor()
 
         if self._ws_client:
             await self._ws_client.stop()
             self._ws_client = None
 
-        if self._session:
-            await self._session.close()
-            self._session = None
+        if self._http:
+            await self._http.close()
+            self._http = None
 
-        self._reset_playback_state()
+        # What /events posted and nobody handled belongs to this daemon run.
+        self._discard_feed()
 
     def _update_connection_state(self) -> None:
-        """Update state based on device connection."""
+        """Publish the session (or its absence)."""
         self.emit_connection_state(*self._connection_state())
 
     def _connection_state(self):
-        core, extras = PlaybackMetadata.split(self._metadata)
-        core.is_playing = self._is_playing
-        return self._device_connected, core, extras
+        session = self._session
+        if not isinstance(session, SpotifySession):
+            return False, None, None
+        core = PlaybackMetadata(
+            **session.track,
+            is_playing=session.phase is Phase.PLAYING,
+            is_buffering=session.phase is Phase.LOADING,
+        )
+        core.position = self._position_of(session)
+        return True, core, None

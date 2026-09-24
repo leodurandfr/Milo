@@ -67,32 +67,6 @@
     }
    },
    {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
     "category": "system",
     "type": "transition_start",
     "origin": "system",
@@ -134,7 +108,10 @@
     "active_source": "spotify",
     "source_state": "ready",
     "transitioning": false,
-    "metadata": {},
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
     "error": null,
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false,
@@ -215,32 +192,6 @@
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
@@ -259,44 +210,6 @@
       "metadata": {
        "is_playing": false,
        "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
        "title": "Breathe",
        "artist": "Telepopmusik, Angela McCluskey",
        "album": "Genetic World",
@@ -351,78 +264,22 @@
    },
    {
     "category": "source",
-    "type": "state_changed",
+    "type": "position_update",
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 61000,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 61000,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
+     "position": 61000,
+     "duration": 275000
     }
    },
    {
     "category": "source",
-    "type": "state_changed",
+    "type": "position_update",
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 120000,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 120000,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
+     "position": 120000,
+     "duration": 275000
     }
    },
    {
@@ -468,13 +325,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 0,
-     "is_playing": true
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -486,13 +344,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 120000,
-     "is_playing": true
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -574,32 +433,6 @@
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
@@ -618,44 +451,6 @@
       "metadata": {
        "is_playing": false,
        "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
        "title": "Breathe",
        "artist": "Telepopmusik, Angela McCluskey",
        "album": "Genetic World",
@@ -706,6 +501,16 @@
       "equalizer_effects_enabled": false,
       "network_unavailable": null
      }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position_update",
+    "origin": "spotify",
+    "data": {
+     "source": "spotify",
+     "position": 30000,
+     "duration": 275000
     }
    },
    {
@@ -903,13 +708,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 30000,
-     "is_playing": false
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -921,13 +727,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 30000,
-     "is_playing": true
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -1009,32 +816,6 @@
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
@@ -1053,44 +834,6 @@
       "metadata": {
        "is_playing": false,
        "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
        "title": "Breathe",
        "artist": "Telepopmusik, Angela McCluskey",
        "album": "Genetic World",
@@ -1145,40 +888,12 @@
    },
    {
     "category": "source",
-    "type": "state_changed",
+    "type": "position_update",
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
+     "position": 275000,
+     "duration": 275000
     }
    },
    {
@@ -1190,7 +905,7 @@
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": true,
+      "is_buffering": false,
       "title": "Holocene",
       "artist": "Bon Iver",
       "album": "Bon Iver",
@@ -1204,7 +919,7 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": true,
+       "is_buffering": false,
        "title": "Holocene",
        "artist": "Bon Iver",
        "album": "Bon Iver",
@@ -1266,7 +981,7 @@
      "new_state": "active",
      "metadata": {
       "is_playing": false,
-      "is_buffering": true,
+      "is_buffering": false,
       "title": "Breathe",
       "artist": "Telepopmusik, Angela McCluskey",
       "album": "Genetic World",
@@ -1280,7 +995,7 @@
       "transitioning": false,
       "metadata": {
        "is_playing": false,
-       "is_buffering": true,
+       "is_buffering": false,
        "title": "Breathe",
        "artist": "Telepopmusik, Angela McCluskey",
        "album": "Genetic World",
@@ -1376,13 +1091,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
      "title": "Holocene",
      "artist": "Bon Iver",
      "album": "Bon Iver",
      "album_art_url": "https://i.scdn.co/image/holocene",
-     "duration": 337000,
      "position": 0,
-     "is_playing": false
+     "duration": 337000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -1394,13 +1110,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 0,
-     "is_playing": true
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -1482,32 +1199,6 @@
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
@@ -1526,44 +1217,6 @@
       "metadata": {
        "is_playing": false,
        "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
        "title": "Breathe",
        "artist": "Telepopmusik, Angela McCluskey",
        "album": "Genetic World",
@@ -1723,13 +1376,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": false,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 0,
-     "is_playing": false
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -1740,7 +1394,10 @@
     "active_source": "spotify",
     "source_state": "ready",
     "transitioning": false,
-    "metadata": {},
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
     "error": null,
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false,
@@ -1821,146 +1478,6 @@
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
@@ -2061,7 +1578,10 @@
     "active_source": "spotify",
     "source_state": "ready",
     "transitioning": false,
-    "metadata": {},
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
     "error": null,
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false,
@@ -2142,32 +1662,6 @@
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "ready",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": false
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "ready",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": false
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
      "new_state": "active",
      "metadata": {
       "is_playing": false,
@@ -2186,44 +1680,6 @@
       "metadata": {
        "is_playing": false,
        "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 0,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state_changed",
-    "origin": "spotify",
-    "data": {
-     "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": false,
-      "is_buffering": true,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 0,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": false,
-       "is_buffering": true,
        "title": "Breathe",
        "artist": "Telepopmusik, Angela McCluskey",
        "album": "Genetic World",
@@ -2278,40 +1734,12 @@
    },
    {
     "category": "source",
-    "type": "state_changed",
+    "type": "position_update",
     "origin": "spotify",
     "data": {
      "source": "spotify",
-     "new_state": "active",
-     "metadata": {
-      "is_playing": true,
-      "is_buffering": false,
-      "title": "Breathe",
-      "artist": "Telepopmusik, Angela McCluskey",
-      "album": "Genetic World",
-      "album_art_url": "https://i.scdn.co/image/breathe",
-      "position": 90000,
-      "duration": 275000
-     },
-     "full_state": {
-      "active_source": "spotify",
-      "source_state": "active",
-      "transitioning": false,
-      "metadata": {
-       "is_playing": true,
-       "is_buffering": false,
-       "title": "Breathe",
-       "artist": "Telepopmusik, Angela McCluskey",
-       "album": "Genetic World",
-       "album_art_url": "https://i.scdn.co/image/breathe",
-       "position": 90000,
-       "duration": 275000
-      },
-      "error": null,
-      "multiroom_enabled": false,
-      "equalizer_effects_enabled": false,
-      "network_unavailable": null
-     }
+     "position": 90000,
+     "duration": 275000
     }
    },
    {
@@ -2383,13 +1811,14 @@
     "source_state": "active",
     "transitioning": false,
     "metadata": {
+     "is_playing": true,
+     "is_buffering": false,
      "title": "Breathe",
      "artist": "Telepopmusik, Angela McCluskey",
      "album": "Genetic World",
      "album_art_url": "https://i.scdn.co/image/breathe",
-     "duration": 275000,
      "position": 90000,
-     "is_playing": true
+     "duration": 275000
     },
     "error": null,
     "multiroom_enabled": false,
@@ -2400,7 +1829,10 @@
     "active_source": "spotify",
     "source_state": "ready",
     "transitioning": false,
-    "metadata": {},
+    "metadata": {
+     "is_playing": false,
+     "is_buffering": false
+    },
     "error": null,
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false,
