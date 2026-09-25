@@ -56,35 +56,31 @@ const albums = computed(() => artist.value?.album || []);
 // getArtist carries no biography and Milō queries nothing else for one, so
 // everything the header shows is derived from the albums already on screen.
 
-// Navidrome tags genres per album, never per artist — so the artist's are the
-// ones their albums carry, most frequent first (ties keep album order), capped
-// at three: they open the meta line, and a discography's long tail of tags
-// would push the counts off it.
-const genres = computed(() => {
+// Navidrome tags genres per album, never per artist — so the artist's is the
+// one their albums carry most often (ties keep album order).
+const genre = computed(() => {
   const counts = new Map();
   for (const album of albums.value) {
-    for (const genre of album.genres || []) {
-      if (genre?.name) counts.set(genre.name, (counts.get(genre.name) || 0) + 1);
+    for (const tag of album.genres || []) {
+      if (tag?.name) counts.set(tag.name, (counts.get(tag.name) || 0) + 1);
     }
   }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([name]) => name)
-    .join(' · ');
+  let best = '';
+  for (const [name, count] of counts) {
+    if (!best || count > counts.get(best)) best = name;
+  }
+  return best;
 });
 
 const subtitleMeta = computed(() => {
   const list = albums.value;
   if (!list.length) return '';
   const parts = [];
-  if (genres.value) parts.push(genres.value);
+  if (genre.value) parts.push(genre.value);
   // Counted from the albums this page shows, not artist.albumCount: that one is
   // Navidrome's answer across every library, including storage spaces that are
   // unmounted or out of the active scope (see the backend's get_artist).
   parts.push(t('musicLibrary.albumsCount', { count: list.length }));
-  const tracks = list.reduce((total, album) => total + (album.songCount || 0), 0);
-  if (tracks) parts.push(t('musicLibrary.tracksCount', { count: tracks }));
   const years = list.map((album) => album.year).filter(Boolean);
   if (years.length) {
     const first = Math.min(...years);
