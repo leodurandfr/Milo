@@ -8,7 +8,7 @@
   "_no_tolerance_sections": "`_broken_calls` lived here until 741f8dc1 and held exactly one route — GET /api/settings/dock-apps, which the app targeted and the backend answered 405. It was never a weakened assertion: it was data whose own test failed the moment either side moved, so it could not become a permanent exemption, and it self-deleted the moment Milo-iOS dropped the call. The doctrine outlives the section and is the reason it is recorded here rather than removed with it: NEVER ADD A SECTION OF THIS KIND TO PAPER OVER A MISMATCH. Two have existed and both are gone. `_pending_push` let the manifest lead the published app while a batch of routes was in flight; the batch was cancelled and the tolerance would have outlived its reason. `_broken_calls` was legitimate because it described a defect that already existed and could not be silent — and because its test would fail if the defect were ever fixed, which is what happened. A tolerance that cannot fail on its own is not a contract, it is a comment. The contract is a plain equality: manifest == snapshot, in both directions. If a genuine broken call reappears, restore the section AND the test that proves it is still broken — test_a_tolerance_section_brings_its_test_back fails until you do.",
 
   "_snapshot": {
-    "upstream_commit": "5dfd449f2d561ff812d3093a5d4691bb84082839",
+    "upstream_commit": "fdfed403e22bd64ac7f79dc23304a7e903f2e01e",
     "captured": "2026-09-25",
     "files": ["MiloAPIClient.swift", "MiloAPIClient+Media.swift", "MiloAPIClient+Push.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift"],
     "patterns": ["MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift"],
