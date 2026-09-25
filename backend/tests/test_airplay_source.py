@@ -11,13 +11,11 @@ every state published, the `source/position` events, the artwork route — never
 the source's own fields. The pure parser and the read loop are driven through the real
 `MetadataReader` alone, with an `on_event` collector.
 
-What is being pinned first is the pairing rule. shairport-sync sends a track's
-tags and its cover in two separate SET_PARAMETER requests and stamps both with
-the same rtptime — "if they refer to the same item, they have the same rtptime"
-(rtsp.c) — precisely because neither one follows the other reliably. Take the
-order as the pairing and one of two things breaks: a cover that arrives first
-is thrown away, or a track that sends none at all wears the previous track's
-for its whole duration.
+What is being pinned first is the cover rule, shairport-sync's own
+(metadata/hub.c): the cover is the last picture the sender pushed, until the
+sender withdraws it with an empty one. The rtptime on a picture decides
+nothing — it is where the sender was when it wrote the request, and pairing it
+with the tags' took the playing track's own cover off the screen (E68).
 
 Danger specific to this file: `/tmp/shairport-sync-metadata` is the LIVE pipe's
 path. shairport-sync is stopped whenever the AirPlay source is off, so a test
@@ -42,20 +40,13 @@ from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent, _hex_to_str
 from backend.core.audio_source import POSITION_TOLERANCE_MS
 from backend.sources.airplay.source import ARTWORK_SETTLE_SECONDS
-from backend.tests.airplay_world import MAC, PHONE, AirPlayWorld, Item, ssnc
+from backend.tests.airplay_world import MAC, PHONE, AirPlayWorld, Item, ssnc, withdrawal
 
 LIVE_PIPE = "/tmp/shairport-sync-metadata"
 
 # Two rtptimes, as the sender sends them (the pipe carries them as ASCII decimal).
 RTP_A = 3222108659
 RTP_B = 3222285731
-# The same track, three AirPlay packets later. Measured on an iPhone
-# (2026-09-03): iOS re-stamps every re-sent bundle and its picture with the
-# playback position, which advances by 1056 frames (24 ms) inside one track.
-RTP_A_LATER = RTP_A + 1056
-# The same track, the other way round: a Mac stamped the picture 1408 frames
-# (32 ms) *before* its own track's tags. Measured 2026-09-03.
-RTP_A_EARLIER = RTP_A - 1408
 
 SAMPLE_RATE = 44100
 
@@ -124,6 +115,11 @@ def _picture(rtptime: Optional[int], data: Optional[bytes]) -> List[Item]:
     return [ssnc("pcst", _stamp(rtptime)), ssnc("PICT", data), ssnc("pcen", _stamp(rtptime))]
 
 
+def _frames(ms: float) -> int:
+    """A distance in stamp, from milliseconds to RTP frames."""
+    return int(ms * SAMPLE_RATE / 1000)
+
+
 def _progress(start_s: float, current_s: float, end_s: float) -> Item:
     """`prgr` as rtsp.c writes it: three RTP frame counts separated by slashes."""
     frames = [int(s * SAMPLE_RATE) for s in (start_s, current_s, end_s)]
@@ -158,7 +154,7 @@ async def _on_air(world: AirPlayWorld) -> None:
 
 
 async def _after_the_hold(world: AirPlayWorld) -> None:
-    """Let the artwork hold run out, so what follows is the state it leaves."""
+    """Let a withdrawal's settle run out, so what follows is the state it leaves."""
     await world.advance(ARTWORK_SETTLE_SECONDS + 1)
 
 
@@ -205,8 +201,10 @@ class _Collector:
         return [e.kind for e in self.events]
 
 
-class TestCoverPairing:
-    """Which track the cover on screen belongs to."""
+class TestTheCover:
+    """Which cover is on screen: the last picture the sender pushed, until it
+    withdraws it — shairport-sync's own rule (metadata/hub.c) — with the
+    withdrawal given ARTWORK_SETTLE_SECONDS for its replacement to land."""
 
     async def test_a_track_and_its_cover_are_published_together(self, world):
         """The non-triviality check the rest of this class rests on: a stream
@@ -224,9 +222,9 @@ class TestCoverPairing:
 
     async def test_a_cover_that_arrives_before_its_track_is_kept(self, world):
         """The order is the sender's to choose — two SET_PARAMETER requests,
-        nothing sequencing them. Dropping the cover on the bundle that follows
-        would delete the one that was right. Asserted after the hold, so the
-        cover is on screen because it is paired, not because it is held."""
+        nothing sequencing them — and tags never touch the cover. Asserted
+        after the settle, so the cover is on screen because it is the cover,
+        not because a deadline has yet to run out."""
         await _on_air(world)
 
         await world.send(*_picture(RTP_A, _cover("navy")))
@@ -236,29 +234,37 @@ class TestCoverPairing:
         assert _shown(world.state())["title"] == "Says"
         assert _shown(world.state())["artwork"] is not None
 
-    async def test_a_track_that_sends_no_cover_shows_none(self, world):
-        """The defect this pairing exists for. Plenty of senders push a picture
-        for one track and nothing for the next; the cover left behind is what
-        the full-screen player draws for the whole of it.
-
-        The drop is deferred by ARTWORK_SETTLE_SECONDS, not instant — see
-        `test_the_cover_is_held_while_the_next_one_is_still_in_flight` for what
-        that window is for. What this pins is that the window *ends*: a hold
-        that never expired would be the whole-track-stale-cover bug again."""
+    @pytest.mark.parametrize("offset_ms", [24, -32, -293, -565])
+    async def test_the_playing_tracks_cover_stays_whatever_its_stamp(self, world, offset_ms):
+        """E68. The picture's rtptime is where the sender was when it wrote
+        the request, not which track the picture is for: measured +24 ms on an
+        iPhone, -32 ms on a Mac, and on an iPhone playing Music -293 and -565 ms
+        from the tags of its own track. Paired with the tags by distance
+        (250 ms), the last two lost their cover 8 s into the track, and the
+        untrusted-sender gate took AudioPlayerFull off the screen for the rest
+        of it. Replayed through that gate over every published state, sent the
+        way the iPhone sends it: tags, the withdrawal, the picture 100 ms on."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        before = len(world.published())
 
-        await world.send(*_bundle(RTP_B, "Toilet Brush"))
+        await world.send(*_bundle(RTP_A, "Says"), *withdrawal(RTP_A))
+        await world.advance(0.1)
+        await world.send(*_picture(RTP_A + _frames(offset_ms), _cover("navy")))
         await _after_the_hold(world)
 
         meta = _shown(world.state())
-        assert meta["title"] == "Toilet Brush"
-        assert meta["artwork"] is None
-        assert meta["artwork_width"] is None
+        assert meta["title"] == "Says"
+        assert meta["artwork_width"] == 600, meta
+        published = world.published()[before:]
+        assert _rich(published[-1]), "the run never reached the player"
+        unmounts = [(a, b) for a, b in zip(published, published[1:]) if _rich(a) and not _rich(b)]
+        assert not unmounts, unmounts
 
-    async def test_a_cover_stamped_for_the_previous_track_is_not_adopted(self, world):
-        """The stamp is the whole rule: a picture in hand is not this track's
-        merely because it is the most recent one — once the hold has expired."""
+    async def test_tags_under_another_stamp_leave_the_cover_alone(self, world):
+        """A new track does not clear the cover — not in shairport-sync, and
+        not here: only the sender's withdrawal does. The pairing this replaced
+        asserted the opposite (a picture 23 s of stamp away from the tags was
+        another track's), which no threshold could tell from E68's 565 ms."""
         await _on_air(world)
         await world.send(*_picture(RTP_A, _cover("navy")))
 
@@ -266,156 +272,80 @@ class TestCoverPairing:
         await _after_the_hold(world)
 
         assert _shown(world.state())["title"] == "Toilet Brush"
-        assert _shown(world.state())["artwork"] is None
+        assert _shown(world.state())["artwork_width"] == 600
 
-    async def test_a_cover_stamped_just_after_its_own_tags_is_not_dropped(self, world):
-        """The stamp is a position, not an identity, and iOS proves it.
-
-        An iPhone re-sends its bundle several times inside one track, each under
-        a fresh rtptime, and stamps the picture with one of them — so the
-        picture routinely carries a stamp a few packets *after* the last bundle
-        received, and no later bundle ever comes to meet it. Judged by equality
-        that pairing never completes: the hold expired mid-track and dropped a
-        cover that was this very track's, which the untrusted-sender gate reads
-        as "no real cover" and takes AudioPlayerFull off the screen. Measured
-        live at 11 s on the screen, four times in 95 publishes.
-
-        Asserted after the hold has run out, because before it the pending
-        settle shows the cover for the wrong reason.
-        """
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A_LATER, _cover("navy")))
-
-        await _after_the_hold(world)
-
-        meta = _shown(world.state())
-        assert meta["title"] == "Says"
-        assert meta["artwork"], meta
-        assert meta["artwork_width"] == 600
-
-    async def test_a_cover_stamped_just_before_its_own_tags_is_not_dropped(self, world):
-        """The drift runs both ways, and the second direction is a Mac's.
-
-        Measured on the unit: a macOS sender opened a session stamping the
-        picture 1408 frames — 32 ms — *ahead* of the tags that followed it, and
-        nothing came after to close the gap. Judged by order alone that reads
-        as "the previous track's cover", which is what the deadline is for, so
-        the hold expired on the playing track's own sleeve and the player left
-        the screen. What tells the two apart is distance: a real track change
-        measured no nearer than 535 ms.
-        """
-        await _on_air(world)
-        await world.send(*_picture(RTP_A_EARLIER, _cover("navy")))
-        await world.send(*_bundle(RTP_A, "Says"))
-
-        await _after_the_hold(world)
-
-        meta = _shown(world.state())
-        assert meta["title"] == "Says"
-        assert meta["artwork"], meta
-        assert meta["artwork_width"] == 600
-
-    async def test_a_drifting_sender_never_takes_the_player_off_the_screen(self, world):
-        """The same shape over a run, judged the way the screen judges it.
-
-        Every publish is replayed through `useRichDisplay`'s airplay arm — title
-        AND artist AND a cover over 300 px — and none of them may take it from
-        true back to false. That is the whole defect class: a display field
-        emptied while its replacement is in flight does not correct the piece of
-        UI it feeds, it removes it. Over every published state, not the last:
-        the last one was always right, which is how this survived the fix that
-        named it.
-        """
+    async def test_a_withdrawn_cover_goes_once_the_settle_runs_out(self, world):
+        """The withdrawal is the sender saying "no picture", and it is heard:
+        the cover stays for ARTWORK_SETTLE_SECONDS, in case a picture follows,
+        then goes in exactly one publish. Dropped by the reader, a withdrawal
+        left the cover on screen for as long as the sender stayed."""
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+
+        await world.send(*withdrawal(RTP_A))
+        await world.advance(ARTWORK_SETTLE_SECONDS - 0.5)
+        assert _shown(world.state())["artwork_width"] == 600, "withdrawn at once"
         before = len(world.published())
-        assert _rich(world.published()[-1]), "the run starts from nothing to lose"
+        await world.advance(1)
 
-        # The sender re-sends the same track under a fresh stamp, and its
-        # picture lands a few packets ahead of it — the measured iOS order.
-        await world.send(*_bundle(RTP_A_LATER, "Says"))
-        await world.send(*_picture(RTP_A_LATER + 1056, _cover("navy")))
-        await _after_the_hold(world)
+        meta = _shown(world.state())
+        assert meta["artwork"] is None and meta["artwork_width"] is None
+        assert world.source.get_artwork() is None
+        assert len(world.published()) == before + 1
 
-        # Only what changed is published, so the run's states are the starting
-        # one plus every change; ending rich is what makes "no unmount" count.
-        published = world.published()[before - 1:]
-        assert _rich(world.state()), "the run ended without the player it started with"
-        unmounts = [(a, b) for a, b in zip(published, published[1:]) if _rich(a) and not _rich(b)]
-        assert not unmounts, unmounts
-
-    async def test_two_tracks_off_one_album_keep_their_cover(self, world):
-        """The same image byte for byte, so the source's dedupe short-circuits —
-        but the picture that changed nothing still moved which track the cover
-        belongs to. Recorded after the dedupe, the second track would drop to
-        its glyph on an album that has a cover: asserted after the hold, which
-        would otherwise carry it for 8 s and hide exactly that."""
-        await _on_air(world)
-        sleeve = _cover("navy")
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
-        first = _shown(world.state())["artwork"]
-
-        await world.send(*_bundle(RTP_B, "Says (Live)"))
-        await world.send(*_picture(RTP_B, sleeve))
-        await _after_the_hold(world)
-
-        assert _shown(world.state())["title"] == "Says (Live)"
-        assert _shown(world.state())["artwork"] == first
-
-    async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, world):
-        """A track change must not blank the cover for the millisecond before
-        its own arrives.
-
-        The tags and the picture are two SET_PARAMETER requests in no
-        guaranteed order, so the tags-first order leaves the new stamp
-        unpaired. Publishing that gap sends a state with no `artwork`,
-        and `useRichDisplay`'s untrusted-sender gate reads a missing
-        `artwork_width` as "no real cover from this sender": the frontend
-        swaps AudioPlayerFull for the AudioSourceStatus card and back within
-        ~30 ms, which is visible as the player animating itself out and in.
-        Measured on a macOS sender, on every track change *and* every transport
-        action, since the sender re-sends its bundle under a fresh rtptime.
-
-        The window is what is asserted here; that it expires is asserted by
-        `test_a_track_that_sends_no_cover_shows_none`.
-        """
+    async def test_a_track_that_sends_no_cover_shows_none(self, world):
+        """The defect a cover that outlives its track would be: the full-screen
+        player drawing the previous track's sleeve for the whole of this one.
+        A coverless track is announced by the withdrawal alone, and the settle
+        ends — a hold that never expired would be that bug again."""
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        held = _shown(world.state())["artwork"]
 
-        await world.send(*_bundle(RTP_B, "Toilet Brush"))
+        await world.send(*_bundle(RTP_B, "Toilet Brush"), *withdrawal(RTP_B))
+        await _after_the_hold(world)
 
         meta = _shown(world.state())
         assert meta["title"] == "Toilet Brush"
-        assert meta["artwork"] == held
-        assert meta["artwork_width"] == 600
+        assert meta["artwork"] is None
+        assert meta["artwork_width"] is None
 
-        # And the track's own picture, when it lands, takes the hold's place.
-        await world.send(*_picture(RTP_B, _cover("crimson", size=450)))
+    async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, world):
+        """A track change must not blank the cover for the 89-126 ms between
+        the withdrawal and the picture that follows it (iPhone, measured).
 
-        assert _shown(world.state())["artwork"] != held
-        assert _shown(world.state())["artwork_width"] == 450
-
-    async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, world):
-        """The mirror of the test above, and the same flicker.
-
-        The order is the sender's, so the picture can be the one that arrives
-        first — and then the new stamp is on the cover while the title on
-        screen is still the previous track's. A publish judging on the stamps
-        alone found them unequal and dropped `artwork` from that state,
-        which `useRichDisplay`'s untrusted-sender gate reads as "this sender
-        pushes no real cover": AudioPlayerFull swapped for the AudioSourceStatus
-        card and back, the player animating itself out and in.
-
-        Asserted over every published state, not the last one: the last one was
-        always right, which is why the tags-first fix left this half standing.
-        The two requests are sent apart, so the state between them is published.
+        Publishing that gap sends a state with no `artwork`, and
+        `useRichDisplay`'s untrusted-sender gate reads a missing
+        `artwork_width` as "no real cover from this sender": AudioPlayerFull is
+        swapped for the AudioSourceStatus card and back, which is visible as
+        the player animating itself out and in. Asserted over every published
+        state, and past the settle: the picture disarmed it.
         """
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
         before = len(world.published())
 
+        await world.send(*_bundle(RTP_B, "Toilet Brush"), *withdrawal(RTP_B))
+        await world.advance(0.1)
         await world.send(*_picture(RTP_B, _cover("crimson", size=450)))
+        await _after_the_hold(world)
+
+        published = world.published()[before:]
+        assert published, "the track change published nothing to judge"
+        assert all(_shown(m)["artwork_width"] for m in published), published
+        assert _shown(world.state())["title"] == "Toilet Brush"
+        assert _shown(world.state())["artwork_width"] == 450
+
+    async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, world):
+        """The mirror of the test above: the picture can be the one that
+        arrives first, while the title on screen is still the previous
+        track's. Asserted over every published state, not the last one: the
+        last one was always right, which is how the pairing's version of this
+        flicker survived the fix that named it."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        before = len(world.published())
+
+        await world.send(*withdrawal(RTP_B), *_picture(RTP_B, _cover("crimson", size=450)))
         await world.send(*_bundle(RTP_B, "Toilet Brush"))
 
         published = world.published()[before:]
@@ -424,22 +354,59 @@ class TestCoverPairing:
         assert _shown(world.state())["title"] == "Toilet Brush"
         assert _shown(world.state())["artwork_width"] == 450
 
-    async def test_a_cover_arriving_first_off_one_album_does_not_blank_it_either(self, world):
-        """Same order, through the dedupe: the identical image re-sent under a
-        new stamp takes the early return, which published its own coverless
-        state on the way past."""
+    async def test_two_tracks_off_one_album_keep_their_cover(self, world):
+        """The same image byte for byte, so the dedupe short-circuits — and it
+        must still answer the withdrawal before it, or the album's cover goes
+        8 s into its second track. Asserted after the settle for that reason."""
         await _on_air(world)
         sleeve = _cover("navy")
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
-        before = len(world.published())
+        first = _shown(world.state())["artwork"]
 
+        await world.send(*_bundle(RTP_B, "Says (Live)"), *withdrawal(RTP_B))
+        await world.advance(0.1)
         await world.send(*_picture(RTP_B, sleeve))
-        await world.send(*_bundle(RTP_B, "Says (Live)"))
+        await _after_the_hold(world)
 
-        published = world.published()[before:]
-        assert published, "the track change published nothing to judge"
-        assert all(_shown(m)["artwork_width"] for m in published), published
         assert _shown(world.state())["title"] == "Says (Live)"
+        assert _shown(world.state())["artwork"] == first
+
+    async def test_the_same_image_re_sent_inside_a_track_publishes_nothing(self, world):
+        """An iPhone re-sends its cover, withdrawal first, up to three times
+        inside one track (measured), each under wherever its playhead was by
+        then. None of it changes what is shown, so none of it reaches the wire
+        — not at once, and not when a settle would have run out."""
+        await _on_air(world)
+        sleeve = _cover("navy")
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
+        marker = len(world.recorder.envelopes)
+
+        for seconds_in in (30, 60):
+            await world.advance(30)
+            stamp = RTP_A + seconds_in * SAMPLE_RATE
+            await world.send(*withdrawal(stamp))
+            await world.advance(0.1)
+            await world.send(*_picture(stamp, sleeve))
+        await _after_the_hold(world)
+
+        assert world.recorder.envelopes[marker:] == []
+        assert _shown(world.state())["artwork_width"] == 600
+
+    async def test_a_new_sender_starts_with_no_cover(self, world):
+        """A session owns its cover (E19): only a withdrawal removes one, so a
+        cover kept on the source rather than on the session would stand over
+        the next sender until that sender happened to push its own."""
+        await _on_air(world)
+        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await world.leaves(PHONE)
+
+        await world.connects(MAC, "Mac mini de Léo")
+        assert _shown(world.state())["artwork"] is None
+        assert world.source.get_artwork() is None
+        await world.send(*_bundle(RTP_B, "Toilet Brush"), *_picture(RTP_B, _cover("crimson", size=450)))
+
+        assert _shown(world.state())["senders"] == ["Mac mini de Léo"]
+        assert _shown(world.state())["artwork_width"] == 450
 
     async def test_a_bundle_under_a_new_stamp_owns_every_tag(self, world):
         """Nothing belonging to the previous track is published as this one's.
@@ -447,10 +414,9 @@ class TestCoverPairing:
         A bundle carries only the DAAP tags the sender put in it, so a track
         sent without an `asar` used to be published wearing the previous
         track's artist — under the right title, for the whole of it. The stamp
-        settles it, the same stamp the cover is paired by: a new one is a
-        different track and owns its absences too. The status card is then the
-        right screen, and it is the one the gate already picks for a sender
-        that publishes a bare title.
+        settles it: a new one is a different track and owns its absences too.
+        The status card is then the right screen, and it is the one the gate
+        already picks for a sender that publishes a bare title.
         """
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says", artist="Nils Frahm"))
@@ -474,9 +440,8 @@ class TestCoverPairing:
 
     async def test_a_sender_without_rtp_info_keeps_what_it_had(self, world):
         """shairport-sync tolerates a sender that sends no RTP-Info and sends
-        mdst/pcst empty, which leaves nothing to pair on. Hiding every cover
-        there would be worse than carrying one: documented, not worked around.
-        Asserted after the hold, so it is kept and not merely held."""
+        mdst/pcst empty: every bundle then amends the track on screen, and the
+        cover, which no stamp ever decided, stays until it is withdrawn."""
         await _on_air(world)
         await world.send(*_bundle(None, "Says"), *_picture(None, _cover("navy")))
 
@@ -971,21 +936,31 @@ class TestTheWireFormat:
         assert meta["album"] == "Spaces"
 
     async def test_a_bundle_that_gathered_nothing_is_not_published_as_a_track(self, world):
-        """An empty mdst/mden pair is routine. What it must not do is re-stamp
-        the track on screen: published as a bundle, it would carry a new rtptime,
-        and the cover that belongs to the track still playing would be dropped
-        for the rest of it once the hold ran out.
-        """
+        """An empty mdst/mden pair is routine. What it must not do is replace
+        the track on screen: published as a bundle under its new rtptime, it
+        would own all three tags and strip them for the rest of the track."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        assert _shown(world.state())["artwork"], "no cover to lose"
+        await world.send(*_bundle(RTP_A, "Says"))
 
         await world.send(ssnc("mdst", _stamp(RTP_B)), ssnc("mden", _stamp(RTP_B)))
-        await _after_the_hold(world)
 
         assert _shown(world.state())["title"] == "Says"
-        assert _shown(world.state())["artwork"], \
-            "the cover was unpaired by a bundle that carried no track"
+        assert _shown(world.state())["artist"] == "Nils Frahm"
+
+    async def test_a_picture_of_sixteen_bytes_or_less_is_the_sender_withdrawing_it(self):
+        """shairport-sync keeps a picture only when it is longer than 16 bytes
+        (metadata/hub.c) and clears the cover otherwise; an iPhone sends an
+        empty one before every picture. Dropped as "no data", the withdrawal
+        never reached the source."""
+        heard = _Collector()
+        reader = MetadataReader("/nonexistent", on_event=heard)
+
+        await reader._process_buffer("".join(
+            _item(*i) for i in (ssnc("PICT"), ssnc("PICT", b"x" * 16), ssnc("PICT", b"x" * 17))
+        ).encode())
+
+        assert heard.kinds() == ["artwork_withdrawn", "artwork_withdrawn", "artwork"]
+        assert heard.events[2].value == b"x" * 17
 
     async def test_a_picture_with_no_bytes_is_not_published_as_a_cover(self, world):
         await _on_air(world)

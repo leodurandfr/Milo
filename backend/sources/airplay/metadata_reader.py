@@ -28,21 +28,22 @@ Important codes:
       system audio, Spotify) never sends them.
     - pffr: the stream's first frame arrived; `styp` ("Buffered", "Realtime")
       follows it in the same millisecond
-    - PICT: artwork (data is raw image bytes)
+    - PICT: artwork (data is raw image bytes); one of NO_PICTURE_MAX_BYTES or
+      less is the sender withdrawing its picture, and an iPhone sends one
+      before every picture
     - prgr: progress (start/current/end in sample frames at 44100Hz)
     - mdst: metadata start   (data: the bundle's rtptime, when the sender gave one)
     - mden: metadata end
-    - pcst: picture start    (data: the picture's rtptime, same condition)
   `pfls` (a flush) is not a pause and is not read: it never appeared in the
   measurements, and treating it as one armed the idle timeout under a sender
-  that was playing (E54). `prsm` and `flsr` say nothing the above do not.
+  that was playing (E54). `prsm` and `flsr` say nothing the above do not, and
+  neither do `pcst`/`pcen`, which bracket a picture with its rtptime.
 
-The rtptime on mdst/pcst is shairport-sync's own way of pairing a cover with its
-track — "if they refer to the same item, they have the same rtptime", rtsp.c. It
-is needed because the two arrive in separate SET_PARAMETER requests in no
-guaranteed order, so neither one following the other says anything. It rides out
-to the source alongside the metadata and the picture, and is None when the
-sender sent no RTP-Info (which shairport-sync tolerates and so do we).
+A picture is read the way shairport-sync reads it (metadata/hub.c): it
+replaces the cover, and one of 16 bytes or less clears it. Its rtptime is not
+read — see the source's docstring for why. The bundle's rides out with the
+tags, and is None when the sender sent no RTP-Info (which shairport-sync
+tolerates and so do we).
 """
 import asyncio
 import contextlib
@@ -64,8 +65,13 @@ def _hex_to_str(hex_str: str) -> str:
         return hex_str
 
 
+# The largest PICT shairport-sync reads as "no picture" (metadata/hub.c keeps a
+# picture only when `length > 16`): the sender's empty image body.
+NO_PICTURE_MAX_BYTES = 16
+
+
 def _rtptime(data: Optional[bytes]) -> Optional[str]:
-    """The rtptime carried by mdst/pcst, or None when the sender omitted it."""
+    """The rtptime carried by mdst, or None when the sender omitted it."""
     return data.decode("ascii", errors="replace") if data else None
 
 
@@ -73,8 +79,9 @@ def _rtptime(data: Optional[bytes]) -> Optional[str]:
 class PipeEvent:
     """One thing shairport-sync announced. `value` depends on `kind`:
     conn/disc: the IP (or None); client_name, stream_type: text; tags: a dict
-    of title/artist/album/genre; artwork: the image bytes; progress: the
-    (start, current, end) frames. `rtptime` rides with tags and artwork."""
+    of title/artist/album/genre; artwork: the image bytes; artwork_withdrawn:
+    nothing; progress: the (start, current, end) frames. `rtptime` rides with
+    tags."""
     kind: str
     value: Any = None
     rtptime: Optional[str] = None
@@ -111,10 +118,8 @@ class MetadataReader:
         # Accumulate metadata between mdst/mden boundaries
         self._pending_metadata: dict = {}
 
-        # The rtptime stamped on the current bundle and on the last picture —
-        # see the module docstring.
+        # The rtptime stamped on the current bundle — see the module docstring.
         self._bundle_id: Optional[str] = None
-        self._picture_id: Optional[str] = None
 
     async def start(self) -> None:
         """Start reading metadata pipe."""
@@ -226,10 +231,11 @@ class MetadataReader:
             await self._on_event(PipeEvent("client_name", text))
         elif code == "styp" and text:
             await self._on_event(PipeEvent("stream_type", text))
-        elif code == "pcst":
-            self._picture_id = _rtptime(data)
-        elif code == "PICT" and data:
-            await self._on_event(PipeEvent("artwork", data, self._picture_id))
+        elif code == "PICT":
+            if data and len(data) > NO_PICTURE_MAX_BYTES:
+                await self._on_event(PipeEvent("artwork", data))
+            else:
+                await self._on_event(PipeEvent("artwork_withdrawn"))
         elif code == "prgr" and data:
             await self._handle_progress(data)
         elif code == "mdst":

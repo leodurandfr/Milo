@@ -23,7 +23,15 @@ Mac), which the phase follows:
   speaker. A killed daemon says nothing at all; its session ends when its
   process does (the base's pidfd watch).
 
-Artwork is stored in memory and served via a dedicated HTTP endpoint.
+The cover is the last picture the sender pushed, until it withdraws it
+(shairport-sync's own rule, metadata/hub.c): tags never touch it, and a new
+track does not either. Every picture is preceded by the sender's "no picture"
+(an iPhone, measured 2026-09-25: the new one follows 89-126 ms later), so a
+withdrawal removes the cover only if no picture comes within
+ARTWORK_SETTLE_SECONDS. The picture's rtptime is not read: it is where the
+sender was when it wrote the request, and pairing it with the tags' by distance
+dropped the playing track's own cover mid-track (E68). The cover is kept in
+memory and served via a dedicated HTTP endpoint.
 """
 import hashlib
 import os
@@ -43,50 +51,18 @@ from backend.shared.artwork import decode_artwork_dimensions
 # Sample rate for RTP frame to millisecond conversion
 AIRPLAY_SAMPLE_RATE = 44100
 
-# How long the cover in hand may outlive its pairing while the next one is
-# still in flight.
+# How long a withdrawn cover stays on screen while its replacement is in flight.
 #
-# The tags and the picture are two SET_PARAMETER requests in no guaranteed
-# order, so a track change leaves one of the two unpaired whichever way round
-# it arrives. This bounds the picture that is far enough from the tags on
-# screen to be another track's (see _artwork_is_current, which is what decides
-# that one stamped a few milliseconds off is simply this track's).
-# Publishing that gap drops the artwork, and the frontend's untrusted-sender
-# gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing artwork_width as
-# "this sender pushes no real cover": AudioPlayerFull is swapped for the status
-# card and back, which is visible as the player animating itself out and in.
-#
-# Holding the cover across the gap keeps what the pairing is for -- a coverless
-# track must not wear the previous one's for its whole duration -- and bounds it
-# explicitly instead of deciding on an instant. Two delays were measured
-# against a macOS sender: ~30 ms when the sender merely re-sends its bundle
-# under a fresh rtptime, which every transport action makes it do, and 5.4 s on
-# a genuine track change where it had to produce the new cover. The bound has
-# to cover the second, so what it sizes is not the gap but how long a cover may
-# be wrong -- and at a track change inside one album the held cover IS the new
-# track's, so only an album boundary onto a coverless track shows a stale one,
-# with the title and artist beside it already correct throughout.
+# A sender changing covers withdraws the old one first -- an iPhone sends an
+# empty picture before every picture, the new one 89-126 ms behind it (measured
+# 2026-09-25) -- so taking the withdrawal literally, as shairport-sync does,
+# would publish a state with no cover between the two, and the frontend's
+# untrusted-sender gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing
+# artwork_width as "this sender pushes no real cover": the player is swapped for
+# the status card and back. A picture before the deadline replaces the cover;
+# none, and the cover goes. The bound is sized on the slowest replacement
+# measured, a Mac's 5.4 s on a track change.
 ARTWORK_SETTLE_SECONDS = 8.0
-
-# How far apart the two stamps may be and still be one track's.
-#
-# The rtptime is a playback position, not an identity: a sender writes the tags
-# and the picture as two SET_PARAMETER requests and stamps each with where it
-# was at the time, so one track's two stamps differ by the few milliseconds
-# between the writes. Measured on both senders 2026-09-03, the whole spread:
-#
-#   same track, picture stamped later    +1056 frames   (+24 ms, iPhone)
-#   same track, picture stamped earlier  -1408 frames   (-32 ms, macOS)
-#   a track change (the cover is the previous track's)
-#                                 -23584 .. -1019040    (-535 ms .. -23.1 s)
-#   two senders, unrelated RTP clocks       -215021171  (-81 min)
-#
-# 250 ms sits in the gap: eight times the largest drift seen inside a track,
-# half the smallest step seen across a track change. Equality is what this
-# replaced, and equality is what a drifting stamp never satisfies -- the hold
-# expired on covers that were the playing track's own, taking the player off
-# the screen mid-track on both senders.
-ARTWORK_PAIRING_TOLERANCE_FRAMES = int(0.250 * AIRPLAY_SAMPLE_RATE)
 
 # The stream type that reports its pauses; every other one (Realtime, a
 # classic AirPlay 1 stream) is CONNECTED while it flows.
@@ -100,12 +76,11 @@ _OPENINGS = frozenset({"conn", "client_name", "stream_begin"})
 
 @dataclass(eq=False)
 class Cover:
-    """The cover in hand and the rtptime it was stamped with."""
+    """The last picture the sender pushed."""
     data: bytes
     mime: str
     hash: str
     width: int
-    rtptime: Optional[str]
 
     @property
     def url(self) -> str:
@@ -279,7 +254,9 @@ class AirPlaySource(BaseAudioSource):
         elif kind == "tags":
             self._on_tags(session, event.value, event.rtptime)
         elif kind == "artwork":
-            self._on_artwork(session, event.value, event.rtptime)
+            self._on_artwork(session, event.value)
+        elif kind == "artwork_withdrawn":
+            self._on_artwork_withdrawn(session)
         elif kind == "progress":
             self._on_progress(session, *event.value)
 
@@ -321,33 +298,35 @@ class AirPlaySource(BaseAudioSource):
     # === Tags and cover ===
 
     def _on_tags(self, session: AirPlaySession, tags: Dict[str, Any], track_id: Optional[str]) -> None:
-        """Track metadata from the pipe (title, artist, album).
+        """Track metadata from the pipe (title, artist, album). They never
+        touch the cover: see `_on_artwork`.
 
-        Recording which track is on screen is all that is needed to move the
-        cover with it: the publish pairs the two by rtptime. A track whose
-        sender pushes no PICT of its own — plenty do not — would otherwise wear
-        the previous one's cover for its whole duration.
-
-        The tags are paired by the same stamp, and for the same reason. A
-        bundle carries only the DAAP tags the sender put in it, so one arriving
-        without an `asar` used to leave the previous track's artist standing —
-        published under the new title, for the whole of it. A bundle under a
-        *new* rtptime is a different track and owns all three fields, absences
-        included; one under the stamp already on screen is an amendment to it
-        and merges. A sender that sends no RTP-Info stamps nothing, so every
-        bundle reads as an amendment and keeps what it had — the same trade
-        the cover makes there, and for the same want of anything to pair on.
+        A bundle carries only the DAAP tags the sender put in it, so one
+        arriving without an `asar` used to leave the previous track's artist
+        standing — published under the new title, for the whole of it. A
+        bundle under a *new* rtptime is a different track and owns all three
+        fields, absences included; one under the stamp already on screen is an
+        amendment to it and merges. A sender that sends no RTP-Info stamps
+        nothing, so every bundle reads as an amendment and keeps what it had.
         """
         amendment = track_id is None or track_id == session.track_id
         session.track_id = track_id
-        self._sync_artwork_hold(session)
         session.tags = {
             key: (tags.get(key, session.tags.get(key, "")) if amendment else tags.get(key, ""))
             for key in ("title", "artist", "album")
         }
 
-    def _on_artwork(self, session: AirPlaySession, data: bytes, track_id: Optional[str]) -> None:
-        """Artwork from the pipe: kept in memory, served via the endpoint.
+    def _on_artwork(self, session: AirPlaySession, data: bytes) -> None:
+        """A picture from the pipe: it is the cover, kept in memory and served
+        via the endpoint, until the sender pushes another or withdraws it.
+
+        That is shairport-sync's own rule, and nothing finer is available: the
+        pipe's rtptime on a picture is where the sender was when it wrote the
+        request, not which track the picture is for. Paired with the tags' by
+        distance, it dropped a cover that was the playing track's own 8 s into
+        it on an iPhone (E68) — measured picture-to-tags gaps of 128-146 ms,
+        but 293 and 565 ms too, where a real track change came as close as
+        535 ms. No threshold separates those.
 
         Also decodes pixel dimensions so the frontend can gate the rich
         player on artwork quality: browser audio (no MediaSession cover) ends
@@ -355,83 +334,23 @@ class AirPlaySource(BaseAudioSource):
         Spotify desktop) push a high-resolution cover. The width is published
         as `details.artwork_width`; the display policy lives on the frontend
         (useRichDisplay).
-
-        The rtptime is recorded before the dedupe: two tracks off one album send
-        the identical image, and the picture that changed nothing still moved
-        which track the cover belongs to.
         """
+        self._disarm_timer("artwork")
         digest = hashlib.md5(data).hexdigest()[:12]
         if session.cover is not None and session.cover.hash == digest:
-            session.cover.rtptime = track_id
-            self._sync_artwork_hold(session)
+            # An iPhone re-sends the same image up to three times in a track.
             return
         # shairport-sync sends JPEG or PNG
         mime = "image/png" if data[:8] == b'\x89PNG\r\n\x1a\n' else "image/jpeg"
         width, height = decode_artwork_dimensions(data, self._logger, "AirPlay")
-        session.cover = Cover(data=data, mime=mime, hash=digest, width=width, rtptime=track_id)
+        session.cover = Cover(data=data, mime=mime, hash=digest, width=width)
         self._logger.info(f"AirPlay artwork {width}x{height} ({mime})")
-        self._sync_artwork_hold(session)
 
-    @staticmethod
-    def _artwork_is_current(session: AirPlaySession) -> bool:
-        """Whether the cover in hand belongs to the tags on screen.
-
-        Nearness, not equality, and the difference is a sender's. The rtptime
-        is where the sender was when it wrote the request, not the per-track
-        identity rtsp.c describes: a sender re-sends its bundle inside one
-        track and each copy carries a fresh stamp, so the picture's and the
-        tags' differ by the milliseconds between the two writes. Equality then
-        holds only when a bundle happens to land exactly on the picture's
-        stamp, and when it does not, no later one comes to meet it -- the hold
-        expired on a cover that was the playing track's own and took
-        AudioPlayerFull off the screen mid-track, for as long as 11 s.
-
-        Measured on both senders, the drift runs both ways: +24 ms on an
-        iPhone, -32 ms on a Mac. What separates that from a real track change
-        is distance, not direction -- the nearest track change measured is
-        535 ms away, seventeen times further. ARTWORK_PAIRING_TOLERANCE_FRAMES
-        carries the numbers.
-        """
-        cover = session.cover
-        if cover is None:
-            return False
-        if cover.rtptime == session.track_id:
-            return True
-        if cover.rtptime is None or session.track_id is None:
-            return False
-        try:
-            # RTP timestamps are 32-bit and wrap, so the distance between two
-            # of them is the serial one, not the integer one.
-            delta = (int(cover.rtptime) - int(session.track_id)) % (1 << 32)
-        except ValueError:
-            return False
-        if delta >= (1 << 31):
-            delta -= 1 << 32
-        return abs(delta) <= ARTWORK_PAIRING_TOLERANCE_FRAMES
-
-    def _sync_artwork_hold(self, session: AirPlaySession) -> None:
-        """Arm or release the hold on the cover in hand.
-
-        The tags and the picture are two SET_PARAMETER requests in no
-        guaranteed order, so either can be the one still in flight — and the
-        gap is the same gap. Tags first leaves the new stamp with no picture
-        yet; picture first leaves a picture stamped for a track the tags have
-        not announced, and the publish, judging on equality alone, dropped the
-        cover from a state still carrying the *previous* track's title. The
-        frontend reads a missing artwork_width as "this sender pushes no real
-        cover" and swapped the player for the status card and back, which is
-        the same flicker from the other side.
-
-        Which of the two is in flight is what `_artwork_is_current` reads off
-        the distance between the stamps, and only a picture far enough from the
-        tags to be another track's is held on a deadline. Arming the deadline
-        for a picture that was merely stamped a few milliseconds off its own
-        track is what emptied the cover mid-track, on both senders.
-        """
-        if session.cover is not None and not self._artwork_is_current(session):
+    def _on_artwork_withdrawn(self, session: AirPlaySession) -> None:
+        """The sender's "no picture": the cover goes if no picture replaces it
+        within ARTWORK_SETTLE_SECONDS, counted from the first withdrawal."""
+        if session.cover is not None and not self._timer_armed("artwork"):
             self._arm_timer("artwork", ARTWORK_SETTLE_SECONDS, session)
-        else:
-            self._disarm_timer("artwork")
 
     # === Progress ===
 
@@ -448,7 +367,8 @@ class AirPlaySource(BaseAudioSource):
         if session is not token or not isinstance(session, AirPlaySession):
             return
         if name == "artwork":
-            # The hold ran out: the cover goes, once, instead of on every event.
+            self._logger.info("AirPlay artwork withdrawn and not replaced: removed")
+            session.cover = None
             self._publish()
 
     # === Publication ===
@@ -468,17 +388,8 @@ class AirPlaySource(BaseAudioSource):
 
     # === The view (docs: "le fil") ===
 
-    def _published_cover(self, session: AirPlaySession) -> Optional[Cover]:
-        """The cover is published for the track it was stamped for; a pending
-        hold keeps it for the few ms a newly-stamped track's own picture may
-        still be in flight."""
-        cover = session.cover
-        if cover is not None and (self._artwork_is_current(session) or self._timer_armed("artwork")):
-            return cover
-        return None
-
     def _session_fields(self, session: AirPlaySession) -> Dict[str, Any]:
-        cover = self._published_cover(session)
+        cover = session.cover
         return {
             **session.tags,
             "artwork": cover.url if cover else None,
@@ -490,7 +401,7 @@ class AirPlaySource(BaseAudioSource):
         session = self._session
         if not isinstance(session, AirPlaySession):
             return None
-        cover = self._published_cover(session)
+        cover = session.cover
         return AirPlayDetails(artwork_width=cover.width if cover else None)
 
     # === Public API ===

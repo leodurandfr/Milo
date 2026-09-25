@@ -282,8 +282,8 @@ async def test_sender_pauses_and_resumes(airplay):
 async def test_track_changes_and_the_cover_follows(airplay):
     await airplay.select()
     await _phone_starts_track_a(airplay)
-    # Track B: its tags arrive, its picture never does — the held cover
-    # outlives the pairing only until the hold runs out.
+    # Track B: its tags arrive, and neither a picture nor a withdrawal — the
+    # cover stays, since only the sender's withdrawal removes it.
     await airplay.pipe(*bundle(RTP_B, "Sunson", "Nils Frahm", "All Melody"))
     await airplay.pipe(prgr(0, 200))
     await airplay.wire.snapshot_rest()

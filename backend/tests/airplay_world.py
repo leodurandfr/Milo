@@ -16,6 +16,10 @@ measured to write it (2026-09-23, iPhone and Mac):
   over: the first one's `pend` + `disc`, then the newcomer's `conn` — or, as
   measured 2026-09-03, the goodbye a minute late.
 - `DropSession`: `pend` if a stream is up, then `disc` at once.
+- A track's cover (iPhone, 2026-09-25): the tags and the progress, then an
+  empty picture — the sender withdrawing the cover on screen, written as a
+  PICT of length 0 — and the new picture 89-126 ms later. The iPhone re-sends
+  the same image, withdrawal first, up to three times inside one track.
 - The daemon killed outright: no goodbye at all; systemd's Restart= brings up a
   new process, which announces nothing.
 
@@ -76,6 +80,12 @@ def bundle(rtptime: int, title: str, artist: str = "Ledeunff", album: str = "Sou
 def picture(rtptime: int, data: bytes) -> List[Item]:
     stamp = str(rtptime).encode()
     return [ssnc("pcst", stamp), ssnc("PICT", data), ssnc("pcen", stamp)]
+
+
+def withdrawal(rtptime: int) -> List[Item]:
+    """The sender's "no picture": an empty image body, which rtsp.c forwards
+    as a PICT of length 0 between its pcst/pcen."""
+    return picture(rtptime, b"")
 
 
 def prgr(start: int, seconds_in: float, length_s: float) -> Item:
@@ -281,11 +291,13 @@ class AirPlayWorld(WireReader):
         await self.track(title, rtptime, length_s, cover)
 
     async def track(self, title: str, rtptime: int, length_s: float = 240, cover: bool = True) -> None:
-        items = [*bundle(rtptime, title)]
-        if cover:
-            items += picture(rtptime, PNG)
-        items.append(prgr(rtptime, 0, length_s))
-        await self.send(*items)
+        items = [*bundle(rtptime, title), prgr(rtptime, 0, length_s)]
+        if not cover:
+            await self.send(*items)
+            return
+        await self.send(*items, *withdrawal(rtptime))
+        await self.advance(0.1)
+        await self.send(*picture(rtptime, PNG))
 
     async def pauses(self) -> None:
         await self.send(ssnc("paus"))
