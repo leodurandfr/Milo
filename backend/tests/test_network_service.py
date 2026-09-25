@@ -167,6 +167,26 @@ async def test_scan_keeps_the_strongest_duplicate_and_sorts_by_signal(service):
 
 
 @pytest.mark.asyncio
+async def test_scan_keeps_the_associated_ap_over_a_stronger_one(service):
+    """A dual-band router is one SSID on two radios, and the unit is on one.
+
+    Keeping the stronger radio showed the connected network at 4 arcs in the
+    WiFi panel while its connection card, which reads the associated AP, showed
+    2 (measured on a Freebox: 5 GHz associated at 64, 2.4 GHz at 85).
+    """
+    scan = "\n".join([
+        "Home:85:WPA2:",
+        "Home:64:WPA2:*",
+        "Home:90:WPA2:",
+    ])
+    fake, patcher = with_nmcli(lambda args: (0, scan, ""))
+    with patcher:
+        networks = await service.scan_networks()
+
+    assert [(n.ssid, n.signal, n.in_use) for n in networks] == [("Home", 64, True)]
+
+
+@pytest.mark.asyncio
 async def test_scan_drops_hidden_and_malformed_entries(service):
     """A blank SSID is a hidden network; a short line is nmcli noise.
 

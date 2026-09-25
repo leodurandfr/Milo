@@ -151,7 +151,8 @@ class NetworkService:
     async def scan_networks(self) -> List[WifiNetwork]:
         """Scan for available WiFi networks.
 
-        Deduplicates SSIDs (keeps strongest signal) and sorts by signal descending.
+        Deduplicates SSIDs (the associated AP, else the strongest) and sorts by
+        signal descending.
         """
         rc, stdout, stderr = await self._run_nmcli(
             "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE",
@@ -187,8 +188,11 @@ class NetworkService:
             security = fields[2] if fields[2] else ""
             in_use = fields[3] == "*"
 
-            # Deduplicate: keep strongest signal
-            if ssid not in networks or signal > networks[ssid].signal:
+            # Deduplicate: the associated AP stands for its SSID, else the
+            # strongest — a dual-band router's other radio is often stronger
+            # than the one the unit is on, and must not replace its signal.
+            kept = networks.get(ssid)
+            if kept is None or (not kept.in_use and (in_use or signal > kept.signal)):
                 networks[ssid] = WifiNetwork(
                     ssid=ssid,
                     signal=signal,

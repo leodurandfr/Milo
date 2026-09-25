@@ -46,7 +46,7 @@
           <div class="network-item network-item--preferred">
             <div class="network-item__row">
               <div class="network-item__ssid-row">
-                <WifiSignal :signal="preferredNetwork.signal" :size="24" />
+                <WifiSignal :signal="wifiCardSignal" :size="24" />
                 <span class="text-body network-item__ssid">{{ preferredNetwork.ssid }}</span>
               </div>
               <Button variant="important" size="small" @click="forgetNetwork(preferredNetwork.ssid)">
