@@ -337,7 +337,21 @@ export const REGISTRY = {
   RangeSlider: {
     component: RangeSlider,
     args: { modelValue: 60 },
-    overrides: { orientation: { kind: 'enum', options: ['horizontal', 'vertical'] } }
+    overrides: { orientation: { kind: 'enum', options: ['horizontal', 'vertical'] } },
+    // Log-spaced values on evenly spaced stops, the shape the delay settings use.
+    presets: {
+      steps: {
+        'Continuous': null,
+        'Delays (log)': [
+          { value: 10, label: '10 sec' },
+          { value: 30, label: '30 sec' },
+          { value: 60, label: '1 min' },
+          { value: 300, label: '5 min' },
+          { value: 1800, label: '30 min' },
+          { value: 3600, label: '1 h' }
+        ]
+      }
+    }
   },
 
   DoubleRangeSlider: {

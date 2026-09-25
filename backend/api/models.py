@@ -351,7 +351,7 @@ class ScreenBrightnessRequest(BaseModel):
 class ScreenScreensaverRequest(BaseModel):
     """Screen screensaver configuration request"""
     screensaver_enabled: Optional[bool] = None
-    screensaver_delay_seconds: Optional[int] = Field(None, ge=5, le=1800)
+    screensaver_delay_seconds: Optional[int] = Field(None, ge=5, le=3600)
 
 
 class ScreenUiScaleRequest(BaseModel):

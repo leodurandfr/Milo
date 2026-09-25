@@ -48,10 +48,9 @@
     >
       <div class="screensaver-content">
         <SettingItem :label="t('screenSettings.screensaverDelay')">
-          <ButtonGroup
+          <RangeSlider
             :model-value="config.screensaver_delay_seconds"
-            :options="sharedDelayPresets"
-            mobile-layout="grid-3"
+            :steps="delaySteps"
             @change="setScreensaverDelay"
           />
         </SettingItem>
@@ -65,10 +64,10 @@
       @change="handleAutoSleepToggle"
     >
       <SettingItem :label="t('screenSettings.sleepDelay')">
-        <ButtonGroup
-          :model-value="config.timeout_seconds"
-          :options="sharedDelayPresets"
-          mobile-layout="grid-3"
+        <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
+        <RangeSlider
+          :model-value="config.timeout_enabled ? config.timeout_seconds : lastNonZeroTimeout"
+          :steps="delaySteps"
           @change="setScreenTimeout"
         />
       </SettingItem>
@@ -129,13 +128,17 @@ function syncFromStore() {
   }
 }
 
-const sharedDelayPresets = computed(() => [
+const delaySteps = computed(() => [
   { value: 10, label: t('time.10sec') },
+  { value: 20, label: t('time.20sec') },
   { value: 30, label: t('time.30sec') },
+  { value: 60, label: t('time.1min') },
   { value: 120, label: t('time.2min') },
   { value: 300, label: t('time.5min') },
   { value: 600, label: t('time.10min') },
-  { value: 1800, label: t('time.30min') }
+  { value: 1200, label: t('time.20min') },
+  { value: 1800, label: t('time.30min') },
+  { value: 3600, label: t('time.1h') }
 ]);
 
 const uiScalePresets = [
@@ -189,51 +192,40 @@ function saveBrightness(value) {
   updateSetting('screen-brightness', { brightness_on: value });
 }
 
+// Local config, store and backend together: the store is what syncFromStore
+// reads back when any other screen setting moves before the WS echo lands.
+function commitTimeout(seconds) {
+  config.value.timeout_enabled = seconds !== 0;
+  config.value.timeout_seconds = seconds;
+  const payload = { screen_timeout_enabled: seconds !== 0, screen_timeout_seconds: seconds };
+  settingsStore.updateScreenTimeout(payload);
+  updateSetting('screen-timeout', payload);
+}
+
+function commitScreensaver(payload) {
+  Object.assign(config.value, payload);
+  settingsStore.updateScreenScreensaver(payload);
+  updateSetting('screen-screensaver', payload);
+}
+
 function handleAutoSleepToggle(enabled) {
-  if (enabled) {
-    config.value.timeout_enabled = true;
-    config.value.timeout_seconds = lastNonZeroTimeout.value;
-    updateSetting('screen-timeout', {
-      screen_timeout_enabled: true,
-      screen_timeout_seconds: lastNonZeroTimeout.value
-    });
-  } else {
-    if (config.value.timeout_seconds > 0) {
-      lastNonZeroTimeout.value = config.value.timeout_seconds;
-    }
-    config.value.timeout_enabled = false;
-    config.value.timeout_seconds = 0;
-    updateSetting('screen-timeout', {
-      screen_timeout_enabled: false,
-      screen_timeout_seconds: 0
-    });
+  if (!enabled && config.value.timeout_seconds > 0) {
+    lastNonZeroTimeout.value = config.value.timeout_seconds;
   }
+  commitTimeout(enabled ? lastNonZeroTimeout.value : 0);
 }
 
 function setScreenTimeout(value) {
-  if (value > 0) {
-    lastNonZeroTimeout.value = value;
-  }
-  updateSetting('screen-timeout', {
-    screen_timeout_enabled: value !== 0,
-    screen_timeout_seconds: value
-  });
+  lastNonZeroTimeout.value = value;
+  commitTimeout(value);
 }
 
 function handleScreensaverToggle(enabled) {
-  config.value.screensaver_enabled = enabled;
-  if (enabled && !sharedDelayPresets.value.some(p => p.value === config.value.screensaver_delay_seconds)) {
-    config.value.screensaver_delay_seconds = DEFAULT_DELAY;
-  }
-  updateSetting('screen-screensaver', {
-    screensaver_enabled: enabled,
-    screensaver_delay_seconds: config.value.screensaver_delay_seconds
-  });
+  commitScreensaver({ screensaver_enabled: enabled });
 }
 
 function setScreensaverDelay(value) {
-  config.value.screensaver_delay_seconds = value;
-  updateSetting('screen-screensaver', { screensaver_delay_seconds: value });
+  commitScreensaver({ screensaver_delay_seconds: value });
 }
 
 function handleColorFilterToggle(enabled) {

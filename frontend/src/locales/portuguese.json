@@ -429,12 +429,16 @@
   },
   "time": {
     "10sec": "10 seg",
+    "20sec": "20 seg",
     "30sec": "30 seg",
+    "1min": "1 min",
     "2min": "2 min",
     "5min": "5 min",
     "10min": "10 min",
+    "20min": "20 min",
     "30min": "30 min",
-    "1h": "1 h"
+    "1h": "1 h",
+    "2h": "2 h"
   },
   "common": {
     "settings": "Configurações",

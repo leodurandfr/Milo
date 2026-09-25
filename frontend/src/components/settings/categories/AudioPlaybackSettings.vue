@@ -8,10 +8,10 @@
       @change="handleAutoStopToggle"
     >
       <SettingItem :label="t('audioPlayback.autoStopHint')">
-        <ButtonGroup
-          :model-value="config.auto_stop_delay"
-          :options="autoStopPresets"
-          mobile-layout="grid-3"
+        <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
+        <RangeSlider
+          :model-value="autoStopEnabled ? config.auto_stop_delay : lastAutoStop"
+          :steps="autoStopSteps"
           @change="setAutoStopDelay"
         />
       </SettingItem>
@@ -24,7 +24,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
@@ -43,13 +43,16 @@ const lastAutoStop = ref(120);
 
 const autoStopEnabled = computed(() => config.value.auto_stop_delay !== 0);
 
-const autoStopPresets = computed(() => [
+const autoStopSteps = computed(() => [
   { value: 30, label: t('time.30sec') },
+  { value: 60, label: t('time.1min') },
   { value: 120, label: t('time.2min') },
   { value: 300, label: t('time.5min') },
   { value: 600, label: t('time.10min') },
+  { value: 1200, label: t('time.20min') },
   { value: 1800, label: t('time.30min') },
-  { value: 3600, label: t('time.1h') }
+  { value: 3600, label: t('time.1h') },
+  { value: 7200, label: t('time.2h') }
 ]);
 
 function syncFromStore() {

@@ -281,7 +281,7 @@ class SettingsService:
             'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', screen_d['brightness_on'])))),
             'screensaver_enabled': bool(screen_input.get('screensaver_enabled', screen_d['screensaver_enabled'])),
-            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', screen_d['screensaver_delay_seconds'])))),
+            'screensaver_delay_seconds': max(5, min(9999, int(screen_input.get('screensaver_delay_seconds', screen_d['screensaver_delay_seconds'])))),
             'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', screen_d['ui_scale'])))),
             'color_filter_enabled': bool(screen_input.get('color_filter_enabled', screen_d['color_filter_enabled'])),
             'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', screen_d['color_filter_warmth']))))

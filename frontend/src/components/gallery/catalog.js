@@ -183,7 +183,7 @@ export const ENTRIES = [
     id: 'RangeSlider',
     group: 'controls',
     file: 'components/ui/RangeSlider.vue',
-    summary: 'Single-value slider, horizontal or vertical. Emits drag-start/drag-end so a caller can throttle writes to the value and commit once.',
+    summary: 'Single-value slider, horizontal or vertical. Emits drag-start/drag-end so a caller can throttle writes to the value and commit once. With steps ([{ value, label }]) it snaps between evenly spaced stops, marks each on the track and shows the stop\'s label.',
   },
   {
     id: 'DoubleRangeSlider',
