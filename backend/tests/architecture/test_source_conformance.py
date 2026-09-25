@@ -725,6 +725,32 @@ def test_controls_name_commands_the_source_takes(source_id):
     )
 
 
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_skip_travels_with_seek(source_id):
+    """A source that takes `seek` takes `skip`, and offers both or neither.
+
+    The −15/+30 buttons (PodcastSource.vue, the Milo-iOS lock screen) send
+    `skip` wherever `controls` lists it, and fell back to computing a `seek`
+    from a stale anchor, where two quick presses aimed at the same second
+    (measured from Milo-iOS, 2026-09-25). Which sources draw the buttons is
+    the interface's choice; which can take them is this one. Per phase, the
+    wire golden and test_wire_state pin that each listing holds both.
+    """
+    commands = set(source_class(source_id).COMMANDS)
+    assert ("seek" in commands) == ("skip" in commands), (
+        f"{source_id}: COMMANDS takes {sorted(commands & {'seek', 'skip'})} of seek/skip"
+    )
+    literals = _control_literals(source_id) or set()
+    assert ("seek" in literals) == ("skip" in literals), (
+        f"{source_id}: _controls() can offer {sorted(literals & {'seek', 'skip'})} of seek/skip"
+    )
+
+
+def test_some_source_takes_skip():
+    """The rule above passes vacuously on a tree where nothing seeks."""
+    assert any("skip" in source_class(s).COMMANDS for s in SOURCE_IDS)
+
+
 # === The playhead: one aging implementation =====================================
 #
 # The anchor ({ms, at, rate}) is aged by whoever reads it; the base alone

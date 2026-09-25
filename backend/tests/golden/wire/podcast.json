@@ -321,6 +321,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -407,6 +408,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -479,6 +481,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -617,6 +620,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "set_speed"
     ],
     "resume": null,
@@ -684,6 +688,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "set_speed"
     ],
     "resume": null,
@@ -890,6 +895,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -990,6 +996,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -1128,6 +1135,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "set_speed"
     ],
     "resume": null,
@@ -1334,6 +1342,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -1406,6 +1415,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -1558,6 +1568,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "set_speed"
     ],
     "resume": null,
@@ -1764,6 +1775,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -2112,6 +2124,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -2198,6 +2211,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -2415,6 +2429,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -2612,6 +2627,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "set_speed"
     ],
     "resume": null,
@@ -2818,6 +2834,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -3451,6 +3468,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -3769,6 +3787,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -3922,6 +3941,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "set_speed"
      ],
      "resume": null,
@@ -4119,6 +4139,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "set_speed"
     ],
     "resume": null,

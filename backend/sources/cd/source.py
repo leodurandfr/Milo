@@ -45,6 +45,7 @@ from backend.core.models.session import (
     ResumePolicy,
 )
 from backend.core.models.audio_wire import CdDetails, CdDisc, CdTrack, ResumeView
+from backend.core.models.commands import SkipParams, skip_target
 from backend.core.models.ws_events import SourceErrorReason
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -147,6 +148,7 @@ class CdSource(MpvAudioSource):
         "next": None,
         "prev": None,
         "seek": SeekParams,
+        "skip": SkipParams,
         "eject": None,
     }
     COMMAND_SCOPES = {
@@ -157,6 +159,7 @@ class CdSource(MpvAudioSource):
         "prev": CommandScope.RESUME,
         # With nothing loaded, a seek moves the resume point (E39).
         "seek": CommandScope.RESUME,
+        "skip": CommandScope.RESUME,
         "eject": CommandScope.DEVICE,
     }
 
@@ -713,6 +716,8 @@ class CdSource(MpvAudioSource):
             return await self._handle_prev_track()
         if cmd == "seek":
             return await self._handle_seek(params)
+        if cmd == "skip":
+            return await self._handle_skip(params)
         if cmd == "eject":
             return await self._handle_eject()
         return self.error_response(f"Unhandled command: {cmd}")
@@ -788,6 +793,25 @@ class CdSource(MpvAudioSource):
         )
         self._publish()
         return self.success_response(f"Seeked to {position}s")
+
+    async def _handle_skip(self, params: SkipParams) -> Dict[str, Any]:
+        """A seek by `params.seconds` from where the track stands now: mpv's
+        playhead when the track is open, else the second the last load or seek
+        set (a skip landing while the one before it reloads adds to it), else
+        the resume point. The drive is read from a pipe, which mpv cannot seek,
+        so every seek is a reload."""
+        if not self._playable():
+            return self.error_response("No disc loaded")
+        session = self._session
+        if isinstance(session, CdSession):
+            await self._sync_position(session)
+            track, position = session.track, session.track_position
+        else:
+            track, position = self._resume_track()
+        target = skip_target(
+            int(position * 1000), params.seconds, self._track_fields(track)["duration_ms"],
+        )
+        return await self._handle_seek(SeekParams(position_ms=target))
 
     async def _handle_eject(self) -> Dict[str, Any]:
         """Eject the disc. The session ends first (the drive is released); the
@@ -992,8 +1016,8 @@ class CdSource(MpvAudioSource):
         if session is not None and session.phase is Phase.LOADING:
             return ["pause", *steps, "play_track", "eject"]
         if session is not None and session.phase is Phase.PLAYING:
-            return ["pause", "seek", *steps, "play_track", "eject"]
-        return ["resume", "seek", *steps, "play_track", "eject"]
+            return ["pause", "seek", "skip", *steps, "play_track", "eject"]
+        return ["resume", "seek", "skip", *steps, "play_track", "eject"]
 
     async def refresh_metadata(self) -> bool:
         """Re-read the playhead so a (re)connecting client's state carries it."""

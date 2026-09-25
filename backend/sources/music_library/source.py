@@ -41,6 +41,7 @@ from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ReroutePolicy, ResumePolicy,
 )
 from backend.core.models.audio_wire import MusicLibraryDetails, ResumeView
+from backend.core.models.commands import SkipParams
 from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -709,6 +710,7 @@ class MusicLibrarySource(MpvAudioSource):
         "next": None,
         "prev": None,
         "seek": SeekParams,
+        "skip": SkipParams,
         "set_shuffle": SetShuffleParams,
         "stop": None,
     }
@@ -720,6 +722,7 @@ class MusicLibrarySource(MpvAudioSource):
         "next": CommandScope.SESSION,
         "prev": CommandScope.SESSION,
         "seek": CommandScope.SESSION,
+        "skip": CommandScope.SESSION,
         "set_shuffle": CommandScope.SESSION,
         "stop": CommandScope.RESUME,
     }
@@ -739,6 +742,8 @@ class MusicLibrarySource(MpvAudioSource):
             return await self._handle_prev()
         if cmd == "seek":
             return await self._handle_seek(params)
+        if cmd == "skip":
+            return await self._handle_skip(params)
         if cmd == "set_shuffle":
             return await self._handle_set_shuffle(params)
         if cmd == "stop":
@@ -849,6 +854,14 @@ class MusicLibrarySource(MpvAudioSource):
         session.position = position
         self._anchor_position(position * 1000)
         return self.success_response(f"Seeked to {position}s")
+
+    async def _handle_skip(self, params: SkipParams) -> Dict[str, Any]:
+        """Move the playhead by `params.seconds` from where mpv has it
+        (MpvAudioSource._skip_by). Past the end of a track, mpv goes on to the
+        next entry, whose start re-anchors it."""
+        if await self._skip_by(self._session, params.seconds) is None:
+            return self.mpv_refused(f"skip {params.seconds:+g}s")
+        return self.success_response(f"Skipped {params.seconds:+g}s")
 
     async def _handle_set_shuffle(self, params: SetShuffleParams) -> Dict[str, Any]:
         """Toggle shuffle on the live queue, reordering ONLY the upcoming tracks so
@@ -1214,7 +1227,7 @@ class MusicLibrarySource(MpvAudioSource):
         last = session.index >= len(session.queue) - 1
         controls = ["resume" if session.phase is Phase.PAUSED else "pause"]
         if session.phase is not Phase.LOADING:
-            controls.append("seek")
+            controls += ["seek", "skip"]
         controls += [c for c in ("next", "prev") if not (c == "next" and last)]
         return controls + ["set_shuffle", "play_index", "stop"]
 

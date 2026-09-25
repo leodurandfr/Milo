@@ -244,6 +244,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -292,6 +293,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -434,6 +436,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -477,6 +480,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -586,6 +590,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -634,6 +639,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -682,6 +688,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -730,6 +737,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -778,6 +786,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -826,6 +835,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -940,6 +950,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -983,6 +994,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -1092,6 +1104,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1140,6 +1153,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1202,6 +1216,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1250,6 +1265,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1298,6 +1314,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1346,6 +1363,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1460,6 +1478,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -1503,6 +1522,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -1612,6 +1632,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1660,6 +1681,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1708,6 +1730,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -1851,6 +1874,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev"
     ],
@@ -1984,6 +2008,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -2217,6 +2242,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -2265,6 +2291,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev"
      ],
@@ -2422,6 +2449,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev"
     ],

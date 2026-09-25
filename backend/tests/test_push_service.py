@@ -1382,6 +1382,56 @@ class TestCoalescing:
             (90.0, "2023-11-14T22:13:50.000Z"),
         ]
 
+    async def _session_open(self, service, registry, apns, monkeypatch, window):
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", window)
+        await service._publish()                       # open the session
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        apns.send.reset_mock()
+        await service.initialize()
+
+    def _seek(self, service, ms):
+        moved = {"ms": ms, "at": 1700000030.0, "rate": 1.0}
+        service.machine.get_current_state.return_value = playing_with(position=moved)
+        service.on_event(SourcePosition(
+            source="podcast", session_id="s-1", position=PositionAnchor(**moved),
+        ))
+
+    async def test_a_seek_after_a_quiet_spell_does_not_wait_out_the_window(
+        self, service, registry, apns, monkeypatch
+    ):
+        """Sleeping the window first put the lock screen's new anchor ~1.2 s
+        behind a −15/+30 press (measured from Milo-iOS), with nothing to
+        coalesce it with. The window here is far longer than `_settled`
+        waits: only a push sent at once is seen."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+
+        self._seek(service, 90000)
+        await _settled(apns)
+        await service.cleanup()
+
+        updates = [c.args[1]["aps"]["attributes"] for c in apns.send.await_args_list
+                   if c.args[2] == "nowplaying"]
+        assert [u["elapsedTime"] for u in updates] == [90.0]
+
+    async def test_a_seek_right_after_a_push_still_waits_for_the_window(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The one-per-window ceiling holds for seeks too: a burst of presses
+        reaches Apple as one push now and one at the end of the window, never
+        one per press."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+
+        self._seek(service, 90000)
+        await _settled(apns)
+        self._seek(service, 120000)
+        self._seek(service, 150000)
+        await asyncio.sleep(0.2)
+        await service.cleanup()
+
+        assert len(sent_types(apns)) == 1
+
     async def test_events_spread_over_the_window_still_produce_one_push(
         self, service, registry, apns, monkeypatch
     ):

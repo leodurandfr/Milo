@@ -16,9 +16,14 @@ import { useTimer } from '@/composables/useTimer';
 // How often the bar is redrawn while the playhead moves.
 const TICK_MS = 100;
 
-// How long a seek's target is shown before the anchor it caused is awaited no
-// longer (the command answered; a source that publishes nothing keeps its own).
-const SEEK_HOLD_MS = 1000;
+// How long a target is held after the last press when no anchor agreeing with
+// it arrives (a source that publishes nothing keeps its own).
+const SEEK_HOLD_MS = 3000;
+
+// How close an anchor must land to the target to take the bar over from it:
+// the backend's own tolerance for moving an anchor (audio_source.py
+// POSITION_TOLERANCE_MS, held equal by the test).
+export const SEEK_AGREEMENT_MS = 2000;
 
 /**
  * Where an anchor puts the playhead at `nowMs` (epoch milliseconds). Pure, and
@@ -47,19 +52,30 @@ export function useSourceProgress(source) {
 
   const now = ref(Date.now());
   let intervalId = null;
+  // Where the last press put the playhead, as an anchor of its own: it moves
+  // with the session's phase and is re-stamped when the phase changes, exactly
+  // like the backend's (`_rebase_anchor`).
   const seekTarget = ref(null);
   let seekTimer = null;
+  let presses = 0;
 
   const duration = computed(() => session.value?.duration_ms ?? resume.value?.duration_ms ?? 0);
 
-  const anchoredPosition = computed(() => {
+  function anchoredAt(nowMs) {
     if (session.value) {
-      return positionAt(session.value.position, session.value.phase, session.value.duration_ms, now.value);
+      return positionAt(session.value.position, session.value.phase, session.value.duration_ms, nowMs);
     }
     return resume.value?.position_ms ?? null;
-  });
+  }
 
-  const currentPosition = computed(() => seekTarget.value ?? anchoredPosition.value ?? 0);
+  function targetAt(nowMs) {
+    if (!seekTarget.value) return null;
+    return positionAt(seekTarget.value, session.value?.phase, duration.value || null, nowMs);
+  }
+
+  const anchoredPosition = computed(() => anchoredAt(now.value));
+
+  const currentPosition = computed(() => targetAt(now.value) ?? anchoredPosition.value ?? 0);
   const isPositionInitialized = computed(() => seekTarget.value !== null || anchoredPosition.value !== null);
   const progressPercentage = computed(() => {
     if (!duration.value) return 0;
@@ -79,13 +95,35 @@ export function useSourceProgress(source) {
     { immediate: true },
   );
 
-  // The anchor a seek causes replaces its target at once. Watched by value:
-  // every `source/state` hands over fresh objects, and a state that did not
-  // move the anchor (a phase flip, a favorite) must not snap the bar back.
+  // An anchor takes the bar back from a target only if it agrees with it: in a
+  // burst of presses, the anchor the first one caused arrives after the second
+  // one moved the target on, and landing on it would pull the bar back to a
+  // point already skipped past. Watched by value: every `source/state` hands
+  // over fresh objects, and a state that did not move the anchor (a phase
+  // flip, a favorite) must not be read as one. Another session, or none, is
+  // not the one the target was aimed at.
+  watch(() => session.value?.id ?? null, () => clearSeek());
+  // A track change inside the session (next, a skip past the end) is not
+  // where the target was aimed either.
+  watch(() => `${session.value?.title}|${session.value?.duration_ms}`, () => clearSeek());
+  watch(() => session.value?.phase, (_phase, before) => {
+    if (!seekTarget.value) return;
+    const nowMs = Date.now();
+    seekTarget.value = {
+      ...seekTarget.value,
+      ms: positionAt(seekTarget.value, before, duration.value || null, nowMs),
+      at: nowMs / 1000,
+    };
+  });
   watch(() => {
-    const anchor = session.value?.position;
+    if (!session.value) return resume.value ? `resume:${resume.value.position_ms}` : null;
+    const anchor = session.value.position;
     return anchor ? `${anchor.ms}:${anchor.at}:${anchor.rate}` : null;
-  }, () => clearSeek());
+  }, (anchor) => {
+    if (!seekTarget.value || anchor === null) return;
+    const nowMs = Date.now();
+    if (Math.abs(anchoredAt(nowMs) - targetAt(nowMs)) <= SEEK_AGREEMENT_MS) clearSeek();
+  });
 
   function stopTicking() {
     if (intervalId) {
@@ -102,11 +140,31 @@ export function useSourceProgress(source) {
     }
   }
 
-  async function seekTo(position) {
-    clearSeek();
-    seekTarget.value = position;
-    await unifiedStore.sendCommand(source, 'seek', { position_ms: position });
+  // Show `ms` at once and hold it until an anchor agrees with it, or until
+  // SEEK_HOLD_MS after the last press. Answers the press's number.
+  function hold(ms) {
+    if (seekTimer) timer.clear(seekTimer);
+    seekTarget.value = { ms, at: Date.now() / 1000, rate: session.value?.position?.rate ?? 1 };
     seekTimer = timer.setTimeout(clearSeek, SEEK_HOLD_MS);
+    return ++presses;
+  }
+
+  // A refused command lets its target go — unless a later press has
+  // replaced it, which is still in flight.
+  async function send(command, data, press) {
+    if (!await unifiedStore.sendCommand(source, command, data) && press === presses) clearSeek();
+  }
+
+  async function seekTo(position) {
+    await send('seek', { position_ms: position }, hold(position));
+  }
+
+  // A relative move (−15 / +30). The source adds it to where its playhead is,
+  // so presses in a burst add up there; here they add up on the target.
+  async function skip(seconds) {
+    let ms = Math.max(0, currentPosition.value + seconds * 1000);
+    if (duration.value) ms = Math.min(ms, duration.value);
+    await send('skip', { seconds }, hold(ms));
   }
 
   return {
@@ -114,6 +172,7 @@ export function useSourceProgress(source) {
     duration,
     progressPercentage,
     seekTo,
+    skip,
     isPositionInitialized,
   };
 }

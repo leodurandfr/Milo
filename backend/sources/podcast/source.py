@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.audio_wire import PodcastDetails, ResumeView
+from backend.core.models.commands import SkipParams
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
 )
@@ -78,6 +79,7 @@ class PodcastSource(MpvAudioSource):
         "pause": None,
         "resume": None,
         "seek": SeekParams,
+        "skip": SkipParams,
         "set_speed": SetSpeedParams,
     }
     COMMAND_SCOPES = {
@@ -85,6 +87,7 @@ class PodcastSource(MpvAudioSource):
         "pause": CommandScope.SESSION,
         "resume": CommandScope.RESUME,
         "seek": CommandScope.SESSION,
+        "skip": CommandScope.SESSION,
         "set_speed": CommandScope.PREFERENCE,
     }
 
@@ -200,6 +203,9 @@ class PodcastSource(MpvAudioSource):
 
         if cmd == "seek":
             return await self._handle_seek(params)
+
+        if cmd == "skip":
+            return await self._handle_skip(params)
 
         if cmd == "set_speed":
             return await self._handle_set_speed(params)
@@ -323,8 +329,21 @@ class PodcastSource(MpvAudioSource):
             return self.mpv_refused(f"seek to {position}s")
         session.position = position
         self._anchor_position(position * 1000)
+        # Published before the progress file is written: the anchor is what
+        # every client lands on next.
+        self._publish_changes()
         await self._save_progress(session)
         return self.success_response(f"Seeked to {params.seconds}s")
+
+    async def _handle_skip(self, params: SkipParams) -> Dict[str, Any]:
+        """Move the playhead by `params.seconds` from where mpv has it
+        (MpvAudioSource._skip_by); published before the progress is saved."""
+        session = self._session
+        if await self._skip_by(session, params.seconds) is None:
+            return self.mpv_refused(f"skip {params.seconds:+g}s")
+        self._publish_changes()
+        await self._save_progress(session)
+        return self.success_response(f"Skipped {params.seconds:+g}s")
 
     async def _handle_set_speed(self, params: SetSpeedParams) -> Dict[str, Any]:
         """Set playback speed — a stored preference, re-applied to every
@@ -397,8 +416,8 @@ class PodcastSource(MpvAudioSource):
         if session.phase is Phase.LOADING:
             return ["pause", "set_speed"]
         if session.phase is Phase.PAUSED:
-            return ["resume", "seek", "set_speed"]
-        return ["pause", "seek", "set_speed"]
+            return ["resume", "seek", "skip", "set_speed"]
+        return ["pause", "seek", "skip", "set_speed"]
 
     async def _sync_position(self, session: Optional[PodcastSession]) -> None:
         """Read the live playhead into the session (while its file is open)."""

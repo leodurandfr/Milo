@@ -403,6 +403,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -565,6 +566,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -657,6 +659,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -735,6 +738,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -879,6 +883,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -952,6 +957,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -1108,6 +1114,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -1270,6 +1277,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -1348,6 +1356,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -1503,6 +1512,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -1595,6 +1605,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -1673,6 +1684,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -1817,6 +1829,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -1890,6 +1903,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -2046,6 +2060,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -2208,6 +2223,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -2286,6 +2302,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -2441,6 +2458,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -2610,6 +2628,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -2870,6 +2889,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -2948,6 +2968,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -3106,6 +3127,7 @@
     "controls": [
      "pause",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -3179,6 +3201,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -3335,6 +3358,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -3497,6 +3521,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -3575,6 +3600,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -3730,6 +3756,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -3808,6 +3835,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "prev",
       "play_track",
       "eject"
@@ -3895,6 +3923,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -4109,6 +4138,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -4272,6 +4302,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -4434,6 +4465,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -4512,6 +4544,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -4667,6 +4700,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5014,6 +5048,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5176,6 +5211,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5250,6 +5286,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5321,6 +5358,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5483,6 +5521,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5575,6 +5614,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5649,6 +5689,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -5863,6 +5904,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",
@@ -6026,6 +6068,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -6188,6 +6231,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -6266,6 +6310,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -6421,6 +6466,7 @@
      "controls": [
       "pause",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -6509,6 +6555,7 @@
      "controls": [
       "resume",
       "seek",
+      "skip",
       "next",
       "prev",
       "play_track",
@@ -6645,6 +6692,7 @@
     "controls": [
      "resume",
      "seek",
+     "skip",
      "next",
      "prev",
      "play_track",

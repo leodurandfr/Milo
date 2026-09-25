@@ -55,6 +55,7 @@ SOURCES = [
 # What the guardrail sends with a command that takes parameters.
 PARAMS = {
     "seek": {"position_ms": 1000},
+    "skip": {"seconds": 5},
     "set_speed": {"speed": 1.5},
     "set_shuffle": {"shuffle": True},
     "play_index": {"index": 0},
@@ -253,11 +254,11 @@ SCENARIOS: List[Scenario] = [
             "album": SHOW, "artwork": EPISODE_A["image_url"], "senders": [],
             "duration_ms": 1800000, "position": {"ms": 0, "at": "<at>", "rate": 1.0},
         },
-        "controls": ["pause", "seek", "set_speed"], "resume": None,
+        "controls": ["pause", "seek", "skip", "set_speed"], "resume": None,
         "details": {"kind": "podcast", "episode": EPISODE_A, "speed": 1.0},
     }),
     Scenario("podcast paused", lambda mp, t: _podcast(mp, t, pause=True),
-             expect={"controls": ["resume", "seek", "set_speed"]}, session_has={"phase": "paused"}),
+             expect={"controls": ["resume", "seek", "skip", "set_speed"]}, session_has={"phase": "paused"}),
     # E50: nothing to seek with no session.
     Scenario("podcast kept to resume", lambda mp, t: _podcast(mp, t, kept=True), expect={
         "session": None, "controls": ["resume", "set_speed"],
@@ -278,16 +279,16 @@ SCENARIOS: List[Scenario] = [
             "duration_ms": FIRST["duration"] * 1000,
             "position": {"ms": 0, "at": "<at>", "rate": 1.0},
         },
-        "controls": ["pause", "seek", "next", "prev", *LIBRARY_TAIL],
+        "controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL],
         "details": {
             "kind": "music_library", "queue": ALBUM, "queue_index": 0, "shuffle": False,
             "track_id": FIRST["id"], "album_id": FIRST["albumId"], "artist_id": FIRST["artistId"],
         },
     }),
     Scenario("library last track", lambda mp, t: _library(mp, t, start=len(ALBUM) - 1),
-             expect={"controls": ["pause", "seek", "prev", *LIBRARY_TAIL]}),
+             expect={"controls": ["pause", "seek", "skip", "prev", *LIBRARY_TAIL]}),
     Scenario("library paused", lambda mp, t: _library(mp, t, pause=True),
-             expect={"controls": ["resume", "seek", "next", "prev", *LIBRARY_TAIL]},
+             expect={"controls": ["resume", "seek", "skip", "next", "prev", *LIBRARY_TAIL]},
              session_has={"phase": "paused"}),
     # E50: the resume view offers what the source takes — no seek, no next.
     Scenario("library resume", lambda mp, t: _library(mp, t, idle_end=True), expect={
@@ -299,10 +300,10 @@ SCENARIOS: List[Scenario] = [
     }),
     # CD — the drive's state is the availability; a READY disc always resumes.
     Scenario("cd opened, paused", _cd,
-             expect={"controls": ["resume", "seek", "next", "prev", "play_track", "eject"]},
+             expect={"controls": ["resume", "seek", "skip", "next", "prev", "play_track", "eject"]},
              session_has={"phase": "paused", "senders": []}),
     Scenario("cd playing", lambda mp, t: _cd(mp, t, play=True),
-             expect={"controls": ["pause", "seek", "next", "prev", "play_track", "eject"]},
+             expect={"controls": ["pause", "seek", "skip", "next", "prev", "play_track", "eject"]},
              session_has={"phase": "playing"}),
     # E67: a disc Milō cannot play still comes out.
     Scenario("cd unreadable", lambda mp, t: _cd(mp, t, disc="data"), expect={
@@ -313,10 +314,10 @@ SCENARIOS: List[Scenario] = [
         "session": None, "controls": [], "resume": None, "details": None,
     }),
     # Spotify — no sender name (an account is an identity, D3).
-    Scenario("spotify playing", _spotify, expect={"controls": ["pause", "seek", "next", "prev"]},
+    Scenario("spotify playing", _spotify, expect={"controls": ["pause", "seek", "skip", "next", "prev"]},
              session_has={"phase": "playing", "senders": [], "title": "Parapluie"}),
     Scenario("spotify paused", lambda mp, t: _spotify(mp, t, pause=True),
-             expect={"controls": ["resume", "seek", "next", "prev"]}, session_has={"phase": "paused"}),
+             expect={"controls": ["resume", "seek", "skip", "next", "prev"]}, session_has={"phase": "paused"}),
     # Tidal — transport, no seek.
     Scenario("tidal playing", _tidal, expect={"controls": ["pause", "next", "prev"]},
              session_has={"phase": "playing", "senders": []}),
@@ -415,7 +416,7 @@ def test_the_guardrail_meets_every_command_the_spec_lists():
     so the guardrail cannot pass by never meeting one."""
     listed = {c for _, c in CONTROL_CASES}
     assert listed == {
-        "stop", "next", "prev", "resume_playback", "pause", "resume", "seek", "set_speed",
+        "stop", "next", "prev", "resume_playback", "pause", "resume", "seek", "skip", "set_speed",
         "set_shuffle", "play_index", "play_track", "eject", "disconnect",
     }
 

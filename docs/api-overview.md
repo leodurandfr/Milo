@@ -103,7 +103,7 @@ key. Durations and positions are integer milliseconds; instants are UTC seconds 
 | `service_error` | `null` or `{reason, message}` | Set iff `service` is `failed`. `reason` is `start_timeout` (the 15 s budget) or `start_failed`; `message` is for the journal, never displayed |
 | `availability` | all ten sources, always | Why each source cannot work right now, or `null` when it can ([below](#availability)) |
 | `session` | `null` or object | The selected source's live session: `id`, `phase` (`loading`, `playing`, `paused`, `connected`), `title`, `artist`, `album`, `artwork`, `senders` (display names, `[]` when none), `duration_ms`, `position` |
-| `controls` | command names | What `POST /api/audio/control/{source}` accepts *now* and would act on. `[]` under `none`, while `switching`, and whenever `service` is not `running` |
+| `controls` | command names | What `POST /api/audio/control/{source}` accepts *now* and would act on. `[]` under `none`, while `switching`, and whenever `service` is not `running`. `skip` (`{"seconds": ±n}`, relative, bounded to `[0, duration_ms]`) is listed wherever `seek` is |
 | `resume` | `null` or object | What a play press would bring back; set only while `session` is `null` |
 | `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (episode, speed), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width) |
 | `multiroom_enabled`, `equalizer_effects_enabled` | bool | The two global flags |
@@ -119,7 +119,7 @@ nothing sends a position on a timer. It is `null` for a session with no playhead
 | Event | `data` | When |
 |---|---|---|
 | `source/state` | the whole state | whenever any field but the playhead changes, and only then |
-| `source/position` | `{source, session_id, position}` | on a discontinuity only: a seek, a speed change, or a reading more than 2 s from the anchor. A client ignores a `session_id` that is not its state's |
+| `source/position` | `{source, session_id, position}` | on a discontinuity only: a seek or a skip, a speed change, or a reading more than 2 s from the anchor. A client ignores a `session_id` that is not its state's |
 | `source/session_ended` | `{source, session_id, reason}` | at every end of a session, before the state that follows; `reason` is an `EndReason` (`eof`, `user_stop`, `idle_timeout`, `source_switch`, `reroute`, `sender_left`, `daemon_died`, `load_failed`, `stream_lost`, `storage_gone`) |
 | `source/error`, `source/error_cleared` | `{source, reason}`, `{source}` | an operation failed, or no longer is ([below](#two-kinds-of-error)) |
 

@@ -188,6 +188,24 @@ class MpvSim:
         self._emit({"event": "playback-restart"})
         return True
 
+    async def seek_by(self, seconds: float) -> bool:
+        """Relative seek: from mpv's own playhead, 0 at the bottom, the end of
+        the file past the top (measured: `end-file eof`, then the next entry)."""
+        self.sent.append(("seek_by", seconds))
+        if not self._ok() or self.current is None or not self.opened:
+            return False
+        target = max(0.0, (self.position or 0.0) + seconds)
+        duration = self._duration()
+        if duration is not None and target >= duration:
+            self._emit({"event": "seek"})
+            self._end_current("eof")
+            self._advance()
+            return True
+        self.position = target
+        self._emit({"event": "seek"})
+        self._emit({"event": "playback-restart"})
+        return True
+
     async def stop(self) -> bool:
         self.sent.append(("stop",))
         if not self._ok():

@@ -965,7 +965,7 @@ is the event's `source` field (falling back to `CATEGORY`).
     "availability": { "radio": null, "cd": "no_disc", ... },
     "session": { "id": "e5…", "phase": "playing", "title": "Hyperballad", ...,
                  "position": { "ms": 45000, "at": 1790270000.25, "rate": 1.0 } },
-    "controls": ["pause", "seek", "next", "prev"],
+    "controls": ["pause", "seek", "skip", "next", "prev"],
     "resume": null,
     "details": null,
     "multiroom_enabled": false,

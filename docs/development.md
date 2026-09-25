@@ -191,7 +191,7 @@ category `source`, you **must** include `"source"` in `data`.
     "switching": false,
     "service": "running",
     "session": { "phase": "playing", "title": "...", "position": { "ms": 45000, "at": 1790270000.25, "rate": 1.0 }, ... },
-    "controls": ["pause", "seek", "next", "prev"],
+    "controls": ["pause", "seek", "skip", "next", "prev"],
     ...
   },
   "timestamp": 1234567890
@@ -266,6 +266,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.commands import SkipParams, skip_target
 from backend.core.models.session import CommandScope, Phase, Session
 from backend.sources.my_source.models import SeekParams
 
@@ -277,7 +278,7 @@ class MySource(BaseAudioSource):
     # models live in sources/my_source/models.py (a pure pydantic/typing leaf).
     # An entry with no dispatch arm — or an arm with no entry — fails
     # tests/test_command_contract.py.
-    COMMANDS = {"pause": None, "resume": None, "seek": SeekParams}
+    COMMANDS = {"pause": None, "resume": None, "seek": SeekParams, "skip": SkipParams}
     # What each command acts on: a SESSION command with no session is refused
     # by the base, once, for every source.
     COMMAND_SCOPES = {name: CommandScope.SESSION for name in COMMANDS}
@@ -313,6 +314,16 @@ class MySource(BaseAudioSource):
             # A discontinuity: the next publish carries the new anchor.
             self._anchor_position(params.position_ms)
             return self.success_response(f"Seeked to {params.position_ms}ms")
+        if cmd == "skip":
+            # Relative, from this source's own playhead (never from an anchor a
+            # client was sent): skips handled one after another add up.
+            session = self._session
+            target = skip_target(
+                self._position_now(session), params.seconds,
+                self._session_fields(session)["duration_ms"],
+            )
+            self._anchor_position(target)
+            return self.success_response(f"Skipped {params.seconds:+g}s")
         return self.error_response(f"Unhandled command: {cmd}")
 
     # === The view ===
@@ -327,10 +338,10 @@ class MySource(BaseAudioSource):
         if session is None:
             return []
         if session.phase is Phase.PAUSED:
-            return ["resume", "seek"]
+            return ["resume", "seek", "skip"]
         if session.phase is Phase.LOADING:
             return ["pause"]  # seek is never listed while loading
-        return ["pause", "seek"]
+        return ["pause", "seek", "skip"]  # skip wherever seek (test_skip_travels_with_seek)
 ```
 
 **If your source plays through mpv** (like Radio, Podcast, CD and Music Library), extend

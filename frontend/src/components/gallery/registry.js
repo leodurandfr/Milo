@@ -158,7 +158,7 @@ const NOW_PLAYING = {
       duration_ms: 511000,
       position: anchor(192000)
     },
-    controls: ['pause', 'seek', 'next', 'prev']
+    controls: ['pause', 'seek', 'skip', 'next', 'prev']
   },
   'CD — paused': {
     source: 'cd',
@@ -170,7 +170,7 @@ const NOW_PLAYING = {
       duration_ms: 264000,
       position: anchor(64000)
     },
-    controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject']
+    controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject']
   },
   'CD — loading a track': {
     source: 'cd',
@@ -208,7 +208,7 @@ const NOW_PLAYING = {
       duration_ms: 264000,
       position: anchor(64000)
     },
-    controls: ['pause', 'seek', 'next', 'prev', 'play_track', 'eject']
+    controls: ['pause', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject']
   }
 };
 

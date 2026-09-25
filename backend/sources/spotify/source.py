@@ -46,6 +46,7 @@ from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
 )
+from backend.core.models.commands import SkipParams, skip_target
 from backend.sources.spotify.models import SeekParams, NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
@@ -373,6 +374,7 @@ class SpotifySource(BaseAudioSource):
         # snapshot at press time, so go-librespot resolves the edge.
         "playpause": None,
         "seek": SeekParams,
+        "skip": SkipParams,
         "next": NextPrevParams,
         "prev": NextPrevParams,
     }
@@ -386,7 +388,10 @@ class SpotifySource(BaseAudioSource):
                 return self.error_response(
                     f"position_ms ({params.position_ms}) exceeds duration ({duration}ms)"
                 )
-            return await self._send_api_command("seek", {"position": int(params.position_ms)})
+            return await self._seek_to(int(params.position_ms))
+
+        if cmd == "skip":
+            return await self._handle_skip(params)
 
         if cmd in ["pause", "resume", "playpause"]:
             return await self._send_api_command(cmd)
@@ -396,6 +401,31 @@ class SpotifySource(BaseAudioSource):
             return await self._send_api_command(cmd, payload)
 
         return self.error_response(f"Unhandled command: {cmd}")
+
+    async def _seek_to(self, position_ms: int) -> Dict[str, Any]:
+        """Seek, and move the anchor as soon as go-librespot took it: its own
+        `seek` event is read back through /status after, within tolerance."""
+        result = await self._send_api_command("seek", {"position": position_ms})
+        if result.get("success"):
+            self._anchor_position(position_ms)
+        return result
+
+    async def _handle_skip(self, params: SkipParams) -> Dict[str, Any]:
+        """A seek by `params.seconds` from where go-librespot says the playhead
+        is now (GET /status), or from this source's anchor when that read
+        fails or names another track. One skip is handled at a time, so the
+        next one reads where this one landed."""
+        session = self._session
+        position = self._position_now(session)
+        status = await self._read_status()
+        if (
+            isinstance(status, LibrespotStatus)
+            and status.track
+            and status.track.get("uri") == session.uri
+        ):
+            position = status.track.get("position") or 0
+        target = skip_target(position, params.seconds, session.track.get("duration_ms"))
+        return await self._seek_to(target)
 
     # === Config Loading ===
 
@@ -872,5 +902,5 @@ class SpotifySource(BaseAudioSource):
         if session.phase is Phase.LOADING:
             return ["pause", "next", "prev"]
         if session.phase is Phase.PAUSED:
-            return ["resume", "seek", "next", "prev"]
-        return ["pause", "seek", "next", "prev"]
+            return ["resume", "seek", "skip", "next", "prev"]
+        return ["pause", "seek", "skip", "next", "prev"]

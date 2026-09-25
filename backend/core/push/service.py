@@ -23,7 +23,8 @@ undo. Three rules keep it bounded:
     anyway, and iOS extrapolates. Streaming it would be several pushes a second.
   * The Now Playing push is capped at one per second, last-state-wins: a turn
     of the volume knob emits a burst of `volume_changed`, and the burst
-    collapses into one push carrying the level it ended on.
+    collapses into one push carrying the level it ended on. A seek is the one
+    event that does not wait out the window first: see `_loop`.
   * The widget push is rarer still, and is NOT on that one-second cap. It
     fires only when what a widget actually displays changes, which is one
     thing — whether Milō can be driven at all, drawn as the logo's opacity.
@@ -117,6 +118,10 @@ class PushService:
         self._state_machine = None
 
         self._dirty = asyncio.Event()
+        # A playhead discontinuity is waiting: the next push is not held back
+        # longer than the one-per-window ceiling requires. See `_loop`.
+        self._seeked = False
+        self._last_push_at = float("-inf")
         # Serializes the two seams. The coalescer used to be the only thing that
         # touched the session, and a loop is single file; the device's report is
         # a second caller on the same loop, and both decide on `_session_id`
@@ -160,6 +165,8 @@ class PushService:
         that is best-effort.
         """
         if isinstance(event, TRIGGERS):
+            if isinstance(event, SourcePosition):
+                self._seeked = True
             self._dirty.set()
 
     # =========================================================================
@@ -266,7 +273,21 @@ class PushService:
                 # re-set the flag and are absorbed into the single push at the
                 # end of it. That is what makes this last-state-wins rather
                 # than first-state-wins.
-                await asyncio.sleep(MIN_PUSH_INTERVAL_S)
+                #
+                # Except after a seek, which waits only for what is left of the
+                # window since the last push: sleeping first put the lock
+                # screen's new anchor ~1.2 s behind the press (measured from
+                # Milo-iOS, 2026-09-25), with nothing to coalesce it with. Two
+                # pushes are still never closer than the window. A seek is
+                # known here by its `source/position` only: one that moves the
+                # phase too (a CD's, which reloads the disc) arrives inside a
+                # `source/state`, like a source switch does, and waits.
+                delay = MIN_PUSH_INTERVAL_S
+                if self._seeked:
+                    self._seeked = False
+                    delay = max(0.0, self._last_push_at + MIN_PUSH_INTERVAL_S - time.monotonic())
+                await asyncio.sleep(delay)
+                self._last_push_at = time.monotonic()
                 await self._publish()
             except asyncio.CancelledError:
                 raise

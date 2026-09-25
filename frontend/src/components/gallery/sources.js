@@ -621,11 +621,11 @@ export const SOURCE_PAGES = [
       }),
       published('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport, the bar interactive because `seek` is listed. The buttons report to the event log instead of reaching the unit.', {
         session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
-        controls: ['pause', 'seek', 'next', 'prev']
+        controls: ['pause', 'seek', 'skip', 'next', 'prev']
       }),
       published('spotify', 'Paused', 'Same session, phase paused: `controls` trades pause for resume, the glyph flips, and useSourceProgress stops advancing the anchor.', {
         session: session({ ...SAYS, phase: 'paused', position: anchor(192000) }),
-        controls: ['resume', 'seek', 'next', 'prev']
+        controls: ['resume', 'seek', 'skip', 'next', 'prev']
       }),
       offline(
         'spotify',
@@ -795,7 +795,7 @@ export const SOURCE_PAGES = [
       }),
       published('cd', 'Disc ready, not playing', 'Nothing in session and the player shows anyway: the resume point names track 1 at 0:00 — what a play press would start — and useSourceProgress draws that frozen bar from `position_ms`. The transport is live because `controls` lists resume, seek and the track commands with no session behind them.', {
         resume: { title: 'Keep', artist: 'Nils Frahm', album: 'Felt', artwork: musicPlaceholder, duration_ms: 312000, position_ms: 0 },
-        controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject'],
+        controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject'],
         details: cdDetails(1)
       }),
       published(
@@ -804,7 +804,7 @@ export const SOURCE_PAGES = [
         'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. The TOC alone answers: generic "Track N" titles from the real track count and durations, and no album, artist, year or cover. The player is admitted on the title alone and draws "Unknown Artist" — the honest label here — over the disc placeholder. Demanding an artist too is what once left this player on its empty seed over a tracklist that listed the tracks correctly.',
         {
           resume: { title: 'Track 1', artist: null, album: null, artwork: null, duration_ms: 312000, position_ms: 0 },
-          controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject'],
+          controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject'],
           details: cdDetails(1, {
             id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
             album: null,
@@ -822,12 +822,12 @@ export const SOURCE_PAGES = [
       }),
       published('cd', 'Playing', 'AudioPlayerFull with the full transport. On the last track `next` leaves `controls`, and the button with it.', {
         session: cdSession(4, { phase: 'playing', position: anchor(74000) }),
-        controls: ['pause', 'seek', 'prev', 'play_track', 'eject'],
+        controls: ['pause', 'seek', 'skip', 'prev', 'play_track', 'eject'],
         details: cdDetails(4)
       }),
       published('cd', 'Paused', 'A paused session is still a session, and the screen says so by its transport — resume instead of pause — while the bar freezes at the anchor. Auto-stop ends it on the idle screen above, keeping the track and the second as the resume point, so the disc stays visible and play resumes where it was.', {
         session: cdSession(3, { phase: 'paused', position: anchor(74000) }),
-        controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject'],
+        controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject'],
         details: cdDetails(3)
       }),
       published('cd', 'Ejecting', 'availability ejecting outranks the disc: the display state is ejecting, a spinner, and the player gives way to the card rather than lingering over a disc that is leaving. `eject` is not listed — it is already happening.', {
@@ -1141,7 +1141,7 @@ export const SOURCE_PAGES = [
             duration_ms: 2940000,
             position: anchor(812000)
           }),
-          controls: ['pause', 'seek', 'set_speed'],
+          controls: ['pause', 'seek', 'skip', 'set_speed'],
           details: {
             kind: 'podcast',
             episode: {
@@ -1228,7 +1228,7 @@ export const SOURCE_PAGES = [
         view: 'ml-home',
         state: {
           session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
-          controls: ['pause', 'seek', 'next', 'prev', 'set_shuffle', 'play_index', 'stop'],
+          controls: ['pause', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'play_index', 'stop'],
           details: {
             kind: 'music_library',
             queue: [

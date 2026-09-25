@@ -15,6 +15,7 @@ from backend.core.models.ws_events import SourceErrorReason
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.commands import skip_target
 from backend.core.models.session import (
     EndReason, IdlePolicy, Phase, PhaseEvent, Session,
 )
@@ -370,6 +371,26 @@ class MpvAudioSource(BaseAudioSource):
 
     async def _on_playing_tick(self, session: MpvSession) -> None:
         """Hook: one second of sound (read the playhead, push it)."""
+
+    async def _skip_by(self, session: MpvSession, seconds: float) -> Optional[int]:
+        """Move the playhead by `seconds`: a relative seek, which adds up in mpv
+        with the skips before it. The anchor goes where mpv says it landed
+        (time-pos reads the target once the seek is answered, measured), else
+        where this source's own playhead puts it. Returns the new playhead
+        (ms), or None when mpv refused."""
+        if not await self._mpv.seek_by(seconds):
+            return None
+        landed = await self._mpv.get_property("time-pos")
+        if landed is not None and self._session is session:
+            target = self._playhead_ms(session, landed)
+        else:
+            target = skip_target(
+                self._position_now(session), seconds,
+                self._session_fields(session).get("duration_ms"),
+            )
+        session.position = target // 1000
+        self._anchor_position(target)
+        return target
 
     async def _read_playhead(self, session: MpvSession) -> Optional[float]:
         """Read time-pos and duration into the session, and hand the playhead

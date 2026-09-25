@@ -694,6 +694,18 @@ class MpvController:
         response = await self._send_command("seek", position, "absolute")
         return response is not None and response.get('error') == 'success'
 
+    async def seek_by(self, seconds: float) -> bool:
+        """Move the playhead by `seconds` from wherever mpv has it.
+
+        Measured on mpv 0.40: relative seeks add up, even several sent before
+        the first is answered; time-pos reads the target as soon as the reply
+        arrives; below 0 lands on 0, and past the end ends the file (`end-file
+        eof`), as a seek to the duration does. Refused, like any seek, before
+        the file is open.
+        """
+        response = await self._send_command("seek", seconds, "relative")
+        return response is not None and response.get('error') == 'success'
+
     # === Playlist (gapless queue) ===
 
     async def play_index(self, index: int) -> bool:

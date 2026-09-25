@@ -50,7 +50,7 @@
     <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
         @after-hide="onAfterHide"
-        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :swipe-enabled="canSeek"
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :swipe-enabled="canSkip"
         @swipe-next="seekForward" @swipe-prev="seekBackward">
         <!-- Track info: podcast name kicker + episode title, in the shared
              PlayerInfoText's vertical layout (desktop sidebar and, since nothing
@@ -90,13 +90,13 @@
                bar but not in the expanded sheet, which is where a phone
                actually sees it. -->
           <div class="playback-controls" @click.stop>
-            <IconButton v-if="canSeek" icon="rewind15" variant="ghost" size="small"
+            <IconButton v-if="canSkip" icon="rewind15" variant="ghost" size="small"
               class="desktop-only transport-secondary-round" @click="seekBackward" />
 
             <IconButton :icon="pausesOnPress ? 'pause' : 'play'" variant="ghost" size="medium"
               class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton v-if="canSeek" icon="forward30" variant="ghost" size="small"
+            <IconButton v-if="canSkip" icon="forward30" variant="ghost" size="small"
               class="desktop-only transport-secondary-round" @click="seekForward" />
           </div>
 
@@ -167,6 +167,7 @@ const {
   duration: durationMs,
   progressPercentage: livePercent,
   seekTo,
+  skip,
   isPositionInitialized,
 } = useSourceProgress('podcast')
 
@@ -178,6 +179,7 @@ const phase = computed(() =>
   unifiedStore.systemState.source === 'podcast' ? unifiedStore.systemState.session?.phase : null
 )
 const canSeek = computed(() => controls.value.includes('seek'))
+const canSkip = computed(() => controls.value.includes('skip'))
 const pausesOnPress = computed(() => phase.value === 'playing' || phase.value === 'loading')
 const showProgress = computed(() => durationMs.value > 0 && isPositionInitialized.value)
 
@@ -334,16 +336,16 @@ async function togglePlayPause() {
   }
 }
 
-// All seeks go through useSourceProgress.seekTo (ms): it shows the target at
-// once and holds it until the anchor the seek causes arrives.
+// −15 / +30 are relative: the source adds them to where its playhead is, so
+// quick presses add up (useSourceProgress.skip shows the sum at once).
 async function seekBackward() {
-  if (!canSeek.value) return
-  await seekTo(Math.max(0, positionMs.value - 15000))
+  if (!canSkip.value) return
+  await skip(-15)
 }
 
 async function seekForward() {
-  if (!canSeek.value) return
-  await seekTo(Math.min(durationMs.value, positionMs.value + 30000))
+  if (!canSkip.value) return
+  await skip(30)
 }
 
 async function handleSpeedChange(speedValue) {
