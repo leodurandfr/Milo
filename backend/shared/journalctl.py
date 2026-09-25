@@ -75,9 +75,10 @@ async def follow_unit(
                 # before uvicorn's shutdown cancels the monitor task that owns
                 # this generator. Measured: returncode -15, and a restart with
                 # Mac selected logged nothing. Reporting it would put a false
-                # "detection is down" in errors.log and the UI banner on every
-                # restart. Any other signal is a death the backend survives —
-                # SIGKILL from the OOM killer, a crash — and silencing those
+                # "detection is down" in errors.log on every restart (a
+                # `source.*` logger reaches no banner). Any other signal is a
+                # death the backend survives — SIGKILL from the OOM killer, a
+                # crash — and silencing those
                 # would leave the source deaf with nothing said, which is the
                 # hole this report exists to close. A clean consumer teardown
                 # never comes through here at all: it unwinds through

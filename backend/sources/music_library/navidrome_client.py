@@ -687,8 +687,7 @@ class NavidromeClient:
             ) as resp:
                 if resp.status != 200:
                     # Unusual (Navidrome itself erroring) but still a "no cover"
-                    # outcome the frontend handles — warning, not error, so it
-                    # never surfaces as a system-error banner.
+                    # outcome the frontend handles — a warning, not an error.
                     self.logger.warning(
                         f"Navidrome getCoverArt HTTP {resp.status} for {cover_id}"
                     )

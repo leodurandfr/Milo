@@ -117,6 +117,9 @@ class TidalSource(BaseAudioSource):
         # The last player status seen before any track was named (E14): the
         # session it describes opens with the first media.
         self._early_status: Optional[Dict[str, Any]] = None
+        # The daemon's last request for the audio device was not granted: it
+        # plays nothing, whatever its status says, until a grant goes through.
+        self._ungranted = False
         self.auto_stop_enabled = True
 
     async def _do_start(self) -> bool:
@@ -248,7 +251,7 @@ class TidalSource(BaseAudioSource):
                     self._clear_position()
                 elif reading is not None:
                     self._observe_position(reading)
-                playing = session.phase is Phase.PLAYING
+                playing = session.phase is Phase.PLAYING and not self._ungranted
                 if playing:
                     # A track plays: the playback error it followed is over (E16).
                     self.broadcast_error_cleared()
@@ -289,6 +292,15 @@ class TidalSource(BaseAudioSource):
             elif not isinstance(state, int):
                 self._logger.warning(f"notifySessionState without a readable state: {message}")
 
+        elif command == "requestResources":
+            # The controller answers it; a grant it could not deliver leaves the
+            # daemon unable to play (E27), whatever it reports, until the next
+            # request is granted — which ends the failure it was shown for.
+            was_ungranted, self._ungranted = self._ungranted, bool(message.get("grant_failed"))
+            if was_ungranted and not self._ungranted:
+                self.broadcast_error_cleared()
+            return self._ungranted
+
         elif command == "releaseResources":
             # The daemon handing the audio device back: the session is over.
             self._early_status = None
@@ -312,7 +324,7 @@ class TidalSource(BaseAudioSource):
             return True
 
         else:
-            # setShuffle/setRepeatMode/notifyRequestResult/requestResources/
+            # setShuffle/setRepeatMode/notifyRequestResult/
             # notifyAudioFormatUpdated — answered by the transport or not
             # modeled by Milō (measured: nothing else is sent in a session).
             self._logger.debug(f"Unhandled tisoc frame: {command}")
@@ -415,6 +427,7 @@ class TidalSource(BaseAudioSource):
         # What the socket posted and nobody handled belongs to this daemon run.
         self._discard_feed()
         self._early_status = None
+        self._ungranted = False
 
 
 __all__ = ["TidalSource"]

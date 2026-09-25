@@ -85,7 +85,10 @@ class _Writer:
         self._daemon.heard(json.loads(data[4:4 + length]))
 
     async def drain(self) -> None:
-        return None
+        # The wedged daemon: it stops reading its socket without closing it, so
+        # a write never drains and the controller's bound gives up on it.
+        if self._daemon.stops_reading:
+            raise asyncio.TimeoutError()
 
     def is_closing(self) -> bool:
         return self._closing
@@ -107,6 +110,7 @@ class Tisoc:
         self.connections = 0
         self.state = "IDLE"
         self.progress = 0
+        self.stops_reading = False
 
     async def open_unix_connection(self, path: str, *a: Any, **k: Any):
         if not self.up:

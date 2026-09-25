@@ -300,3 +300,46 @@ async def test_the_controller_reattaches_at_once_after_the_end_request(world):
     await world.advance(DELAY + 0.5)       # the timer fires at DELAY
     assert len(world.restarts) == 1
     assert world.daemon.connections == 2
+
+
+async def test_an_audio_device_the_controller_cannot_grant_is_on_screen(world):
+    """E27: the daemon asks for the audio device and decodes nothing until it
+    is granted. A grant that cannot be written (the daemon stopped reading its
+    socket) left Tidal active and silent with an ERROR in the journal only —
+    `source.*` loggers never reach the banner."""
+    world.daemon.stops_reading = True
+
+    await world.mac_picks_the_speaker()
+
+    assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
+
+
+async def test_a_granted_audio_device_raises_no_banner(world):
+    await world.mac_picks_the_speaker()
+
+    assert world.errors() == []
+
+
+async def test_an_ungranted_daemon_that_says_playing_keeps_its_banner(world):
+    """Review of E27: a PLAYING the daemon reports after a grant it never got
+    is not sound — the banner a playing track clears (E16) stays until a grant
+    goes through."""
+    world.daemon.stops_reading = True
+
+    await world.mac_plays()
+
+    assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
+    assert not world.envelopes("source", "error_cleared")
+
+
+async def test_a_grant_that_goes_through_later_withdraws_the_banner(world):
+    """Review of E27: the banner of an ungranted device outlived its cause
+    when the next request was granted but no track played afterwards."""
+    world.daemon.stops_reading = True
+    await world.mac_picks_the_speaker()
+    assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
+
+    world.daemon.stops_reading = False
+    await world.sends({"command": "requestResources"})
+
+    assert world.envelopes("source", "error_cleared")

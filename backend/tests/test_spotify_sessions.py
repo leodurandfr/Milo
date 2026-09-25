@@ -270,3 +270,72 @@ async def test_a_reroute_whose_resume_lags_publishes_no_pause(world):
     during = world.published()[before:]
     assert all(p["session"]["phase"] != "paused" for p in during if p["session"]), during
     assert world.playing()
+
+
+async def test_a_daemon_that_never_answers_is_on_screen_until_its_events_connect(
+    monkeypatch, tmp_path
+):
+    """E27: go-librespot never answering at start was an ERROR in the journal
+    only (`source.*` loggers never reach the banner), so the phone found no
+    Milō and the screen said nothing. It is a banner now, withdrawn as soon as
+    the daemon's /events stream connects."""
+    from backend.sources.spotify import source as spotify_module
+    from backend.tests.test_spotify_source import deaf_daemon_clock
+
+    monkeypatch.setattr(spotify_module, "time", deaf_daemon_clock())
+    w = SpotifyWorld(monkeypatch, tmp_path)
+    comes_up = w.daemon.comes_up
+    w.daemon.comes_up = lambda: None        # the process runs, its API stays deaf
+    await w.select()
+    assert w.errors() == [SourceErrorReason.SERVICE_UNREACHABLE]
+
+    comes_up()
+    await w.advance(2.1)                    # the /events client retries every 2 s
+
+    assert w.envelopes("source", "error_cleared")
+    await w.source.shutdown()
+
+
+async def test_a_daemon_that_answers_raises_no_banner(world):
+    assert world.errors() == []
+
+
+async def test_the_unanswered_banner_leaves_with_the_source(monkeypatch, tmp_path):
+    """Review of E27: the banner a deaf daemon raised stayed over the next
+    source once Spotify was left, the daemon still silent."""
+    from backend.sources.spotify import source as spotify_module
+    from backend.tests.test_spotify_source import deaf_daemon_clock
+
+    monkeypatch.setattr(spotify_module, "time", deaf_daemon_clock())
+    w = SpotifyWorld(monkeypatch, tmp_path)
+    w.daemon.comes_up = lambda: None        # the process runs, its API stays deaf
+    await w.select()
+    assert w.errors() == [SourceErrorReason.SERVICE_UNREACHABLE]
+
+    await w.leave()
+
+    assert w.envelopes("source", "error_cleared")
+    await w.source.shutdown()
+
+
+async def test_the_daemon_answering_late_leaves_a_newer_banner_standing(monkeypatch, tmp_path):
+    """Review of E27: /events connecting late withdrew whatever banner stood,
+    a track that failed to load meanwhile included."""
+    from backend.sources.spotify import source as spotify_module
+    from backend.tests.test_spotify_source import deaf_daemon_clock
+
+    monkeypatch.setattr(spotify_module, "time", deaf_daemon_clock())
+    w = SpotifyWorld(monkeypatch, tmp_path)
+    comes_up = w.daemon.comes_up
+    w.daemon.comes_up = lambda: None        # the process runs, its API stays deaf
+    await w.select()
+    await w.source._handle_log_line('level=error msg="failed loading current track: no stream"')
+
+    comes_up()
+    await w.advance(2.1)                    # the /events client retries every 2 s
+
+    assert w.errors() == [
+        SourceErrorReason.SERVICE_UNREACHABLE, SourceErrorReason.TRACK_LOAD_FAILED,
+    ]
+    assert not w.envelopes("source", "error_cleared")
+    await w.source.shutdown()

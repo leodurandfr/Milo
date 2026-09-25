@@ -240,11 +240,14 @@ class TidalControllerSocket:
             # cosmetic — and send() only warns. A frame just arrived on this
             # socket, so a refused write here is the wedged daemon the send()
             # docstring describes (it stops reading without closing), not a
-            # routine disconnection: error level, to reach the banner.
+            # routine disconnection: an error, and the frame handed on says so
+            # (`grant_failed`), for the source to put on screen — a log line
+            # from here never reaches the banner.
             if not await self.send("grantResources"):
                 self._logger.error(
                     "Could not grant the audio device — Tidal stays active and silent"
                 )
+                message = {**message, "grant_failed": True}
         elif command == "releaseResources":
             if not await self.send("revokeResources"):
                 self._logger.error(

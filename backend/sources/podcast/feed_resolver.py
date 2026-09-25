@@ -126,8 +126,7 @@ class FeedUrlResolver:
         if feed_url:
             self._store(itunes_id, feed_url)
         else:
-            # Expected for subscriber-only shows: not a failure, so it must not
-            # reach the WebSocketLogHandler banner.
+            # Expected for subscriber-only shows: not a failure.
             self.logger.debug("Apple publishes no feed URL for iTunes id %s", itunes_id)
         return feed_url
 

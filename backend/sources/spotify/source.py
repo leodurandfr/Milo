@@ -144,6 +144,8 @@ class SpotifySource(BaseAudioSource):
 
         self._http: Optional[aiohttp.ClientSession] = None
         self._ws_client: Optional[LibrespotWebSocket] = None
+        # The daemon did not answer at start: a banner stands until /events connects.
+        self._unanswered = False
 
         self.auto_stop_enabled = True
 
@@ -183,12 +185,15 @@ class SpotifySource(BaseAudioSource):
             # 4. Wait until the daemon's API is reachable before connecting.
             # Not fatal — the WS loop reconnects on its own — but the source is
             # about to report itself started over a daemon that never answered,
-            # so the timeout has to leave a trace at banner level.
-            # _wait_for_playback_ready only warns.
+            # and a phone then finds no Milō: said in the journal and on screen
+            # (`source.*` loggers never reach the banner), until /events
+            # connects. _wait_for_playback_ready only warns.
             if not await self._wait_for_playback_ready():
                 self._logger.error(
                     "go-librespot never answered; starting anyway — playback may not work"
                 )
+                self.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
+                self._unanswered = True
 
             # 5. /events: every (re)connection and every event is posted.
             await self._start_websocket()
@@ -597,6 +602,9 @@ class SpotifySource(BaseAudioSource):
                 gone = True
             elif kind in ("active", "connected"):
                 gone = False
+            if kind == "connected" and self._unanswered:
+                # The daemon that did not answer at start does now.
+                self.broadcast_error_cleared()
         status = None if gone else await self._read_status()
         if status is UNREADABLE:
             self._logger.warning("go-librespot status unavailable — keeping the session as it stands")
@@ -888,6 +896,19 @@ class SpotifySource(BaseAudioSource):
 
         # What /events posted and nobody handled belongs to this daemon run.
         self._discard_feed()
+        # The daemon that did not answer is gone with it: so is what it put up.
+        if self._unanswered:
+            self.broadcast_error_cleared()
+
+    def broadcast_error(self, reason: str) -> None:
+        # The banner standing is no longer the unanswered start's: /events
+        # connecting later must not withdraw this one.
+        self._unanswered = False
+        super().broadcast_error(reason)
+
+    def broadcast_error_cleared(self) -> None:
+        self._unanswered = False
+        super().broadcast_error_cleared()
 
     # === The view (docs: "le fil") ===
 
