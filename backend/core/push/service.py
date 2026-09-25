@@ -242,9 +242,6 @@ class PushService:
 
             if device_id not in self._session_devices():
                 return
-            if self._leaves_milo(state):
-                await self._end_session()
-                return
             await self._consider_ending(state)
 
     def _device_can_be_started(self, device_id: str) -> bool:
@@ -338,14 +335,16 @@ class PushService:
         async with self._session_lock:
             await self._retry_pending_ends()
             if not self._has_active_source(state):
-                if self._leaves_milo(state):
-                    if self._session_id is not None:
-                        await self._end_session()
-                    return
+                # The session the phone holds, whoever opened it — after a
+                # restart of this side too — or `none` and the grace could only
+                # end a session this side already tracked.
+                if self._session_id is None:
+                    self._adopt_reported_session()
                 await self._consider_ending(state)
                 return
 
             self._idle_since = 0.0
+            self._idle_source = None
             self._adopt_reported_session()
 
             if self._session_id is None:
@@ -377,12 +376,21 @@ class PushService:
         Nothing shortens the grace, not even a report from the running app: see
         `align_session_to_playback`. The clock starts at the first idle cycle,
         and only choosing another source restarts it: someone just asked for
-        that source, and its card gets five minutes from then. `none` never
-        reaches here: it ends the card at once (`_leaves_milo`).
+        that source, and its card gets five minutes from then.
+
+        `none` ends the card at once (`_leaves_milo`) — when the card can be
+        reached. A session whose token has not landed yet has nothing an `end`
+        could go to: it takes the grace like any quiet source, so
+        `_publish_paused` keeps re-announcing its `start` until the token
+        lands, and the grace ends it. Ending it on the spot forgot a card still
+        showing "playing" with nobody left to close it.
         """
         if self._session_id is None:
             return
         if state.get("switching"):
+            return
+        if self._leaves_milo(state) and self._registry.tokens_for_session(self._session_id):
+            await self._end_session()
             return
 
         now = time.time()
@@ -401,7 +409,8 @@ class PushService:
     def _leaves_milo(state: Dict[str, Any]) -> bool:
         """Was the source left — `none` selected, and no switch in flight?
 
-        That ends the card at once, from either seam, without the grace. For a
+        That ends the card at once, from either seam — `_consider_ending`
+        serves both — without the grace, when it can be reached. For a
         day (2026-09-25) `none` showed Milō's own card for five minutes; the
         owner dropped it the same evening. Nothing on it could be pressed —
         `none` offers no command — and a card left on the Lock Screen after
@@ -422,9 +431,8 @@ class PushService:
     def _arm_idle_grace(self, source: str) -> None:
         """Start the idle clock under `source`: the card has five minutes from now.
 
-        The card last sent is forgotten with it — what went out before
-        playback, or under another source, says nothing about what the phone
-        shows now.
+        The idle card last sent is forgotten with it: playback, or another
+        source, has replaced what the phone shows since.
         """
         self._idle_since = time.time()
         self._idle_source = source
@@ -664,8 +672,8 @@ class PushService:
         made `_adopt_reported_session` able to follow a session that no longer
         existed.
 
-        The session is forgotten at once, whatever Apple answers: what comes
-        next — a source chosen, playback — opens a new one for every device.
+        The session is forgotten at once, whatever Apple answers: the next
+        playback opens a new one for every device.
         Delivering its `end` is `_send_end`'s business, apart from it.
         """
         session_id, self._session_id = self._session_id, None
@@ -673,6 +681,7 @@ class PushService:
         self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()
         self._idle_since = 0.0
+        self._idle_source = None
         if session_id:
             await self._send_end(session_id, attempts=0)
         logger.info(f"Now Playing session {session_id} ended")

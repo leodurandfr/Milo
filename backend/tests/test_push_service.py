@@ -372,6 +372,45 @@ class TestSessionLifecycle:
         assert sent_events(apns) == ["end"]
         assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
 
+    async def test_leaving_before_the_token_landed_knocks_instead_of_forgetting(
+        self, service, registry, apns
+    ):
+        """An `end` needs a token to go to. Ending on the spot forgot a card
+        still showing "playing" with nothing left to close it; it takes the
+        grace instead, re-announcing its `start` until the token lands."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        session_id = service._session_id
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == session_id
+        assert sent_events(apns) == ["start"]
+
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
+        assert service._session_id is None
+
+    async def test_leaving_ends_a_session_this_side_had_not_adopted_yet(
+        self, service, registry, apns
+    ):
+        """After a restart of this side, the phone's card is one nobody here
+        tracks. The bus adopts it before deciding, as the report seam does."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="APP-1")
+        service.machine.get_current_state.return_value = dict(STOPPED)
+
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
+        assert sent_sessions(apns) == ["APP-1"]
+
     async def test_leaving_a_quiet_source_ends_the_card_at_once(
         self, service, registry, apns
     ):
@@ -740,7 +779,7 @@ class TestSourceTransitions:
         READY is a source still selected with nothing playing — the gap the
         grace exists for. It must be ridden out, then ended, or a session that
         outlived playback for good would keep Milō on a Lock Screen it no
-        longer owns. `none` takes the same road, under Milō's card.
+        longer owns. `none` does not: it ends the card at once.
         """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
@@ -767,7 +806,7 @@ class TestSourceTransitions:
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
         ended = service._session_id
-        service.machine.get_current_state.return_value = dict(STOPPED)
+        service.machine.get_current_state.return_value = dict(READY)
         await service._publish()
         service._idle_since -= SESSION_IDLE_GRACE_S + 1
         await service._publish()
@@ -885,7 +924,7 @@ class TestSourceTransitions:
         await service._publish()
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
-        service.machine.get_current_state.return_value = dict(STOPPED)
+        service.machine.get_current_state.return_value = dict(READY)
 
         await service._publish()
         service._idle_since -= SESSION_IDLE_GRACE_S + 1
