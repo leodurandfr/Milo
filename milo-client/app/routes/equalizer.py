@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from services.equalizer import EqualizerService
 from models import (
     FilterUpdate, FiltersBatchUpdate, CompressorUpdate, LoudnessUpdate,
-    MonoUpdate, DelayUpdate, GainUpdate, VolumeUpdate, MuteUpdate,
+    MonoUpdate, GainUpdate, VolumeUpdate, MuteUpdate,
     CrossoverUpdate, LowpassUpdate, EqualizerEnabledUpdate
 )
 
@@ -185,23 +185,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             raise
         except Exception as e:
             logger.error(f"Error updating mono: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # === Delay ===
-
-    @router.put("/delay")
-    async def update_delay(update: DelayUpdate):
-        """Update channel delay settings."""
-        try:
-            success = await equalizer_service.set_delay(left=update.left, right=update.right)
-            if success:
-                return {"status": "success", **equalizer_service.delay}
-            else:
-                raise HTTPException(status_code=400, detail="Failed to update delay")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating delay: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Level trim ===

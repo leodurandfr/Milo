@@ -100,7 +100,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['back', 'success']);
+const emit = defineEmits(['success']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();

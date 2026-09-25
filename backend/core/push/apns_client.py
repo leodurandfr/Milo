@@ -65,7 +65,6 @@ class ApnsResult:
     # Seconds since the epoch, from a 410 body. APNs sends milliseconds; the
     # division happens here so PushTokenRegistry.purge only ever sees seconds.
     invalidated_at: Optional[float] = None
-    skipped: bool = False
 
 
 class ApnsClient:
@@ -148,7 +147,7 @@ class ApnsClient:
         BadDeviceToken — which is indistinguishable from a malformed token.
         """
         if not self.available:
-            return ApnsResult(ok=False, status=0, reason="NoSigningKey", skipped=True)
+            return ApnsResult(ok=False, status=0, reason="NoSigningKey")
 
         client = await self._client_for(target.environment)
         try:

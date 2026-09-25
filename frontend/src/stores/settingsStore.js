@@ -22,7 +22,6 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === LOADING STATE ===
   const isLoading = ref(false);
-  const hasLoaded = ref(false);
 
   // === LANGUAGE ===
   const language = ref('english');
@@ -81,10 +80,13 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === SPOTIFY ===
-  // Crossfade between tracks in ms (0 = disabled). go-librespot reads it once at
-  // start, so the settings view offers an explicit "restart to apply".
+  // Crossfade between tracks in ms (0 = disabled), and whether the Spotify app's
+  // slider scales the samples (false → unity, CamillaDSP owns volume).
+  // go-librespot reads both once at start, so the settings view offers an
+  // explicit "restart to apply".
   const spotifySettings = ref({
-    crossfade_duration: 0
+    crossfade_duration: 0,
+    allow_app_volume: false
   });
 
   // === MAC ROC ===
@@ -221,7 +223,6 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(macRocSettings, d.mac_roc);
       }
 
-      hasLoaded.value = true;
       logger.info('settings', 'All settings loaded successfully');
     } finally {
       isLoading.value = false;

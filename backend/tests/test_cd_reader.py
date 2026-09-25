@@ -356,7 +356,6 @@ class TestTheReadyHandshake:
         assert reader.wait_ready(timeout=0.5) is False
         reader._thread.join(timeout=5)
         assert drive.requests == []
-        assert reader.is_running is False
 
 
 class TestHowARunEnds:
@@ -440,20 +439,6 @@ class TestHowARunEnds:
 
         assert reader.reached_leadout is False
         assert reader.failure is None
-
-    def test_running_is_cleared_when_the_loop_exits(self, monkeypatch):
-        drive = FakeDrive()
-        drive.park_in_ioctl = threading.Event()
-        drive.install(monkeypatch)
-        reader = CdIoctlReader()
-
-        reader.start(0, READ_CHUNK)
-        assert drive.entered_ioctl.wait(5)
-        assert reader.is_running is True
-
-        drive.park_in_ioctl.set()
-        reader._thread.join(timeout=5)
-        assert reader.is_running is False
 
 
 class TestStop:

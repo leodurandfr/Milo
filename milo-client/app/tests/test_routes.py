@@ -25,11 +25,9 @@ def mock_equalizer_service():
     service.connected = True
     service.compressor = {"enabled": False, "threshold": -20.0, "ratio": 4.0}
     service.loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
-    service.delay = {"left": 0.0, "right": 0.0}
     service.crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
     service.lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
     service.volume_state = {"main": -20.0, "mute": False}
-    service.equalizer_enabled = True
 
     # Async methods
     service.get_status = AsyncMock(return_value={"available": True, "state": "running"})
@@ -41,7 +39,6 @@ def mock_equalizer_service():
     service.set_mute = AsyncMock(return_value=True)
     service.set_compressor = AsyncMock(return_value=True)
     service.set_loudness = AsyncMock(return_value=True)
-    service.set_delay = AsyncMock(return_value=True)
     service.set_crossover = AsyncMock(return_value=True)
     service.set_lowpass = AsyncMock(return_value=True)
 

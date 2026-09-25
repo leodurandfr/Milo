@@ -206,7 +206,7 @@ class TestLogin:
         assert (verb, url) == ("POST", f"{BASE}/auth/login")
         assert kwargs["json"] == {"username": "milo-svc", "password": "secret"}
         assert client._token == LOGIN_BODY["token"]
-        assert client.user_id == LOGIN_BODY["id"]
+        assert client._user_id == LOGIN_BODY["id"]
 
     async def test_a_login_answering_no_token_is_a_failed_login(self, client):
         """Navidrome answering 200 without a token would otherwise leave the
@@ -506,6 +506,6 @@ class TestGrantAllLibraries:
             _Response(json_body={}),
         ])
 
-        assert client.user_id is None
+        assert client._user_id is None
         assert await client.grant_all_libraries([2]) is True
         assert session.calls[0][1] == f"{BASE}/auth/login"

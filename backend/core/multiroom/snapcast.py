@@ -146,7 +146,7 @@ class SnapcastService:
         This is the per-client delay Milō owns as its source of truth (mirror of
         set_volume): applied when the user changes it and re-pushed on admission
         so a reconnecting client recovers it. It is Snapcast's own latency, NOT a
-        CamillaDSP filter — milo-client's /equalizer/delay stays dormant.
+        CamillaDSP filter.
 
         Args:
             client_id: Snapcast client id (== the client's mac_id by construction)

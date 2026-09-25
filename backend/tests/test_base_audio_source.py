@@ -535,11 +535,6 @@ class TestBaseAudioSourceServiceManager:
 class TestBaseAudioSourceInheritance:
     """Test that BaseAudioSource subclasses are properly typed."""
 
-    def test_concrete_source_is_base_audio_source(self):
-        """Test ConcreteAudioSource inherits from BaseAudioSource."""
-        source = ConcreteAudioSource()
-        assert isinstance(source, BaseAudioSource)
-
     def test_base_source_has_required_attributes(self):
         """Test BaseAudioSource has required attributes."""
         source = ConcreteAudioSource()

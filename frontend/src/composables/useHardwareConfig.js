@@ -49,8 +49,8 @@ export function useHardwareConfig() {
    * Load lightweight hardware info (screen type/resolution).
    * Used by InputText.vue, App.vue, etc.
    */
-  async function loadHardwareInfo(forceReload = false) {
-    if (hardwareInfo.value && !forceReload) {
+  async function loadHardwareInfo() {
+    if (hardwareInfo.value) {
       return hardwareInfo.value;
     }
 
@@ -78,10 +78,7 @@ export function useHardwareConfig() {
       hardwareInfo.value = result.data.hardware;
       logger.debug('hardware', 'Hardware info loaded', result.data.hardware);
     } else {
-      hardwareInfo.value = {
-        screen_type: 'none',
-        screen_resolution: { width: null, height: null }
-      };
+      hardwareInfo.value = { screen_type: 'none' };
     }
     isLoading.value = false;
     return hardwareInfo.value;
@@ -127,21 +124,14 @@ export function useHardwareConfig() {
     return hardwareConfig.value;
   }
 
-  function reload() {
-    return loadHardwareInfo(true);
-  }
-
   const screenType = computed(() => hardwareInfo.value?.screen_type || 'none');
-  const screenResolution = computed(() => hardwareInfo.value?.screen_resolution || { width: null, height: null });
   const rotaryEnabled = computed(() => hardwareConfig.value?.current?.rotary_encoder?.enabled !== false);
 
   return {
     hardwareInfo,
     isLoading,
     loadHardwareInfo,
-    reload,
     screenType,
-    screenResolution,
     rotaryEnabled,
     // Full config for Hardware settings page
     hardwareConfig,

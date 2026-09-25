@@ -449,16 +449,6 @@ def mock_ws_manager():
     return manager
 
 
-@pytest.fixture
-def mock_routing_service():
-    """Mock of routing service"""
-    service = Mock()
-    service.get_state = Mock()
-    service.set_multiroom_enabled = AsyncMock(return_value=True)
-    service.set_equalizer_effects_enabled = AsyncMock(return_value=True)
-    return service
-
-
 def free_mailbox():
     """A stand-in for `BaseAudioSource.hold_mailbox`: an async context that holds
     nothing, for a Mock source the reroute holds across RELEASE and ACQUIRE."""
@@ -525,15 +515,6 @@ def mock_settings_service():
     service.load_settings = AsyncMock(return_value={})
     service.save_settings = AsyncMock(return_value=True)
     return service
-
-
-@pytest.fixture
-def mock_async_lock():
-    """Mock of asyncio.Lock for tests"""
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=None)
-    return lock
 
 
 class CamillaDaemonDouble:

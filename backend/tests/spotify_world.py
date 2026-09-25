@@ -131,7 +131,6 @@ class Librespot:
         self.resume_lag = False
         self.posted: List[Tuple[str, Dict[str, Any]]] = []
         self.socket: Optional[_EventsSocket] = None
-        self.connections = 0
 
     # -- aiohttp.ClientSession surface --------------------------------------
 
@@ -184,7 +183,6 @@ class Librespot:
     def ws_connect(self, url: str, *a: Any, **k: Any) -> _Exchange:
         if not self.up:
             return _Exchange(error=_refused())
-        self.connections += 1
         self.socket = _EventsSocket()
         return _Exchange(self.socket)
 
@@ -291,7 +289,9 @@ class SpotifyWorld(WireReader):
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
 
         config = tmp_path / "config.yml"
-        config.write_text("server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\n")
+        config.write_text(
+            "server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\nexternal_volume: true\n"
+        )
         self.machine, self.recorder = make_state_machine()
         self.source = SpotifySource(
             {"config_path": str(config)},
@@ -384,14 +384,6 @@ class SpotifyWorld(WireReader):
     async def phone_resumes(self) -> None:
         self.daemon.paused = False
         await self._says({"type": "playing", "resume": True})
-
-    async def phone_skips_to(self, song: Dict[str, Any]) -> None:
-        d = self.daemon
-        d.track, d.buffering, d.paused = None, True, False
-        await self._says({"type": "will_play", "uri": song["uri"]})
-        await self.advance(0.07)
-        d.track, d.buffering = copy.deepcopy(song), False
-        await self._says({"type": "metadata", "uri": song["uri"]}, {"type": "playing"})
 
     async def phone_seeks(self, position_ms: int) -> None:
         self.daemon.track["position"] = position_ms

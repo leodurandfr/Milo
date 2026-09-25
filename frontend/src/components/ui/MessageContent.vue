@@ -14,7 +14,7 @@
       <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
         {{ ctaLabel }}
       </Button>
-      <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" :loading="ctaSecondaryLoading" @click="ctaSecondaryClick">
+      <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" @click="ctaSecondaryClick">
         {{ ctaSecondaryLabel }}
       </Button>
     </div>
@@ -86,10 +86,6 @@ const props = defineProps({
   ctaSecondaryClick: {
     type: Function,
     default: null
-  },
-  ctaSecondaryLoading: {
-    type: Boolean,
-    default: false
   }
 })
 

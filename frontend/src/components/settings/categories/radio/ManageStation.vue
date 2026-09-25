@@ -140,7 +140,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['back', 'success', 'confirm-action']);
+const emit = defineEmits(['success', 'confirm-action']);
 
 // Icon for the Restore/Delete confirm drawer. Mirrors the IconButton in the
 // parent's NavigationHeader actions slot.

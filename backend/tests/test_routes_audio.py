@@ -34,7 +34,6 @@ def client(source):
     state_machine = Mock()
     state_machine.sources = {AudioSource.PODCAST: source}
     state_machine.transition_to_source = AsyncMock(return_value=True)
-    state_machine.refresh_active_metadata = AsyncMock()
     state_machine.get_current_state = Mock(return_value={})
 
     app = FastAPI()

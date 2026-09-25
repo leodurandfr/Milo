@@ -77,9 +77,7 @@ class VolumeService:
 
         # VolumeStateStore (SSOT) + EqualizerController (hardware abstraction)
         self._state_store = VolumeStateStore(self.settings_service)
-        self._equalizer_controller = EqualizerController(
-            self._camilladsp_service, self._proxy_service, equalizer_router=equalizer_router
-        )
+        self._equalizer_controller = EqualizerController(equalizer_router=equalizer_router)
 
         # Injected via setters to resolve circular dependencies
         self._snapcast_websocket_service = None

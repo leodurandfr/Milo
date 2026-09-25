@@ -1820,27 +1820,6 @@ class TestVolumeApiEndpointsIntegration:
         assert len(events) >= 1
 
     @pytest.mark.asyncio
-    async def test_get_settings_returns_config_values(
-        self,
-        volume_service: VolumeService
-    ):
-        """
-        GET /api/volume/settings returns current config.
-
-        Validates:
-        - Returns startup_volume_db from VolumeService config
-        - Returns restore_last_volume from VolumeService config
-        """
-        # Get config values directly from service
-        config = volume_service._volume_config
-
-        # Assert: Values are accessible
-        assert hasattr(config, 'startup_volume_db')
-        assert hasattr(config, 'restore_last_volume')
-        assert isinstance(config.startup_volume_db, float)
-        assert isinstance(config.restore_last_volume, bool)
-
-    @pytest.mark.asyncio
     async def test_patch_settings_updates_config(
         self,
         mock_state_machine,

@@ -104,8 +104,6 @@ class ClientRegistryService:
         self._bg = BackgroundTaskSet(self.logger, "client_registry")
         self._persist_debounce_task: Optional[asyncio.Task] = None
 
-        self._initialized = False
-
     async def cleanup(self) -> None:
         """Flush a pending debounced persist, then drain the task set."""
         if self._persist_debounce_task and not self._persist_debounce_task.done():
@@ -122,7 +120,6 @@ class ClientRegistryService:
             if self._settings_service:
                 await self._load_persisted_state()
 
-            self._initialized = True
             self.logger.info("ClientRegistryService initialized successfully")
             return True
 

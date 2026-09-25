@@ -15,7 +15,6 @@ export const useRadioStore = defineStore('radio', () => {
   const displayedCount = ref(40);
 
   // Total available from last search
-  const totalResults = ref(0);
 
   // Favorite stations (dedicated storage, loaded from backend)
   const favoriteStations = ref([]);
@@ -245,7 +244,6 @@ export const useRadioStore = defineStore('radio', () => {
       logger.debug('radio', `Using cached top stations (age: ${cacheAge}s)`);
 
       searchResults.value = topStationsCache.value;
-      totalResults.value = topStationsCache.value.length;
       displayedCount.value = 40;
       loading.value = false;
       return true;
@@ -265,7 +263,6 @@ export const useRadioStore = defineStore('radio', () => {
 
     // Clear old data before API call
     searchResults.value = [];
-    totalResults.value = 0;
     displayedCount.value = 40;
 
     const params = { favorites_only: false };
@@ -303,7 +300,6 @@ export const useRadioStore = defineStore('radio', () => {
       searchUnavailable.value = false;
       stopRetry();
       searchResults.value = result.data.stations;
-      totalResults.value = result.data.total;
       displayedCount.value = 40;
 
       if (isTopStationsRequest) {
@@ -318,7 +314,6 @@ export const useRadioStore = defineStore('radio', () => {
 
     hasError.value = true;
     searchResults.value = [];
-    totalResults.value = 0;
 
     // status === null indicates a TCP-level failure (backend unreachable) → keep retrying
     if (result.error.status === null) {
@@ -449,7 +444,6 @@ export const useRadioStore = defineStore('radio', () => {
     if (result.ok) {
       logger.info('radio', `Custom station removed: ${stationId}`);
       searchResults.value = searchResults.value.filter(s => s.id !== stationId);
-      totalResults.value = Math.max(0, totalResults.value - 1);
       return true;
     }
     return false;

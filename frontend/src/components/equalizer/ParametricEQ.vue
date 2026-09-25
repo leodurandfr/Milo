@@ -6,13 +6,11 @@
       <EQBand
         v-for="filter in filters"
         :key="filter.id"
-        :id="filter.id"
-        :freq="filter.freq"
         :gain="filter.gain"
         :display-name="filter.displayName"
         :orientation="bandOrientation"
         :loaded="filtersLoaded"
-        :disabled="disabled || !filtersLoaded"
+        :disabled="!filtersLoaded"
         :compact="filters.length > 10"
         @update:gain="handleGainUpdate(filter.id, $event)"
         @change="handleBandChange(filter.id, $event)"
@@ -31,10 +29,6 @@ const props = defineProps({
     required: true
   },
   filtersLoaded: {
-    type: Boolean,
-    default: false
-  },
-  disabled: {
     type: Boolean,
     default: false
   },

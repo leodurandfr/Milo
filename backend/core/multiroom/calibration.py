@@ -157,7 +157,6 @@ class CalibrationResult:
     predicted_latency_ms: int
     limiting_client: Optional[str]
     reasons: List[Tuple[str, Dict[str, object]]] = field(default_factory=list)
-    budget_ms: Dict[str, float] = field(default_factory=dict)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -285,12 +284,4 @@ def compute_configuration(
                                "retransmit": round(retransmit_ms),
                                "safety": SAFETY_FACTOR}),
         ],
-        budget_ms={
-            "chunk": float(chunk_ms),
-            "encoder": float(encoder_ms),
-            "client_alsa": float(buffer_time),
-            "jitter_tail": round(worst_jitter, 2),
-            "retransmit": round(retransmit_ms, 2),
-            "sync_residual": float(SYNC_RESIDUAL_MS),
-        },
     )

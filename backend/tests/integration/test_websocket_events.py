@@ -52,10 +52,6 @@ class MockWebSocket:
             raise RuntimeError("WebSocket is not connected")
         self.received_messages.append(json.loads(message))
 
-    async def send_json(self, data: Dict):
-        """Send JSON data."""
-        await self.send_text(json.dumps(data))
-
     async def receive_text(self) -> str:
         """Return next queued message."""
         if self._receive_index < len(self.messages_to_receive):

@@ -274,10 +274,6 @@ class TestVolumeStoreGuards:
         """Every caller is a volume gesture, most of them debounced background
         writes. A raise here would surface as a failed volume change over a
         durability problem the user cannot act on."""
-        async def _boom(*args, **kwargs):
-            raise OSError("read-only filesystem")
-
-        monkeypatch.setattr(store, "_write_state", _boom, raising=False)
         monkeypatch.setattr(
             "backend.core.volume.state.aiofiles.open",
             Mock(side_effect=OSError("read-only filesystem")),

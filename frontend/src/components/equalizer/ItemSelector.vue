@@ -16,7 +16,6 @@
           :disabled="tab.disabled"
           @click="handleTargetChange(tab)"
         >
-          <SvgIcon v-if="tab.badge" :name="tab.badge" :size="16" class="tab-badge" />
           {{ tab.label }}
         </button>
       </div>
@@ -29,7 +28,6 @@ import { computed, watch } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const equalizerStore = useEqualizerStore();
 const multiroomStore = useMultiroomStore();
@@ -213,10 +211,6 @@ defineExpose({ selectedZoneName, selectedClientIds });
   color: var(--color-text-light);
   box-shadow: none;
   cursor: not-allowed;
-}
-
-.tab-badge {
-  opacity: 0.8;
 }
 
 /* Mobile adjustments */

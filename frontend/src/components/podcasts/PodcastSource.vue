@@ -34,8 +34,7 @@
 
         <!-- Genre View -->
         <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-          :genreLabel="selectedGenreLabel" @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+          @select-podcast="openPodcastDetails" />
 
         <!-- Podcast Details (full screen overlay) -->
         <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid"

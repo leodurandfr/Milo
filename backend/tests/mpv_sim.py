@@ -55,7 +55,6 @@ class MpvSim:
         self.opened = False
         self.position: Optional[float] = None
         self.paused = False
-        self._pause_by_entry = False
         self.stalled = False
         self.speed = 1.0
         self.props: Dict[str, Any] = {}    # anything else a source sets
@@ -161,17 +160,12 @@ class MpvSim:
             self._set_pause(bool(value))
         elif name == "speed":
             self.speed = value
-        elif name == "playlist-pos":
-            return self._play_index(int(value))
         else:
             self.props[name] = value
         return True
 
     async def get_metadata(self) -> Dict[str, str]:
         return dict(self.metadata) if self.is_connected else {}
-
-    async def is_playing(self) -> bool:
-        return isinstance(self._read("playback-time"), (int, float))
 
     async def pause(self) -> bool:
         return await self.set_property("pause", True)
@@ -217,15 +211,13 @@ class MpvSim:
         return True
 
     async def loadfile(self, url: str, *, start_s: Optional[float] = None,
-                       pause: bool = False, mode: str) -> Optional[int]:
-        self.sent.append(("loadfile", url, mode, start_s, pause))
+                       mode: str) -> Optional[int]:
+        self.sent.append(("loadfile", url, mode, start_s))
         if not self._ok():
             return None
         options = {}
         if start_s is not None:
             options["start"] = str(start_s)
-        if pause:
-            options["pause"] = "yes"
         self._next_id += 1
         entry = Entry(self._next_id, url, options)
         if mode == "replace":
@@ -290,9 +282,6 @@ class MpvSim:
         self.current, self.opened, self.stalled = entry, False, False
         self.position = float(entry.options.get("start", 0) or 0)
         self._emit({"event": "start-file", "playlist_entry_id": entry.id})
-        if entry.options.get("pause") == "yes":
-            self._pause_by_entry = True
-            self._set_pause(True)
         broken = next((err for frag, err in self.broken.items() if frag in entry.url), None)
         if broken is not None:
             self._end_current("error", broken)
@@ -312,10 +301,6 @@ class MpvSim:
         if file_error:
             event["file_error"] = file_error
         self._emit(event)
-        if self._pause_by_entry:
-            # A per-file pause is the entry's own: mpv puts the previous value back.
-            self._pause_by_entry = False
-            self._set_pause(False)
 
     def _advance(self) -> None:
         index = self.playlist.index(self.current) if self.current in self.playlist else -1

@@ -54,7 +54,6 @@ class TestSnapcastRoutes:
         client = TestClient(app)
         client._mock_routing = mock_routing_service
         client._mock_snapcast = mock_snapcast_service
-        client._mock_state_machine = mock_state_machine
         return client
 
     # ===================

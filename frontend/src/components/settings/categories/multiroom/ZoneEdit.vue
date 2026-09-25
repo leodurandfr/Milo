@@ -76,7 +76,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['back', 'saved']);
+const emit = defineEmits(['back']);
 
 const { t } = useI18n();
 const multiroomStore = useMultiroomStore();

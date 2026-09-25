@@ -485,16 +485,15 @@ class MpvController:
         url: str,
         *,
         start_s: Optional[float] = None,
-        pause: bool = False,
         mode: str,
     ) -> Optional[int]:
         """Load `url` and return the playlist entry id mpv gave it.
 
         The id is what `start-file` and `end-file` name, so it is how an event
-        is matched to the load that caused it. `start_s` and `pause` ride on the
-        load as per-file options: one command lands paused at the right second
-        (measured on mpv 0.40), no wait-then-seek. mpv wants the index slot once
-        options follow, and ignores it for `replace` and `append`.
+        is matched to the load that caused it. `start_s` rides on the load as a
+        per-file option: one command lands at the right second (measured on mpv
+        0.40), no wait-then-seek. mpv wants the index slot once options follow,
+        and ignores it for `replace` and `append`.
 
         Returns:
             The entry id, or None when there is no mpv, no answer or a refusal.
@@ -504,8 +503,6 @@ class MpvController:
         options = []
         if start_s is not None:
             options.append(f"start={start_s}")
-        if pause:
-            options.append("pause=yes")
         args = [url, mode, -1, ",".join(options)] if options else [url, mode]
         response = await self._send_command("loadfile", *args)
 

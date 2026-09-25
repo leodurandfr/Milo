@@ -100,7 +100,6 @@ class TestTheTwelveCalls:
         await client.connect()
 
         assert daemon.sent() == "GetVersion"
-        assert client.version == "4.1.3"
         assert client.connected is True
         await client.disconnect()
 

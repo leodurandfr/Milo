@@ -74,7 +74,6 @@ class CamillaDspClient:
         self.host = host
         self.port = int(port)
         self.timeout = timeout
-        self.version: Optional[str] = None
         self._ws = None
         self._lock = asyncio.Lock()
 
@@ -97,7 +96,7 @@ class CamillaDspClient:
             close_timeout=self.timeout,
         )
         try:
-            self.version = await self.get_version()
+            await self.get_version()
         except Exception:
             await self.disconnect()
             raise

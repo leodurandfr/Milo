@@ -139,14 +139,6 @@ def _make_mock_proc(returncode=0, stdout=b"", stderr=b""):
     return proc
 
 
-class TestUpdateServiceInit:
-    """Tests for UpdateService initialization"""
-
-    def test_inherits_version_service(self, update_service):
-        assert hasattr(update_service, "programs")
-        assert hasattr(update_service, "_github_cache")
-
-
 @contextmanager
 def github_unreachable():
     """Stand in for the GitHub transport, refusing every call.

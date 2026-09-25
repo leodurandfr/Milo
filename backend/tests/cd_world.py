@@ -71,7 +71,6 @@ class CdWorld(WireReader):
         self.status_asks = 0         # drive-status ioctls the source issued
         self.probe_glitches = 0      # drive-status ioctls that fail, once each
         self.eject_fails = False
-        self.ejects: List[tuple] = []
         self.named = True            # MusicBrainz knows the disc
         self.listeners: List[Any] = []
         self.eject_silent = False    # the eject succeeds and udev says nothing
@@ -98,10 +97,6 @@ class CdWorld(WireReader):
                 self.outcome: Any = None
                 world.reader = self
                 self.starts: List[tuple] = []
-
-            @property
-            def is_running(self) -> bool:
-                return self.running
 
             @property
             def reached_leadout(self) -> bool:
@@ -298,7 +293,6 @@ class CdWorld(WireReader):
         await self.advance(POLL_S)
 
     def _eject(self, argv):
-        self.ejects.append(argv)
         world = self
 
         class Proc:
@@ -400,9 +394,6 @@ class CdWorld(WireReader):
         """Where play would start in the track, with no session running."""
         resume = self.state()["resume"]
         return resume["position_ms"] if resume else None
-
-    def loads(self) -> List[tuple]:
-        return [c for c in self.mpv.sent if c[0] in ("loadfile",)]
 
 
 def kernel_lba(track: int, seconds: float = 0) -> int:

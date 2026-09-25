@@ -26,10 +26,7 @@ from backend.core.equalizer import (
     BUILTIN_PRESETS,
 )
 from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
-from backend.core.multiroom.models import (
-    EqualizerSettings,
-    EqFilter,
-)
+from backend.core.multiroom.models import EqualizerSettings
 
 
 # =============================================================================
@@ -251,16 +248,6 @@ class TestTenBandEqConfiguration:
         eq = EqualizerSettings.default()
         for f in eq.filters:
             assert f.enabled is True
-
-    def test_eq_filter_has_required_fields(self):
-        """Each EqFilter should have id, freq, gain, q, type, enabled"""
-        f = EqFilter(id="eq_band_00", frequency=31)
-        assert hasattr(f, 'id')
-        assert hasattr(f, 'frequency')
-        assert hasattr(f, 'gain')
-        assert hasattr(f, 'q')
-        assert hasattr(f, 'filter_type')
-        assert hasattr(f, 'enabled')
 
 
 # =============================================================================

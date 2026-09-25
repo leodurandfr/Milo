@@ -340,7 +340,6 @@ class TestClientRegistryService:
         """Test registry initialization."""
         result = await registry.initialize()
         assert result is True
-        assert registry._initialized is True
 
     @pytest.mark.asyncio
     async def test_register_new_client(self, registry):
@@ -1805,14 +1804,6 @@ class TestSnapcastClientDetection:
         sm = MagicMock()
         sm.broadcast = AsyncMock()
         return sm
-
-    @pytest.fixture
-    def mock_routing_service(self):
-        """Create a mock routing service."""
-        service = MagicMock()
-        service.get_state = MagicMock(return_value={'multiroom_enabled': False})
-        service.get_snapcast_status = AsyncMock(return_value={'multiroom_available': False})
-        return service
 
     # === Client Connection Detection ===
 
@@ -3316,9 +3307,9 @@ class TestRegistryPersistenceRoundTrip:
         await self._populated(settings)
         settings.stored["multiroom.zones"] = {"z1": {"client_ids": "aa:bb"}}
 
-        reloaded = await self._reloaded(settings)
+        reloaded = ClientRegistryService(settings_service=settings)
 
-        assert reloaded._initialized is True, "the boot must not be taken down by it"
+        assert await reloaded.initialize() is True, "the boot must not be taken down by it"
         assert reloaded.get_client(self.A) is not None, "the section before it survived"
         assert reloaded.get_zone("z1") is None
         assert reloaded.get_client_equalizer(self.A) is None, "the section after it did not load"

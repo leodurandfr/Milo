@@ -631,18 +631,16 @@ class TestLoadfile:
         assert first is not None and second is not None
         assert second != first
 
-    async def test_start_and_pause_ride_on_the_load(self, live_mpv):
-        """Measured on this unit's mpv 0.40: this frame lands on 12.0 s, paused,
-        in one command — which is what retires the wait-then-seek dance. The
-        index slot is mandatory once options follow it."""
+    async def test_the_start_rides_on_the_load(self, live_mpv):
+        """Measured on this unit's mpv 0.40: this frame lands on 12.0 s in one
+        command — which is what retires the wait-then-seek dance. The index
+        slot is mandatory once options follow it."""
         controller, fake = live_mpv
 
-        await controller.loadfile(
-            "http://example.test/a", start_s=12, pause=True, mode="replace"
-        )
+        await controller.loadfile("http://example.test/a", start_s=12, mode="replace")
 
         loads = [f for f in fake.received if f[0] == "loadfile"]
-        assert loads == [["loadfile", "http://example.test/a", "replace", -1, "start=12,pause=yes"]]
+        assert loads == [["loadfile", "http://example.test/a", "replace", -1, "start=12"]]
 
     async def test_a_plain_load_sends_no_options(self, live_mpv):
         controller, fake = live_mpv

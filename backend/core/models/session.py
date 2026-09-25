@@ -153,27 +153,6 @@ def check_end(phase: Phase, reason: EndReason) -> None:
         raise IllegalTransition(f"a {phase.value} session cannot end with {reason.value}")
 
 
-def table_gaps(
-    transitions: Dict[Tuple[Phase, PhaseEvent], Phase],
-    ends: Dict[Phase, FrozenSet[EndReason]],
-) -> list[str]:
-    """What the table leaves undecided: a phase with no way on or no way out, an
-    event nothing reacts to, a reason no phase can end with. Empty when whole."""
-    gaps = []
-    for phase in Phase:
-        if not any(p is phase for p, _ in transitions):
-            gaps.append(f"no event moves {phase.value}")
-        if not ends.get(phase):
-            gaps.append(f"{phase.value} cannot end")
-    for event in PhaseEvent:
-        if not any(e is event for _, e in transitions):
-            gaps.append(f"{event.value} is never handled")
-    for reason in EndReason:
-        if not any(reason in r for r in ends.values()):
-            gaps.append(f"{reason.value} ends nothing")
-    return gaps
-
-
 @dataclass(frozen=True)
 class Anchor:
     """The session's playhead: `ms` at the wall-clock instant `at`, advancing

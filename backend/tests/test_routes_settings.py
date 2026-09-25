@@ -50,7 +50,6 @@ class TestSettingsRoutes:
         controller.screen_on = True
         controller.timeout_seconds = 10
         controller.last_activity_time = 0
-        controller.current_source_state = "PLAYING"
         controller.apply_screen_config = AsyncMock(return_value=True)
         controller.on_touch_detected = AsyncMock()
         return controller
@@ -810,15 +809,15 @@ class TestSettingsRoutes:
         mock_state_machine.get_source = Mock(return_value=source)
 
         response = client.put("/api/settings/spotify-settings", json={
-            "crossfade_duration": 6000, "apply_now": True
+            "crossfade_duration": 6000, "allow_app_volume": True, "apply_now": True
         })
 
         assert response.status_code == 200
         client._mock_settings.set_setting.assert_awaited_once_with(
-            "spotify", {"crossfade_duration": 6000}
+            "spotify", {"crossfade_duration": 6000, "allow_app_volume": True}
         )
         source.on_spotify_settings_changed.assert_awaited_once_with(True)
-        assert response.json()["config"] == {"crossfade_duration": 6000}
+        assert response.json()["config"] == {"crossfade_duration": 6000, "allow_app_volume": True}
 
     # ===================
     # HARDWARE CONFIG (read side)
@@ -934,6 +933,7 @@ class TestBulkSettings:
         ("music_library_settings", "separate_storages"): ("music_library", "separate_storages"),
         ("qobuz_settings", "allow_app_volume"): ("qobuz", "allow_app_volume"),
         ("spotify_settings", "crossfade_duration"): ("spotify", "crossfade_duration"),
+        ("spotify_settings", "allow_app_volume"): ("spotify", "allow_app_volume"),
         ("mac_roc", "target_latency_ms"): ("mac", "target_latency_ms"),
         ("mac_roc", "latency_profile"): ("mac", "latency_profile"),
         ("mac_roc", "frame_length_ms"): ("mac", "frame_length_ms"),

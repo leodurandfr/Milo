@@ -5,7 +5,6 @@ Controls local CamillaDSP daemon via WebSocket for:
 - Parametric EQ (filters)
 - Compressor
 - Loudness compensation
-- Channel delay
 - Volume/mute control
 - Crossover filters (highpass/lowpass)
 """
@@ -63,7 +62,6 @@ class EqualizerService:
     - EQ filter configuration
     - Compressor settings
     - Loudness compensation
-    - Channel delay
     - Level trim (speaker balance)
     - Volume/mute control
     - Crossover filters
@@ -97,7 +95,6 @@ class EqualizerService:
             "high_boost": 5.0,
             "low_boost": 8.0
         }
-        self._delay = {"left": 0.0, "right": 0.0}
         self._gain_db: float = 0.0
         self._volume = {"main": STARTUP_GAIN_DB, "mute": True}  # Matches CamillaDSP's -m + --gain start
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
@@ -109,11 +106,6 @@ class EqualizerService:
     def connected(self) -> bool:
         """Returns whether CamillaDSP is connected."""
         return self._connected
-
-    @property
-    def equalizer_enabled(self) -> bool:
-        """Returns equalizer effects enabled state."""
-        return self._equalizer_enabled
 
     @property
     def compressor(self) -> Dict[str, Any]:
@@ -129,11 +121,6 @@ class EqualizerService:
     def mono(self) -> bool:
         """Returns mono state."""
         return self._mono
-
-    @property
-    def delay(self) -> Dict[str, Any]:
-        """Returns delay state."""
-        return self._delay
 
     @property
     def gain_db(self) -> float:
@@ -345,7 +332,7 @@ class EqualizerService:
             raise
 
     async def _load_state_from_config(self):
-        """Load compressor/loudness/delay/trim state from current CamillaDSP config."""
+        """Load compressor/loudness/trim state from current CamillaDSP config."""
         try:
             config = await self._get_config()
             if not config:
@@ -381,26 +368,6 @@ class EqualizerService:
                     self.logger.info("Loaded loudness state from config")
                 else:
                     self._loudness["enabled"] = False
-
-                # Check for delay filters
-                if "delay_left" in config["filters"]:
-                    delay_params = config["filters"]["delay_left"].get("parameters", {})
-                    delay_samples = delay_params.get("delay", 0)
-                    self._delay["left"] = delay_samples * 1000 / 48000  # Convert to ms
-                else:
-                    self._delay["left"] = 0.0
-
-                if "delay_right" in config["filters"]:
-                    delay_params = config["filters"]["delay_right"].get("parameters", {})
-                    delay_samples = delay_params.get("delay", 0)
-                    self._delay["right"] = delay_samples * 1000 / 48000
-                else:
-                    self._delay["right"] = 0.0
-
-                if self._delay["left"] > 0 or self._delay["right"] > 0:
-                    self.logger.info(
-                        f"Loaded delay state from config: L={self._delay['left']:.1f}ms R={self._delay['right']:.1f}ms"
-                    )
 
             # Check for the level trim (absent filter == no trim)
             if "filters" in config:
@@ -445,7 +412,6 @@ class EqualizerService:
                 "filters": await self.get_filters(),
                 "compressor": self._compressor,
                 "loudness": self._loudness,
-                "delay": self._delay,
                 "mono": self._mono,
                 "equalizer_enabled": self._equalizer_enabled
             }
@@ -744,54 +710,6 @@ class EqualizerService:
             return True
         except Exception as e:
             self.logger.error(f"Error setting mono: {e}")
-            return False
-
-    @serialised_config_write
-    async def set_delay(self, left: float = None, right: float = None) -> bool:
-        """Set channel delay in milliseconds."""
-        if left is not None:
-            self._delay["left"] = max(0, min(50, left))
-        if right is not None:
-            self._delay["right"] = max(0, min(50, right))
-
-        try:
-            config = await self._get_config()
-            if not config:
-                return False
-
-            sample_rate = 48000
-
-            if "filters" not in config:
-                config["filters"] = {}
-
-            if self._delay["left"] > 0:
-                left_samples = int(self._delay["left"] * sample_rate / 1000)
-                config["filters"]["delay_left"] = {
-                    "type": "Delay",
-                    "parameters": {"delay": left_samples, "unit": "samples"}
-                }
-                self._add_filter_to_pipeline(config, "delay_left", channels=[0])
-            else:
-                if "delay_left" in config.get("filters", {}):
-                    del config["filters"]["delay_left"]
-                self._remove_filter_from_pipeline(config, "delay_left")
-
-            if self._delay["right"] > 0:
-                right_samples = int(self._delay["right"] * sample_rate / 1000)
-                config["filters"]["delay_right"] = {
-                    "type": "Delay",
-                    "parameters": {"delay": right_samples, "unit": "samples"}
-                }
-                self._add_filter_to_pipeline(config, "delay_right", channels=[1])
-            else:
-                if "delay_right" in config.get("filters", {}):
-                    del config["filters"]["delay_right"]
-                self._remove_filter_from_pipeline(config, "delay_right")
-
-            await self._apply_config(config)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error setting delay: {e}")
             return False
 
     @serialised_config_write

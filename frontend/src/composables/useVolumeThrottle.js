@@ -16,7 +16,7 @@
  * deliberate raw usage — see the no-restricted-globals rule in eslint.config.mjs).
  */
 
-import { ref, onUnmounted } from 'vue';
+import { onUnmounted } from 'vue';
 
 // Throttle presets (in milliseconds)
 const THROTTLE_PRESETS = {
@@ -30,12 +30,11 @@ const THROTTLE_PRESETS = {
  *
  * @param {Function} callback - The function to throttle
  * @param {string} preset - Preset name: 'FAST', 'MEDIUM', or 'SLOW'
- * @returns {Object} { throttledFn, cleanup, isThrottling }
+ * @returns {Object} { throttledFn, flush }
  */
 export function useVolumeThrottle(callback, preset = 'MEDIUM') {
   const config = THROTTLE_PRESETS[preset] || THROTTLE_PRESETS.MEDIUM;
 
-  const isThrottling = ref(false);
   let finalTimer = null;
   let lastArgs = null;
   let lastCallTime = 0;
@@ -63,7 +62,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
       // emit applies the same delta twice, audibly.
       lastArgs = null;
       lastCallTime = now;
-      isThrottling.value = true;
       callback(...args);
     }
 
@@ -73,7 +71,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
         callback(...lastArgs);
         lastArgs = null;
       }
-      isThrottling.value = false;
     }, config.final);
   };
 
@@ -89,7 +86,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
       callback(...lastArgs);
       lastArgs = null;
     }
-    isThrottling.value = false;
   };
 
   /**
@@ -101,7 +97,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
       finalTimer = null;
     }
     lastArgs = null;
-    isThrottling.value = false;
   };
 
   // Auto-cleanup on component unmount
@@ -110,8 +105,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
   return {
     throttledFn,
     flush,
-    cleanup,
-    isThrottling,
   };
 }
 

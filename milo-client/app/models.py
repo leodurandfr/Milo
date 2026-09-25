@@ -39,12 +39,6 @@ class MonoUpdate(BaseModel):
     enabled: bool
 
 
-class DelayUpdate(BaseModel):
-    """Model for delay update request."""
-    left: Optional[float] = None
-    right: Optional[float] = None
-
-
 class GainUpdate(BaseModel):
     """Level trim in dB — a fixed Gain stage compensating this speaker's
     sensitivity against the others. Not a volume: the fader is untouched."""

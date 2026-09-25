@@ -140,19 +140,6 @@ class _Asyncio:
         return getattr(asyncio, name)
 
 
-class _Loop:
-    """The running loop, answering `time()` from the virtual clock."""
-
-    def __init__(self, clock: VirtualClock) -> None:
-        self._clock = clock
-
-    def time(self) -> float:
-        return self._clock.monotonic()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(asyncio.get_running_loop(), name)
-
-
 def _variant(value: Any) -> Variant:
     if isinstance(value, bool):
         return Variant("b", value)
@@ -707,7 +694,6 @@ class Bluetooth(WireReader):
             create_subprocess_exec=self.bluez.exec))
         monkeypatch.setattr(source_module, "asyncio", _Asyncio(
             create_subprocess_exec=self.bluez.exec,
-            get_running_loop=lambda: _Loop(self.clock),
             sleep=instant_short_sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)

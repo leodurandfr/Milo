@@ -29,19 +29,15 @@ class EqualizerController:
     RETRY_ATTEMPTS = 2
     RETRY_DELAY = 0.5  # seconds
 
-    def __init__(self, camilladsp_service, client_proxy_service, equalizer_router=None, client_registry=None):
+    def __init__(self, equalizer_router=None, client_registry=None):
         """
         Initialize EqualizerController.
 
         Args:
-            camilladsp_service: Service for local CamillaDSP (used for wait_for_connection)
-            client_proxy_service: Service for checking remote client availability
             equalizer_router: EqualizerRouter for local/remote volume routing
-            client_registry: Registry for looking up client IPs and locality
+            client_registry: Registry; until it is wired, no parallel update is dispatched
         """
         self.logger = logging.getLogger(__name__)
-        self._camilladsp_service = camilladsp_service
-        self._proxy_service = client_proxy_service
         self._router: Optional["EqualizerRouter"] = equalizer_router
         self._registry: Optional["ClientRegistryService"] = client_registry
         self._timeout = self.DEFAULT_TIMEOUT

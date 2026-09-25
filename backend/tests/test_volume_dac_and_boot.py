@@ -892,11 +892,7 @@ class TestEqualizerControllerRetry:
     def controller(self):
         from backend.core.volume import EqualizerController
 
-        ctrl = EqualizerController(
-            camilladsp_service=Mock(),
-            client_proxy_service=Mock(),
-            equalizer_router=Mock(),
-        )
+        ctrl = EqualizerController(equalizer_router=Mock())
         ctrl._timeout = 0.01
         return ctrl
 

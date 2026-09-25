@@ -286,7 +286,6 @@ const { sentinelRef: scrollSentinel } = useInfiniteScroll({
   justify-content: center;
   align-items: center;
   padding: var(--space-04);
-  color: var(--color-text-tertiary);
 }
 
 /* Mobile */

@@ -33,13 +33,6 @@ class TestEqualizerServiceProperties:
         assert "high_boost" in loudness
         assert "low_boost" in loudness
 
-    def test_delay_property(self, equalizer_service):
-        """Should return delay state dict."""
-        delay = equalizer_service.delay
-        assert isinstance(delay, dict)
-        assert "left" in delay
-        assert "right" in delay
-
     def test_crossover_property(self, equalizer_service):
         """Should return crossover state dict."""
         crossover = equalizer_service.crossover
@@ -134,25 +127,6 @@ class TestEqualizerServiceLoudness:
         assert equalizer_service.loudness["enabled"] is True
         assert equalizer_service.loudness["low_boost"] == 10.0
         assert equalizer_service.loudness["high_boost"] == 6.0
-
-
-class TestEqualizerServiceDelay:
-    """Test EqualizerService delay operations."""
-
-    @pytest.mark.asyncio
-    async def test_set_delay_clamps_values(self, equalizer_service):
-        """Should clamp delay between 0 and 50 ms."""
-        await equalizer_service.set_delay(left=-5.0, right=100.0)
-        assert equalizer_service.delay["left"] == 0.0
-        assert equalizer_service.delay["right"] == 50.0
-
-    @pytest.mark.asyncio
-    async def test_set_delay_updates_config(self, equalizer_service, mock_camilla_client):
-        """Should update delay in CamillaDSP config."""
-        result = await equalizer_service.set_delay(left=10.0, right=5.0)
-        assert result is True
-        assert equalizer_service.delay["left"] == 10.0
-        assert equalizer_service.delay["right"] == 5.0
 
 
 class TestEqualizerServiceCrossover:
@@ -513,7 +487,7 @@ class TestEqualizerServiceMasterBypass:
         config = mock_camilla_client.get_config.return_value
         result = await equalizer_service.set_equalizer_enabled(False)
         assert result is True
-        assert equalizer_service.equalizer_enabled is False
+        assert equalizer_service._equalizer_enabled is False
         names = config["pipeline"][0]["names"]
         assert "eq_band_1" not in names
         assert "eq_band_2" not in names
@@ -528,7 +502,7 @@ class TestEqualizerServiceMasterBypass:
         await equalizer_service.set_equalizer_enabled(False)
         result = await equalizer_service.set_equalizer_enabled(True)
         assert result is True
-        assert equalizer_service.equalizer_enabled is True
+        assert equalizer_service._equalizer_enabled is True
         names = config["pipeline"][0]["names"]
         assert "eq_band_1" in names
         assert "eq_band_2" in names
@@ -541,7 +515,7 @@ class TestEqualizerServiceMasterBypass:
         config["pipeline"] = [{"type": "Filter", "channels": [0, 1], "names": []}]
         equalizer_service._equalizer_enabled = True
         await equalizer_service._load_state_from_config()
-        assert equalizer_service.equalizer_enabled is False
+        assert equalizer_service._equalizer_enabled is False
 
 
 class TestEqualizerServiceFilterTuning:
@@ -572,7 +546,7 @@ class TestEqualizerServiceFilterTuning:
         assert result is True
         assert config["filters"]["eq_band_1"]["parameters"]["gain"] == 4.0
         assert "eq_band_1" not in config["pipeline"][0]["names"]
-        assert equalizer_service.equalizer_enabled is False
+        assert equalizer_service._equalizer_enabled is False
 
 
 class TestEqualizerServiceConfigPersistence:
@@ -737,7 +711,7 @@ class TestEqualizerWholeRecordPush:
 
         assert config["filters"]["eq_band_1"]["parameters"]["gain"] == 5.0
         assert "eq_band_1" not in config["pipeline"][0]["names"]
-        assert equalizer_service.equalizer_enabled is False
+        assert equalizer_service._equalizer_enabled is False
 
     @pytest.mark.asyncio
     async def test_a_batch_leaves_a_band_exactly_as_a_single_push_would(

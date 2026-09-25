@@ -39,7 +39,6 @@ class TestInZoneReconnectionSyncIntegration:
         sm.snapcast_service = None
         sm.crossover_service = None
         sm.equalizer_client_proxy_service = None
-        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
 
         # Mock volume service with config and state store
@@ -378,7 +377,6 @@ class TestPendingSettingsQueue:
         sm = MagicMock()
         sm.broadcast = AsyncMock()
         sm.camilladsp_service = None
-        sm.equalizer_settings_sync_service = None
 
         # Mock crossover service
         crossover = AsyncMock()
@@ -454,7 +452,6 @@ class TestStandaloneReconnectionSyncIntegration:
         sm.snapcast_service = None
         sm.crossover_service = None
         sm.equalizer_client_proxy_service = None
-        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
 
         # Mock volume service with config and state store
@@ -657,7 +654,6 @@ class TestWhatAReconnectReplays:
         sm.snapcast_service = None
         sm.crossover_service = None
         sm.equalizer_client_proxy_service = None
-        sm.equalizer_settings_sync_service = None
         sm.camilladsp_service = None
 
         volume_service = AsyncMock()

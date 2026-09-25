@@ -87,10 +87,6 @@ class RadioWorld(RadioRig):
         await self.mpv.fails(file_error)
         await settle()
 
-    async def ends(self, reason: str = "eof") -> None:
-        await self.mpv.ends(reason)
-        await settle()
-
     async def paused(self, value: bool) -> None:
         """mpv's pause set from outside the source (another IPC client)."""
         await self.mpv.set_property("pause", value)

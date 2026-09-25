@@ -31,7 +31,6 @@ scenario advances.
 import asyncio
 import base64
 import itertools
-import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.core import audio_source
@@ -98,22 +97,6 @@ PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x02X\x00\x00\x02X\x08\x02"
        b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00IEND\xaeB`\x82")
 
 
-
-
-class _ProcessTable:
-    """The source module's `os`, with /proc answered from the world's pids."""
-
-    def __init__(self, world: "AirPlayWorld") -> None:
-        self._world = world
-        self.path = self
-
-    def exists(self, path: str) -> bool:
-        if str(path).startswith("/proc/"):
-            return int(str(path).rsplit("/", 1)[1]) in self._world.live_pids
-        return os.path.exists(path)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(os.path if name in ("join", "dirname") else os, name)
 
 
 class AirPlayWorld(WireReader):
@@ -186,7 +169,6 @@ class AirPlayWorld(WireReader):
 
 
         monkeypatch.setattr(airplay_module, "MetadataReader", PipeReader)
-        monkeypatch.setattr(airplay_module, "os", _ProcessTable(self))
         monkeypatch.setattr(airplay_module, "drop_session", drop_session, raising=False)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)

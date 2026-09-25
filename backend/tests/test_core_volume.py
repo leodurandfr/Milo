@@ -160,19 +160,6 @@ class TestEqualizerController:
     """Tests for EqualizerController (delegates to EqualizerRouter)."""
 
     @pytest.fixture
-    def mock_camilladsp_service(self):
-        """Create mock CamillaDSP service."""
-        camilladsp_mock = Mock()
-        camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
-        return camilladsp_mock
-
-    @pytest.fixture
-    def mock_proxy_service(self):
-        """Create mock proxy service."""
-        proxy = Mock()
-        return proxy
-
-    @pytest.fixture
     def mock_router(self):
         """Create mock EqualizerRouter."""
         router = Mock()
@@ -183,30 +170,13 @@ class TestEqualizerController:
 
     @pytest.fixture
     def mock_registry(self):
-        """Create mock client registry."""
-        registry = Mock()
-        local_client = Mock(ip="127.0.0.1", is_local=True)
-        remote_client = Mock(ip="192.168.1.100", is_local=False)
-        def get_client(mac_id):
-            if mac_id == "local":
-                return local_client
-            elif mac_id == "milo-client-01":
-                return remote_client
-            return None
-        registry.get_client = get_client
-        def is_local_client(mac_id):
-            client = get_client(mac_id)
-            return client.is_local if client else False
-        registry.is_local_client = is_local_client
-        return registry
+        """A registry: the controller only checks that one is wired."""
+        return Mock()
 
     @pytest.fixture
-    def controller(self, mock_camilladsp_service, mock_proxy_service, mock_router, mock_registry):
+    def controller(self, mock_router, mock_registry):
         """Create EqualizerController."""
-        return EqualizerController(
-            mock_camilladsp_service, mock_proxy_service,
-            equalizer_router=mock_router, client_registry=mock_registry
-        )
+        return EqualizerController(equalizer_router=mock_router, client_registry=mock_registry)
 
     @pytest.mark.asyncio
     async def test_set_volume_delegates_to_router(self, controller, mock_router):
@@ -225,9 +195,9 @@ class TestEqualizerController:
         mock_router.set_volume.assert_called_once_with("milo-client-01", -27.0, force=False)
 
     @pytest.mark.asyncio
-    async def test_set_volume_no_router(self, mock_camilladsp_service, mock_proxy_service):
+    async def test_set_volume_no_router(self):
         """Test set volume returns False without router."""
-        ctrl = EqualizerController(mock_camilladsp_service, mock_proxy_service)
+        ctrl = EqualizerController()
         result = await ctrl.set_equalizer_volume("local", -25.0)
         assert result is False
 
@@ -989,15 +959,6 @@ class TestVolumeService:
         assert config.limit_min_db == -80.0
 
     @pytest.mark.asyncio
-    async def test_get_volume_db(self, service, mock_settings):
-        """Test getting current volume."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
-        service._state_store.set_local_volume(-25.0)
-
-        volume = await service.get_volume_db()
-        assert isinstance(volume, float)
-
-    @pytest.mark.asyncio
     async def test_set_volume_db_direct_mode(self, service, mock_camilladsp_service, mock_state_machine):
         """Test setting volume in direct mode."""
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
@@ -1018,17 +979,6 @@ class TestVolumeService:
 
         assert result is True
         mock_camilladsp_service.set_volume.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_get_volume_state(self, service, mock_settings):
-        """Test getting unified volume state."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
-
-        state = await service.get_volume_state()
-
-        assert isinstance(state, VolumeState)
-        assert hasattr(state, 'mode')
-        assert hasattr(state, 'global_volume_db')
 
     def test_volume_config_clamp(self, service):
         """Test volume clamping via config."""
@@ -2303,7 +2253,7 @@ class TestEqualizerControllerRegistryInjection:
 
     @pytest.fixture
     def controller(self):
-        return EqualizerController(Mock(), Mock(), equalizer_router=Mock())
+        return EqualizerController(equalizer_router=Mock())
 
     async def test_without_a_registry_no_client_is_dispatched_to(self, controller):
         controller.set_equalizer_volume = AsyncMock(return_value=True)

@@ -751,18 +751,6 @@ def mock_zone_registry_service():
 
     service.delete_zone = AsyncMock(side_effect=mock_delete_zone)
 
-    # Client update (needed by router)
-    def mock_update_client(mac_id, name=None, speaker_type=None, volume_control=None):
-        client = service._clients.get(mac_id)
-        if not client:
-            return None
-        if name is not None:
-            client.name = name
-        if speaker_type is not None:
-            client.speaker_type = speaker_type
-        return client
-
-    service.update_client = AsyncMock(side_effect=mock_update_client)
 
     return service
 
@@ -1059,18 +1047,6 @@ def mock_membership_registry_service():
 
     service.remove_client_from_zone = AsyncMock(side_effect=mock_remove_client_from_zone)
 
-    # Client update (needed by router)
-    def mock_update_client(mac_id, name=None, speaker_type=None, volume_control=None):
-        client = service._clients.get(mac_id)
-        if not client:
-            return None
-        if name is not None:
-            client.name = name
-        if speaker_type is not None:
-            client.speaker_type = speaker_type
-        return client
-
-    service.update_client = AsyncMock(side_effect=mock_update_client)
 
     return service
 

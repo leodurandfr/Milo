@@ -88,7 +88,7 @@
         @configure-system="handleConfigureSystem" />
 
       <ZoneEdit v-else-if="currentView === 'multiroom-zone-edit'" key="multiroom-zone-edit" class="view-content"
-        :group-id="zoneGroupId" :enable-client-renaming="true" @back="handleZoneSaved" @saved="handleZoneSaved" />
+        :group-id="zoneGroupId" :enable-client-renaming="true" @back="handleZoneSaved" />
 
       <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
         :mac-id="macIdToEdit" @back="handleClientSaved" />
@@ -105,11 +105,11 @@
         @go-to-add-station="push('radio-add')" @edit-station="handleEditStation" />
 
       <ManageStation v-else-if="currentView === 'radio-add'" key="radio-add" class="view-content" mode="add"
-        @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
+        @success="handleRadioStationAdded" />
 
       <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit"
         :station="stationToEdit" :show-action-menu="showStationActionMenu"
-        @back="handleBackFromRadioModal" @success="handleRadioStationEdited"
+        @success="handleRadioStationEdited"
         @confirm-action="handleStationActionConfirm" />
 
       <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
@@ -474,11 +474,6 @@ function handleStationActionConfirm() {
 watch(currentView, (next) => {
   if (next !== 'radio-edit') showStationActionMenu.value = false;
 });
-
-function handleBackFromRadioModal() {
-  back();
-  stationToEdit.value = null;
-}
 
 function handleEditStation(station) {
   stationToEdit.value = station;

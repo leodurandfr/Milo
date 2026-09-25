@@ -84,8 +84,8 @@ class TestSigningKey:
 
         assert apns.available is False
         result = await apns.send(token(), {"aps": {}}, "widgets")
-        assert result.skipped is True
         assert result.ok is False
+        assert result.reason == "NoSigningKey"
 
     async def test_a_misnamed_key_is_refused(self, tmp_path):
         """The Key ID lives only in the filename. A renamed file would be

@@ -79,11 +79,6 @@ class NavidromeAdminClient:
         self._session = None
         self._token = None
 
-    @property
-    def user_id(self) -> Optional[str]:
-        """Navidrome's id for the service account (None until first login)."""
-        return self._user_id
-
     # =========================================================================
     # AUTH
     # =========================================================================

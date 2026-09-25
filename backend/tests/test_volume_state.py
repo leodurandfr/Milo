@@ -10,22 +10,6 @@ from backend.core.models.volume_state import ClientVolume
 from backend.config.constants import DEFAULT_VOLUME_DB
 
 
-class TestVolumeStateStore:
-    """Tests for VolumeStateStore core functionality."""
-
-    @pytest.fixture
-    def mock_settings_service(self):
-        """Mock of settings service."""
-        service = Mock()
-        service.get_setting = AsyncMock(return_value=None)
-        return service
-
-    @pytest.fixture
-    def store(self, mock_settings_service):
-        """Create a VolumeStateStore instance."""
-        return VolumeStateStore(mock_settings_service)
-
-
 # ==============================================================================
 # Unit tests for zone volume delta
 # ==============================================================================

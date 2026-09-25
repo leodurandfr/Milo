@@ -7,7 +7,7 @@
         <div class="playlist-name-modal__field">
           <InputText
             v-model="name"
-            :placeholder="placeholder || t('musicLibrary.playlists.namePlaceholder')"
+            :placeholder="t('musicLibrary.playlists.namePlaceholder')"
             :maxlength="255"
             @submit="handleSubmit"
           />
@@ -43,10 +43,6 @@ const props = defineProps({
     required: true,
   },
   initialName: {
-    type: String,
-    default: '',
-  },
-  placeholder: {
     type: String,
     default: '',
   },

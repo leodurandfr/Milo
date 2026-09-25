@@ -35,8 +35,6 @@ import { ref, computed } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 
 const props = defineProps({
-  id: { type: String, required: true },
-  freq: { type: Number, required: true },
   gain: { type: Number, default: 0 },
   displayName: { type: String, default: '' },
   disabled: { type: Boolean, default: false },

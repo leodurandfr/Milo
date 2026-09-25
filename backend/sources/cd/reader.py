@@ -50,14 +50,9 @@ class CdIoctlReader:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
-        self._running = False
         # Why the last run ended: "leadout", an errno, or None (stopped, or
         # still running). mpv sees the FIFO close the same way in every case.
         self._outcome = None
-
-    @property
-    def is_running(self) -> bool:
-        return self._running and self._thread is not None and self._thread.is_alive()
 
     @property
     def reached_leadout(self) -> bool:
@@ -83,7 +78,6 @@ class CdIoctlReader:
         # same FIFO as the new one.
         self._stop_event = threading.Event()
         self._ready_event.clear()
-        self._running = True
         self._outcome = None
         self._thread = threading.Thread(
             target=self._read_loop,
@@ -102,7 +96,6 @@ class CdIoctlReader:
         if not self._thread:
             return
         self._stop_event.set()
-        self._running = False
         # Unblock writer if stuck waiting for a reader on the FIFO
         with contextlib.suppress(OSError):
             fd = os.open(CD_FIFO_PATH, os.O_RDONLY | os.O_NONBLOCK)
@@ -187,7 +180,6 @@ class CdIoctlReader:
                 logger.error(f"CD reader error: {e}")
                 self._outcome = e.errno
         finally:
-            self._running = False
             for fd in (fifo_fd, cd_fd):
                 if fd >= 0:
                     with contextlib.suppress(OSError):

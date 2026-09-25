@@ -340,21 +340,6 @@ class _Follow:
         return self.returncode
 
 
-class _OneShot:
-    def __init__(self, output: str, returncode: int = 0) -> None:
-        self._output = output.encode()
-        self.returncode = returncode
-
-    async def communicate(self) -> Tuple[bytes, bytes]:
-        return self._output, b""
-
-    def kill(self) -> None:
-        pass
-
-    async def wait(self) -> int:
-        return self.returncode
-
-
 def _option(argv: Tuple[str, ...], flag: str) -> Optional[str]:
     for i, arg in enumerate(argv):
         if arg == flag and i + 1 < len(argv):
@@ -487,10 +472,6 @@ class MacWorld(WireReader):
             if since_usec is None or usec >= since_usec
         ]
         tail = _option(argv, "-n")
-        if "-f" not in argv:
-            # A one-shot read: what the journal holds, printed and done.
-            entries = entries[-int(tail):] if tail is not None else entries
-            return _OneShot("".join(f"{line}\n" for _, line in entries))
         follow = _Follow(since_usec, _option(argv, "-o"))
         replay = entries if tail == "all" else entries[-int(tail):] if tail and int(tail) else []
         for pid, line in replay:

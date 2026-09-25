@@ -119,10 +119,6 @@ onUnmounted(() => {
     keyboard.close();
   }
 });
-
-defineExpose({
-  inputRef
-});
 </script>
 
 <style scoped>

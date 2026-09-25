@@ -42,10 +42,6 @@ class FakeReader:
         self.starts: List[int] = []
 
     @property
-    def is_running(self) -> bool:
-        return self.running
-
-    @property
     def reached_leadout(self) -> bool:
         return self.outcome == "leadout"
 

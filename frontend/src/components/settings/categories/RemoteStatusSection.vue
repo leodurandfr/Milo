@@ -15,7 +15,7 @@
         </h3>
         <Button
           v-if="ctaLabel"
-          :variant="ctaVariant"
+          variant="brand"
           size="small"
           :loading="ctaLoading"
           :disabled="ctaDisabled"
@@ -71,7 +71,6 @@ defineProps({
   ok: { type: Boolean, default: false },
   statusLabel: { type: String, default: '' },
   ctaLabel: { type: String, default: null },
-  ctaVariant: { type: String, default: 'brand' },
   ctaLoading: { type: Boolean, default: false },
   ctaDisabled: { type: Boolean, default: false },
   ctaClick: { type: Function, default: null },

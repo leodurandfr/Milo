@@ -41,10 +41,6 @@ class WebSocketEventCollector:
         """Filter events by type."""
         return [e for e in self.events if e.get("type") == event_type]
 
-    def get_events_by_category(self, category: str) -> List[Dict[str, Any]]:
-        """Filter events by category."""
-        return [e for e in self.events if e.get("category") == category]
-
 
 def create_mock_source(source: AudioSource, start_success: bool = True) -> Mock:
     """
@@ -169,13 +165,3 @@ def state_machine_with_sources(
     for source, mock in mock_sources.items():
         integration_state_machine.register_source(source, mock)
     return integration_state_machine
-
-
-@pytest.fixture
-def failing_source() -> Mock:
-    """
-    Create a mock source that fails to start.
-
-    Useful for testing error handling and rollback scenarios.
-    """
-    return create_mock_source(AudioSource.RADIO, start_success=False)
