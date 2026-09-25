@@ -49,6 +49,15 @@ TimeoutStopSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=milo-tidal
+# The SDK logs one warning per FLAC frame it cannot decode, hundreds a second
+# at the start of a stream (17k per 30 s measured): on 2026-09-24 they filled the
+# journal's 100 MB in five minutes and evicted every other unit's history (E74).
+# Those two lines are dropped by name; anything else the daemon says is kept,
+# under a per-unit rate limit in case a new line floods the same way.
+LogFilterPatterns=~FLAC__STREAM_DECODER_ERROR_STATUS_LOST_SYNC
+LogFilterPatterns=~flac_decoder.cpp:[0-9]+[]] Cannot parse metadata
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=300
 MemoryMax=256M
 
 [Install]

@@ -75,6 +75,9 @@ if _log_level > logging.INFO:
     logging.getLogger("source").setLevel(logging.INFO)
     logging.getLogger("backend.shared.mpv").setLevel(logging.INFO)
     logging.getLogger("source.radio.shazam").setLevel(logging.WARNING)
+# httpx logs every request at INFO: one line per APNs push, device token included
+# (~1k a day, E74). Its failures still reach the journal at WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Get services from registry
 state_machine = get_service("audio_state_machine")
