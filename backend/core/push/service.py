@@ -39,6 +39,7 @@ import asyncio
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.core.models.ws_events import (
@@ -118,14 +119,29 @@ SESSION_IDLE_GRACE_S = 300.0
 END_RETRY_S = 30.0
 END_ATTEMPTS = 5
 
-# How long an ended session waits for a token its `end` can go to — one ended
-# before the extension registered any, `none` chosen seconds after a `start`.
+# How long an ended session is watched (`_Ending`): a token registered for it
+# meanwhile — one that had not landed yet, another device's arriving late, the
+# app re-registering on launch — gets the `end` too, and is never adopted.
 # Registering a session token stirs this side (`session_token_registered`), so
-# the `end` leaves as soon as the token lands. Bounded like the retries: a
-# token that never comes is a card this side cannot reach, and the app reaches
-# it itself when it next runs — it reports the session, and it is adopted and
-# ended then.
-END_TOKEN_WAIT_S = 300.0
+# the `end` leaves as soon as the token lands. Bounded: a token that never
+# comes is a card this side cannot reach, and the app reaches it itself when it
+# next runs — it reports the session, which is adopted and ended then.
+END_WATCH_S = 300.0
+
+
+@dataclass
+class _Ending:
+    """An ended session, watched until `until` for the tokens its `end` must
+    reach. See `PushService._send_end`."""
+
+    until: float
+    # Nothing was ever registered for it: its card is up, and only a `start`
+    # can wake the extension into registering the token the `end` needs.
+    knock: bool
+    # `end`s Apple refused in a row, and the earliest the next may go.
+    refused: int = 0
+    not_before: float = 0.0
+    knocked_at: float = 0.0
 
 
 class PushService:
@@ -162,15 +178,14 @@ class PushService:
         # The card last sent while nothing plays, so an idle cycle that changes
         # nothing spends no push — see `_publish_paused`.
         self._idle_card: Optional[Dict[str, Any]] = None
-        # Ended sessions whose `end` some device has not taken yet: session id
-        # -> (attempts so far, earliest next try, when to give up waiting for a
-        # token). See `_send_end`.
-        self._pending_ends: Dict[str, Tuple[int, float, float]] = {}
-        # When this process started, and the session adopted from a token
-        # registered before it — alive on the phone or long gone, this side
-        # cannot tell — whose first push while playing must be a `start`.
-        # See `_adopt_reported_session`.
-        self._booted_at = time.time()
+        # Ended sessions still watched for their `end`. See `_send_end`.
+        self._endings: Dict[str, _Ending] = {}
+        # Whether a token was ever seen for the session held — one ended
+        # without is knocked on (`_Ending.knock`).
+        self._session_had_token = False
+        # The session adopted from a token read at boot — alive on the phone or
+        # long gone, this side cannot tell — whose first push while playing
+        # must be a `start`. See `_adopt_reported_session`.
         self._unconfirmed: Optional[str] = None
         self._widget_signature: Optional[tuple] = None
 
@@ -206,8 +221,8 @@ class PushService:
         """A device registered a session token: act on it now.
 
         Called by `POST /api/push/tokens`. What waits on a token — the `end` of
-        a session that ended before its token landed (`_send_end`), the first
-        `update` of one that had none — would otherwise wait for something
+        a watched session (`_send_end`), the first `update` of one that had
+        none — would otherwise wait for something
         unrelated to stir the bus, and while nothing plays, nothing does.
         Synchronous and free of I/O, like `on_event`.
         """
@@ -364,16 +379,23 @@ class PushService:
         session through the gap, and what comes after needs no new `start`.
         """
         async with self._session_lock:
-            await self._retry_pending_ends()
-            # The session the phone holds, whoever opened it, on every cycle —
-            # as the report seam does. Idle too: after a restart of this side
-            # it is the only way `none` or the grace reaches the card still up.
-            self._adopt_reported_session()
+            await self._retry_endings(state)
             if not self._has_active_source(state):
+                # The session the phone holds, when this side holds none —
+                # after a restart, it is the only way `none` or the grace
+                # reaches the card still up. Not over a session already held:
+                # swapping it here would drop it without an `end`, and the app
+                # only opens a session of its own while something plays, where
+                # the playing path below adopts.
+                if self._session_id is None:
+                    self._adopt_reported_session()
                 await self._consider_ending(state)
                 return
 
             self._idle_since = 0.0
+            self._adopt_reported_session()
+            if self._session_id is not None and self._registry.tokens_for_session(self._session_id):
+                self._session_had_token = True
 
             if self._session_id is None:
                 await self._start_session(state)
@@ -409,17 +431,15 @@ class PushService:
         `SESSION_IDLE_GRACE_S`).
 
         `none` ends the card at once (`_leaves_milo`), whether or not its token
-        has landed: an `end` with nowhere to go yet waits for one in
-        `_pending_ends`. Riding out the grace instead, re-announcing the
-        `start`, drew a card on `none` — the Milō card dropped on 2026-09-25 —
-        and nothing woke this side to do it anyway.
+        has landed: an `end` with nowhere to go yet is watched for one
+        (`_send_end`).
         """
         if self._session_id is None:
             return
         if state.get("switching"):
             return
         if self._leaves_milo(state):
-            await self._end_session()
+            await self._end_session(state)
             return
 
         now = time.time()
@@ -429,7 +449,7 @@ class PushService:
             self._idle_card = None
             self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
         elif now - self._idle_since >= SESSION_IDLE_GRACE_S:
-            await self._end_session()
+            await self._end_session(state)
             return
 
         await self._publish_paused(state)
@@ -502,6 +522,7 @@ class PushService:
         if not targets:
             await self._knock(state)
             return
+        self._session_had_token = True
 
         attributes = await self._build_attributes(self._session_id, state)
         # Forced, never read off the state. This function has one thing to say
@@ -556,14 +577,16 @@ class PushService:
           would be overwritten by the previous session's leftover token before
           the device had a chance to answer.
 
-        And a session this side ended is never followed back while its `end`
-        is still owed (`_pending_ends`) — even registered again after the
-        ending, which the app does on every launch, and which the first guard
-        cannot tell apart from a new session. Following it re-opened, with an
-        `update` or a re-announced `start`, the card that was being closed.
+        And a session this side ended is never followed back while it is
+        watched (`_endings`) — even registered again after the ending, which
+        the app does on every launch, or registered late by another device;
+        the first guard cannot tell either from a new session. It is left out
+        of the search, so a real session registered just before it is still
+        found. Following it re-opened, with an `update` or a re-announced
+        `start`, the card that was being closed.
 
-        **A token registered before this process started is not trusted to
-        name a live session.** After a restart, a session the phone still
+        **A token read from the file at boot is not trusted to name a live
+        session** (`registered_before_start`). After a restart, a session the phone still
         shows and one it dropped long ago — a reinstall, iOS reclaiming the
         card — leave the same token in the registry, and nothing here can tell
         them apart. Adopting is what keeps a live card through a restart
@@ -575,10 +598,8 @@ class PushService:
         lasted, and the card only came back when the app was opened (measured
         2026-09-20).
         """
-        newest = self._registry.newest_session_token()
+        newest = self._registry.newest_session_token(exclude=self._endings.keys())
         if newest is None or newest.session_id == self._session_id:
-            return
-        if newest.session_id in self._pending_ends:
             return
 
         if newest.registered_at < self._session_cleared_at:
@@ -591,15 +612,16 @@ class PushService:
             if ours is None and time.time() - self._session_started_at < START_REPORT_GRACE_S:
                 return
 
-        unconfirmed = newest.registered_at < self._booted_at
+        unconfirmed = self._registry.registered_before_start(newest.token)
         logger.info(
             f"Now Playing session {newest.session_id} adopted "
             f"(was {self._session_id})"
-            + (" — registered before this start, to re-announce" if unconfirmed else "")
+            + (" — read at boot, to re-announce" if unconfirmed else "")
         )
         self._session_id = newest.session_id
         self._session_started_at = newest.registered_at
         self._session_renewed_at = 0.0
+        self._session_had_token = True
         self._unconfirmed = newest.session_id if unconfirmed else None
 
     async def _start_session(self, state: Dict[str, Any]) -> None:
@@ -621,16 +643,20 @@ class PushService:
             self._session_id = session_id
             self._session_started_at = time.time()
             self._session_renewed_at = 0.0
+            self._session_had_token = False
+            self._unconfirmed = None
             self._bg.spawn(self._wake_if_tokenless(session_id), label="token-wait")
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
         if self._session_id == self._unconfirmed:
-            # Adopted from a token older than this process: a `start` under
-            # the same id, which rebuilds it if alive and reopens it if gone.
-            # See `_adopt_reported_session`.
-            self._unconfirmed = None
-            await self._renew_start(state, now_due=True)
+            # Adopted from a token read at boot: a `start` under the same id,
+            # which rebuilds it if alive and reopens it if gone. See
+            # `_adopt_reported_session`. Only settled once Apple took it —
+            # no push-to-start token yet, or a refusal, and the next cycle
+            # tries again rather than feed a session that may be dead.
+            if await self._renew_start(state, now_due=True):
+                self._unconfirmed = None
             return
         targets = self._registry.tokens_for_session(self._session_id)
         if not targets:
@@ -682,16 +708,14 @@ class PushService:
 
         Shared by the playing path (`_update_session`, whose comment says why
         both) and the quiet one (`_publish_paused`). Never reached on `none`,
-        which ends the session instead: a `start` there would draw a card.
+        which ends the session instead.
         """
         if self._registry.was_lost_to_reboot(self._session_id):
             logger.info(
                 f"Now Playing session {self._session_id} died with the phone "
                 "that held it — let go"
             )
-            self._session_id = None
-            self._session_started_at = 0.0
-            self._session_cleared_at = time.time()
+            self._forget_session()
             return
         await self._renew_start(state)
 
@@ -703,15 +727,20 @@ class PushService:
         re-announced, and the grace ended it with no token to send the `end`
         to. Nothing is stirred once the token has landed — that is
         `session_token_registered`'s — so a start that goes well costs no
-        extra cycle.
+        extra cycle. An ended session being knocked on counts too
+        (`_send_end`).
         """
         await asyncio.sleep(START_REPORT_GRACE_S + 1)
-        if session_id == self._session_id and not self._registry.tokens_for_session(session_id):
+        waiting = session_id == self._session_id or (
+            session_id in self._endings and self._endings[session_id].knock
+        )
+        if waiting and not self._registry.tokens_for_session(session_id):
             self._dirty.set()
 
-    async def _renew_start(self, state: Dict[str, Any], now_due: bool = False) -> None:
+    async def _renew_start(self, state: Dict[str, Any], now_due: bool = False) -> bool:
         """Re-send `start` for the session we hold, to shake a token loose —
         or, `now_due`, to re-announce a session adopted across a restart.
+        True when Apple took it.
 
         Spaced rather than sent every cycle: each one wakes an app extension and
         spends APNs budget, and the token it is fishing for needs a moment to
@@ -724,25 +753,57 @@ class PushService:
         now = time.time()
         waited_since = max(self._session_renewed_at, self._session_started_at)
         if not now_due and now - waited_since < START_REPORT_GRACE_S:
-            return
+            return False
+        self._session_renewed_at = now
+        if not await self._announce(self._session_id, state):
+            return False
+        logger.info(
+            f"Now Playing session {self._session_id} re-announced — "
+            + ("adopted across a restart" if now_due else "still no token for it")
+        )
+        return True
 
+    async def _announce(self, session_id: str, state: Dict[str, Any]) -> bool:
+        """Send `start` under an id the phone may already hold. True when Apple
+        took it.
+
+        The phone rebuilds a session it holds and opens one it does not, and
+        either way the extension wakes and registers the session's token. Not
+        playing when nothing is, whatever the state carries: Bluetooth's AVRCP
+        feed can publish a transport while the source is not active (see
+        `_publish_paused`), and a `start` saying playing puts a position iOS
+        extrapolates on a card the music has left.
+        """
         targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         if not targets:
-            return
+            return False
+        attributes = await self._build_attributes(session_id, state)
+        if not self._has_active_source(state):
+            attributes["isPlaying"] = False
+        if not await self._send_all(
+            targets, now_playing_payload("start", session_id, attributes), "nowplaying"
+        ):
+            return False
+        self._bg.spawn(self._wake_if_tokenless(session_id), label="token-wait")
+        return True
 
-        self._session_renewed_at = now
-        payload = now_playing_payload(
-            "start", self._session_id,
-            await self._build_attributes(self._session_id, state),
-        )
-        if await self._send_all(targets, payload, "nowplaying"):
-            self._bg.spawn(self._wake_if_tokenless(self._session_id), label="token-wait")
-            logger.info(
-                f"Now Playing session {self._session_id} re-announced — "
-                + ("adopted across a restart" if now_due else "still no token for it")
-            )
+    def _forget_session(self) -> None:
+        """Let go of the session held, with everything kept about it.
 
-    async def _end_session(self) -> None:
+        One place, so an ending and a let-go cannot drift apart: a let-go that
+        kept `_idle_since` ended the next adopted session on sight, its grace
+        already spent.
+        """
+        self._session_id = None
+        self._unconfirmed = None
+        self._session_had_token = False
+        self._session_started_at = 0.0
+        self._session_renewed_at = 0.0
+        self._session_cleared_at = time.time()
+        self._idle_since = 0.0
+        self._idle_card = None
+
+    async def _end_session(self, state: Dict[str, Any]) -> None:
         """Close the session, and drop the token that could only address it.
 
         A session token dies with its session — it is the one kind of token
@@ -755,90 +816,105 @@ class PushService:
         not its token has landed: the next playback opens a new one for every
         device. Delivering its `end` is `_send_end`'s business, apart from it.
         """
-        session_id, self._session_id = self._session_id, None
-        self._unconfirmed = None
-        self._session_started_at = 0.0
-        self._session_renewed_at = 0.0
-        self._session_cleared_at = time.time()
-        self._idle_since = 0.0
+        session_id, knock = self._session_id, not self._session_had_token
+        self._forget_session()
         if session_id:
-            await self._send_end(session_id, attempts=0)
+            now = time.time()
+            # A knock waits a full spacing first: the `start` that opened the
+            # card went out moments ago, and its token may still be on its way.
+            self._endings[session_id] = _Ending(
+                until=now + END_WATCH_S, knock=knock, knocked_at=now if knock else 0.0
+            )
+            self._bg.spawn(self._wake_after(END_WATCH_S), label="end-watch")
+            if knock:
+                self._bg.spawn(self._wake_if_tokenless(session_id), label="token-wait")
+            await self._send_end(session_id, state)
         logger.info(f"Now Playing session {session_id} ended")
 
-    async def _send_end(self, session_id: str, attempts: int) -> None:
-        """Send `end` to every token of an ended session that still has one.
+    async def _send_end(self, session_id: str, state: Dict[str, Any]) -> None:
+        """Deliver an ended session's `end` to every token it has, for as long
+        as it is watched (`END_WATCH_S`).
 
         **A token is only dropped once its device has the `end`**, or Apple has
         called it dead. They used to be dropped whatever Apple answered, and a
         refused `end` left the card on the Lock Screen with nobody left to
         close it: the app no longer ends sessions. A refused token stays
-        registered and the session waits in `_pending_ends`, to be sent again
-        no sooner than `END_RETRY_S` — whatever else calls in meanwhile, the
-        app's report every couple of seconds included — and let go after
-        `END_ATTEMPTS`.
+        registered and is sent the `end` again no sooner than `END_RETRY_S` —
+        whatever else calls in meanwhile, the app's report every couple of
+        seconds included — and let go after `END_ATTEMPTS`.
 
-        **A session ended before any token landed waits for one**, up to
-        `END_TOKEN_WAIT_S`: `none` chosen seconds after a `start`, while the
-        extension's registration is still on its way. Registering stirs this
-        side (`session_token_registered`), and the next cycle sends the `end`.
+        **Watched, not just retried.** A token registered for it later — one
+        that had not landed, another device's arriving late, the app
+        re-registering on launch — gets the `end` too. Registering stirs this
+        side (`session_token_registered`), so it goes at once.
+
+        **Knocked on, when nothing was ever registered for it** — `none` chosen
+        seconds after a `start` whose registration missed. Its card is up, and
+        nothing wakes the extension into registering the token the `end` needs
+        but a `start`: sent here, spaced by `START_REPORT_GRACE_S`, not
+        playing. The token it gets registered brings the `end` straight after.
 
         Kept apart from `_session_id` on purpose: a session held open for its
         `end` would carry on for the devices that refused it and not for the
-        ones that took it. `_adopt_reported_session` does not follow a pending
-        session back, even registered again.
+        ones that took it. `_adopt_reported_session` never follows a watched
+        session back.
         """
+        ending = self._endings.get(session_id)
+        if ending is None:
+            return
         now = time.time()
-        first_wait = session_id not in self._pending_ends
-        _, _, give_up_at = self._pending_ends.get(
-            session_id, (0, 0.0, now + END_TOKEN_WAIT_S)
-        )
         targets = self._registry.tokens_for_session(session_id)
-        if not targets:
-            if attempts == 0 and now < give_up_at:
-                self._pending_ends[session_id] = (0, 0.0, give_up_at)
-                if first_wait:
-                    self._bg.spawn(self._wake_after(END_TOKEN_WAIT_S), label="end-token-wait")
-                return
-            self._pending_ends.pop(session_id, None)
-            if attempts == 0:
+        if now >= ending.until:
+            del self._endings[session_id]
+            for target in targets:
+                await self._registry.unregister(target.token)
+            if targets or ending.knock:
                 logger.warning(
-                    f"Now Playing session {session_id} ended before any token "
-                    "landed — no end could reach its card"
+                    f"Now Playing session {session_id}: no end reached "
+                    f"{len(targets) or 'its'} device(s) — let go"
                 )
             return
+        if not targets:
+            if ending.knock and now - ending.knocked_at >= START_REPORT_GRACE_S:
+                ending.knocked_at = now
+                await self._announce(session_id, state)
+            return
+        if now < ending.not_before:
+            return
+        ending.knock = False
+
         delivered, dead = await self._deliver(
             targets, now_playing_payload("end", session_id), "nowplaying"
         )
         for token in delivered:
             await self._registry.unregister(token)
         waiting = [t for t in targets if t.token not in delivered and t.token not in dead]
+        if not waiting:
+            ending.refused = 0
+            return
 
-        attempts += 1
-        if waiting and attempts < END_ATTEMPTS:
-            self._pending_ends[session_id] = (attempts, now + END_RETRY_S, give_up_at)
+        ending.refused += 1
+        if ending.refused < END_ATTEMPTS:
+            ending.not_before = now + END_RETRY_S
             self._bg.spawn(self._wake_after(END_RETRY_S), label="end-retry")
             logger.warning(
                 f"Now Playing session {session_id}: end refused for "
                 f"{len(waiting)} device(s), retrying in {END_RETRY_S:.0f}s "
-                f"(attempt {attempts}/{END_ATTEMPTS})"
+                f"(attempt {ending.refused}/{END_ATTEMPTS})"
             )
             return
-
-        self._pending_ends.pop(session_id, None)
         for target in waiting:
             await self._registry.unregister(target.token)
-        if waiting:
-            logger.warning(
-                f"Now Playing session {session_id}: end never taken by "
-                f"{len(waiting)} device(s) after {END_ATTEMPTS} attempts — let go"
-            )
+        ending.refused = 0
+        logger.warning(
+            f"Now Playing session {session_id}: end never taken by "
+            f"{len(waiting)} device(s) after {END_ATTEMPTS} attempts — let go"
+        )
 
-    async def _retry_pending_ends(self) -> None:
-        """Send again the `end`s whose wait is over. See `_send_end`."""
-        now = time.time()
-        for session_id, (attempts, not_before, _) in list(self._pending_ends.items()):
-            if now >= not_before:
-                await self._send_end(session_id, attempts)
+    async def _retry_endings(self, state: Dict[str, Any]) -> None:
+        """Deliver what the watched sessions still owe. See `_send_end`."""
+        for session_id in list(self._endings):
+            await self._send_end(session_id, state)
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
         """Project the published state into the attributes the card draws."""

@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Collection, Dict, List, Optional, Set
 
 from backend.config.constants import PUSH_TOKENS_FILE
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
@@ -33,6 +33,9 @@ class PushTokenRegistry:
         self._file_lock = asyncio.Lock()
         self._tokens: Dict[str, PushToken] = {}
         self._lost_sessions: set[str] = set()
+        # Tokens read from the file at boot and not registered again since:
+        # this process cannot vouch for them. See `registered_before_start`.
+        self._from_disk: Set[str] = set()
 
     async def initialize(self) -> None:
         """Load the file so a schema mismatch surfaces at boot, not at first push.
@@ -45,6 +48,7 @@ class PushTokenRegistry:
         """
         async with self._file_lock:
             self._tokens = await self._load_locked()
+            self._from_disk = set(self._tokens)
         self.logger.info(f"Push token registry loaded: {len(self._tokens)} token(s)")
 
     # =========================================================================
@@ -99,8 +103,23 @@ class PushTokenRegistry:
         """
         return session_id in self._lost_sessions
 
-    def newest_session_token(self) -> Optional[PushToken]:
-        """The session token registered most recently, of any session.
+    def registered_before_start(self, token: str) -> bool:
+        """Was this token read from the file at boot, and not registered since?
+
+        Such a token names a session this process never saw alive: the phone
+        may still show it, or may have dropped it long ago, and nothing here
+        can tell. Asked by `PushService._adopt_reported_session`, which
+        re-announces those. Kept as a set of what was loaded rather than a
+        comparison of `registered_at` with the boot time: the Pi has no RTC,
+        and a clock restored from fake-hwclock after a power cut, or stepped
+        by NTP, can put either side of the comparison wrong.
+        """
+        return token in self._from_disk
+
+    def newest_session_token(self, exclude: Collection[str] = ()) -> Optional[PushToken]:
+        """The session token registered most recently, of any session not in
+        `exclude` — the sessions the caller has ended, whose tokens can outlive
+        them and be registered again.
 
         This is how Milō learns about a session it did not open. A session can
         be started from either end — by a push to the push-to-start token, or
@@ -132,6 +151,7 @@ class PushTokenRegistry:
         sessions = [
             t for t in self._tokens.values()
             if t.kind == PushTokenKind.SESSION and t.device_id in live_devices
+            and t.session_id not in exclude
         ]
         return max(sessions, key=lambda t: t.registered_at, default=None)
 
@@ -184,6 +204,7 @@ class PushTokenRegistry:
                 self._lost_sessions.add(tokens[gone].session_id)
                 del tokens[gone]
             tokens[token] = record
+            self._from_disk.discard(token)
             return True
 
         await self._mutate(apply)

@@ -62,6 +62,38 @@ class TestPersistence:
         assert restarted.token_for_session("sess-1").token == "tok-s"
         assert restarted.token_for_session("sess-nope") is None
 
+    async def test_it_knows_which_tokens_it_read_at_boot(self, registry):
+        """A token read from the file names a session this process never saw
+        alive. Known by where it came from, not by comparing clocks: the Pi
+        has no RTC, and a clock restored after a power cut can sit on either
+        side of the tokens it wrote."""
+        await registry.register(
+            "tok-s", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="sess-1"
+        )
+        restarted = reopened(registry)
+        await restarted.initialize()
+
+        assert restarted.registered_before_start("tok-s") is True
+
+        await restarted.register(
+            "tok-s", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="sess-1"
+        )
+        assert restarted.registered_before_start("tok-s") is False
+
+    async def test_the_newest_session_leaves_out_what_is_excluded(self, registry):
+        """The sessions the service has ended outlive their ending as tokens,
+        and can be registered again; the next newest is the live one."""
+        await registry.register("tok-p", PTS, ApnsEnvironment.SANDBOX, "phone-1")
+        await registry.register(
+            "tok-a", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="A"
+        )
+        await registry.register(
+            "tok-b", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="B"
+        )
+
+        assert registry.newest_session_token().session_id == "B"
+        assert registry.newest_session_token(exclude={"B"}).session_id == "A"
+
     async def test_a_fresh_install_writes_nothing(self, registry):
         """An empty registry is a valid state. Seeding the file at boot would
         create something to back up and restore for no information."""

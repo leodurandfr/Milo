@@ -112,18 +112,22 @@ def registry():
     reg.lost = set()
     reg.was_lost_to_reboot = lambda sid: sid in reg.lost
 
-    def _newest_session_token():
+    def _newest_session_token(exclude=()):
         """Mirrors the real rule: a session belonging to a device that no longer
         holds a push-to-start token is an orphan, not a session."""
         live = {t.device_id for t in held.values()
                 if t.kind == PushTokenKind.PUSH_TO_START}
         return max(
             (t for t in held.values()
-             if t.kind == PushTokenKind.SESSION and t.device_id in live),
+             if t.kind == PushTokenKind.SESSION and t.device_id in live
+             and t.session_id not in exclude),
             key=lambda t: t.registered_at, default=None
         )
 
     reg.newest_session_token = _newest_session_token
+    # Tokens read from the file at boot: none unless a test says so.
+    reg.from_disk = set()
+    reg.registered_before_start = lambda token: token in reg.from_disk
     async def _unregister(token):
         return held.pop(token, None) is not None
 
@@ -144,9 +148,6 @@ def apns():
 @pytest.fixture
 def service(registry, apns):
     svc = PushService(token_registry=registry, apns_client=apns)
-    # Started before any token these tests register (at 1.0): a token older
-    # than the process is `TestRestart`'s subject, and set there explicitly.
-    svc._booted_at = 0.0
     machine = MagicMock()
     machine.get_current_state = MagicMock(return_value=dict(PLAYING))
     svc.set_state_machine(machine)
@@ -183,7 +184,6 @@ def with_volume(registry, apns):
         volume_service.get_volume_state = AsyncMock(return_value=vol_state(**state))
         svc = PushService(token_registry=registry, apns_client=apns,
                           volume_service=volume_service)
-        svc._booted_at = 0.0
         machine = MagicMock()
         machine.get_current_state = MagicMock(return_value=dict(PLAYING))
         svc.set_state_machine(machine)
@@ -394,7 +394,7 @@ class TestSessionLifecycle:
 
         assert service._session_id is None
         assert sent_events(apns) == []
-        assert session_id in service._pending_ends
+        assert session_id in service._endings
 
         registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
         service._dirty.clear()
@@ -404,8 +404,37 @@ class TestSessionLifecycle:
 
         assert sent_events(apns) == ["end"]
         assert sent_sessions(apns) == [session_id]
-        assert service._pending_ends == {}
         assert "sess" not in registry.held
+
+    async def test_a_session_ended_before_its_token_is_knocked_on(
+        self, service, registry, apns
+    ):
+        """The registration missed, and `none` came: nothing but a `start`
+        wakes the extension into registering the token the `end` needs. Sent
+        after a full spacing — the token may still be on its way — and not
+        playing."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        session_id = service._session_id
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        apns.send.reset_mock()
+
+        await service._publish()
+        assert sent_events(apns) == []                  # not before the spacing
+
+        service._endings[session_id].knocked_at -= START_REPORT_GRACE_S + 1
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+        assert sent_sessions(apns) == [session_id]
+        assert apns.send.await_args_list[0].args[1]["aps"]["attributes"]["isPlaying"] is False
+
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
 
     async def test_a_token_that_never_lands_is_waited_for_a_while_only(
         self, service, registry, apns
@@ -418,12 +447,11 @@ class TestSessionLifecycle:
         session_id = service._session_id
         service.machine.get_current_state.return_value = dict(STOPPED)
         await service._publish()
-        attempts, not_before, _ = service._pending_ends[session_id]
-        service._pending_ends[session_id] = (attempts, not_before, 0.0)
+        service._endings[session_id].until = 0.0
 
         await service._publish()
 
-        assert service._pending_ends == {}
+        assert service._endings == {}
 
     async def test_leaving_ends_a_session_this_side_had_not_adopted_yet(
         self, service, registry, apns
@@ -778,7 +806,7 @@ class TestSourceTransitions:
         service.machine.get_current_state.return_value = dict(STOPPED)
         apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
         await service._publish()
-        assert session_id in service._pending_ends
+        assert session_id in service._endings
         registry.held["sess"].registered_at = time.time() + 1      # registered again
         service.machine.get_current_state.return_value = dict(READY)
         apns.send.reset_mock()
@@ -935,14 +963,13 @@ class TestSourceTransitions:
         assert "sess" in registry.held
 
         apns.send.return_value = ApnsResult(ok=True, status=200)
-        service._pending_ends[session_id] = (1, 0.0, float("inf"))   # the wait is over
+        service._endings[session_id].not_before = 0.0     # the wait is over
         apns.send.reset_mock()
         await service._publish()
 
         assert sent_events(apns) == ["end"]
         assert sent_sessions(apns) == [session_id]
         assert "sess" not in registry.held
-        assert service._pending_ends == {}
 
     async def test_an_end_is_not_sent_again_before_its_wait(
         self, service, registry, apns
@@ -968,12 +995,10 @@ class TestSourceTransitions:
 
         await service._publish()
         for _ in range(END_ATTEMPTS - 1):
-            attempts, _, give_up_at = service._pending_ends[session_id]
-            service._pending_ends[session_id] = (attempts, 0.0, give_up_at)
+            service._endings[session_id].not_before = 0.0
             await service._publish()
 
         assert sent_events(apns) == ["end"] * END_ATTEMPTS
-        assert service._pending_ends == {}
         assert "sess" not in registry.held
 
     async def test_a_dead_token_needs_no_second_end(self, service, registry, apns):
@@ -986,7 +1011,53 @@ class TestSourceTransitions:
         await service._publish()
 
         assert sent_events(apns) == ["end"]
-        assert service._pending_ends == {}
+        registry.purge.assert_awaited()
+
+    async def test_a_late_token_from_another_device_gets_the_end_too(
+        self, service, registry, apns
+    ):
+        """iPhone and iPad hold the same session; the iPad's registration comes
+        late. Once the iPhone had its `end`, the session was forgotten, and the
+        iPad's token for it was adopted as the live session: every update
+        went to a card being closed, and the next session's froze."""
+        session_id = await self._ended_past_the_grace(service, registry, apns)
+        await service._publish()                        # the iPhone takes the end
+        assert "sess" not in registry.held
+        registry.held["pts-ipad"] = tok(PushTokenKind.PUSH_TO_START, "pts-ipad",
+                                        device_id="ipad-1")
+        late = tok(PushTokenKind.SESSION, "sess-ipad", session_id=session_id,
+                   device_id="ipad-1")
+        late.registered_at = time.time() + 1
+        registry.held["sess-ipad"] = late
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
+        assert apns.send.await_args_list[0].args[0].token == "sess-ipad"
+        assert service._session_id is None
+
+    async def test_an_ended_session_registered_again_hides_no_real_one(
+        self, service, registry, apns
+    ):
+        """Left out of the search rather than stopping it: a session the app
+        opened just before re-registering the ended one is still found, and no
+        rival is minted beside it."""
+        session_id = await self._ended_past_the_grace(service, registry, apns)
+        apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
+        await service._publish()                        # the end is refused
+        live = tok(PushTokenKind.SESSION, "app-b", session_id="APP-B")
+        live.registered_at = time.time() + 1
+        registry.held["app-b"] = live
+        registry.held["sess"].registered_at = time.time() + 2
+        apns.send.return_value = ApnsResult(ok=True, status=200)
+        service.machine.get_current_state.return_value = dict(PLAYING)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == "APP-B"
+        assert "start" not in sent_events(apns)
 
     async def test_a_pending_end_does_not_hold_back_the_next_card(
         self, service, registry, apns
@@ -1252,15 +1323,15 @@ class TestRestart:
     next playback to it, and the card only came back when the app was opened.
     """
 
-    def _restarted(self, service):
-        service._booted_at = 10.0      # after every token registered at 1.0
+    def _restarted(self, registry, *tokens):
+        registry.from_disk = set(tokens)
 
     async def test_the_first_push_to_a_session_adopted_across_a_restart_is_a_start(
         self, service, registry, apns
     ):
         """Under the same id: alive, the phone rebuilds it in place; gone, the
         `start` opens it again. Then updates, as for any session."""
-        self._restarted(service)
+        self._restarted(registry, "pts", "sess")
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
 
@@ -1281,11 +1352,9 @@ class TestRestart:
     ):
         """The app opened it, or the extension registered it, while this
         process ran: it is alive, and gets updates straight away."""
-        self._restarted(service)
+        self._restarted(registry, "pts")
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
-        fresh = tok(PushTokenKind.SESSION, "sess", session_id="APP-2")
-        fresh.registered_at = 11.0
-        registry.held["sess"] = fresh
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="APP-2")
 
         await service._publish()
 
@@ -1297,7 +1366,7 @@ class TestRestart:
     ):
         """A `start` while nothing plays would open a card on a phone that
         shows none. The re-announcement waits for playback."""
-        self._restarted(service)
+        self._restarted(registry, "pts", "sess")
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
         service.machine.get_current_state.return_value = dict(READY)
@@ -1305,6 +1374,63 @@ class TestRestart:
         await service._publish()
 
         assert "start" not in sent_events(apns)
+
+    async def test_a_re_announcement_that_did_not_go_out_is_tried_again(
+        self, service, registry, apns
+    ):
+        """No push-to-start token yet — the app has not re-registered — or a
+        refusal: settling it anyway fed updates to a session that may be dead,
+        the very failure this re-announcement exists for."""
+        self._restarted(registry, "sess")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
+
+        await service._publish()
+
+        assert service._unconfirmed == "OLD-1"
+
+        apns.send.return_value = ApnsResult(ok=True, status=200)
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+        assert service._unconfirmed is None
+
+    async def test_a_quiet_side_does_not_swap_the_session_it_holds(
+        self, service, registry, apns
+    ):
+        """Swapping while quiet dropped the held session without an `end`, and
+        handed the new one what was left of the old one's grace."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        held = service._session_id
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=held)
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        newer = tok(PushTokenKind.SESSION, "other", session_id="OTHER")
+        newer.registered_at = time.time() + 1
+        registry.held["other"] = newer
+
+        await service._publish()
+
+        assert service._session_id == held
+
+    async def test_letting_a_rebooted_phones_session_go_forgets_its_grace(
+        self, service, registry, apns
+    ):
+        """The let-go and the ending share one reset: a let-go that kept the
+        idle clock ended the next session adopted on sight."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.lost.add(service._session_id)
+        service.machine.get_current_state.return_value = dict(READY)
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+
+        await service._publish()
+
+        assert service._session_id is None
+        assert service._idle_since == 0.0
 
 
 class TestDeviceReboot:
