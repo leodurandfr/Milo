@@ -345,7 +345,9 @@
     "crossfade": "क्रॉसफ़ेड",
     "crossfadeDuration": "लगातार ट्रैक के बीच फ़ेड की अवधि:",
     "restartToApply": "लागू करने के लिए पुनरारंभ करें",
-    "restarting": "पुनः आरंभ हो रहा है…"
+    "restarting": "पुनः आरंभ हो रहा है…",
+    "appVolumeTitle": "Spotify ऐप से वॉल्यूम नियंत्रण",
+    "appVolumeDescription": "Spotify ऐप को वॉल्यूम बदलने दें। बंद होने पर, Milō Spotify को पूर्ण वॉल्यूम पर रखता है और अपना वॉल्यूम नियंत्रण स्तर सेट करता है।"
   },
   "multiroomSettings": {
     "globalBuffer": "ग्लोबल बफर (ms)",

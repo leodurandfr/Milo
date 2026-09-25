@@ -90,12 +90,14 @@ class QobuzSettingsConfig(BaseModel):
 
 
 class SpotifySettingsConfig(BaseModel):
-    """Crossfade between tracks, in ms (0 = disabled, gapless untouched).
+    """Crossfade between tracks, in ms (0 = disabled, gapless untouched), and
+    whether the Spotify app's volume slider scales the samples.
 
-    SpotifySource writes it into go-librespot's config.yml, which is read once
+    SpotifySource writes both into go-librespot's config.yml, which is read once
     at daemon start — hence the settings page's "restart to apply" button.
     """
     crossfade_duration: int
+    allow_app_volume: bool
 
 
 class MusicLibrarySettingsConfig(BaseModel):

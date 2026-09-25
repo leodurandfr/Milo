@@ -527,6 +527,7 @@ class SpotifySettingsRequest(BaseModel):
     Spotify app's own 0-12 s range.
     """
     crossfade_duration: int = Field(ge=0, le=12000)
+    allow_app_volume: bool
     apply_now: bool = False
 
 

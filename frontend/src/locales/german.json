@@ -345,7 +345,9 @@
     "crossfade": "Überblendung",
     "crossfadeDuration": "Aufeinanderfolgende Titel überblenden über:",
     "restartToApply": "Zum Anwenden neu starten",
-    "restarting": "Neustart…"
+    "restarting": "Neustart…",
+    "appVolumeTitle": "Lautstärkeregelung von der Spotify-App",
+    "appVolumeDescription": "Der Spotify-App erlauben, die Lautstärke zu ändern. Wenn deaktiviert, hält Milō Spotify auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
   },
   "multiroomSettings": {
     "globalBuffer": "Globaler Puffer (ms)",

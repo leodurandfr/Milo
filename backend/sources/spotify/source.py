@@ -96,9 +96,10 @@ class SpotifySource(BaseAudioSource):
     RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
     SESSION_DAEMON = True
 
-    # The one go-librespot config key Milō owns. Every other key in config.yml
-    # (device_name, zeroconf_backend, server, external_volume) is written once
-    # by provisioning/go-librespot.sh and never touched here.
+    # The two go-librespot config keys Milō owns: crossfade_duration and
+    # external_volume. Every other key in config.yml (device_name,
+    # zeroconf_backend, server) is written once by provisioning/go-librespot.sh
+    # and never touched here.
     #
     # Deliberately NOT owned: flac_enabled. go-librespot 0.8.0 fixed the FLAC
     # decoder (it normalised samples by 2^bps instead of 2^(bps-1), so lossless
@@ -107,6 +108,12 @@ class SpotifySource(BaseAudioSource):
     # implementation" (measured on the unit, 2026-08-03). It is a fatal
     # misconfiguration, not an inert flag: enabling it costs Spotify entirely.
     CROSSFADE_SETTINGS_KEY = "spotify.crossfade_duration"
+    # external_volume: true leaves the samples at unity (the app's slider moves
+    # nothing, CamillaDSP is the only attenuation); false lets go-librespot
+    # scale them by the slider, squared. The daemon restores the slider from its
+    # own state.json (last_volume), which it keeps saving while external — so
+    # turning this on plays at the level the phone already shows.
+    APP_VOLUME_SETTINGS_KEY = "spotify.allow_app_volume"
 
     # Neutral sink the output is parked on while a multiroom reroute reconciles
     # snapcast. ALSA's `null` discards samples as fast as they are written, so
@@ -463,9 +470,9 @@ class SpotifySource(BaseAudioSource):
         go-librespot parses its config once, at process start, so this runs from
         _do_start() before the unit is launched: whatever the settings page
         stored in the meantime is live on the next start, and there is no reload
-        path to maintain. Only the crossfade value is touched; a start that
-        would change nothing leaves the file alone, so the daemon never reads a
-        file rewritten for nothing.
+        path to maintain. Only the crossfade and external_volume values are
+        touched; a start that would change nothing leaves the file alone, so the
+        daemon never reads a file rewritten for nothing.
 
         Rewriting drops the baked comments from the deployed copy — their
         rationale lives in provisioning/go-librespot.sh, which is where it is read.
@@ -476,7 +483,10 @@ class SpotifySource(BaseAudioSource):
         if not self._config_path or not os.path.exists(self._config_path):
             return
 
-        managed = {"crossfade_duration": await self._get_crossfade_duration()}
+        managed = {
+            "crossfade_duration": await self._get_crossfade_duration(),
+            "external_volume": not await self._get_allow_app_volume(),
+        }
 
         try:
             async with aiofiles.open(self._config_path, 'r', encoding='utf-8') as f:
@@ -503,6 +513,14 @@ class SpotifySource(BaseAudioSource):
 
         value = await self._settings_service.get_setting(self.CROSSFADE_SETTINGS_KEY)
         return int(value) if value is not None else 0
+
+    async def _get_allow_app_volume(self) -> bool:
+        """Whether the Spotify app's slider may scale the samples; False
+        (unity, CamillaDSP owns volume) when unreadable."""
+        if not self._settings_service:
+            return False
+
+        return bool(await self._settings_service.get_setting(self.APP_VOLUME_SETTINGS_KEY))
 
     async def _write_config(self, config: Dict[str, Any]) -> None:
         """Replace config.yml atomically (temp file + os.replace).
@@ -531,7 +549,7 @@ class SpotifySource(BaseAudioSource):
         The value always reaches config.yml, so it is live at the next daemon
         start whatever happens here. `apply_now` additionally restarts the unit
         — what the settings page's "restart to apply" button asks for, and the
-        only way to change crossfade on a running daemon.
+        only way to change crossfade or the app volume on a running daemon.
 
         A stopped daemon is left stopped: `systemctl restart` on an inactive
         unit STARTS it, which would raise a Spotify Connect speaker named after
@@ -552,7 +570,7 @@ class SpotifySource(BaseAudioSource):
         """The restart itself, in the mailbox: it ends the session it restarts
         under (the user's own request, not a death)."""
         if not await self._is_service_active():
-            self._logger.info("Crossfade stored; go-librespot is stopped, it applies at its next start")
+            self._logger.info("Spotify settings stored; go-librespot is stopped, they apply at its next start")
             return True
 
         if await self.end_session(EndReason.USER_STOP) is not None:

@@ -345,7 +345,9 @@
     "crossfade": "Dissolvenza incrociata",
     "crossfadeDuration": "Dissolvenza tra brani consecutivi su:",
     "restartToApply": "Riavvia per applicare",
-    "restarting": "Riavvio…"
+    "restarting": "Riavvio…",
+    "appVolumeTitle": "Controllo del volume dall'app Spotify",
+    "appVolumeDescription": "Consentire all'app Spotify di modificare il volume. Se disattivato, Milō mantiene Spotify al volume massimo e il proprio controllo del volume imposta il livello."
   },
   "multiroomSettings": {
     "globalBuffer": "Buffer globale (ms)",

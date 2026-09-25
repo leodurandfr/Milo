@@ -212,7 +212,8 @@ def create_settings_router(
             },
             "qobuz_settings": {"allow_app_volume": all_settings['qobuz']['allow_app_volume']},
             "spotify_settings": {
-                "crossfade_duration": all_settings['spotify']['crossfade_duration']
+                "crossfade_duration": all_settings['spotify']['crossfade_duration'],
+                "allow_app_volume": all_settings['spotify']['allow_app_volume']
             },
             "mac_roc": {
                 "target_latency_ms": mac['target_latency_ms'],
@@ -855,10 +856,13 @@ def create_settings_router(
             reload_callback=apply_to_qobuz
         )
 
-    # Spotify settings (crossfade duration, written into go-librespot's config)
+    # Spotify settings (crossfade + app volume, written into go-librespot's config)
     @router.put("/spotify-settings")
     async def set_spotify_settings(payload: SpotifySettingsRequest):
-        spotify_config = {'crossfade_duration': payload.crossfade_duration}
+        spotify_config = {
+            'crossfade_duration': payload.crossfade_duration,
+            'allow_app_volume': payload.allow_app_volume
+        }
 
         async def apply_to_spotify():
             source = state_machine.get_source(AudioSource.SPOTIFY)

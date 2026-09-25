@@ -183,10 +183,11 @@ class Spotify:
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", LiveProcessWatch)
         config = tmp_path / "config.yml"
-        # crossfade_duration already matches the (absent) setting, so the start
-        # path leaves the file alone.
+        # crossfade_duration and external_volume already match the (absent)
+        # settings, so the start path leaves the file alone.
         config.write_text(
             "server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\n"
+            "external_volume: true\n"
         )
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)

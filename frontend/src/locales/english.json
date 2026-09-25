@@ -345,7 +345,9 @@
     "crossfade": "Crossfade",
     "crossfadeDuration": "Fade between consecutive tracks over:",
     "restartToApply": "Restart to apply",
-    "restarting": "Restarting…"
+    "restarting": "Restarting…",
+    "appVolumeTitle": "Volume control from the Spotify app",
+    "appVolumeDescription": "Let the Spotify app change the volume. When off, Milō keeps Spotify at full volume and its own volume control sets the level."
   },
   "multiroomSettings": {
     "globalBuffer": "Global buffer (ms)",

@@ -122,7 +122,11 @@ class SettingsService:
                 # Crossfade between consecutive tracks, in ms. 0 disables it and
                 # keeps go-librespot's original gapless read path untouched.
                 # SpotifySource writes it into go-librespot's config.yml.
-                "crossfade_duration": 0
+                "crossfade_duration": 0,
+                # False → go-librespot runs with external_volume (samples left at
+                # unity, the Spotify app's slider inert: CamillaDSP owns volume).
+                # True → the app slider scales go-librespot's samples.
+                "allow_app_volume": False
             },
             "wifi": {
                 "country": ""
@@ -356,7 +360,8 @@ class SettingsService:
         validated['spotify'] = {
             'crossfade_duration': max(0, min(60000, int(
                 spotify_input.get('crossfade_duration', d['spotify']['crossfade_duration'])
-            )))
+            ))),
+            'allow_app_volume': bool(spotify_input.get('allow_app_volume', d['spotify']['allow_app_volume']))
         }
 
         # WiFi regulatory domain

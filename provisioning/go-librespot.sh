@@ -23,6 +23,9 @@ configure_go_librespot() {
     # own embedded mDNS responder that ignores Avahi's allow-interfaces and
     # broadcasts on every interface — racing Avahi and causing the milo.local
     # → milo-2.local rename whenever wlan0's DHCP lease rolls over.
+    #
+    # crossfade_duration and external_volume are absent on purpose: they are
+    # settings, and SpotifySource writes them before every daemon start.
     tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
 device_name: "Milō"
 device_type: "speaker"
@@ -30,8 +33,6 @@ bitrate: 320
 
 audio_backend: "alsa"
 audio_device: "milo_spotify"
-
-external_volume: true
 
 zeroconf_backend: avahi
 

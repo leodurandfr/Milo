@@ -1,12 +1,13 @@
 <!-- frontend/src/components/settings/categories/SpotifySettings.vue -->
 <!--
   Spotify Connect screen. go-librespot needs no login (zeroconf handoff from the
-  phone), so the only thing to configure here is playback: the crossfade the
+  phone), so the only things to configure here are playback: the crossfade and
+  whether the Spotify app's slider may change the volume, both of which the
   daemon reads from its config.yml.
 
   That file is parsed once, at process start, hence the two-step shape: the
-  value is stored immediately (and picked up by the next start on its own),
-  while a sticky button offers the restart that makes it audible right now.
+  values are stored immediately (and picked up by the next start on its own),
+  while a sticky button offers the restart that makes them audible right now.
 -->
 <template>
   <SettingsContainer>
@@ -28,6 +29,15 @@
         />
       </SettingItem>
     </ToggleSection>
+
+    <!-- Off (default) runs go-librespot with external_volume: samples stay at
+         unity and CamillaDSP is the only volume authority. -->
+    <ToggleSection
+      :title="t('spotifySettings.appVolumeTitle')"
+      :description="t('spotifySettings.appVolumeDescription')"
+      :enabled="allowAppVolume"
+      @change="handleAppVolumeToggle"
+    />
 
     <!-- Only offered while the daemon is running: with Spotify stopped there is
          nothing to restart, the stored value applies at its next start. -->
@@ -66,21 +76,26 @@ const MS_PER_SECOND = 1000;
 const DEFAULT_SECONDS = 6;
 
 const crossfadeSeconds = ref(0);
+const allowAppVolume = ref(false);
 // Remembers the last audible duration so toggling OFF then ON restores it.
 const lastCrossfadeSeconds = ref(DEFAULT_SECONDS);
 // What the running daemon plays with, as far as this screen can know: the
-// stored value when it opened. Re-based only by an explicit restart — never by
+// stored values when it opened. Re-based only by an explicit restart — never by
 // the WS echo of our own write, which would hide the button we just earned.
 const appliedSeconds = ref(0);
+const appliedAppVolume = ref(false);
 const isApplying = ref(false);
 
 const crossfadeEnabled = computed(() => crossfadeSeconds.value !== 0);
 const spotifyRunning = computed(() => unifiedStore.systemState.source === 'spotify');
-const needsRestart = computed(() => spotifyRunning.value && crossfadeSeconds.value !== appliedSeconds.value);
+const needsRestart = computed(() => spotifyRunning.value && (
+  crossfadeSeconds.value !== appliedSeconds.value || allowAppVolume.value !== appliedAppVolume.value
+));
 
 function save(applyNow) {
   return updateSetting('spotify-settings', {
     crossfade_duration: crossfadeSeconds.value * MS_PER_SECOND,
+    allow_app_volume: allowAppVolume.value,
     apply_now: applyNow
   });
 }
@@ -100,12 +115,18 @@ function handleCrossfadeToggle(enabled) {
   return save(false);
 }
 
+function handleAppVolumeToggle(enabled) {
+  allowAppVolume.value = enabled;
+  return save(false);
+}
+
 async function applyNow() {
   if (isApplying.value) return;
   isApplying.value = true;
   try {
     await save(true);
     appliedSeconds.value = crossfadeSeconds.value;
+    appliedAppVolume.value = allowAppVolume.value;
   } finally {
     isApplying.value = false;
   }
@@ -118,13 +139,18 @@ function readStored(ms) {
   }
 }
 
-// Follow the stored value (another device, or a resync) without touching the
+// Follow the stored values (another device, or a resync) without touching the
 // applied baseline.
 watch(() => settingsStore.spotifySettings.crossfade_duration, readStored);
+watch(() => settingsStore.spotifySettings.allow_app_volume, (allowed) => {
+  allowAppVolume.value = allowed;
+});
 
 onMounted(() => {
   readStored(settingsStore.spotifySettings.crossfade_duration);
+  allowAppVolume.value = settingsStore.spotifySettings.allow_app_volume;
   appliedSeconds.value = crossfadeSeconds.value;
+  appliedAppVolume.value = allowAppVolume.value;
 });
 </script>
 

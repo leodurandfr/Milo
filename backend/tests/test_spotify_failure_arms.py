@@ -496,7 +496,9 @@ class TestTheStartThatFails:
         service failed to start, and nothing goes on to talk to a daemon that
         is not there."""
         config = tmp_path / "config.yml"
-        config.write_text("server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\n")
+        config.write_text(
+            "server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\nexternal_volume: true\n"
+        )
         systemd = Mock(start=AsyncMock(return_value=False), stop=AsyncMock(return_value=True))
         machine, _ = make_state_machine()
         source = SpotifySource(

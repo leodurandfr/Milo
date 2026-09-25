@@ -345,7 +345,9 @@
     "crossfade": "Fundido encadenado",
     "crossfadeDuration": "Fundir entre pistas consecutivas durante:",
     "restartToApply": "Reiniciar para aplicar",
-    "restarting": "Reiniciando…"
+    "restarting": "Reiniciando…",
+    "appVolumeTitle": "Control del volumen desde la aplicación Spotify",
+    "appVolumeDescription": "Permite que la aplicación Spotify cambie el volumen. Si está desactivado, Milō mantiene Spotify al volumen máximo y su propio control de volumen define el nivel."
   },
   "multiroomSettings": {
     "globalBuffer": "Búfer global (ms)",

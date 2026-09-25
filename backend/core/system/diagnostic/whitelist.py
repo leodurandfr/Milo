@@ -65,6 +65,7 @@ SETTINGS_ALLOWED = frozenset({
     "music_library.separate_storages",
     "qobuz.allow_app_volume",
     "spotify.crossfade_duration",
+    "spotify.allow_app_volume",
     # The regulatory domain, not the network: a country code is what explains an
     # access point that will not come up and a 5 GHz band that is missing.
     "wifi.country",

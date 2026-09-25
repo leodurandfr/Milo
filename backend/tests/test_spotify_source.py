@@ -794,7 +794,7 @@ class TestMultiroomReroute:
 
 
 class TestManagedConfig:
-    """The go-librespot config key Milō owns.
+    """The go-librespot config keys Milō owns.
 
     go-librespot parses config.yml once, at process start, so a crossfade the
     settings page stored only ever reaches the daemon through this write. If it
@@ -840,6 +840,21 @@ class TestManagedConfig:
         await spotify_source._apply_managed_config()
 
         assert self._read(spotify_source._config_path)["crossfade_duration"] == 6000
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("allowed, external", [(False, True), (True, False)])
+    async def test_app_volume_decides_external_volume(self, spotify_source, allowed, external):
+        """external_volume is the inverse of the setting. Inverted, the Spotify
+        app's slider would scale the samples on a unit set to leave CamillaDSP
+        the only volume authority — a quiet speaker nobody can explain from
+        Milō's own volume display."""
+        stored = {"spotify.crossfade_duration": 0, "spotify.allow_app_volume": allowed}
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(side_effect=stored.get)
+
+        await spotify_source._apply_managed_config()
+
+        assert self._read(spotify_source._config_path)["external_volume"] is external
 
     @pytest.mark.asyncio
     async def test_is_idempotent(self, spotify_source):
