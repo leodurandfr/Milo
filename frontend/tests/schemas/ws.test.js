@@ -158,15 +158,16 @@ describe('WS payload semantics', () => {
     expect(schema.safeParse({ source: 'spotify', session_id: 's1', position: { ms: 1000 } }).success).toBe(false);
   });
 
-  it('settings.fan_*_changed only accepts the three fan modes', () => {
+  it('settings.fan_*_changed only accepts the two fan modes', () => {
     const base = {
-      available: true, enabled: true, mode: 'auto', manual_percent: 50,
-      target_temp_c: 55, curve: [{ temp_c: 40, percent: 30 }], temp_c: 42.5,
+      available: true, enabled: true, mode: 'target', manual_percent: 50,
+      target_temp_c: 55, temp_c: 42.5,
       rpm: 2400, pwm_percent: 30,
     };
     const schema = wsEventRegistry['settings.fan_status_changed'];
 
     expect(schema.safeParse(base).success).toBe(true);
     expect(schema.safeParse({ ...base, mode: 'turbo' }).success).toBe(false);
+    expect(schema.safeParse({ ...base, mode: 'auto' }).success).toBe(false);
   });
 });

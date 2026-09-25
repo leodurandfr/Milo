@@ -87,7 +87,6 @@ const NO_PRESS_BY_DECISION = [
   'components/multiroom/MultiroomItem.vue::expand-button',
   'components/network/NetworkSelector.vue::network-item',
   'components/settings/categories/NetworkSettings.vue::network-item',
-  'components/settings/categories/FanSettings.vue::curve__add',
   'components/settings/categories/multiroom/MultiroomSettings.vue::zone-header',
   'components/settings/categories/music-library/WizardBrowse.vue::wb-crumb',
   'components/setup/AudioStep.vue::audio-step__volume-control',

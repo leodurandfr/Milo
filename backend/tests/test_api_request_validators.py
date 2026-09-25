@@ -1,11 +1,10 @@
 # backend/tests/test_api_request_validators.py
 """Rejection paths of the request validators in `backend/api/models.py`.
 
-Five validators came out of the Lot A eviscration sweep green: replacing each
+Validators came out of the Lot A eviscration sweep green: replacing each
 body with a neutral return left the whole suite passing. They are guards that
-raise, so a neutral return means the guard is gone -- an unknown audio card id,
-a fan curve that is not monotonic, or a 1-second screen timeout would all be
-accepted and written to the hardware config. Nothing else validates them: the
+raise, so a neutral return means the guard is gone -- an unknown audio card id
+or a 1-second screen timeout would both be accepted and written to the hardware config. Nothing else validates them: the
 routes hand the parsed model straight to `SettingsService`.
 
 Each test here asserts the raise, not the message, and the pass-through of a
@@ -22,7 +21,6 @@ from backend.api.models import (
     ConfigureClientAudioRequest,
     ClientVolumeRequest,
     ConfigurePendingClientRequest,
-    FanConfigRequest,
     HardwareAudioRequest,
     HardwareRotaryEncoderRequest,
     HardwareScreenRequest,
@@ -33,35 +31,6 @@ from backend.api.models import (
 )
 from backend.config.constants import BT_REMOTE_ACTIONS
 from backend.hardware.registry import AUDIO_CARDS, SCREENS
-
-
-def _fan(curve):
-    """A complete, otherwise-valid fan config -- only the curve varies."""
-    return dict(enabled=True, mode="auto", manual_percent=50, target_temp_c=60, curve=curve)
-
-
-class TestFanCurveIsStrictlyIncreasing:
-    """`FanConfigRequest.validate_curve_increasing` -- the auto-mode fan curve.
-
-    The curve is interpolated by the fan controller; a non-monotonic or
-    duplicated temperature makes the lookup pick an arbitrary neighbour, so the
-    fan speed for a given temperature stops being defined.
-    """
-
-    def test_a_curve_out_of_order_is_refused(self):
-        with pytest.raises(ValidationError):
-            FanConfigRequest(**_fan([{"temp_c": 70, "percent": 90},
-                                     {"temp_c": 50, "percent": 30}]))
-
-    def test_a_curve_repeating_a_temperature_is_refused(self):
-        with pytest.raises(ValidationError):
-            FanConfigRequest(**_fan([{"temp_c": 50, "percent": 30},
-                                     {"temp_c": 50, "percent": 90}]))
-
-    def test_an_increasing_curve_survives_and_keeps_its_points(self):
-        req = FanConfigRequest(**_fan([{"temp_c": 50, "percent": 30},
-                                       {"temp_c": 70, "percent": 90}]))
-        assert [p.temp_c for p in req.curve] == [50, 70]
 
 
 class TestAutoStopDelayFloor:

@@ -449,10 +449,9 @@ class FanStatusEvent(SettingsEvent):
     live telemetry)."""
     available: bool
     enabled: bool
-    mode: str  # auto | manual | target
+    mode: str  # target | manual
     manual_percent: int
     target_temp_c: int
-    curve: List[Dict[str, Any]]
     temp_c: float
     rpm: int
     pwm_percent: int

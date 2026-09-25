@@ -24,7 +24,7 @@
       </div>
     </SettingsSection>
 
-    <!-- Mode + curve (or disabled message) -->
+    <!-- Mode + its value (or disabled message) -->
     <SettingsSection :title="config.enabled ? t('fanSettings.mode') : ''">
       <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote') }}</p>
 
@@ -53,44 +53,6 @@
             @change="onTargetChange"
           />
         </SettingItem>
-
-        <template v-if="config.mode === 'auto'">
-          <div class="curve">
-            <div class="curve__head">
-              <span class="curve__col text-mono-small">{{ t('fanSettings.temperature') }}</span>
-              <span class="curve__col text-mono-small">{{ t('fanSettings.speed') }}</span>
-              <span class="curve__col-spacer"></span>
-            </div>
-            <div v-for="(point, i) in config.curve" :key="i" class="curve__point">
-              <RangeSlider
-                v-model="point.temp_c"
-                :min="tempMin(i)"
-                :max="tempMax(i)"
-                :step="1"
-                value-unit="°C"
-                @change="saveCurve"
-              />
-              <RangeSlider
-                v-model="point.percent"
-                :min="0"
-                :max="100"
-                :step="5"
-                value-unit="%"
-                @change="saveCurve"
-              />
-              <IconButton
-                icon="close"
-                size="small"
-                :class="{ 'curve__remove--hidden': config.curve.length <= 2 }"
-                :aria-label="t('fanSettings.removePoint')"
-                @click="removePoint(i)"
-              />
-            </div>
-            <button v-if="config.curve.length < MAX_POINTS" class="curve__add text-mono-medium" @click="addPoint">
-              + {{ t('fanSettings.addPoint') }}
-            </button>
-          </div>
-        </template>
       </template>
     </SettingsSection>
   </SettingsContainer>
@@ -106,9 +68,6 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
-import IconButton from '@/components/ui/IconButton.vue';
-
-const MAX_POINTS = 6;
 
 const { t } = useI18n();
 const fanStore = useFanStore();
@@ -117,14 +76,12 @@ const timer = useTimer();
 // Local copy for instant UI responsiveness (mirrors ScreenSettings pattern).
 const config = reactive({
   enabled: true,
-  mode: 'auto',
+  mode: 'target',
   manual_percent: 50,
   target_temp_c: 65,
-  curve: [],
 });
 
 const modeOptions = computed(() => [
-  { value: 'auto', label: t('fanSettings.modeAuto') },
   { value: 'target', label: t('fanSettings.modeTarget') },
   { value: 'manual', label: t('fanSettings.modeManual') },
 ]);
@@ -138,7 +95,6 @@ function syncFromStore() {
   config.mode = fanStore.config.mode;
   config.manual_percent = fanStore.config.manual_percent;
   config.target_temp_c = fanStore.config.target_temp_c;
-  config.curve = (fanStore.config.curve ?? []).map(p => ({ ...p }));
 }
 
 function save() {
@@ -147,7 +103,6 @@ function save() {
     mode: config.mode,
     manual_percent: config.manual_percent,
     target_temp_c: config.target_temp_c,
-    curve: config.curve.map(p => ({ ...p })),
   });
 }
 
@@ -183,43 +138,6 @@ function onManualChange(value) {
 // No live /test preview here — a temperature setpoint has no instant effect.
 function onTargetChange(value) {
   config.target_temp_c = value;
-  save();
-}
-
-function saveCurve() {
-  save();
-}
-
-// Keep curve temperatures strictly increasing: clamp each point between its
-// neighbours (the backend rejects a non-increasing curve with 422).
-function tempMin(i) {
-  return i === 0 ? 20 : config.curve[i - 1].temp_c + 1;
-}
-function tempMax(i) {
-  return i === config.curve.length - 1 ? 110 : config.curve[i + 1].temp_c - 1;
-}
-
-function addPoint() {
-  const c = config.curve;
-  if (c.length >= MAX_POINTS) return;
-  // Insert in the widest temperature gap so the new point always has room.
-  let bestI = 0;
-  let bestGap = -1;
-  for (let i = 0; i < c.length - 1; i++) {
-    const gap = c[i + 1].temp_c - c[i].temp_c;
-    if (gap > bestGap) { bestGap = gap; bestI = i; }
-  }
-  if (bestGap < 2) return; // no room to split anywhere
-  c.splice(bestI + 1, 0, {
-    temp_c: Math.round((c[bestI].temp_c + c[bestI + 1].temp_c) / 2),
-    percent: Math.round((c[bestI].percent + c[bestI + 1].percent) / 2),
-  });
-  save();
-}
-
-function removePoint(i) {
-  if (config.curve.length <= 2) return;
-  config.curve.splice(i, 1);
   save();
 }
 
@@ -293,51 +211,9 @@ onMounted(() => {
   color: var(--color-warning);
 }
 
-/* Curve editor */
-.curve {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.curve__head,
-.curve__point {
-  display: grid;
-  grid-template-columns: 1fr 1fr var(--space-07);
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.curve__col {
-  color: var(--color-text-secondary);
-}
-
-.curve__remove--hidden {
-  visibility: hidden;
-}
-
-.curve__add {
-  align-self: flex-start;
-  border: none;
-  border-radius: var(--radius-04);
-  background: var(--color-background-strong);
-  color: var(--color-text);
-  padding: var(--space-02) var(--space-04);
-  cursor: pointer;
-  transition: var(--transition-press);
-}
-
 @media (max-aspect-ratio: 4/3) {
   .fan-grid {
     grid-template-columns: 1fr;
-  }
-
-  .curve__head {
-    display: none;
-  }
-
-  .curve__point {
-    gap: var(--space-02);
   }
 }
 </style>

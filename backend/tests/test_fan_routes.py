@@ -4,7 +4,7 @@
 `fanStore.js` applies a config change optimistically and reverts only on
 `!result.ok`, so the PUT's failure arm is the store's single correction
 channel: a persist that fails but answers 200 leaves the fan page showing a
-curve the appliance is not running, and the fan is the difference between a
+config the appliance is not running, and the fan is the difference between a
 silent Pi and an audible one.
 
 `FanController` and `SettingsService` are doubles here — the controller has its
@@ -19,14 +19,9 @@ from backend.hardware.fan_routes import create_fan_router
 
 CONFIG = {
     "enabled": True,
-    "mode": "auto",
+    "mode": "target",
     "manual_percent": 50,
     "target_temp_c": 65,
-    "curve": [
-        {"temp_c": 55, "percent": 0},
-        {"temp_c": 66, "percent": 22},
-        {"temp_c": 82, "percent": 100},
-    ],
 }
 
 STATUS = {
@@ -87,7 +82,7 @@ class TestConfigRead:
         self, client, settings, fan
     ):
         """The page edits what is stored. Serving the controller's live fields
-        would show a `test_speed` preview as if it were the saved curve."""
+        would show a `test_speed` preview as if it were the saved config."""
         body = client.get("/api/fan/config").json()
 
         assert body == {"status": "success", "config": CONFIG}
@@ -100,7 +95,7 @@ class TestConfigWrite:
         self, client, settings, fan
     ):
         """Applying first and persisting second would leave a fan running a
-        curve that is not on disk after a failed write — the state
+        config that is not on disk after a failed write — the state
         `docs/architecture.md` calls out for snapserver.conf, one layer down."""
         order = []
         settings.set_setting = AsyncMock(
@@ -135,7 +130,7 @@ class TestConfigWrite:
         self, client, settings, fan
     ):
         """`set_setting` answers False on a locked or full filesystem. Applying
-        anyway would run a curve no reboot could restore."""
+        anyway would run a config no reboot could restore."""
         settings.set_setting = AsyncMock(return_value=False)
 
         response = client.put("/api/fan/config", json=CONFIG)
@@ -151,13 +146,9 @@ class TestConfigWrite:
         assert client.put("/api/fan/config", json=CONFIG).status_code == 500
 
     @pytest.mark.parametrize("bad, why", [
-        ({"mode": "turbo"}, "an unknown mode would fall back to auto in silence"),
+        ({"mode": "turbo"}, "an unknown mode would fall back to target in silence"),
         ({"manual_percent": 140}, "a duty over 100 is clamped, not honoured"),
         ({"target_temp_c": 90}, "a setpoint past the SoC throttle is not a setpoint"),
-        ({"curve": [{"temp_c": 66, "percent": 22}, {"temp_c": 55, "percent": 0}]},
-         "an unsorted curve makes the interpolation read the wrong segment"),
-        ({"curve": [{"temp_c": 55, "percent": 0}]},
-         "a one-point curve is a constant duty, not a curve"),
     ])
     def test_a_body_the_controller_could_not_run_never_reaches_it(
         self, client, settings, fan, bad, why

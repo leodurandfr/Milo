@@ -9,7 +9,7 @@ reboot.
 
 This controller takes the fan over at runtime instead: it disables the thermal
 governor (`thermal_zone0/mode=disabled`), puts pwm-fan into manual mode, and
-drives `pwm1` itself from a user-defined temperature→speed curve stored in
+drives `pwm1` itself from a temperature setpoint (or a fixed duty) stored in
 settings.json. Retuning needs no reboot. On graceful shutdown (or when the user
 disables custom control) it hands the fan back to the kernel governor
 (`mode=enabled`) so the config.txt curve stays the safety fallback; the SoC
@@ -25,7 +25,7 @@ import contextlib
 import glob
 import logging
 import os
-from typing import List, Optional, Type
+from typing import Optional, Type
 
 import aiofiles
 
@@ -51,7 +51,7 @@ PWM_HYSTERESIS_PCT = 2
 # enough to stay acoustically calm. Telemetry still reports the raw temperature.
 TEMP_EMA_ALPHA = 0.4
 
-VALID_MODES = ("auto", "manual", "target")
+VALID_MODES = ("target", "manual")
 
 # Target mode: a proportional controller — the duty is a direct, stateless map of
 # temperature onto a band centred on the setpoint. At target − TARGET_OFF_BELOW_C
@@ -68,15 +68,6 @@ TARGET_TEMP_DEFAULT_C = 65
 TARGET_OFF_BELOW_C = 3       # target − 3 °C → fully off (bottom of the band)
 TARGET_FULL_ABOVE_C = 9      # target + 9 °C → 100 % (top of the band)
 SAFETY_OVERRIDE_TEMP_C = 82.0  # immediate 100% — 3 °C before the SoC throttle
-
-# Default curve mirrors the config.txt fallback paliers (55/66/79/82 °C tiers)
-# expressed as percentages, so enabling custom control changes nothing audible.
-DEFAULT_CURVE: List[dict] = [
-    {"temp_c": 55, "percent": 0},
-    {"temp_c": 66, "percent": 22},
-    {"temp_c": 79, "percent": 47},
-    {"temp_c": 82, "percent": 100},
-]
 
 
 def _read_int(path: str) -> Optional[int]:
@@ -104,31 +95,8 @@ def clamp_target_temp(value) -> int:
         return TARGET_TEMP_DEFAULT_C
 
 
-def sanitize_curve(curve) -> List[dict]:
-    """Coerce a curve payload to a sorted list of valid {temp_c, percent} points.
-
-    Falls back to DEFAULT_CURVE when nothing usable is left. Shared with the
-    settings validator so the persisted shape and the runtime shape agree.
-    """
-    if not isinstance(curve, list):
-        return [dict(p) for p in DEFAULT_CURVE]
-    points = {}
-    for item in curve:
-        if not isinstance(item, dict):
-            continue
-        try:
-            temp_c = max(20, min(110, int(item["temp_c"])))
-            percent = _clamp_pct(item["percent"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        points[temp_c] = percent  # dedup by temperature, last wins
-    if not points:
-        return [dict(p) for p in DEFAULT_CURVE]
-    return [{"temp_c": t, "percent": points[t]} for t in sorted(points)]
-
-
 class FanController:
-    """Runtime PWM fan controller driven by a temperature→speed curve."""
+    """Runtime PWM fan controller driven by a temperature setpoint."""
 
     def __init__(self, state_machine, settings_service):
         self.state_machine = state_machine
@@ -139,10 +107,9 @@ class FanController:
 
         # Persisted config (loaded from settings on init, updated via reload_config)
         self.enabled: bool = True           # False = fan stopped (user-disabled)
-        self.mode: str = "auto"             # auto | manual | target (applies when enabled)
+        self.mode: str = "target"           # target | manual (applies when enabled)
         self.manual_percent: int = 50
         self.target_temp_c: int = TARGET_TEMP_DEFAULT_C
-        self.curve: List[dict] = [dict(p) for p in DEFAULT_CURVE]
 
         # Live telemetry (refreshed by the monitor loop / read_status)
         self._temp_c: float = 0.0           # raw sample — what telemetry reports
@@ -217,18 +184,12 @@ class FanController:
         the clamping again here would be a second declaration of the same
         bounds, free to disagree with the first — which is exactly what the
         settings pass removed from ``GET /api/settings/bulk``.
-
-        The curve is copied because ``get_setting`` hands out the live cache
-        object: without it the running controller and the settings cache would
-        share one list, and the monitor loop would be reading whatever the
-        last settings write left behind.
         """
         cfg = await self.settings_service.get_setting("fan")
         self.enabled = cfg["enabled"]
         self.mode = cfg["mode"]
         self.manual_percent = cfg["manual_percent"]
         self.target_temp_c = cfg["target_temp_c"]
-        self.curve = [dict(p) for p in cfg["curve"]]
 
     async def reload_config(self, cfg: dict) -> None:
         """Apply a validated config (called by the PUT route after persisting).
@@ -237,7 +198,7 @@ class FanController:
         tick does not take ``self._lock`` — it is taken here and in
         ``_load_config_from_settings`` and nowhere else — so holding it
         serialises nothing against the loop: a tick already past its own await
-        would re-assert the curve setpoint over the 0 % ``_apply_mode`` had
+        would re-assert the mode's duty over the 0 % ``_apply_mode`` had
         just written, leaving the fan spinning while the config says disabled.
         Stopping first is what makes that unreachable; the lock is irrelevant
         to it. ``_apply_mode`` is idempotent and ``_start_monitor`` is a no-op
@@ -249,11 +210,9 @@ class FanController:
 
             self.enabled = bool(cfg.get("enabled", self.enabled))
             mode = cfg.get("mode", self.mode)
-            self.mode = mode if mode in VALID_MODES else "auto"
+            self.mode = mode if mode in VALID_MODES else "target"
             self.manual_percent = _clamp_pct(cfg.get("manual_percent", self.manual_percent))
             self.target_temp_c = clamp_target_temp(cfg.get("target_temp_c", self.target_temp_c))
-            if cfg.get("curve") is not None:
-                self.curve = sanitize_curve(cfg.get("curve"))
 
             await self._apply_mode()
             if self.enabled:
@@ -264,7 +223,7 @@ class FanController:
         """Drive the fan to a given speed momentarily (manual preview / test).
 
         Does not change mode or persist. The monitor loop re-asserts the mode's
-        target (curve or manual duty) on its next tick (~LOOP_INTERVAL). No-op
+        target (setpoint or manual duty) on its next tick (~LOOP_INTERVAL). No-op
         when the fan is user-disabled — otherwise a test would spin a "stopped"
         fan with no loop running to bring it back to 0.
         """
@@ -283,7 +242,6 @@ class FanController:
             "mode": self.mode,
             "manual_percent": self.manual_percent,
             "target_temp_c": self.target_temp_c,
-            "curve": self.curve,
             "temp_c": self._temp_c,
             "rpm": self._rpm,
             "pwm_percent": self._pwm_percent,
@@ -329,22 +287,22 @@ class FanController:
         await self._take_control()
         if self.mode == "manual":
             await self._set_pwm_percent(self.manual_percent)
-        # All modes are then re-asserted continuously by the monitor loop;
-        # target mode ramps from the current duty, so nothing to apply here.
+        # Both modes are then re-asserted continuously by the monitor loop;
+        # target mode needs a temperature sample first, so nothing to apply here.
 
     async def _take_control(self) -> None:
         """Stop the kernel governor and switch pwm-fan to manual so our writes stick.
 
         Both writes are the precondition for everything after them: with the
         governor still driving pwm1, every duty cycle we write is overwritten and
-        the configured curve silently does not apply. _write_sysfs only warns, so
+        the configured mode silently does not apply. _write_sysfs only warns, so
         the failure that makes the whole controller decorative was the quietest
         thing in the file.
         """
         if not await self._write_sysfs(f"{THERMAL_ZONE}/mode", "disabled"):
-            logger.error("Kernel thermal governor still active — the fan curve will not apply")
+            logger.error("Kernel thermal governor still active — the fan mode will not apply")
         if not await self._write_sysfs(self._pwm_enable_path, "1"):
-            logger.error("pwm-fan not switched to manual — the fan curve will not apply")
+            logger.error("pwm-fan not switched to manual — the fan mode will not apply")
 
     async def _release_to_governor(self) -> None:
         """Re-enable the kernel governor so the config.txt curve resumes.
@@ -362,23 +320,6 @@ class FanController:
         pwm = round(percent / 100 * PWM_MAX)
         if await self._write_sysfs(self._pwm_path, pwm):
             self._pwm_percent = percent
-
-    def _curve_target_percent(self, temp_c: float) -> int:
-        """Linear interpolation of the curve at temp_c (flat outside the range)."""
-        curve = self.curve
-        if temp_c <= curve[0]["temp_c"]:
-            return curve[0]["percent"]
-        if temp_c >= curve[-1]["temp_c"]:
-            return curve[-1]["percent"]
-        for i in range(len(curve) - 1):
-            lo, hi = curve[i], curve[i + 1]
-            if lo["temp_c"] <= temp_c < hi["temp_c"]:
-                span = hi["temp_c"] - lo["temp_c"]
-                if span <= 0:
-                    return lo["percent"]
-                ratio = (temp_c - lo["temp_c"]) / span
-                return round(lo["percent"] + ratio * (hi["percent"] - lo["percent"]))
-        return curve[-1]["percent"]
 
     def _target_mode_percent(self, temp_c: float) -> int:
         """Proportional map of temperature onto a band centred on the setpoint.
@@ -455,13 +396,13 @@ class FanController:
             try:
                 await self._sample()
 
-                # Re-assert the mode's target every tick (curve in auto, fixed
-                # duty in manual) so a transient excursion — a test preview
+                # Re-assert the mode's target every tick (the setpoint's band in
+                # target, fixed duty in manual) so a transient excursion — a test preview
                 # whose follow-up PUT never landed, a mode-flip race — self-heals
                 # within LOOP_INTERVAL instead of persisting until restart.
-                # All three modes yield an absolute target duty, so they share one
-                # write path. Auto and target read the EMA-smoothed temperature
-                # (stable proportional maps that would otherwise chase jitter);
+                # Both modes yield an absolute target duty, so they share one
+                # write path. Target reads the EMA-smoothed temperature
+                # (a stable proportional map that would otherwise chase jitter);
                 # manual ignores temperature entirely.
                 # A disabled fan is held at 0 % by _apply_mode and has no target
                 # to re-assert. reload_config stops this loop before it disables
@@ -470,16 +411,14 @@ class FanController:
                 # over that 0 %.
                 if self.enabled:
                     control_temp = self._temp_ema if self._temp_ema is not None else self._temp_c
-                    if self.mode == "auto":
-                        target = self._curve_target_percent(control_temp)
-                    elif self.mode == "target":
+                    if self.mode == "target":
                         target = self._target_mode_percent(control_temp)
                     else:
                         target = self.manual_percent
                     # Compare against the ACTUAL last-written duty (self._pwm_percent),
                     # not a loop-local var — otherwise a manual/disabled excursion
                     # leaves the loop's memory stale and hysteresis suppresses the
-                    # corrective write when switching back to auto. Hysteresis absorbs
+                    # corrective write when switching back to target. Hysteresis absorbs
                     # sub-2 % jitter around a stable target; the rails (0 % / 100 %)
                     # are always written so a clean stop and the safety-override 100 %
                     # are never swallowed.

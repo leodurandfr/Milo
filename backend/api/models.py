@@ -270,26 +270,12 @@ class IrRemoteConfigRequest(BaseModel):
     enabled: Optional[bool] = None
 
 
-class FanCurvePoint(BaseModel):
-    """One point of the fan temperature→speed curve."""
-    temp_c: int = Field(..., ge=20, le=110, description="Temperature in °C")
-    percent: int = Field(..., ge=0, le=100, description="Fan speed in %")
-
-
 class FanConfigRequest(BaseModel):
     """Fan control configuration (idempotent full update)."""
     enabled: bool = Field(..., description="Fan on; off = fan stopped (0%)")
-    mode: Literal['auto', 'manual', 'target'] = Field(default='auto')
+    mode: Literal['target', 'manual'] = Field(default='target')
     manual_percent: int = Field(..., ge=0, le=100, description="Speed for manual mode")
     target_temp_c: int = Field(..., ge=55, le=76, description="Setpoint for target mode in °C")
-    curve: List[FanCurvePoint] = Field(..., min_length=2, description="Auto-mode curve")
-
-    @model_validator(mode='after')
-    def validate_curve_increasing(self):
-        temps = [p.temp_c for p in self.curve]
-        if temps != sorted(temps) or len(set(temps)) != len(temps):
-            raise ValueError('curve temperatures must be strictly increasing')
-        return self
 
 
 class FanTestRequest(BaseModel):

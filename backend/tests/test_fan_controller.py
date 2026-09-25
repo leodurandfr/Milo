@@ -46,7 +46,6 @@ VALID_PAYLOAD = {
     "enabled": True,
     "manual_percent": 50,
     "target_temp_c": 70,
-    "curve": [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}],
 }
 
 
@@ -171,17 +170,16 @@ class TestDisableRacesTheMonitorLoop:
 
     The tick takes no lock — `_lock` appears in reload_config and
     _load_config_from_settings and nowhere else — so a tick already awaiting
-    when the fan is disabled used to resume and re-assert the curve setpoint
+    when the fan is disabled used to resume and re-assert the band's duty
     over the 0 % _apply_mode had just written. reload_config then killed the
     loop, so nothing corrected it: the fan spins on, the UI says disabled.
     """
 
     DISABLE = {
         "enabled": False,
-        "mode": "auto",
+        "mode": "target",
         "manual_percent": 50,
         "target_temp_c": 70,
-        "curve": [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}],
     }
 
     @pytest.mark.asyncio
@@ -189,9 +187,9 @@ class TestDisableRacesTheMonitorLoop:
         c = make_controller()
         c.available = True
         c.enabled = True
-        c.mode = "auto"
-        c.curve = [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}]
-        c._temp_c = 82.0  # top of the curve → the tick would ask for 100 %
+        c.mode = "target"
+        c.target_temp_c = 70
+        c._temp_c = 82.0  # past the safety override → the tick would ask for 100 %
         c._take_control = AsyncMock()
 
         gate = asyncio.Event()
@@ -226,8 +224,8 @@ class TestDisableRacesTheMonitorLoop:
         """Second half of the fix: the tick reads self.enabled itself."""
         c = make_controller()
         c.enabled = False
-        c.mode = "auto"
-        c._pwm_percent = 0  # the curve asks for 100 here, so a write is due
+        c.mode = "target"
+        c._pwm_percent = 0  # the safety override asks for 100 here, so a write is due
         c._temp_c = 82.0
         c._sample = AsyncMock()
         c._set_pwm_percent = AsyncMock()
@@ -241,7 +239,7 @@ class TestGovernorHandover:
     """Taking control from the kernel governor is the precondition for everything.
 
     With `thermal_zone0/mode` still `enabled`, the governor keeps driving pwm1
-    and every duty we write is overwritten — the configured curve simply does
+    and every duty we write is overwritten — the configured mode simply does
     not apply. `_write_sysfs` only warns, so the failure that makes the whole
     controller decorative was the quietest thing in the file.
     """
@@ -311,7 +309,6 @@ class TestConfigLoadIsAProjection:
             'mode': 'target',
             'manual_percent': 300,
             'target_temp_c': 999,
-            'curve': [{'temp_c': 70, 'percent': 10}, {'temp_c': 60, 'percent': 500}],
         }})
         return svc
 
@@ -325,32 +322,13 @@ class TestConfigLoadIsAProjection:
         assert controller.mode == resolved['mode']
         assert controller.manual_percent == resolved['manual_percent']
         assert controller.target_temp_c == resolved['target_temp_c']
-        assert controller.curve == resolved['curve']
-
-    @pytest.mark.asyncio
-    async def test_curve_is_copied_not_aliased(self, service):
-        """get_setting hands out the live cache object.
-
-        Without a copy the running controller and the settings cache share one
-        list of dicts, so a settings write would silently re-point the thermal
-        curve the monitor loop is reading.
-        """
-        controller = FanController(MagicMock(), service)
-        await controller._load_config_from_settings()
-
-        controller.curve[0]['percent'] = 99
-        controller.curve.append({'temp_c': 90, 'percent': 100})
-
-        assert service._cache['fan']['curve'][0]['percent'] != 99
-        assert len(service._cache['fan']['curve']) != len(controller.curve)
-
 
 class TestInitializeDetection:
     """What `initialize()` decides at boot: whether Milō owns the fan at all.
 
     `available` gates the settings page, the monitor loop and every sysfs
     write. Wrong in one direction, the kernel governor keeps overwriting our
-    duty and the configured curve silently does not apply; wrong in the other,
+    duty and the configured mode silently does not apply; wrong in the other,
     a box with no fan spams permission errors. It must return True either way —
     fan control is opt-in and a dev host has no cooling_fan node.
 
@@ -382,7 +360,6 @@ class TestInitializeDetection:
         "mode": "manual",
         "manual_percent": 40,
         "target_temp_c": 70,
-        "curve": [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}],
     }
 
     async def test_a_writable_fan_is_detected_configured_and_taken_over(self, sysfs):
@@ -408,7 +385,7 @@ class TestInitializeDetection:
     ):
         """Owning pwm1 without owning `thermal_zone0/mode` is worse than owning
         nothing: the governor keeps driving the fan and overwrites every duty we
-        write, so the curve the user configured quietly does nothing. Both nodes
+        write, so the mode the user configured quietly does nothing. Both nodes
         or neither — and the udev rule (99-milo-fan.rules) is what grants them.
         """
         hwmon, _zone = sysfs
@@ -548,69 +525,10 @@ class TestCleanupHandsTheFanBack:
         controller._write_sysfs.assert_not_awaited()
 
 
-class TestCurveModePercent:
-    """`auto` — the DEFAULT mode — and its interpolation, which was at 0 %.
-
-    Its `target`-mode sibling above has seven tests; this one had none, so the
-    curve every fresh unit boots on had never been evaluated. The expectations
-    below are computed from the curve each test declares, not from
-    DEFAULT_CURVE, so they state the interpolation rather than the shipped
-    tiers.
-    """
-
-    @pytest.fixture
-    def controller(self):
-        c = make_controller()
-        c.mode = "auto"
-        # Two segments of different slope, so a segment picked by the wrong
-        # bracket answers a different duty than the right one.
-        c.curve = [
-            {"temp_c": 50, "percent": 10},
-            {"temp_c": 60, "percent": 30},   # +2 %/°C
-            {"temp_c": 80, "percent": 100},  # +3.5 %/°C
-        ]
-        return c
-
-    def test_below_the_first_point_the_curve_is_flat(self, controller):
-        assert controller._curve_target_percent(10.0) == 10
-        assert controller._curve_target_percent(50.0) == 10
-
-    def test_above_the_last_point_the_curve_is_flat(self, controller):
-        """Not 0 and not a wrap-around: past the top tier the fan stays at full,
-        which is the only thing standing between the SoC and its throttle."""
-        assert controller._curve_target_percent(80.0) == 100
-        assert controller._curve_target_percent(120.0) == 100
-
-    def test_a_temperature_is_interpolated_inside_its_own_segment(self, controller):
-        # Halfway through segment 1 (50→60 °C, 10→30 %) is 20 %; halfway
-        # through segment 2 (60→80 °C, 30→100 %) is 65 %. A single global
-        # interpolation between the end points would answer 32 and 60.
-        assert controller._curve_target_percent(55.0) == 20
-        assert controller._curve_target_percent(70.0) == 65
-
-    def test_a_point_temperature_answers_its_own_percent(self, controller):
-        assert controller._curve_target_percent(60.0) == 30
-
-    def test_the_duty_never_falls_as_the_temperature_rises(self, controller):
-        duties = [controller._curve_target_percent(t) for t in range(40, 90)]
-        assert duties == sorted(duties)
-        assert duties[0] != duties[-1], "a flat answer would satisfy sorted()"
-
-    def test_a_one_point_curve_is_a_constant_duty(self, controller):
-        """`sanitize_curve` can hand one back — it dedups by temperature, and a
-        settings.json with a single usable point survives validation. Reading
-        `curve[1]` there would raise inside the monitor loop, whose except arm
-        would swallow it every 3 s and leave the fan wherever it was."""
-        controller.curve = [{"temp_c": 60, "percent": 40}]
-        assert controller._curve_target_percent(20.0) == 40
-        assert controller._curve_target_percent(60.0) == 40
-        assert controller._curve_target_percent(95.0) == 40
-
-
 class TestMonitorLoopReadsTheModeItIsIn:
-    """The loop's three-way branch: only `target` was ever exercised.
+    """The loop's two-way branch: only `target` was ever exercised.
 
-    All three modes share one write path, so the branch is the whole of what
+    Both modes share one write path, so the branch is the whole of what
     distinguishes them — and picking the wrong one is inaudible until the fan
     is either always silent or always loud.
     """
@@ -626,24 +544,17 @@ class TestMonitorLoopReadsTheModeItIsIn:
         c = make_controller()
         c.mode = mode
         c.manual_percent = 35
-        c.curve = [{"temp_c": 50, "percent": 0}, {"temp_c": 90, "percent": 80}]
-        c.target_temp_c = 70
+        c.target_temp_c = 70  # band 67 → 79 °C
         c._pwm_percent = 0
         c._sample = AsyncMock()
         c._set_pwm_percent = AsyncMock()
         return c
 
-    async def test_auto_asks_the_curve(self):
-        c = self._controller("auto")
-        c._temp_ema = 70.0  # halfway up the curve → 40 %
-        await self.run_one_tick(c)
-        c._set_pwm_percent.assert_awaited_once_with(40)
-
     async def test_manual_holds_its_duty_whatever_the_temperature(self):
-        """Manual ignores the sensor entirely; reading the curve here would
+        """Manual ignores the sensor entirely; reading the band here would
         make the "manual" slider drift on its own."""
         c = self._controller("manual")
-        c._temp_ema = 89.0  # the curve would ask for 78 %
+        c._temp_ema = 73.0  # the band would ask for 50 %
         await self.run_one_tick(c)
         c._set_pwm_percent.assert_awaited_once_with(35)
 
@@ -657,20 +568,20 @@ class TestMonitorLoopReadsTheModeItIsIn:
         """Telemetry reports the raw sample; the control law reads the EMA.
         Feeding it the raw one puts sensor noise straight into the duty, which
         is what the smoothing exists to keep out of the acoustics."""
-        c = self._controller("auto")
-        c._temp_c = 90.0     # raw spike → the curve's 80 % rail
-        c._temp_ema = 70.0   # smoothed → 40 %
+        c = self._controller("target")
+        c._temp_c = 90.0     # raw spike → the safety override's 100 %
+        c._temp_ema = 73.0   # smoothed → halfway up the band, 50 %
         await self.run_one_tick(c)
-        c._set_pwm_percent.assert_awaited_once_with(40)
+        c._set_pwm_percent.assert_awaited_once_with(50)
 
     async def test_a_first_tick_with_no_average_yet_falls_back_to_the_raw_sample(self):
         """`_temp_ema` is None until the first sample lands, and None would
         raise inside the comparison — the fan would never start."""
-        c = self._controller("auto")
+        c = self._controller("target")
         c._temp_ema = None
-        c._temp_c = 70.0
+        c._temp_c = 73.0
         await self.run_one_tick(c)
-        c._set_pwm_percent.assert_awaited_once_with(40)
+        c._set_pwm_percent.assert_awaited_once_with(50)
 
 
 class TestTheSmoothedTemperature:
@@ -678,7 +589,7 @@ class TestTheSmoothedTemperature:
     is allowed to show.
 
     A sensor that stops answering must leave the last known values in place:
-    zeroing them would drop the duty to the bottom of the curve while the SoC
+    zeroing them would drop the duty to the bottom of the band while the SoC
     is hot.
     """
 
@@ -852,7 +763,7 @@ class TestBoxesWithNoFanToDrive:
 class TestReloadRestartsTheLoopItStopped:
     async def test_a_reload_that_keeps_the_fan_on_leaves_a_loop_running(self):
         """reload_config stops the loop first, on purpose. Not restarting it
-        would leave the fan frozen at the duty of the reload — the curve would
+        would leave the fan frozen at the duty of the reload — the band would
         apply exactly once, then never track temperature again."""
         controller = make_controller()
         controller.available = True
@@ -861,7 +772,7 @@ class TestReloadRestartsTheLoopItStopped:
         controller._start_monitor()
         first = controller._monitor_task
 
-        await controller.reload_config({**VALID_PAYLOAD, "mode": "auto"})
+        await controller.reload_config({**VALID_PAYLOAD, "mode": "target"})
 
         assert controller._monitor_task is not None
         assert controller._monitor_task is not first, "the old loop was stopped"
@@ -916,44 +827,9 @@ class TestOneBadTickDoesNotStopTheFan:
         assert "Fan monitor loop error" in caplog.text
 
 
-class TestTheSanitizersOwnGuards:
-    """`sanitize_curve` / `_clamp_pct` are shared by the settings validator and
-    the controller, so their fallbacks decide what a corrupt settings.json
-    boots on. All three arms were at 0 %."""
-
-    def test_a_curve_that_is_not_a_list_falls_back_to_the_default(self):
-        assert fan.sanitize_curve("55:0,82:100") == fan.DEFAULT_CURVE
-        assert fan.sanitize_curve(None) == fan.DEFAULT_CURVE
-
-    def test_a_curve_whose_points_are_all_unusable_falls_back_too(self):
-        """An empty result would make `_curve_target_percent` raise on
-        `curve[0]` inside the monitor loop, every 3 s, silently."""
-        assert fan.sanitize_curve([{"temp": 55}, "nonsense", {"temp_c": None}]) \
-            == fan.DEFAULT_CURVE
-
-    def test_the_usable_points_of_a_half_broken_curve_survive(self):
-        assert fan.sanitize_curve([{"temp_c": 60, "percent": 30}, {"bad": 1}]) \
-            == [{"temp_c": 60, "percent": 30}]
-
-    def test_points_given_out_of_order_come_back_sorted_by_temperature(self):
-        """`_curve_target_percent` reads `curve[0]` and `curve[-1]` as the two
-        ends of the range and walks the pairs in order. Handed a curve in the
-        order it was written, an operator who edited settings.json by hand
-        would get a fan whose flat regions and slopes are in the wrong places.
-        """
-        curve = fan.sanitize_curve([
-            {"temp_c": 82, "percent": 100},
-            {"temp_c": 55, "percent": 0},
-            {"temp_c": 66, "percent": 22},
-        ])
-        assert [p["temp_c"] for p in curve] == [55, 66, 82]
-
-    def test_the_default_it_hands_back_is_a_copy(self):
-        """The controller keeps the list it is given; sharing DEFAULT_CURVE
-        would let one appliance's edit rewrite the module constant."""
-        first = fan.sanitize_curve(None)
-        first[0]["percent"] = 99
-        assert fan.sanitize_curve(None)[0]["percent"] != 99
+class TestTheClampsOwnGuard:
+    """`_clamp_pct` is shared by the reload path and decides what a corrupt
+    manual duty drives the fan at."""
 
     def test_a_percent_that_is_not_a_number_reads_as_off_not_as_full(self):
         assert fan._clamp_pct(None) == 0

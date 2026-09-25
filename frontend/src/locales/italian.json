@@ -307,13 +307,10 @@
     "rpm": "Rotazione",
     "rpmUnit": "RPM",
     "mode": "Modalità",
-    "modeAuto": "Auto",
     "modeTarget": "Obiettivo",
     "modeManual": "Manuale",
     "manualSpeed": "Velocità della ventola",
     "targetTemp": "Temperatura obiettivo",
-    "addPoint": "Aggiungi un punto",
-    "removePoint": "Rimuovi punto",
     "disabledNote": "La ventola è spenta — il processore si affida alla sua limitazione termica (85 °C) per la sicurezza."
   },
   "audioPlayback": {

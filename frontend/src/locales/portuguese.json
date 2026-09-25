@@ -307,13 +307,10 @@
     "rpm": "Rotação",
     "rpmUnit": "RPM",
     "mode": "Modo",
-    "modeAuto": "Auto",
     "modeTarget": "Alvo",
     "modeManual": "Manual",
     "manualSpeed": "Velocidade da ventoinha",
     "targetTemp": "Temperatura alvo",
-    "addPoint": "Adicionar um ponto",
-    "removePoint": "Remover ponto",
     "disabledNote": "A ventoinha está desligada — o processador depende da sua limitação térmica (85 °C) para se manter seguro."
   },
   "audioPlayback": {

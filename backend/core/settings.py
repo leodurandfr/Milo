@@ -27,11 +27,9 @@ from backend.config.constants import (
     VALID_LANGUAGES,
 )
 from backend.hardware.fan import (
-    DEFAULT_CURVE,
     TARGET_TEMP_DEFAULT_C,
     VALID_MODES,
     clamp_target_temp,
-    sanitize_curve,
 )
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import (
@@ -144,13 +142,12 @@ class SettingsService:
             "mac": copy.deepcopy(DEFAULT_ROC_CONFIG),
             "fan": {
                 "enabled": True,
-                "mode": "auto",
+                "mode": "target",
                 "manual_percent": 50,
-                # The setpoint and the curve belong to the controller that acts on
-                # them (hardware/fan.py owns the thermal band); this is where the
+                # The setpoint belongs to the controller that acts on it
+                # (hardware/fan.py owns the thermal band); this is where the
                 # *settings* layer says which of its values is the default.
                 "target_temp_c": TARGET_TEMP_DEFAULT_C,
-                "curve": copy.deepcopy(DEFAULT_CURVE)
             }
         }
 
@@ -415,7 +412,7 @@ class SettingsService:
             if validated_hardware:
                 validated['hardware'] = validated_hardware
 
-        # Fan control (optional — runtime PWM fan curve, see hardware/fan.py)
+        # Fan control (optional — runtime PWM fan setpoint, see hardware/fan.py)
         fan_input = settings.get('fan', {})
         fan_d = d['fan']
         mode = fan_input.get('mode', fan_d['mode'])
@@ -424,7 +421,6 @@ class SettingsService:
             'mode': mode if mode in VALID_MODES else fan_d['mode'],
             'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', fan_d['manual_percent'])))),
             'target_temp_c': clamp_target_temp(fan_input.get('target_temp_c', fan_d['target_temp_c'])),
-            'curve': sanitize_curve(fan_input.get('curve', fan_d['curve']))
         }
 
         return validated

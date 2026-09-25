@@ -76,7 +76,6 @@ SETTINGS_ALLOWED = frozenset({
     "fan.mode",
     "fan.manual_percent",
     "fan.target_temp_c",
-    "fan.curve",
     "hardware.bt_remote.enabled",
     "hardware.bt_remote.key_map",
     "hardware.ir_remote.enabled",

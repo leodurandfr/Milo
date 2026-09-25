@@ -2,7 +2,7 @@
 """
 REST API routes for the runtime PWM fan controller.
 
-`PUT /config` persists the curve/mode to settings.json and applies it to the
+`PUT /config` persists the mode and its values to settings.json and applies it to the
 hardware live (no reboot). The controller broadcasts `fan_status_changed`
 telemetry over WS on its own; the PUT route additionally broadcasts
 `fan_config_changed` (same payload shape) so other clients reflect the change.
@@ -29,13 +29,13 @@ def create_fan_router(fan_controller: "FanController", settings_service: "Settin
 
     @router.get("/status")
     async def get_status():
-        """Live telemetry + current config (temperature, RPM, PWM%, mode, curve)."""
+        """Live telemetry + current config (temperature, RPM, PWM%, mode, setpoint)."""
         async with api_error_handler("Error reading fan status", logger):
             return {"status": "success", **await fan_controller.read_status()}
 
     @router.get("/config")
     async def get_config():
-        """Persisted fan configuration (enabled, mode, manual_percent, target_temp_c, curve)."""
+        """Persisted fan configuration (enabled, mode, manual_percent, target_temp_c)."""
         async with api_error_handler("Error reading fan config", logger):
             cfg = await settings_service.get_setting("fan")
             return {"status": "success", "config": cfg}

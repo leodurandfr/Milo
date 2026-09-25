@@ -7,7 +7,7 @@ import { apiCall } from '@/services/apiCall';
  * Cooling fan control store.
  *
  * Mirrors the backend FanController (backend/hardware/fan.py): persisted config
- * (enabled/mode/manual_percent/curve) plus live telemetry (temp/rpm/pwm).
+ * (enabled/mode/manual_percent/target_temp_c) plus live telemetry (temp/rpm/pwm).
  * Config changes arrive via the `settings.fan_config_changed` WS event; the
  * `settings.fan_status_changed` telemetry tick updates ONLY telemetry so it
  * never clobbers an edit in progress on the page.
@@ -19,10 +19,9 @@ export const useFanStore = defineStore('fan', () => {
 
   const config = ref({
     enabled: false,
-    mode: 'auto', // 'auto' | 'manual' | 'target' (disabled is enabled=false, not a mode)
+    mode: 'target', // 'target' | 'manual' (disabled is enabled=false, not a mode)
     manual_percent: 50,
     target_temp_c: 65,
-    curve: [],
   });
 
   const status = ref({
@@ -39,7 +38,6 @@ export const useFanStore = defineStore('fan', () => {
       mode: data.mode,
       manual_percent: data.manual_percent,
       target_temp_c: data.target_temp_c,
-      curve: data.curve ?? [],
     };
   }
 
