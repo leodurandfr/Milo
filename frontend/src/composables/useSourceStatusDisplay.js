@@ -63,6 +63,24 @@ export function unavailableReasonFor(source, availability) {
   return UNAVAILABLE_REASONS.includes(reason) ? reason : null;
 }
 
+// The states a live session puts the card in: with a sender to name, the card
+// says who is connected rather than what the transport is doing.
+export const SESSION_STATES = ['loading', 'playing', 'paused', 'connected'];
+
+/**
+ * Pure rule: the card's identity, which AudioSourceView keys its transition on.
+ * It is what the card says, not the phase behind it: while a sender is named,
+ * loading, playing, paused and connected all read "Connecté à <sender>", and a
+ * key per phase replayed the card's entrance at every step of a sender starting
+ * to play (AirPlay: connected, loading, playing, then the cover and the player).
+ * The reason is in it because it changes while the state does not: unplugging
+ * the CD drive leaves the state as it was and only rewrites the second line.
+ */
+export function statusCardKey(source, displayState, unavailableReason, senders) {
+  const named = !unavailableReason && SESSION_STATES.includes(displayState) && senders.length > 0;
+  return `${source}-${named ? 'named' : displayState}-${unavailableReason}`;
+}
+
 /** Pure rule: the display state of `state` (the backend's AudioState). */
 export function displayStateFor(state) {
   const { source, switching, service, session, availability } = state;

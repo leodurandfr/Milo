@@ -55,7 +55,7 @@ import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSou
 import { useI18n } from '@/services/i18n';
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
 import { formatDeviceNames } from '@/utils/deviceName';
-import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
+import { DISPLAY_STATES, SESSION_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 
 const { t } = useI18n();
 
@@ -121,9 +121,6 @@ const PHRASE_KEYS = {
   ejecting: 'status.ejecting'
 };
 
-// The states a live session puts the card in: with a sender to name, the card
-// says who is connected rather than what the transport is doing.
-const SESSION_STATES = ['loading', 'playing', 'paused', 'connected'];
 
 /**
  * The phrase for a missing prerequisite, which outranks the state's own.

@@ -57,7 +57,7 @@ import { computed, inject, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useRichDisplay } from '@/composables/useRichDisplay';
-import { useSourceStatusDisplay } from '@/composables/useSourceStatusDisplay';
+import { statusCardKey, useSourceStatusDisplay } from '@/composables/useSourceStatusDisplay';
 
 const LyricsView = defineAsyncComponent(() =>
   import('../lyrics/LyricsView.vue')
@@ -163,13 +163,13 @@ const { displayState, unavailableReason } = useSourceStatusDisplay();
 // one per Mac). Spotify, Tidal and Qobuz name none (docs: "le fil", D3).
 const currentDeviceName = computed(() => unifiedStore.systemState.session?.senders || []);
 
-// Key for transitions - includes state for source status to animate between states.
-// The reason is in it because it changes while the state does not: unplugging the
-// CD drive leaves READY on the wire and only rewrites the card's second line, so
-// without it the "no drive" screen cut in instead of crossing over.
+// Key for transitions: the card crosses over when what it says changes
+// (statusCardKey), a full view when the source does.
 const contentKey = computed(() => {
   if (shouldShowSourceStatus.value) {
-    return `${activeSource.value}-${displayState.value}-${unavailableReason.value}-${!!currentDeviceName.value}`;
+    return statusCardKey(
+      activeSource.value, displayState.value, unavailableReason.value, currentDeviceName.value,
+    );
   }
   return activeSource.value;
 });

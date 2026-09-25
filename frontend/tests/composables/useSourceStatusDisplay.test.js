@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DISPLAY_STATES,
   displayStateFor,
+  statusCardKey,
   unavailableReasonFor,
 } from '@/composables/useSourceStatusDisplay';
 import { makeAudioState, makeSession } from '../helpers/audioState';
@@ -78,5 +79,34 @@ describe('unavailableReasonFor', () => {
   it("leaves the Music Library's storage states to its own view (D13)", () => {
     expect(unavailableReasonFor('music_library', { music_library: 'no_storage' })).toBeNull();
     expect(unavailableReasonFor('music_library', { music_library: 'catalog_unavailable' })).toBeNull();
+  });
+});
+
+describe('statusCardKey', () => {
+  it('keeps one card while a named sender moves through its phases', () => {
+    // Measured on AirPlay (iPhone and Mac): a sender starting to play goes
+    // connected, loading, then playing before its cover arrives. Every step
+    // reads "Connecté à <sender>", and a key per phase replayed the card's
+    // entrance at each one.
+    const keys = ['connected', 'loading', 'playing', 'paused'].map(
+      (phase) => statusCardKey('airplay', phase, null, ['iPhone de Léo']),
+    );
+    expect(new Set(keys).size).toBe(1);
+  });
+
+  it('crosses over when the sender is named', () => {
+    expect(statusCardKey('airplay', 'connected', null, []))
+      .not.toBe(statusCardKey('airplay', 'connected', null, ['iPhone de Léo']));
+  });
+
+  it('crosses over between phases the card words differently', () => {
+    // No sender to name (Spotify, Tidal, Qobuz): the phase is the card's line.
+    expect(statusCardKey('spotify', 'loading', null, []))
+      .not.toBe(statusCardKey('spotify', 'playing', null, []));
+  });
+
+  it('crosses over when a prerequisite goes missing under the same state', () => {
+    expect(statusCardKey('cd', 'ready', null, []))
+      .not.toBe(statusCardKey('cd', 'ready', 'no_drive', []));
   });
 });
