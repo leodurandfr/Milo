@@ -98,10 +98,9 @@ START_REPORT_GRACE_S = 60.0
 # That is what every other player does, and it is the side of the trade whose
 # failure is merely untidy rather than a feature that stops working.
 #
-# It is also the one way a card ends. Leaving the source for `none` used to end
-# it on sight; it now shows Milō's own card for the grace like any other idle
-# state (owner's call, 2026-09-25), so the Lock Screen says where the music
-# went instead of dropping it.
+# It does not apply to `none`: leaving the source ends the card at once (see
+# `_leaves_milo`). A source change never passes through `none`, so the gaps
+# this delay exists for are never cut short by it.
 SESSION_IDLE_GRACE_S = 300.0
 
 # An `end` Apple did not take is sent again, at most this often and this many
@@ -210,17 +209,14 @@ class PushService:
           identical — see its docstring for what acting on the first idle cycle
           cost.
 
-        A report used to end an empty card at once, on the argument that it
-        only arrives while the app runs, which is when a card closed too early
-        can be reopened. **No card is empty any more**: an idle state draws what
-        it would resume, else its source's own card, else Milō's
-        (`payloads.source_card`), and the owner chose on 2026-09-25 to keep that
-        card for the grace rather than drop it. So a report ends nothing on its
-        own: it arms the same grace the bus does, and whichever seam sees the
-        idle state first starts the clock. Closing here while the bus held the
-        card would make it last five minutes or two seconds depending on whether
-        the app happened to be open — the inconsistency the app had with the
-        push until then.
+        A report ends a card exactly when the bus would, never sooner: at once
+        on `none` (`_leaves_milo`), after the grace on a quiet source, whose
+        card names what it would resume or the source itself
+        (`payloads.source_card`). Whichever seam sees the idle state first
+        starts the clock. Closing here while the bus held the card would make it
+        last five minutes or two seconds depending on whether the app happened
+        to be open — the inconsistency the app had with the push until
+        2026-09-25.
 
         Sends at most one push per report, and at most one per session in each
         direction: `_session_id` is the guard, set by the `start` and cleared by
@@ -253,6 +249,9 @@ class PushService:
                     await self._open_idle(state)
                 return
             if device_id not in self._session_devices():
+                return
+            if self._leaves_milo(state):
+                await self._end_session()
                 return
             await self._consider_ending(state)
 
@@ -336,10 +335,8 @@ class PushService:
         session is "Milō is playing something", not "Milō is playing Spotify",
         so its id stays stable while the track and the source underneath move.
 
-        It survives the source being left, too, for the grace: `none` shows
-        Milō's card, then ends like any other idle state. It was ended on sight
-        from 2026-09-22 — a card naming nothing read as Milō still offering
-        something to play — and no card names nothing any more.
+        It does NOT survive the source being left: `none` ends it at once
+        (`_leaves_milo`).
 
         And it no longer waits for playback to open: choosing a source opens
         the card on that source's name and icon, and the track replaces them
@@ -354,6 +351,9 @@ class PushService:
                     self._lift_closed_guard(state)
                     if self._may_open_idle(state):
                         await self._open_idle(state)
+                    return
+                if self._leaves_milo(state):
+                    await self._end_session()
                     return
                 await self._consider_ending(state)
                 return
@@ -392,9 +392,8 @@ class PushService:
         `align_session_to_playback`. The clock starts at the first idle cycle,
         and only CHOOSING a source restarts it — someone just asked for that
         source, and five minutes is what an idle card gets from the moment it
-        opens (`_open_idle`). Leaving a quiet source for `none` does not: it
-        swaps the card for Milō's, and the session still ends five minutes
-        after the music did.
+        opens (`_open_idle`). `none` never reaches here: it ends the card at
+        once (`_leaves_milo`).
         """
         if self._session_id is None:
             return
@@ -413,6 +412,28 @@ class PushService:
             return
 
         await self._publish_paused(state)
+
+    @staticmethod
+    def _leaves_milo(state: Dict[str, Any]) -> bool:
+        """Was the source left — `none` selected, and no switch in flight?
+
+        That ends the card at once, from either seam, without the grace. For a
+        day (2026-09-25) `none` showed Milō's own card for five minutes; the
+        owner dropped it the same evening. Nothing on it could be pressed —
+        `none` offers no command — and a card left on the Lock Screen after
+        everything was stopped read as Milō still offering something to play,
+        which is what he had asked to be rid of on 2026-09-22.
+
+        Safe because a change of source never passes through `none`:
+        `transition_to_source` assigns the target in the same locked block that
+        raises `switching` (measured 2026-09-22, radio -> spotify: `starting`
+        then `ready`, `none` in no sample). The gaps the grace exists for —
+        a station change, a sender reconnecting — all happen under a selected
+        source. Were that ever to change, leaving a source and changing source
+        would become indistinguishable here and the card would blink on every
+        switch.
+        """
+        return str(state.get("source") or "none") == "none" and not state.get("switching")
 
     def _arm_idle_grace(self, source: str) -> None:
         """Start the idle clock under `source`: the card has five minutes from now.
@@ -439,9 +460,8 @@ class PushService:
     def _may_open_idle(self, state: Dict[str, Any]) -> bool:
         """May a card open for a source that is selected but not playing?
 
-        `none` never opens one: Milō's card only follows a source that was
-        left, for the rest of its grace. A switch in flight opens nothing — the
-        state names neither side yet.
+        `none` never opens one: nothing is selected. A switch in flight opens
+        nothing — the state names neither side yet.
 
         Nor does the source whose idle card the grace just closed, while it
         stays selected and quiet. Without that, the next bus event — a volume
@@ -490,7 +510,7 @@ class PushService:
         **The card is always rebuilt from the state.** A source that stopped
         with something to resume shows what a play press would bring back; any
         other idle state shows its source's own card — name, dock icon, and
-        who is sending — and `none` shows Milō's (`payloads.source_card`).
+        who is sending (`payloads.source_card`).
         This used to guess from a copy of the last card for the sources with no
         resume point, because their idle state rebuilt as a media card with
         every field null; holding the previous track across an AirPlay sender
@@ -499,8 +519,8 @@ class PushService:
         the radio track held, paused, under a source with nothing to play).
 
         **Re-sent only when it changes.** Every idle cycle lands here — a
-        source left for `none` inside the grace has to reach the phone as
-        Milō's card — and the app's report calls in every couple of seconds, so
+        source chosen inside the grace has to reach the phone as its own
+        card — and the app's report calls in every couple of seconds, so
         the card is compared with the last one sent, timestamp aside, and an
         idle cycle that changes nothing spends no push.
 

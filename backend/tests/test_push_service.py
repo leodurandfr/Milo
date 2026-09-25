@@ -314,8 +314,6 @@ class TestSessionLifecycle:
             "sess-phone", "sess-ipad"}
 
         service.machine.get_current_state.return_value = dict(STOPPED)
-        await service._publish()
-        past_the_grace(service)
         apns.send.reset_mock()
 
         await service._publish()
@@ -351,15 +349,15 @@ class TestSessionLifecycle:
 
         assert service._session_id == session_id
 
-    async def test_leaving_the_source_shows_milos_card_then_ends(
+    async def test_leaving_the_source_ends_the_card_at_once(
         self, service, registry, apns
     ):
-        """Leaving the source puts Milō's own card up for the grace, then ends.
+        """`none` ends the card with no grace and no paused snapshot first.
 
-        It was ended on sight from 2026-09-22, because the card it left behind
-        named nothing and read as Milō still offering something to play. The
-        owner chose on 2026-09-25 to show Milō's card instead: the Lock Screen
-        says where the music went, and the track that was playing is gone.
+        For a day it showed Milō's own card for five minutes instead; nothing
+        on it could be pressed, and a card left up after everything was
+        stopped read as Milō still offering something to play (owner,
+        2026-09-22, and again 2026-09-25).
         """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
@@ -370,43 +368,28 @@ class TestSessionLifecycle:
 
         await service._publish()
 
-        assert service._session_id is not None
-        assert sent_events(apns) == ["update"]
-        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
-        assert attributes["isPlaying"] is False
-        assert attributes["currentTrack"]["title"] == "Milō"
-        assert attributes["currentTrack"]["artworkURL"] == "/now-playing/milo.jpg"
-
-        past_the_grace(service)
-        apns.send.reset_mock()
-        await service._publish()
-
         assert service._session_id is None
         assert sent_events(apns) == ["end"]
         assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
 
-    async def test_leaving_a_quiet_source_swaps_the_card_without_restarting_the_clock(
+    async def test_leaving_a_quiet_source_ends_the_card_at_once(
         self, service, registry, apns
     ):
-        """The grace counts from when the music stopped. A source left inside
-        it still has to reach the phone as Milō's card — the first idle cycle
-        is not the only one that sends — and must not buy five more minutes."""
+        """The grace a quiet source was riding out does not carry over to
+        `none`: the source was left, not paused."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
         service.machine.get_current_state.return_value = dict(READY)
         await service._publish()
-        idle_since = service._idle_since
         service.machine.get_current_state.return_value = dict(STOPPED)
         apns.send.reset_mock()
 
         await service._publish()
 
-        assert sent_events(apns) == ["update"]
-        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
-        assert track["title"] == "Milō"
-        assert service._idle_since == idle_since
+        assert sent_events(apns) == ["end"]
+        assert service._session_id is None
 
     async def test_an_idle_cycle_that_changes_nothing_spends_no_push(
         self, service, registry, apns
@@ -417,7 +400,7 @@ class TestSessionLifecycle:
         await service._publish()
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
-        service.machine.get_current_state.return_value = dict(STOPPED)
+        service.machine.get_current_state.return_value = dict(READY)
         await service._publish()
         apns.send.reset_mock()
 
@@ -894,7 +877,7 @@ class TestSourceTransitions:
         await service._publish()
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
-        service.machine.get_current_state.return_value = dict(STOPPED)
+        service.machine.get_current_state.return_value = dict(READY)
         await service._publish()
         past_the_grace(service)
         return service._session_id
@@ -1045,26 +1028,23 @@ class TestDeviceReport:
         track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
         assert track["title"] == "Webradio"
 
-    async def test_a_report_with_no_source_shows_milos_card(self, service, registry, apns):
-        """`source: none` is the other spelling of the same idleness —
-        selecting no source, rather than selecting another one."""
+    async def test_no_source_at_all_closes_the_card(self, service, registry, apns):
+        """`source: none` is the source being left: the report ends the card
+        at once, as the bus does."""
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(STOPPED)
         apns.send.reset_mock()
 
         await service.align_session_to_playback("phone-1")
 
-        assert sent_events(apns) == ["update"]
-        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
-        assert track["title"] == "Milō"
+        assert sent_events(apns) == ["end"]
+        assert service._session_id is None
 
     async def test_a_card_is_closed_once(self, service, registry, apns):
         """The app reports every couple of seconds. A second `end` addresses a
         session that no longer exists, and spends budget saying it."""
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(STOPPED)
-        await service.align_session_to_playback("phone-1")
-        past_the_grace(service)
         apns.send.reset_mock()
         await service.align_session_to_playback("phone-1")
         assert sent_events(apns) == ["end"]

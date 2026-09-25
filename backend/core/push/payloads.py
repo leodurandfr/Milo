@@ -49,7 +49,9 @@ SOURCE_CARDS: Dict[str, Tuple[str, str]] = {
     "music_library": ("Bibliothèque", "music-library"),
     "cd": ("Lecteur CD", "cd"),
 }
-# `none`, and a source this table does not know yet.
+# A source this table does not know yet — and `none`, though no card is left up
+# on `none` (the push service ends it at once): only a device already drawing
+# the card as the state flips may build it.
 MILO_CARD: Tuple[str, str] = ("Milō", "milo")
 
 
