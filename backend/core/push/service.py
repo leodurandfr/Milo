@@ -166,6 +166,12 @@ class PushService:
         # -> (attempts so far, earliest next try, when to give up waiting for a
         # token). See `_send_end`.
         self._pending_ends: Dict[str, Tuple[int, float, float]] = {}
+        # When this process started, and the session adopted from a token
+        # registered before it — alive on the phone or long gone, this side
+        # cannot tell — whose first push while playing must be a `start`.
+        # See `_adopt_reported_session`.
+        self._booted_at = time.time()
+        self._unconfirmed: Optional[str] = None
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -555,6 +561,19 @@ class PushService:
         ending, which the app does on every launch, and which the first guard
         cannot tell apart from a new session. Following it re-opened, with an
         `update` or a re-announced `start`, the card that was being closed.
+
+        **A token registered before this process started is not trusted to
+        name a live session.** After a restart, a session the phone still
+        shows and one it dropped long ago — a reinstall, iOS reclaiming the
+        card — leave the same token in the registry, and nothing here can tell
+        them apart. Adopting is what keeps a live card through a restart
+        (measured), so it stays; but such a session is marked unconfirmed, and
+        its first push while playing is a `start` under the same id rather than
+        an `update` (`_update_session`). Alive, the phone rebuilds it in place
+        — what a re-announcement already does; gone, the `start` opens it
+        again. Updates used to go to a dead session for as long as playback
+        lasted, and the card only came back when the app was opened (measured
+        2026-09-20).
         """
         newest = self._registry.newest_session_token()
         if newest is None or newest.session_id == self._session_id:
@@ -572,13 +591,16 @@ class PushService:
             if ours is None and time.time() - self._session_started_at < START_REPORT_GRACE_S:
                 return
 
+        unconfirmed = newest.registered_at < self._booted_at
         logger.info(
             f"Now Playing session {newest.session_id} adopted "
             f"(was {self._session_id})"
+            + (" — registered before this start, to re-announce" if unconfirmed else "")
         )
         self._session_id = newest.session_id
         self._session_started_at = newest.registered_at
         self._session_renewed_at = 0.0
+        self._unconfirmed = newest.session_id if unconfirmed else None
 
     async def _start_session(self, state: Dict[str, Any]) -> None:
         """Wake a session on the phone through the push-to-start token.
@@ -603,6 +625,13 @@ class PushService:
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
+        if self._session_id == self._unconfirmed:
+            # Adopted from a token older than this process: a `start` under
+            # the same id, which rebuilds it if alive and reopens it if gone.
+            # See `_adopt_reported_session`.
+            self._unconfirmed = None
+            await self._renew_start(state, now_due=True)
+            return
         targets = self._registry.tokens_for_session(self._session_id)
         if not targets:
             # No token yet. Keep the session, and knock again — unless the
@@ -680,18 +709,21 @@ class PushService:
         if session_id == self._session_id and not self._registry.tokens_for_session(session_id):
             self._dirty.set()
 
-    async def _renew_start(self, state: Dict[str, Any]) -> None:
-        """Re-send `start` for the session we hold, to shake a token loose.
+    async def _renew_start(self, state: Dict[str, Any], now_due: bool = False) -> None:
+        """Re-send `start` for the session we hold, to shake a token loose —
+        or, `now_due`, to re-announce a session adopted across a restart.
 
         Spaced rather than sent every cycle: each one wakes an app extension and
         spends APNs budget, and the token it is fishing for needs a moment to
         come back. `START_REPORT_GRACE_S` is the same window `_adopt_reported_
         session` gives a fresh start before letting a leftover overrule it, so a
-        renewal cannot be mistaken for a session the device chose.
+        renewal cannot be mistaken for a session the device chose. A session
+        adopted across a restart is re-announced at once: it has had all the
+        time it needed.
         """
         now = time.time()
         waited_since = max(self._session_renewed_at, self._session_started_at)
-        if now - waited_since < START_REPORT_GRACE_S:
+        if not now_due and now - waited_since < START_REPORT_GRACE_S:
             return
 
         targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
@@ -706,8 +738,8 @@ class PushService:
         if await self._send_all(targets, payload, "nowplaying"):
             self._bg.spawn(self._wake_if_tokenless(self._session_id), label="token-wait")
             logger.info(
-                f"Now Playing session {self._session_id} re-announced — still no "
-                "token for it"
+                f"Now Playing session {self._session_id} re-announced — "
+                + ("adopted across a restart" if now_due else "still no token for it")
             )
 
     async def _end_session(self) -> None:
@@ -724,6 +756,7 @@ class PushService:
         device. Delivering its `end` is `_send_end`'s business, apart from it.
         """
         session_id, self._session_id = self._session_id, None
+        self._unconfirmed = None
         self._session_started_at = 0.0
         self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()

@@ -144,6 +144,9 @@ def apns():
 @pytest.fixture
 def service(registry, apns):
     svc = PushService(token_registry=registry, apns_client=apns)
+    # Started before any token these tests register (at 1.0): a token older
+    # than the process is `TestRestart`'s subject, and set there explicitly.
+    svc._booted_at = 0.0
     machine = MagicMock()
     machine.get_current_state = MagicMock(return_value=dict(PLAYING))
     svc.set_state_machine(machine)
@@ -180,6 +183,7 @@ def with_volume(registry, apns):
         volume_service.get_volume_state = AsyncMock(return_value=vol_state(**state))
         svc = PushService(token_registry=registry, apns_client=apns,
                           volume_service=volume_service)
+        svc._booted_at = 0.0
         machine = MagicMock()
         machine.get_current_state = MagicMock(return_value=dict(PLAYING))
         svc.set_state_machine(machine)
@@ -1237,6 +1241,70 @@ class TestDeviceReport:
 
         assert service._session_id == "APP-2"
         assert sent_events(apns) == []
+
+
+class TestRestart:
+    """A restart of this side leaves session tokens it cannot vouch for.
+
+    A session the phone still shows and one it dropped long ago leave the same
+    token behind, and nothing here tells them apart. Measured 2026-09-20: after
+    a restart the backend adopted a dead session, pushed every update of the
+    next playback to it, and the card only came back when the app was opened.
+    """
+
+    def _restarted(self, service):
+        service._booted_at = 10.0      # after every token registered at 1.0
+
+    async def test_the_first_push_to_a_session_adopted_across_a_restart_is_a_start(
+        self, service, registry, apns
+    ):
+        """Under the same id: alive, the phone rebuilds it in place; gone, the
+        `start` opens it again. Then updates, as for any session."""
+        self._restarted(service)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
+
+        await service._publish()
+
+        assert service._session_id == "OLD-1"
+        assert sent_events(apns) == ["start"]
+        assert sent_sessions(apns) == ["OLD-1"]
+        assert apns.send.await_args_list[0].args[0].token == "pts"
+
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_events(apns) == ["update"]
+
+    async def test_a_session_registered_since_the_restart_is_trusted(
+        self, service, registry, apns
+    ):
+        """The app opened it, or the extension registered it, while this
+        process ran: it is alive, and gets updates straight away."""
+        self._restarted(service)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        fresh = tok(PushTokenKind.SESSION, "sess", session_id="APP-2")
+        fresh.registered_at = 11.0
+        registry.held["sess"] = fresh
+
+        await service._publish()
+
+        assert service._session_id == "APP-2"
+        assert sent_events(apns) == ["update"]
+
+    async def test_a_quiet_adopted_session_is_not_re_announced(
+        self, service, registry, apns
+    ):
+        """A `start` while nothing plays would open a card on a phone that
+        shows none. The re-announcement waits for playback."""
+        self._restarted(service)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
+        service.machine.get_current_state.return_value = dict(READY)
+
+        await service._publish()
+
+        assert "start" not in sent_events(apns)
 
 
 class TestDeviceReboot:
