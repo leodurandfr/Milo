@@ -102,10 +102,12 @@ def registry():
     reg = MagicMock()
     reg.held = held
     reg.tokens_for = lambda kind: [t for t in held.values() if t.kind == kind]
-    reg.token_for_session = lambda sid: next(
+    reg.tokens_for_session = lambda sid: sorted(
         (t for t in held.values()
-         if t.kind == PushTokenKind.SESSION and t.session_id == sid), None
+         if t.kind == PushTokenKind.SESSION and t.session_id == sid),
+        key=lambda t: t.registered_at, reverse=True,
     )
+    reg.token_for_session = lambda sid: next(iter(reg.tokens_for_session(sid)), None)
     reg.lost = set()
     reg.was_lost_to_reboot = lambda sid: sid in reg.lost
 
@@ -285,6 +287,38 @@ class TestSessionLifecycle:
 
         assert sent_events(apns) == ["update"]
         assert apns.send.await_args_list[0].args[0].token == "sess"
+
+    async def test_every_device_holding_the_session_gets_the_update_and_the_end(
+        self, service, registry, apns
+    ):
+        """A `start` goes to every push-to-start token, so a phone and an iPad
+        open the same session and each registers its own token for it.
+        Addressing only one froze the other's card: measured 2026-09-25, the
+        iPad registered last and the iPhone received nothing afterwards."""
+        registry.held["pts-phone"] = tok(PushTokenKind.PUSH_TO_START, "pts-phone")
+        registry.held["pts-ipad"] = tok(PushTokenKind.PUSH_TO_START, "pts-ipad",
+                                        device_id="ipad-1")
+        await service._publish()
+        session_id = service._session_id
+        registry.held["sess-phone"] = tok(PushTokenKind.SESSION, "sess-phone",
+                                          session_id=session_id)
+        registry.held["sess-ipad"] = tok(PushTokenKind.SESSION, "sess-ipad",
+                                         session_id=session_id, device_id="ipad-1")
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["update", "update"]
+        assert {c.args[0].token for c in apns.send.await_args_list} == {
+            "sess-phone", "sess-ipad"}
+
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["end", "end"]
+        assert "sess-phone" not in registry.held and "sess-ipad" not in registry.held
 
     async def test_a_pause_does_not_end_the_session(self, service, registry, apns):
         """Ending on pause deletes the play button at the moment someone

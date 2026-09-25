@@ -125,6 +125,19 @@ class TestReplacement:
         assert registry.token_for_session("sess-2").token == "tok-2"
         assert len(registry.tokens_for(SESSION)) == 2
 
+    async def test_another_device_in_the_same_session_keeps_its_token(self, registry):
+        """A `start` reaches every device with the app, and each registers its
+        own token under the one session id. Replacing by session alone let the
+        last device evict the others' tokens — measured 2026-09-25, the iPad
+        registering at 11:17:46 silenced the iPhone for the rest of the
+        session."""
+        await registry.register("tok-phone", SESSION, ApnsEnvironment.SANDBOX, "phone-1", "sess-1")
+        await registry.register("tok-ipad", SESSION, ApnsEnvironment.SANDBOX, "ipad-1", "sess-1")
+
+        assert {t.token for t in registry.tokens_for_session("sess-1")} == {
+            "tok-phone", "tok-ipad"}
+        assert registry.token_for_session("sess-1").token == "tok-ipad"
+
     async def test_a_reissued_string_moves_instead_of_duplicating(self, registry):
         """APNs reissues a token string across installs. Keyed by the string,
         the record must move — two records under one key is not a state the

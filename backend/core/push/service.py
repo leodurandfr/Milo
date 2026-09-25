@@ -36,7 +36,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.core.models.ws_events import (
     AudioStateChanged,
@@ -226,7 +226,7 @@ class PushService:
                     await self._start_session(state)
                 return
 
-            if self._session_device() != device_id:
+            if device_id not in self._session_devices():
                 return
             if self._displays_something(state):
                 await self._consider_ending(state)
@@ -246,18 +246,18 @@ class PushService:
             for token in self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         )
 
-    def _session_device(self) -> Optional[str]:
-        """Which device the live session's `end` would be addressed to.
+    def _session_devices(self) -> Set[str]:
+        """The devices the live session's `end` would be addressed to.
 
         A session with no token registered for it belongs to nobody this side
         can name, and an `end` for it would reach no one — so it is not this
         device's to close. A phone knows its own sessions and nobody else's,
-        exactly as `drop_sessions_absent_from` is scoped.
+        exactly as `drop_sessions_absent_from` is scoped. Several devices can
+        hold the same session: see `tokens_for_session`.
         """
         if self._session_id is None:
-            return None
-        target = self._registry.token_for_session(self._session_id)
-        return target.device_id if target is not None else None
+            return set()
+        return {t.device_id for t in self._registry.tokens_for_session(self._session_id)}
 
     # =========================================================================
     # THE LOOP
@@ -425,8 +425,8 @@ class PushService:
         """
         if self._session_id is None:
             return
-        target = self._registry.token_for_session(self._session_id)
-        if target is None:
+        targets = self._registry.tokens_for_session(self._session_id)
+        if not targets:
             return
 
         holds_over = (
@@ -446,7 +446,7 @@ class PushService:
         attributes["isPlaying"] = False
 
         await self._send_all(
-            [target],
+            targets,
             now_playing_payload("update", self._session_id, attributes),
             "nowplaying",
         )
@@ -530,8 +530,8 @@ class PushService:
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
-        targets = self._registry.token_for_session(self._session_id)
-        if targets is None:
+        targets = self._registry.tokens_for_session(self._session_id)
+        if not targets:
             if self._registry.was_lost_to_reboot(self._session_id):
                 logger.info(
                     f"Now Playing session {self._session_id} died with the phone "
@@ -581,7 +581,7 @@ class PushService:
             "update", self._session_id,
             await self._build_attributes(self._session_id, state),
         )
-        await self._send_all([targets], payload, "nowplaying")
+        await self._send_all(targets, payload, "nowplaying")
 
     async def _renew_start(self, state: Dict[str, Any]) -> None:
         """Re-send `start` for the session we hold, to shake a token loose.
@@ -626,12 +626,13 @@ class PushService:
         self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()
         self._idle_since = 0.0
-        target = self._registry.token_for_session(session_id)
-        if target is not None:
+        targets = self._registry.tokens_for_session(session_id) if session_id else []
+        if targets:
             await self._send_all(
-                [target], now_playing_payload("end", session_id), "nowplaying"
+                targets, now_playing_payload("end", session_id), "nowplaying"
             )
-            await self._registry.unregister(target.token)
+            for target in targets:
+                await self._registry.unregister(target.token)
         logger.info(f"Now Playing session {session_id} ended")
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:

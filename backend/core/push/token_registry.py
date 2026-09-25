@@ -60,15 +60,29 @@ class PushTokenRegistry:
         """
         return [t for t in self._tokens.values() if t.kind == kind]
 
-    def token_for_session(self, session_id: str) -> Optional[PushToken]:
-        """The token carrying `update` and `end` for one Now Playing session."""
-        return next(
+    def tokens_for_session(self, session_id: str) -> List[PushToken]:
+        """Every token carrying `update` and `end` for one Now Playing session,
+        newest first.
+
+        One per DEVICE, not one per session: a `start` goes to every
+        push-to-start token, so every phone and iPad with the app opens the
+        same session id and reports its own token for it. Measured 2026-09-25:
+        session d23da1d7 registered by the iPhone at 11:03:17, then by the iPad
+        at 11:17:46 — which evicted the iPhone's, and from then on every
+        `update` went to the iPad while the phone's card sat frozen.
+        """
+        return sorted(
             (
                 t for t in self._tokens.values()
                 if t.kind == PushTokenKind.SESSION and t.session_id == session_id
             ),
-            None,
+            key=lambda t: t.registered_at,
+            reverse=True,
         )
+
+    def token_for_session(self, session_id: str) -> Optional[PushToken]:
+        """The most recently registered of `tokens_for_session`."""
+        return next(iter(self.tokens_for_session(session_id)), None)
 
     def was_lost_to_reboot(self, session_id: str) -> bool:
         """Did this session die with a restart of the phone that held it?
@@ -144,8 +158,10 @@ class PushTokenRegistry:
 
         * ``WIDGET`` / ``PUSH_TO_START`` — the same kind on the same
           ``device_id``. One install holds one of each.
-        * ``SESSION`` — the same ``session_id``. A session has one token, and a
-          resumed session reuses its id.
+        * ``SESSION`` — the same ``session_id`` on the same ``device_id``. A
+          session has one token per device, and a resumed session reuses its
+          id; another device holding the same session keeps its own — see
+          ``tokens_for_session``.
 
         The token string itself is also a key, so re-registering an existing
         string under another device moves the record rather than duplicating it.
@@ -333,6 +349,7 @@ class PushTokenRegistry:
                 key for key, held in tokens.items()
                 if held.kind == PushTokenKind.SESSION
                 and held.session_id == record.session_id
+                and held.device_id == record.device_id
             ]
         return [
             key for key, held in tokens.items()
