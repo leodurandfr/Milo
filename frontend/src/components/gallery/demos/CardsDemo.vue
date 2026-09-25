@@ -52,9 +52,8 @@
   </GalleryItem>
 
   <GalleryItem id="PodcastCard">
-    <GalleryVariant label=":show-actions — the button follows podcast.is_subscribed" stacked>
+    <GalleryVariant label=":show-actions — the unsubscribe button of the subscriptions list" stacked>
       <div class="column">
-        <PodcastCard :podcast="podcast" show-actions />
         <PodcastCard :podcast="{ ...podcast, is_subscribed: true }" show-actions />
       </div>
     </GalleryVariant>

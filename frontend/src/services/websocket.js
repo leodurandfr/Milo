@@ -14,7 +14,7 @@ import { logger } from '@/services/logger';
  *
  * Categories currently emitted by the backend:
  *   system    → unifiedAudioStore / systemStore (initial_state,
- *               hostname_conflict_changed, connectivity_changed, backend_error;
+ *               hostname_conflict_changed, backend_error;
  *               ping is consumed internally as the keepalive)
  *   source    → unifiedAudioStore + per-source stores (state, position,
  *               session_ended, error, error_cleared, storages_changed,

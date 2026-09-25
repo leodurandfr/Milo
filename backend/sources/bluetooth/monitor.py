@@ -68,11 +68,6 @@ class BlueAlsaMonitor:
         self._service_up: Optional[bool] = None
         self._alive = False
 
-    @property
-    def alive(self) -> bool:
-        """False once the feed died — connect/disconnect events stopped arriving."""
-        return self._alive
-
     def set_callbacks(
         self,
         *,

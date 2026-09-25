@@ -13,18 +13,13 @@ function cleanDeviceName(name) {
 }
 
 /**
- * Format a device name or list of names for display.
- * Arrays (ROC multi-client) are joined with newlines for use with
- * `white-space: pre-line` in CSS.
+ * Format a session's senders for display, joined with newlines (several Macs
+ * streaming over ROC) for use with `white-space: pre-line` in CSS.
  *
- * @param {string|string[]|null|undefined} deviceName
- * @returns {string} Formatted string, or empty string if falsy/empty
+ * @param {string[]|null|undefined} senders - The wire's `session.senders`
+ * @returns {string} Formatted string, or empty string if absent/empty
  */
-export function formatDeviceNames(deviceName) {
-  if (!deviceName) return '';
-  if (Array.isArray(deviceName)) {
-    if (deviceName.length === 0) return '';
-    return deviceName.map(n => cleanDeviceName(n)).join('\n');
-  }
-  return cleanDeviceName(deviceName);
+export function formatDeviceNames(senders) {
+  if (!senders?.length) return '';
+  return senders.map(n => cleanDeviceName(n)).join('\n');
 }

@@ -545,11 +545,6 @@ class TestProperties:
         await rig.command("pause")
         assert rig.source.is_playing is False
 
-    def test_playback_speed_property(self, podcast_source):
-        """Test playback_speed property."""
-        podcast_source._playback_speed = 1.5
-        assert podcast_source.playback_speed == 1.5
-
 
 class TestMpvRefusesTheTransportCommand:
     """mpv answers False whenever its IPC socket is down, and says so only at

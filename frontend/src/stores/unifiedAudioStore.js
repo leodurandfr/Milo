@@ -97,8 +97,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       // and BluetoothSource's action button, since the card gives way to the
       // player as soon as the sender publishes a track.
       success = await sendCommand('bluetooth', 'disconnect');
-    } else if (source === 'mac') {
-      success = true;
     } else {
       logger.warn('store', `Disconnect not supported for ${source}`);
     }

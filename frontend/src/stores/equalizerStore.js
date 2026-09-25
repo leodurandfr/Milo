@@ -7,7 +7,6 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { useMultiroomStore } from './multiroomStore';
-import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 
 // Default 10-band parametric EQ frequencies

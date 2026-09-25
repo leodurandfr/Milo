@@ -31,8 +31,8 @@ def test_a_table_missing_an_entry_is_reported():
 @pytest.mark.parametrize("phase,event,expected", [
     (Phase.LOADING, PhaseEvent.SOUND_STARTED, Phase.PLAYING),
     (Phase.LOADING, PhaseEvent.PAUSED, Phase.PAUSED),
-    (Phase.PLAYING, PhaseEvent.SEEK, Phase.LOADING),
-    (Phase.PAUSED, PhaseEvent.SEEK, Phase.PAUSED),
+    (Phase.PLAYING, PhaseEvent.TRACK_CHANGE, Phase.LOADING),
+    (Phase.PAUSED, PhaseEvent.STALLED, Phase.LOADING),
     (Phase.CONNECTED, PhaseEvent.SOUND_STARTED, Phase.PLAYING),
     (Phase.PAUSED, PhaseEvent.STATE_WITHDRAWN, Phase.CONNECTED),
 ])
@@ -42,7 +42,7 @@ def test_allowed_moves(phase, event, expected):
 
 @pytest.mark.parametrize("phase,event", [
     (Phase.LOADING, PhaseEvent.RESUMED),       # nothing to resume before sound
-    (Phase.CONNECTED, PhaseEvent.SEEK),        # nothing can say where it is
+    (Phase.CONNECTED, PhaseEvent.STALLED),     # nothing plays, so nothing stalls
     (Phase.PAUSED, PhaseEvent.SOUND_STARTED),  # a paused player resumes, it does not start
 ])
 def test_a_pair_the_table_lacks_raises(phase, event):

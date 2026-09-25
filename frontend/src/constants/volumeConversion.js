@@ -1,5 +1,5 @@
 /**
- * Volume dB <-> percentage conversion.
+ * Volume dB -> percentage conversion.
  * Backend emits dB in [min, max], the Snapcast UI / LevelMeter
  * display percent in [0, 100]. Linear mapping.
  *
@@ -13,9 +13,4 @@ const MAX_DB = 0;
 export function dbToPercent(db, min = MIN_DB, max = MAX_DB) {
   const clamped = Math.max(min, Math.min(max, db));
   return Math.round(((clamped - min) / (max - min)) * 100);
-}
-
-export function percentToDb(percent, min = MIN_DB, max = MAX_DB) {
-  const clamped = Math.max(0, Math.min(100, percent));
-  return min + (clamped / 100) * (max - min);
 }

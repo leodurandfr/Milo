@@ -27,8 +27,7 @@
     <template #player="{ isMobile }">
       <AudioPlayer v-if="station" :visible="shouldShowNowPlayingLayout" source="radio" :artwork="playerArtwork"
         @after-hide="onAfterHide"
-        :fallback-name="station?.name" :title="playerTitle"
-        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
+        :fallback-name="station?.name" :title="playerTitle">
         <!-- Track info: PlayerInfoText's vertical layout renders identically in the
              desktop sidebar and the mobile expanded sheet — same as podcast/music-library
              (nothing hides .vertical-layout inside the expanded card for this source).

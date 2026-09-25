@@ -1,5 +1,5 @@
 <template>
-  <div v-press class="episode-card" :class="{ clickable }" @click="handleCardClick">
+  <div v-press class="episode-card" @click="emit('select', episode)">
     <LazyImage
       :src="episode.image_url || episode.podcast?.image_url"
       :fallback="podcastPlaceholder"
@@ -55,10 +55,6 @@ const props = defineProps({
   showCompleteButton: {
     type: Boolean,
     default: false
-  },
-  clickable: {
-    type: Boolean,
-    default: true
   }
 })
 
@@ -74,12 +70,6 @@ const {
   formattedDate,
   pause,
 } = useEpisodePlaybackStatus(toRef(props, 'episode'))
-
-function handleCardClick() {
-  if (props.clickable) {
-    emit('select', props.episode)
-  }
-}
 
 function handlePodcastClick() {
   if (props.episode.podcast) {
@@ -107,9 +97,6 @@ async function handlePlayClick() {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
-}
-
-.episode-card.clickable {
   cursor: pointer;
 }
 
@@ -172,29 +159,6 @@ async function handlePlayClick() {
 
 .separator {
   opacity: 0.5;
-}
-
-.progress-container {
-  margin-top: var(--space-02);
-}
-
-.progress-bar {
-  height: 4px;
-  background: var(--color-background-strong);
-  border-radius: var(--radius-01);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--color-brand);
-  transition: width var(--transition-fast);
-}
-
-.time-remaining {
-  color: var(--color-brand);
-  margin-top: var(--space-01);
-  display: block;
 }
 
 @media (max-aspect-ratio: 4/3) {

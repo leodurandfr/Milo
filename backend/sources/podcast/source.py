@@ -498,8 +498,3 @@ class PodcastSource(MpvAudioSource):
     def podcast_api(self) -> Optional[PodcastCatalog]:
         """Get the podcast catalogue client."""
         return self._podcast_api
-
-    @property
-    def playback_speed(self) -> float:
-        """Get current playback speed."""
-        return self._playback_speed

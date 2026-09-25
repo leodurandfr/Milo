@@ -59,13 +59,7 @@
             <slot name="progress"></slot>
 
             <div class="controls transport-scale--compact">
-              <slot name="controls" :expanded="false">
-                <!-- Default: Simple play/pause -->
-                <div class="playback-controls">
-                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-                    class="transport-primary" :loading="isLoading" @click="$emit('toggle-play')" />
-                </div>
-              </slot>
+              <slot name="controls" :expanded="false"></slot>
             </div>
           </div>
         </div>
@@ -117,12 +111,7 @@
               </div>
 
               <div class="expanded-controls transport-scale--phone">
-                <slot name="controls" :expanded="true">
-                  <div class="playback-controls">
-                    <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-                      class="transport-primary" :loading="isLoading" @click="$emit('toggle-play')" />
-                  </div>
-                </slot>
+                <slot name="controls" :expanded="true"></slot>
               </div>
             </div>
           </div>
@@ -197,22 +186,6 @@ const props = defineProps({
   },
 
   /**
-   * Playback state
-   */
-  isPlaying: {
-    type: Boolean,
-    default: false
-  },
-
-  /**
-   * Loading/buffering state
-   */
-  isLoading: {
-    type: Boolean,
-    default: false
-  },
-
-  /**
    * Enable the mobile horizontal-swipe gesture (next/prev). Off by default so
    * radio — which has no track-skip concept in the mini-player — never captures
    * swipes nor animates its station→metadata reveal as if it were one.
@@ -238,7 +211,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['toggle-play', 'after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click'])
+const emit = defineEmits(['after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click'])
 
 // Only music_library has album/artist pages to link to — radio/podcast render
 // the same artwork frame and #player-info-secondary line but have nothing to
@@ -843,8 +816,8 @@ img.player-artwork.loaded {
 }
 
 /* === Per-source transport layout ===
-   The #controls slot has a default (a lone play/pause) and all three browser
-   sources replace it with their own row, so its layout has to live somewhere.
+   The #controls slot has no default: all three browser sources fill it with
+   their own row, so its layout has to live somewhere.
    It lives here, beside the sizing rules that already key off these same class
    names, rather than in each source's scoped CSS: scoped CSS reaches only the
    markup that file authors, and the same rows are re-authored by the gallery's

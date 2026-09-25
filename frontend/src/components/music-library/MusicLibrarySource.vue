@@ -48,7 +48,7 @@
         <AudioPlayer :visible="shouldShowPlayer" source="music_library" @after-hide="onAfterHide"
           :artwork="playerArtwork"
           :title="playerTitle"
-          :is-playing="isPlaying" :is-loading="isBuffering" swipe-enabled
+          swipe-enabled
           :tracks="store.queue" :current-index="store.queueIndex"
           @swipe-next="store.next()" @swipe-prev="store.swipePrevious()"
           @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">

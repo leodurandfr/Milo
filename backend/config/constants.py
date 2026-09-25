@@ -110,19 +110,6 @@ RESET_SETUP_MARKER = MILO_DATA_DIR / "reset-setup"
 CLIENT_API_PORT = 8001          # Milo-client API port (equalizer, health, etc.)
 
 # =============================================================================
-# TIMEOUTS (in seconds)
-# =============================================================================
-HEALTH_CHECK_TIMEOUT = 2.0      # Timeout for health checks
-
-# =============================================================================
-# MAC ROC STREAMING
-# =============================================================================
-MAC_RTP_PORT = 10001
-MAC_RS8M_PORT = 10002
-MAC_RTCP_PORT = 10003
-MAC_AUDIO_OUTPUT = "hw:1,0"
-
-# =============================================================================
 # HARDWARE GPIO (BCM numbering)
 # =============================================================================
 # General-purpose BCM GPIO pins exposed on the Raspberry Pi 40-pin header

@@ -53,7 +53,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const { t, getAvailableLanguages } = useI18n();
+const { getAvailableLanguages } = useI18n();
 const availableLanguages = computed(() => getAvailableLanguages());
 
 function getFlagIcon(code) {

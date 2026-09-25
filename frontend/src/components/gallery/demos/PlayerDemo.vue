@@ -76,7 +76,7 @@
     </GalleryVariant>
     <GalleryVariant label=":icon — a tinted tile instead of a cover (the virtual headers)" stacked>
       <DetailHeader icon="heart" title="Liked Songs" subtitle-meta="128 tracks"
-        :show-shuffle="false" show-favorite is-favorite />
+        :show-shuffle="false" />
     </GalleryVariant>
     <GalleryVariant label="actions slot — renders before the built-in buttons" stacked>
       <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle="42 tracks"

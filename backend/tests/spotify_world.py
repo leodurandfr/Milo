@@ -398,13 +398,6 @@ class SpotifyWorld(WireReader):
         await self._says({"type": "seek", "position": position_ms,
                           "duration": self.daemon.track["duration"]})
 
-    async def track_runs_out_into(self, song: Dict[str, Any]) -> None:
-        d = self.daemon
-        d.paused, d.track["position"] = True, 0
-        await self._says({"type": "not_playing"})
-        await self.advance(0.3)
-        await self.phone_skips_to(song)
-
     async def phone_leaves(self) -> None:
         """The phone picks another output: the daemon drops the session."""
         d = self.daemon

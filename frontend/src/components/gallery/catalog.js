@@ -303,7 +303,7 @@ export const ENTRIES = [
     id: 'DetailHeader',
     group: 'player',
     file: 'components/audio/DetailHeader.vue',
-    summary: 'The album / playlist / episode header: cover art, or a tinted icon tile when icon is set instead (the virtual headers — Liked Songs, a genre). Up to three text lines, and an actions slot that renders before the built-in favourite / shuffle / play buttons.',
+    summary: 'The album / playlist / episode header: cover art, or a tinted icon tile when icon is set instead (the virtual headers — Liked Songs, a genre). Up to three text lines, and an actions slot that renders before the built-in shuffle / play buttons.',
   },
 
   // --- Source layouts ---

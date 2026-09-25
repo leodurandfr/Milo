@@ -1,6 +1,5 @@
 <template>
-  <div v-press="clickable" class="podcast-card" :class="{ clickable }"
-    @click="handleCardClick">
+  <div v-press class="podcast-card" @click="emit('select', podcast)">
     <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" lazy class="card-image">
     </LazyImage>
 
@@ -11,11 +10,7 @@
     </div>
 
     <div v-if="showActions" class="card-actions">
-      <Button v-if="!isSubscribed" variant="brand" size="small" @pointerdown.stop
-        @click.stop="emit('subscribe', podcast.uuid)">
-        {{ t('podcasts.subscribe') }}
-      </Button>
-      <Button v-else variant="background-strong" size="small" @pointerdown.stop
+      <Button variant="background-strong" size="small" @pointerdown.stop
         @click.stop="emit('unsubscribe', podcast.uuid)">
         {{ t('podcasts.unsubscribe') }}
       </Button>
@@ -41,17 +36,15 @@ const props = defineProps({
     type: Number,
     default: null
   },
+  // The unsubscribe button: only the subscriptions list, where every card is
+  // one the user follows, shows it.
   showActions: {
     type: Boolean,
     default: false
-  },
-  clickable: {
-    type: Boolean,
-    default: true
   }
 })
 
-const emit = defineEmits(['select', 'subscribe', 'unsubscribe'])
+const emit = defineEmits(['select', 'unsubscribe'])
 
 const isSubscribed = computed(() => {
   return props.podcast.is_subscribed || false
@@ -70,12 +63,6 @@ const tagText = computed(() => {
   }
   return null
 })
-
-function handleCardClick() {
-  if (props.clickable) {
-    emit('select', props.podcast)
-  }
-}
 </script>
 
 <style scoped>
@@ -87,9 +74,6 @@ function handleCardClick() {
   overflow: hidden;
   padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
   gap: var(--space-03);
-}
-
-.podcast-card.clickable {
   cursor: pointer;
 }
 

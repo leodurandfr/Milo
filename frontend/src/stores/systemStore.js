@@ -15,13 +15,6 @@ export const useSystemStore = defineStore('system', () => {
   const advertisedName = ref(null);
   const localIp = ref(null);
   const rechecking = ref(false);
-  // NetworkManager's connectivity level, kept whole: 'unknown' | 'none' |
-  // 'portal' | 'limited' | 'full'. 'unknown' is the fail-open default (backend
-  // silent, or NM has not probed yet) and reads as "no problem observed".
-  // Whether a *source* is blocked by it is not decided here — the backend
-  // crosses the level with the source's own requirement and publishes the
-  // answer per source in the audio state's `availability`.
-  const connectivity = ref('unknown');
   // The label of the audio card hardware.json names when ALSA cannot see it,
   // null when all is well. A HAT is not hot-pluggable, so this is settled at
   // boot and arrives with the status read rather than as a WS delta.
@@ -37,9 +30,6 @@ export const useSystemStore = defineStore('system', () => {
     }
     if (state.local_ip !== undefined) {
       localIp.value = state.local_ip;
-    }
-    if (typeof state.connectivity === 'string') {
-      connectivity.value = state.connectivity;
     }
     if (state.audio_card_missing !== undefined) {
       audioCardMissing.value = state.audio_card_missing;
@@ -78,10 +68,6 @@ export const useSystemStore = defineStore('system', () => {
     applyState(event?.data);
   }
 
-  function handleConnectivityEvent(event) {
-    applyState(event?.data);
-  }
-
   async function resync() {
     return fetchStatus();
   }
@@ -92,11 +78,9 @@ export const useSystemStore = defineStore('system', () => {
     advertisedName,
     localIp,
     rechecking,
-    connectivity,
     audioCardMissing,
     fetchStatus,
     recheckHostname,
     handleConflictEvent,
-    handleConnectivityEvent,
   };
 });

@@ -75,19 +75,6 @@ class WsEvent(BaseModel):
 # SYSTEM (core state machine)
 # =============================================================================
 
-class SystemConnectivityChanged(WsEvent):
-    """NetworkManager connectivity level changed.
-
-    App.vue → systemStore (Settings › Network reads the level). What the
-    level does to the sources (`availability`) is the state's to say: the
-    state machine republishes `source/state` when it moves.
-    """
-    CATEGORY = "system"
-    TYPE = "connectivity_changed"
-    source: Literal["system"] = "system"
-    connectivity: Literal["unknown", "none", "portal", "limited", "full"]
-
-
 class SystemHostnameConflictChanged(WsEvent):
     """App.vue hostname-conflict banner (milo.local advertised under another name)."""
     CATEGORY = "system"

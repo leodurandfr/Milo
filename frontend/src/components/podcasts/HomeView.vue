@@ -259,29 +259,6 @@ onMounted(() => {
   opacity: 0;
 }
 
-/* Card fade-in transition */
-.fade-in-cards-enter-active {
-  transition: opacity var(--transition-normal), transform var(--transition-normal);
-}
-
-.fade-in-cards-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.fade-in-cards-enter-to {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* Empty state message */
-.empty-message {
-  color: var(--color-text-secondary);
-  text-align: center;
-  padding: var(--space-07) var(--space-05);
-  margin: 0;
-}
-
 /* Mobile: Responsive adaptations */
 @media (max-aspect-ratio: 4/3) {
   .genres-grid {

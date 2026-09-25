@@ -100,10 +100,6 @@ class MacSource(BaseAudioSource):
             config=config
         )
 
-        self.rtp_port = self._config.get("rtp_port", 10001)
-        self.rs8m_port = self._config.get("rs8m_port", 10002)
-        self.rtcp_port = self._config.get("rtcp_port", 10003)
-        self.audio_output = self._config.get("audio_output", "hw:1,0")
         self.network_interface = self._config.get("network_interface")
 
         self._journal_task: Optional[asyncio.Task] = None

@@ -6,7 +6,7 @@ These models define the data structures for:
 - Station metadata (from RadioBrowser API or custom)
 - API request/response validation
 """
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -28,9 +28,3 @@ class PlayStationParams(BaseModel):
     """Params for `play_station` (station is an opaque passthrough)."""
     station_id: str = Field(min_length=1)
     station: Optional[dict] = None
-
-
-class StationSearchResult(BaseModel):
-    """Search result with stations and total count."""
-    stations: List[dict]
-    total: int

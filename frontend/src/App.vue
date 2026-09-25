@@ -507,9 +507,6 @@ const RAW_EVENTS = [
   ['source', 'state', unifiedStore.updateState],
   ['source', 'session_ended', handleSessionEnded],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
-  // The raw NM level (Settings › Network reads it). What it does to each source
-  // arrives on its own, as the state's `availability`.
-  ['system', 'connectivity_changed', systemStore.handleConnectivityEvent],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed
   // whenever the NM dispatcher signals a physical link change.
   ['network', 'status_changed', handleNetworkStatusChanged],

@@ -27,7 +27,8 @@ export const SEEK_AGREEMENT_MS = 2000;
 
 /**
  * Where an anchor puts the playhead at `nowMs` (epoch milliseconds). Pure, and
- * exported for the one other reader of a playhead (the lyrics sync).
+ * exported for the one other reader of a playhead (podcastStore, for the
+ * episode cards).
  */
 export function positionAt(anchor, phase, durationMs, nowMs) {
   if (!anchor) return null;

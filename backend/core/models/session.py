@@ -39,7 +39,6 @@ class PhaseEvent(str, Enum):
     SOUND_STARTED = "sound_started"      # playback-restart, will_play → playing, pffr
     PAUSED = "paused"                    # a pause, or a load that lands paused
     RESUMED = "resumed"
-    SEEK = "seek"
     TRACK_CHANGE = "track_change"
     STALLED = "stalled"                  # the stream stopped delivering (mpv: paused-for-cache)
     STATE_WITHDRAWN = "state_withdrawn"  # the sender stops publishing a play state
@@ -73,14 +72,12 @@ TRANSITIONS: Dict[Tuple[Phase, PhaseEvent], Phase] = {
     (Phase.LOADING, PhaseEvent.PAUSED): Phase.PAUSED,
     (Phase.PLAYING, PhaseEvent.PAUSED): Phase.PAUSED,
     (Phase.PLAYING, PhaseEvent.TRACK_CHANGE): Phase.LOADING,
-    (Phase.PLAYING, PhaseEvent.SEEK): Phase.LOADING,
     # Measured on mpv 0.40: a stream that stops delivering sets
     # paused-for-cache and announces nothing else, for minutes.
     (Phase.PLAYING, PhaseEvent.STALLED): Phase.LOADING,
     (Phase.PAUSED, PhaseEvent.RESUMED): Phase.PLAYING,
     # Unpaused, but nothing to play yet (the file is not open, the cache is dry).
     (Phase.PAUSED, PhaseEvent.STALLED): Phase.LOADING,
-    (Phase.PAUSED, PhaseEvent.SEEK): Phase.PAUSED,
     # A sender that publishes a play state leaves CONNECTED; one that stops
     # publishing it goes back — from whichever state it had published.
     (Phase.CONNECTED, PhaseEvent.SOUND_STARTED): Phase.PLAYING,

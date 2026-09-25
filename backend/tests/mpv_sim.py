@@ -250,37 +250,6 @@ class MpvSim:
         self.playlist.pop(index)
         return True
 
-    # The calls the sources made before they listened to events.
-
-    async def load_stream(self, url: str) -> bool:
-        return await self.loadfile(url, mode="replace") is not None
-
-    async def load_playlist(self, urls: list, start_index: int = 0) -> bool:
-        if not urls or not self._ok():
-            return False
-        await self.set_property("pause", True)
-        await self.loadfile(urls[0], mode="replace")
-        for url in urls[1:]:
-            await self.loadfile(url, mode="append")
-        if start_index:
-            self._play_index(start_index)
-        await self.set_property("pause", False)
-        return True
-
-    async def set_playlist_pos(self, index: int) -> bool:
-        return await self.set_property("playlist-pos", index)
-
-    async def replace_playlist_tail(self, keep_count: int, urls: list) -> bool:
-        if not self._ok():
-            return False
-        self.playlist = self.playlist[:keep_count]
-        for url in urls:
-            await self.loadfile(url, mode="append")
-        return True
-
-    async def wait_until_advancing(self, *a, **k) -> bool:
-        return self.opened
-
     # === The model ===
 
     def _ok(self) -> bool:

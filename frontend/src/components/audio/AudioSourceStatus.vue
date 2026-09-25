@@ -86,8 +86,8 @@ const props = defineProps({
     validator: (value) => value === null || UNAVAILABLE_REASONS.includes(value)
   },
   deviceName: {
-    type: [String, Array],  // Support string or array for ROC multi-clients
-    default: ''
+    type: Array,  // the session's senders: several for ROC
+    default: () => []
   },
   isDisconnecting: {
     type: Boolean,

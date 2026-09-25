@@ -1275,11 +1275,6 @@ export function sourcePageById(id) {
   return SOURCE_PAGES.find(page => page.id === id);
 }
 
-/** True for a `?c=` value that names a source page rather than a component. */
-export function isSourcePageId(id) {
-  return typeof id === 'string' && id.startsWith(SOURCE_PAGE_PREFIX);
-}
-
 /** Every envelope the 10 pages can emit, for the checks against the models. */
 export function allEvents() {
   return SOURCE_PAGES.flatMap(page => page.scenarios.flatMap(entry => entry.events));

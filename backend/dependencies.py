@@ -46,12 +46,6 @@ def _import(module: str, attr: str):
     return getattr(import_module(module), attr)
 
 
-def _const(name: str):
-    """Import a constant from backend.config.constants."""
-    from backend.config import constants
-    return getattr(constants, name)
-
-
 def _create_rotary_controller():
     """Create RotaryVolumeController with GPIO pins from hardware.json."""
     hardware_service = get_service("hardware_service")
@@ -244,19 +238,13 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager")
         ),
         "mac_source": lambda: _import("backend.sources.mac", "MacSource")(
-            config={
-                "rtp_port": _const("MAC_RTP_PORT"),
-                "rs8m_port": _const("MAC_RS8M_PORT"),
-                "rtcp_port": _const("MAC_RTCP_PORT"),
-                "audio_output": _const("MAC_AUDIO_OUTPUT"),
-            },
+            config={},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
         "bluetooth_source": lambda: _import("backend.sources.bluetooth", "BluetoothSource")(
             config={
-                "daemon_options": "--keep-alive=5",
                 "bluetooth_service": "bluetooth.service",
                 "stop_bluetooth_on_exit": True,
                 "auto_agent": True

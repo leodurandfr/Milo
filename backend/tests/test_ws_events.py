@@ -48,7 +48,6 @@ from backend.core.models.ws_events import (
     SourceErrorCleared,
     SourcePosition,
     SourceSessionEnded,
-    SystemConnectivityChanged,
     VolumeChanged,
     VolumeLimitsChanged,
     VolumeLimitsConfig,
@@ -168,11 +167,6 @@ CASES = [
                   "wifi": {"connected": True, "ssid": "Net",
                            "ip_address": "192.168.1.2", "signal": 70,
                            "saved_ssid": "Net"}}},
-    ),
-    (
-        SystemConnectivityChanged(connectivity="limited"),
-        {"category": "system", "type": "connectivity_changed", "origin": "system",
-         "data": {"source": "system", "connectivity": "limited"}},
     ),
     (
         RadioFavoriteAdded(station_id="abc123"),

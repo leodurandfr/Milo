@@ -50,7 +50,7 @@
     <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
         @after-hide="onAfterHide"
-        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :swipe-enabled="canSkip"
+        :swipe-enabled="canSkip"
         @swipe-next="seekForward" @swipe-prev="seekBackward">
         <!-- Track info: podcast name kicker + episode title, in the shared
              PlayerInfoText's vertical layout (desktop sidebar and, since nothing
@@ -117,7 +117,6 @@ import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useSourceProgress } from '@/composables/useSourceProgress'
 import { useI18n } from '@/services/i18n'
-import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
@@ -153,7 +152,7 @@ const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore 
 // ending publishes no resume identity, so the player goes with it. The store's
 // sticky displayEpisode was a copy of that fact for the length of a fade.
 const {
-  isPlaying: isCurrentlyPlaying, isBuffering,
+  isBuffering,
   shouldShowPlayer: shouldShowPlayerLayout,
   displayed: episode, onAfterHide
 } = useSourcePlaybackVisibility('podcast', {

@@ -57,7 +57,6 @@ class CdDataService:
         self._covers_dir = str(CD_COVERS_DIR)
         self._file_lock = asyncio.Lock()
         self._cache: Dict[str, Any] = {}
-        self._loaded = False
         # One download per disc, outliving the caller that started it: a
         # source closed and reopened during an outage waits on the same
         # thread instead of parking one more in the default executor.
@@ -74,7 +73,6 @@ class CdDataService:
         """Load cached data from disk and ensure directories exist."""
         os.makedirs(self._covers_dir, exist_ok=True)
         await self._load_data()
-        self._loaded = True
 
     # =========================================================================
     # DISC TOC READING

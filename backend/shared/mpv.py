@@ -80,7 +80,7 @@ class MpvController:
         self._observed: Dict[int, str] = {}
         self._observe_id = 0
         # Launch-time --stream-lavf-o (HTTP reconnect options), captured on
-        # first connect and toggled off for HLS in load_stream. None until captured.
+        # first connect and toggled off for HLS in loadfile. None until captured.
         self._default_stream_lavf_o: Optional[Any] = None
         # Which scope (HLS or not) the current link's stream options are set
         # for: a queue appends one entry per track, and re-sending an
@@ -188,7 +188,7 @@ class MpvController:
                         self.logger.warning(f"mpv did not re-observe '{name}' on the new link")
 
                 # Capture the launch-time reconnect options once, while mpv is
-                # pristine — load_stream clears them for HLS and restores this.
+                # pristine — loadfile clears them for HLS and restores this.
                 if self._default_stream_lavf_o is None:
                     self._default_stream_lavf_o = await self.get_property(
                         "stream-lavf-o", timeout=PROBE_TIMEOUT
@@ -480,37 +480,6 @@ class MpvController:
         )
         return True
 
-    async def load_stream(self, url: str) -> bool:
-        """
-        Loads and plays a radio stream
-
-        Args:
-            url: Radio stream URL
-
-        Returns:
-            True if command sent successfully
-        """
-        if not await self._prepare_load(url):
-            return False
-        response = await self._send_command("loadfile", url, "replace")
-
-        # mpv can return transient errors (None, "property unavailable")
-        # during initial stream loading. We accept these errors.
-        if response is None:
-            self.logger.info("loadfile returned None")
-            return False
-
-        error = response.get('error')
-        # Accept 'success' AND transient errors (None, null, property unavailable)
-        # "property unavailable" happens when quickly changing stations
-        # Only real errors ("file not found", etc.) cause failure
-        if error in ('success', None, 'null', 'property unavailable'):
-            return True
-
-        # Log only real errors
-        self.logger.error(f"loadfile failed with error: {error}")
-        return False
-
     async def loadfile(
         self,
         url: str,
@@ -526,8 +495,6 @@ class MpvController:
         load as per-file options: one command lands paused at the right second
         (measured on mpv 0.40), no wait-then-seek. mpv wants the index slot once
         options follow, and ignores it for `replace` and `append`.
-
-        Same preparation as load_stream (re-attach, HLS options, redacted log).
 
         Returns:
             The entry id, or None when there is no mpv, no answer or a refusal.
@@ -641,27 +608,6 @@ class MpvController:
         """
         response = await self._send_command("set_property", property_name, value)
         return response is not None and response.get('error') == 'success'
-
-    async def wait_until_advancing(
-        self, timeout: float = 3.0, poll_interval: float = 0.05
-    ) -> bool:
-        """Wait until mpv's playhead actually advances past 0.
-
-        After un-pausing, mpv's audio output has a startup latency during which
-        `time-pos` stays at 0 for up to ~1s — a mere "time-pos is a number"
-        check (file loaded) fires immediately and is NOT real playback. Callers
-        gate UI/buffering state on this so a progress bar doesn't run ahead of a
-        not-yet-moving playhead. Bounded by `timeout` so a stalled source can't
-        hang the caller. Returns True once advancing, False on timeout.
-        """
-        started = time.monotonic()
-        deadline = started + timeout
-        while time.monotonic() < deadline:
-            time_pos = await self.get_property("time-pos")
-            if isinstance(time_pos, (int, float)) and time_pos > 0:
-                return True
-            await asyncio.sleep(poll_interval)
-        return False
 
     async def pause(self) -> bool:
         """

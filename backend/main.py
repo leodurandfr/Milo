@@ -306,7 +306,6 @@ app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 system_router = create_system_router(
     systemd_manager,
     hostname_conflict_service=get_service("hostname_conflict_service"),
-    connectivity_service=get_service("connectivity_service"),
     hardware_service=hardware_service,
     diagnostic_service=get_service("diagnostic_service"),
 )

@@ -21,7 +21,6 @@ from backend.config.constants import (
 )
 
 if TYPE_CHECKING:
-    from backend.core.connectivity.service import ConnectivityService
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.systemd import SystemdServiceManager
@@ -74,7 +73,6 @@ def _current_timezone() -> Optional[str]:
 def create_system_router(
     systemd_manager: "SystemdServiceManager",
     hostname_conflict_service: Optional["HostnameConflictService"] = None,
-    connectivity_service: Optional["ConnectivityService"] = None,
     hardware_service: Optional["HardwareService"] = None,
     diagnostic_service: Optional["DiagnosticService"] = None
 ):
@@ -97,7 +95,7 @@ def create_system_router(
 
     @router.get("/status")
     async def get_system_status():
-        """System-level status: hostname conflict, connectivity, audio card.
+        """System-level status: hostname conflict, audio card.
 
         `audio_card_missing` carries the *label* of the configured card rather
         than a boolean, because the banner has to name it — "HiFiBerry Amp2 is
@@ -110,13 +108,10 @@ def create_system_router(
         """
         data = {
             "hostname_conflict": False,
-            "connectivity": "unknown",
             "audio_card_missing": None,
         }
         if hostname_conflict_service is not None:
             data.update(hostname_conflict_service.get_state())
-        if connectivity_service is not None:
-            data.update(connectivity_service.get_state())
         if hardware_service is not None:
             data["audio_card_missing"] = hardware_service.get_missing_audio_card()
         return {"status": "success", "data": data}

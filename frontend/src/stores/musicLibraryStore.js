@@ -347,7 +347,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // would glitch back to the current one on a restart. play_index skips outright.
   const swipePrevious = () =>
     queueIndex.value > 0 ? playIndex(queueIndex.value - 1) : Promise.resolve(false);
-  const stop = () => send('stop');
   // Live shuffle toggle: reorders only the upcoming tracks (the current one keeps
   // playing). Sends the target state, not a flip, so a stale tap can't invert it.
   const setShuffle = (on) => send('set_shuffle', { shuffle: !!on });
@@ -1083,7 +1082,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     next,
     previous,
     swipePrevious,
-    stop,
     toggleShuffle,
 
     // Albums

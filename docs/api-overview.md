@@ -164,9 +164,7 @@ level with the source's own `NETWORK_REQUIREMENT` (`none` / `lan` / `internet`),
 route out gives `no_internet` to Spotify and `null` to AirPlay, which only needs the LAN — and `null`
 to Bluetooth or CD, which need nothing. Then the source's own reason: `no_account` (Qobuz);
 `no_drive`, `no_disc`, `reading_disc`, `unreadable_disc`, `ejecting` (CD); `no_storage`,
-`catalog_unavailable` (Music Library). `system/connectivity_changed` carries the level alone
-(`unknown | none | portal | limited | full`); what it does to the sources arrives as a new
-`source/state`. See [Architecture](architecture.md#unavailable-which-is-not-a-state) for where each
+`catalog_unavailable` (Music Library). A connectivity change arrives as a new `source/state`. See [Architecture](architecture.md#unavailable-which-is-not-a-state) for where each
 reason comes from and the CTAs.
 
 The subset Milo-Mac relies on — `(category, type)` pairs across `system`, `source`, `volume`,

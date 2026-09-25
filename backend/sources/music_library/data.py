@@ -24,7 +24,6 @@ Remembering it is what makes a replug cost a quick scan (~0.4 s measured) instea
 of a full re-index.
 """
 import asyncio
-import logging
 import re
 import secrets
 import time
@@ -35,9 +34,6 @@ from backend.config.constants import MUSIC_LIBRARY_DATA_FILE
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 REQUIRED_TOP_LEVEL_KEYS = ("shares", "known_usb", "playlist_storages")
-
-# Share types we can mount. Mirrors milo-mount's --network dispatch.
-SHARE_TYPES = frozenset({"cifs", "nfs"})
 
 
 class MusicLibraryDataService:
@@ -51,7 +47,6 @@ class MusicLibraryDataService:
     SCHEMA_VERSION: int = 3
 
     def __init__(self) -> None:
-        self._logger = logging.getLogger("source.music_library.data")
         self._data_file: Path = MUSIC_LIBRARY_DATA_FILE
         self._file_lock = asyncio.Lock()
 

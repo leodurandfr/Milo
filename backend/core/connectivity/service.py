@@ -51,7 +51,6 @@ from dbus_next.constants import BusType
 from dbus_next.signature import Variant
 
 from backend.core.models.audio_state import ConnectivityLevel
-from backend.core.models.ws_events import SystemConnectivityChanged
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -364,14 +363,10 @@ class ConnectivityService:
             self._hold_backoff = min(self._hold_backoff * 2, HOLD_RECHECK_MAX_S)
 
     async def _broadcast(self) -> None:
-        """The level rides its own event, and the state is republished: a level
-        change can flip a source's `availability` without anything about the
-        source itself changing."""
+        """The state is republished: a level change can flip a source's
+        `availability` without anything about the source itself changing."""
         if self._state_machine is None:
             return
-        await self._state_machine.broadcast(
-            SystemConnectivityChanged(connectivity=self._level.value)
-        )
         await self._state_machine.publish_state()
 
     async def cleanup(self) -> None:

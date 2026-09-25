@@ -45,7 +45,6 @@ def make_nm_iface(check_connectivity=None, get_connectivity=None) -> MagicMock:
 def make_service() -> ConnectivityService:
     service = ConnectivityService()
     service._state_machine = MagicMock()
-    service._state_machine.broadcast = AsyncMock()
     service._state_machine.publish_state = AsyncMock()
     return service
 
@@ -163,10 +162,7 @@ async def test_recheck_fresh_corrects_stale_offline_and_broadcasts():
     await service._recheck_fresh(nm_iface)
 
     assert service.level is ConnectivityLevel.FULL
-    service._state_machine.broadcast.assert_awaited_once()
-    event = service._state_machine.broadcast.call_args.args[0]
-    assert event.connectivity == "full"
-    # The state is republished too: the level decides every source's
+    # The state is republished: the level decides every source's
     # `availability`, which changed without any source changing.
     service._state_machine.publish_state.assert_awaited_once()
 
@@ -179,7 +175,7 @@ async def test_recheck_fresh_no_broadcast_when_unchanged():
     await service._recheck_fresh(nm_iface)
 
     assert service.level is ConnectivityLevel.FULL
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_recheck_fresh_leaves_state_unchanged_on_probe_failure():
@@ -190,7 +186,7 @@ async def test_recheck_fresh_leaves_state_unchanged_on_probe_failure():
     await service._recheck_fresh(nm_iface)
 
     assert service.level is ConnectivityLevel.NONE
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_recheck_fresh_bounded_by_timeout():
@@ -206,7 +202,7 @@ async def test_recheck_fresh_bounded_by_timeout():
         await service._recheck_fresh(nm_iface)
 
     assert service.level is ConnectivityLevel.NONE
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_limited_is_kept_distinct_from_none():
@@ -271,9 +267,7 @@ async def test_a_property_change_publishes_the_new_level():
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
-    event = service._state_machine.broadcast.await_args.args[0]
-    assert event.CATEGORY == "system"
-    assert event.connectivity == ConnectivityLevel.FULL.value
+    service._state_machine.publish_state.assert_awaited()
 
 
 async def test_a_raw_integer_value_is_read_the_same_as_a_variant():
@@ -309,7 +303,7 @@ async def test_a_signal_from_another_interface_is_ignored():
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_a_signal_about_another_property_is_ignored():
@@ -325,7 +319,7 @@ async def test_a_signal_about_another_property_is_ignored():
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_an_unchanged_level_is_not_re_broadcast():
@@ -341,7 +335,6 @@ async def test_an_unchanged_level_is_not_re_broadcast():
     await _settle(service)
     await service._bg.cancel_all()
 
-    service._state_machine.broadcast.assert_not_awaited()
     service._state_machine.publish_state.assert_not_awaited()
 
 
@@ -518,7 +511,7 @@ async def test_nm_reporting_full_over_ipv6_alone_publishes_limited():
         await service._adopt(NM_FULL, "changed")
 
     assert service.level is ConnectivityLevel.LIMITED
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_a_confirmed_full_is_published():
@@ -530,8 +523,7 @@ async def test_a_confirmed_full_is_published():
     await service._adopt(NM_FULL, "changed")  # autouse fixture: probe succeeds
 
     assert service.level is ConnectivityLevel.FULL
-    event = service._state_machine.broadcast.await_args.args[0]
-    assert event.connectivity == "full"
+    service._state_machine.publish_state.assert_awaited()
 
 
 async def test_a_degraded_level_is_never_second_guessed():
@@ -601,8 +593,7 @@ async def test_a_silent_grey_failure_is_caught_by_the_loop_alone():
         await service._periodic_check()
 
     assert service.level is ConnectivityLevel.LIMITED
-    event = service._state_machine.broadcast.await_args.args[0]
-    assert event.connectivity == "limited"
+    service._state_machine.publish_state.assert_awaited()
 
 
 async def test_a_held_downgrade_lifts_itself_when_ipv4_returns():
@@ -616,8 +607,7 @@ async def test_a_held_downgrade_lifts_itself_when_ipv4_returns():
     await service._periodic_check()  # autouse fixture: probe succeeds
 
     assert service.level is ConnectivityLevel.FULL
-    event = service._state_machine.broadcast.await_args.args[0]
-    assert event.connectivity == "full"
+    service._state_machine.publish_state.assert_awaited()
 
 
 async def test_the_loop_does_not_probe_while_nm_already_reports_a_problem():
@@ -690,8 +680,7 @@ async def test_recheck_re_evaluates_without_waiting_for_nm_to_speak():
         await service.recheck("link change")
 
     assert service.level is ConnectivityLevel.LIMITED
-    event = service._state_machine.broadcast.await_args.args[0]
-    assert event.connectivity == "limited"
+    service._state_machine.publish_state.assert_awaited()
 
 
 async def test_recheck_before_the_bus_is_up_is_a_no_op():
@@ -702,7 +691,7 @@ async def test_recheck_before_the_bus_is_up_is_a_no_op():
     await service.recheck("link change")
 
     assert service.level is ConnectivityLevel.UNKNOWN
-    service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_silence_alone_is_not_a_verdict():
@@ -726,7 +715,7 @@ async def test_silence_alone_is_not_a_verdict():
         for _ in range(INCONCLUSIVE_STRIKES - 1):
             await service._periodic_check()
             assert service.level is ConnectivityLevel.FULL
-            service._state_machine.broadcast.assert_not_awaited()
+            service._state_machine.publish_state.assert_not_awaited()
 
         await service._periodic_check()
 

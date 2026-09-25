@@ -40,7 +40,7 @@ from backend.tests.golden.harness import (
 from backend.tests.mpv_sim import MpvSim
 
 # CDROM_DRIVE_STATUS answers.
-NO_DISC, TRAY_OPEN, DRIVE_NOT_READY, DISC_OK = 1, 2, 3, 4
+TRAY_OPEN, DRIVE_NOT_READY, DISC_OK = 2, 3, 4
 
 LEAD_IN = 150
 # Longer than the old disc watcher's interval (2 s).
@@ -69,7 +69,7 @@ class CdWorld(WireReader):
         self.spinning = False        # a disc is in and not readable yet
         self.spin_announced = False  # the kernel has announced the spin
         self.status_asks = 0         # drive-status ioctls the source issued
-        self.probe_glitches = 0      # polls that answer an error once each
+        self.probe_glitches = 0      # drive-status ioctls that fail, once each
         self.eject_fails = False
         self.ejects: List[tuple] = []
         self.named = True            # MusicBrainz knows the disc
@@ -128,18 +128,10 @@ class CdWorld(WireReader):
                 self.running = False
 
         class Data:
-            """libdiscid, MusicBrainz and the archive; the old poller's probe."""
+            """libdiscid, MusicBrainz and the archive."""
 
             async def initialize(self) -> None:
                 return None
-
-            def probe_drive_and_disc(self):
-                if not world.drive:
-                    return False, -1
-                if world.probe_glitches:
-                    world.probe_glitches -= 1
-                    return True, -1
-                return True, world.status()
 
             async def read_disc(self):
                 if world.media != "audio" or world.spinning:
@@ -186,7 +178,7 @@ class CdWorld(WireReader):
             """udev's view of sr0 and the drive-status ioctl."""
 
             def __init__(self, device: str = "") -> None:
-                world.udev = self
+                pass
 
             def start(self, on_event):
                 from backend.sources.cd.drive import DriveEvent
@@ -202,6 +194,9 @@ class CdWorld(WireReader):
                 if world.spinning and not world.spin_announced:
                     world.spin_announced = True
                     world._announce("change", {})
+                if world.probe_glitches:
+                    world.probe_glitches -= 1
+                    return -1                # CdDrive.status: the ioctl failed
                 return world.status()
 
         async def sleep(delay: float, *a: Any, **k: Any) -> Any:

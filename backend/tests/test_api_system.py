@@ -98,24 +98,17 @@ def hostname_conflict():
 
 
 @pytest.fixture
-def connectivity():
-    service = Mock()
-    service.get_state = Mock(return_value={"connectivity": "online"})
-    return service
-
-
-@pytest.fixture
-def client(systemd, hostname_conflict, connectivity):
+def client(systemd, hostname_conflict):
     app = FastAPI()
     app.include_router(
-        create_system_router(systemd, hostname_conflict, connectivity),
+        create_system_router(systemd, hostname_conflict),
         prefix="/api/system",
     )
     return TestClient(app)
 
 
 @pytest.fixture
-def timeline(systemd, hostname_conflict, connectivity):
+def timeline(systemd, hostname_conflict):
     """A client that records when the response body left, against when the
     power action ran.
 
@@ -129,7 +122,7 @@ def timeline(systemd, hostname_conflict, connectivity):
 
     inner = FastAPI()
     inner.include_router(
-        create_system_router(systemd, hostname_conflict, connectivity),
+        create_system_router(systemd, hostname_conflict),
         prefix="/api/system",
     )
 
@@ -187,25 +180,22 @@ class TestPower:
 
 
 # =============================================================================
-# Hostname conflict + connectivity
+# Hostname conflict + audio card
 # =============================================================================
 
 class TestSystemStatus:
 
-    def test_status_merges_both_services_over_its_own_defaults(
-        self, client, hostname_conflict, connectivity
-    ):
-        """`systemStore` reads both keys off one response. A merge that drops
-        either one leaves the banner permanently at its default — no conflict,
-        connectivity unknown — which is exactly what a healthy unit looks like.
+    def test_status_merges_the_conflict_service_over_its_own_defaults(self, client):
+        """`systemStore` reads the conflict off this response. A merge that
+        drops it leaves the banner permanently at its default — no conflict —
+        which is exactly what a healthy unit looks like.
         """
         data = client.get("/api/system/status").json()["data"]
 
         assert data["hostname_conflict"] is True
-        assert data["connectivity"] == "online"
 
     def test_status_answers_without_the_optional_services(self, systemd):
-        """All three are injected optionally and a dev host has none of them.
+        """Both are injected optionally and a dev host has neither of them.
         Failing here would take the whole settings screen with it.
         """
         app = FastAPI()
@@ -215,7 +205,6 @@ class TestSystemStatus:
 
         assert data == {
             "hostname_conflict": False,
-            "connectivity": "unknown",
             "audio_card_missing": None,
         }
 

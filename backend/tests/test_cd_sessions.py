@@ -779,6 +779,7 @@ async def test_the_probe_can_find_a_disc_but_never_lose_one(world):
     await w.select()
     w.probe_glitches = 5
     await w.advance(10)
+    assert w.probe_glitches < 5, "the probe never asked the drive"
     assert w.availability() == "no_disc"
 
 

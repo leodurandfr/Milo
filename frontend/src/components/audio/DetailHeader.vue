@@ -23,13 +23,6 @@
       <div v-if="hasActions" class="detail-header-actions">
         <!-- Extra actions (e.g. the playlist Edit/Done toggle, or podcast Subscribe/Unsubscribe). -->
         <slot name="actions"></slot>
-        <IconButton
-          v-if="showFavorite"
-          :icon="isFavorite ? 'heart' : 'heartOff'"
-          variant="on-dark"
-          size="small"
-          @click="$emit('toggle-favorite')"
-        />
         <IconButton v-if="showShuffle" icon="shuffle" variant="on-dark" size="small"
           :aria-label="t('musicLibrary.shuffle')" @click="$emit('shuffle')" />
         <IconButton v-if="showPlay" icon="play" variant="brand" size="medium"
@@ -90,23 +83,15 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
-  showFavorite: {
-    type: Boolean,
-    default: false,
-  },
-  isFavorite: {
-    type: Boolean,
-    default: false,
-  },
 });
 
-defineEmits(['play', 'shuffle', 'toggle-favorite', 'select-artist']);
+defineEmits(['play', 'shuffle', 'select-artist']);
 
 const { t } = useI18n();
 const slots = useSlots();
 
 const hasActions = computed(
-  () => props.showPlay || props.showShuffle || props.showFavorite || !!slots.actions
+  () => props.showPlay || props.showShuffle || !!slots.actions
 );
 </script>
 

@@ -662,21 +662,12 @@ class TestLoadfile:
         assert "loadfile failed with error" in caplog.text
 
     async def test_it_re_attaches_before_loading(self, live_mpv):
-        """Like load_stream: a load is a play command, the one act that picks a
-        restarted mpv back up."""
+        """A load is a play command, the one act that picks a restarted mpv
+        back up."""
         controller, fake = live_mpv
         await fake.drop_peers()
 
         assert await controller.loadfile("http://example.test/a", mode="replace") is not None
-
-    async def test_it_scopes_the_hls_options_like_load_stream(self, live_mpv):
-        controller, fake = live_mpv
-
-        await controller.loadfile("https://example.test/live.m3u8", mode="replace")
-
-        cleared = _first(fake.received, "set_property")
-        assert fake.received[cleared] == ["set_property", "stream-lavf-o", ""]
-        assert cleared < _first(fake.received, "loadfile")
 
 
 class TestConnectBudget:
@@ -957,7 +948,7 @@ class TestLinkOwnership:
         await _settle()                         # no command issued, ever
 
         assert controller.is_connected is False
-        assert await controller.load_stream("http://example.test/s") is True
+        assert await controller.loadfile("http://example.test/s", mode="replace") is not None
         assert _first(restarted.received, "loadfile") >= 0
 
         await controller.disconnect()
@@ -990,7 +981,7 @@ class TestLinkOwnership:
         assert await controller.get_property("time-pos") is None    # link is down
         opened = restarted.connections
 
-        assert await controller.load_stream("http://example.test/s") is True
+        assert await controller.loadfile("http://example.test/s", mode="replace") is not None
 
         assert restarted.connections == opened + 1
 
@@ -1086,30 +1077,13 @@ class TestPropertyReads:
         assert await controller.get_metadata() == {}
 
 
-class TestWaitUntilAdvancing:
-    """A loaded file is not a moving playhead."""
-
-    async def test_it_waits_for_the_playhead_to_move(self, live_mpv):
-        controller, fake = live_mpv
-        fake.properties["time-pos"] = [0, 0, 2.5]
-
-        assert await controller.wait_until_advancing(timeout=2.0, poll_interval=0.01) is True
-        assert len(fake.received) >= 3
-
-    async def test_it_gives_up_on_a_stalled_source(self, live_mpv):
-        controller, fake = live_mpv
-        fake.properties["time-pos"] = 0
-
-        assert await controller.wait_until_advancing(timeout=0.2, poll_interval=0.01) is False
-
-
-class TestLoadStreamVerdicts:
-    """`load_stream` decides whether a station is playing."""
+class TestLoadVerdicts:
+    """`loadfile` answers with an entry only when mpv took the load."""
 
     async def test_a_down_link_with_no_mpv_is_refused(self, tmp_path):
         controller = MpvController(ipc_socket_path=str(tmp_path / "gone.sock"))
 
-        assert await controller.load_stream("http://example.invalid/s.mp3") is False
+        assert await controller.loadfile("http://example.invalid/s.mp3", mode="replace") is None
 
     async def test_the_link_is_re_attached_before_the_stream_options_are_sent(
         self, live_mpv
@@ -1121,7 +1095,7 @@ class TestLoadStreamVerdicts:
         await fake.drop_peers()
         fake.received.clear()
 
-        assert await controller.load_stream("https://example.invalid/live.m3u8") is True
+        assert await controller.loadfile("https://example.invalid/live.m3u8", mode="replace") is not None
 
         assert _first(fake.received, "set_property") >= 0
         assert _first(fake.received, "set_property") < _first(fake.received, "loadfile")
@@ -1129,37 +1103,29 @@ class TestLoadStreamVerdicts:
     async def test_a_loadfile_that_answers_nothing_is_a_failure(
         self, live_mpv, caplog, short_command_timeout
     ):
-        """Read as success, the source publishes ACTIVE over a station that
-        never loaded."""
+        """Read as success, the source waits on an entry id mpv never gave."""
         controller, fake = live_mpv
         fake.silent_on = {"loadfile"}
 
         with caplog.at_level(logging.INFO):
-            assert await controller.load_stream("http://example.invalid/s.mp3") is False
+            assert await controller.loadfile("http://example.invalid/s.mp3", mode="replace") is None
 
         assert "loadfile returned None" in caplog.text
 
-    async def test_a_real_mpv_error_is_a_failure_and_is_logged_loudly(
-        self, live_mpv, caplog
-    ):
-        """A dead stream URL is the station, not the appliance: the one arm that
-        logs at error."""
-        controller, fake = live_mpv
-        fake.fail_commands = {"loadfile"}
-
-        with caplog.at_level(logging.ERROR):
-            assert await controller.load_stream("http://example.invalid/s.mp3") is False
-
-        assert "loadfile failed with error" in caplog.text
-
     @pytest.mark.parametrize("error", [None, "null", "property unavailable"])
-    async def test_the_transient_errors_of_a_fast_station_change_still_succeed(
-        self, live_mpv, error
+    async def test_the_transient_errors_of_a_fast_station_change_stay_quiet(
+        self, live_mpv, caplog, error
     ):
+        """No entry, but not the station's fault either: logged below error, so
+        a quick station change raises no banner."""
         controller, fake = live_mpv
         fake.replies = {"loadfile": {"error": error}}
 
-        assert await controller.load_stream("http://example.invalid/s.mp3") is True
+        with caplog.at_level(logging.INFO):
+            assert await controller.loadfile("http://example.invalid/s.mp3", mode="replace") is None
+
+        assert "answered without an entry" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_the_query_string_never_reaches_the_log(self, live_mpv, caplog):
         """Navidrome's stream URL carries the Subsonic token and the salt that
@@ -1167,7 +1133,7 @@ class TestLoadStreamVerdicts:
         controller, fake = live_mpv
 
         with caplog.at_level(logging.INFO, logger="backend.shared.mpv"):
-            await controller.load_stream("http://nas.test/rest/stream?u=milo&t=abc&s=salt")
+            await controller.loadfile("http://nas.test/rest/stream?u=milo&t=abc&s=salt", mode="replace")
 
         assert "t=abc" not in caplog.text
         assert "/rest/stream" in caplog.text
@@ -1179,7 +1145,7 @@ class TestStreamOptions:
     async def test_an_hls_url_has_the_reconnect_options_cleared(self, live_mpv):
         controller, fake = live_mpv
 
-        await controller.load_stream("https://example.invalid/live.m3u8?token=1")
+        await controller.loadfile("https://example.invalid/live.m3u8?token=1", mode="replace")
 
         sets = [f for f in fake.received if f[:2] == ["set_property", "stream-lavf-o"]]
         assert sets == [["set_property", "stream-lavf-o", ""]]
@@ -1194,7 +1160,7 @@ class TestStreamOptions:
         await controller.connect(timeout=2.0, retry_delay=0.1)
         fake.received.clear()
 
-        await controller.load_stream("http://example.invalid/icecast.mp3")
+        await controller.loadfile("http://example.invalid/icecast.mp3", mode="replace")
 
         sets = [f for f in fake.received if f[:2] == ["set_property", "stream-lavf-o"]]
         assert sets == [["set_property", "stream-lavf-o", {"reconnect": "1"}]]

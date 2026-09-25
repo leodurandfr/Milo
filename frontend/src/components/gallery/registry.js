@@ -589,7 +589,6 @@ export const REGISTRY = {
       title: 'Spaces',
       subtitle: 'Nils Frahm',
       subtitleMeta: '2013 · 17 tracks · 1 h 21',
-      showFavorite: true,
       class: 'canvas-column'
     },
     // `icon` swaps the cover for a tinted tile — the virtual headers (Liked
@@ -613,7 +612,6 @@ export const REGISTRY = {
       visible: true,
       artwork: musicPlaceholder,
       title: 'Says',
-      isPlaying: true,
       swipeEnabled: true,
       currentIndex: 1
     },
@@ -780,14 +778,14 @@ export const REGISTRY = {
       // work" looks like, so the select must be able to go back to it.
       unavailableReason: { kind: 'enum', options: [null, ...UNAVAILABLE_REASONS] }
     },
-    // Only read while a session is live (loading, playing, paused, connected),
-    // and the array is the ROC case: several Macs streaming at once, which
+    // Only read while a session is live (loading, playing, paused, connected);
+    // two senders is the ROC case: several Macs streaming at once, which
     // formatDeviceNames joins across two lines.
     presets: {
       deviceName: {
-        'One sender': 'Leo’s iPhone',
+        'One sender': ['Leo’s iPhone'],
         'Two senders (ROC)': ['Leo’s MacBook', 'Studio iMac'],
-        none: ''
+        none: []
       }
     }
   },

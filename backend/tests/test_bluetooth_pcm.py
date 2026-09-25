@@ -155,7 +155,6 @@ class TestFeedDeath:
 
         assert "connection refused" in caplog.text
         assert "exit=1" in caplog.text
-        assert monitor.alive is False
 
     @pytest.mark.asyncio
     async def test_eof_reaches_the_source(self, monitor):

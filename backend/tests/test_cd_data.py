@@ -713,4 +713,3 @@ class TestTheDiscCacheOnDisk:
 
         await service.initialize()
         assert covers.is_dir()
-        assert service._loaded is True

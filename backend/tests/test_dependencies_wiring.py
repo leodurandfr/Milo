@@ -524,16 +524,3 @@ class TestRotaryCreator:
             assert deps._create_rotary_controller() is None
 
         assert "DAC mode: rotary encoder disabled" in caplog.text
-
-
-class TestConstantLookup:
-    """`_const` — the indirection the Mac source's config is built from."""
-
-    def test_a_constant_is_read_from_the_shared_module(self):
-        """The three ROC ports and the ALSA output are declared once, in
-        `config/constants.py`, and the Mac unit's env file is derived from the
-        same names. A creator that inlined them would drift from the unit."""
-        from backend.config import constants
-
-        assert deps._const("MAC_RTP_PORT") == constants.MAC_RTP_PORT
-        assert deps._const("MAC_AUDIO_OUTPUT") == constants.MAC_AUDIO_OUTPUT

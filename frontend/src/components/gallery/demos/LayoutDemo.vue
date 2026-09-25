@@ -3,7 +3,7 @@
   <GalleryItem id="AudioPlayer">
     <GalleryVariant label="desktop — the docked sidebar card, slots filled as the three sources fill them" contain :contain-height="420">
       <div class="player-pane">
-        <AudioPlayer source="music_library" visible :artwork="musicPlaceholder" title="Says" is-playing>
+        <AudioPlayer source="music_library" visible :artwork="musicPlaceholder" title="Says">
           <template #info>
             <PlayerInfoText kicker="Liked Songs" title="Says" secondary="Nils Frahm" />
           </template>
@@ -14,23 +14,14 @@
         </AudioPlayer>
       </div>
     </GalleryVariant>
-    <GalleryVariant label="controls slot — replaces the built-in play/pause" contain :contain-height="420">
+    <GalleryVariant label="controls slot — each source fills it with its own row" contain :contain-height="420">
       <div class="player-pane">
-        <AudioPlayer source="radio" visible :artwork="musicPlaceholder" title="Radio Nova" is-playing>
+        <AudioPlayer source="radio" visible :artwork="musicPlaceholder" title="Radio Nova">
           <template #info>
             <PlayerInfoText kicker="Radio Nova" title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
           </template>
           <template #controls>
             <PlaybackControls is-playing />
-          </template>
-        </AudioPlayer>
-      </div>
-    </GalleryVariant>
-    <GalleryVariant label=":is-loading — the built-in play/pause spins" contain :contain-height="420">
-      <div class="player-pane">
-        <AudioPlayer source="podcast" visible :artwork="musicPlaceholder" title="Épisode 214" is-loading>
-          <template #info>
-            <PlayerInfoText kicker="Le Code a changé" title="Épisode 214" secondary="France Inter" />
           </template>
         </AudioPlayer>
       </div>
@@ -92,8 +83,8 @@
       <AudioSourceStatus source-type="bluetooth" display-state="ready" />
       <AudioSourceStatus source-type="cd" display-state="ready" />
     </GalleryVariant>
-    <GalleryVariant label=":display-state=&quot;connected&quot; + :device-name — a string, or an array for ROC">
-      <AudioSourceStatus source-type="bluetooth" display-state="connected" device-name="Leo’s iPhone" />
+    <GalleryVariant label=":display-state=&quot;connected&quot; + :device-name — one sender, or several for ROC">
+      <AudioSourceStatus source-type="bluetooth" display-state="connected" :device-name="['Leo’s iPhone']" />
       <AudioSourceStatus source-type="mac" display-state="connected"
         :device-name="['Leo’s MacBook', 'Studio iMac']" />
     </GalleryVariant>
@@ -104,7 +95,7 @@
     </GalleryVariant>
     <GalleryVariant label="the five CTAs — retry, Bluetooth disconnect, Qobuz connect, eject, network settings">
       <AudioSourceStatus source-type="spotify" display-state="error" @retry="log = 'retry'" />
-      <AudioSourceStatus source-type="bluetooth" display-state="connected" device-name="Leo’s iPhone"
+      <AudioSourceStatus source-type="bluetooth" display-state="connected" :device-name="['Leo’s iPhone']"
         @disconnect="log = 'disconnect'" />
       <AudioSourceStatus source-type="qobuz" display-state="ready" unavailable-reason="no_account"
         @connect="log = 'connect'" />
@@ -116,7 +107,7 @@
     <GalleryVariant label=":unavailable-reason — the prerequisite outranks the state it replaces">
       <AudioSourceStatus source-type="airplay" display-state="ready" unavailable-reason="no_network"
         @open-network-settings="log = 'network-settings'" />
-      <AudioSourceStatus source-type="airplay" display-state="connected" device-name="Leo’s iPhone"
+      <AudioSourceStatus source-type="airplay" display-state="connected" :device-name="['Leo’s iPhone']"
         unavailable-reason="no_network" @open-network-settings="log = 'network-settings'" />
       <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="no_drive" />
       <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="no_disc" />

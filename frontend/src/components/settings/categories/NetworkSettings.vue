@@ -133,8 +133,6 @@ import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
-import { apiCall } from '@/services/apiCall';
-import { logger } from '@/services/logger';
 
 const { t } = useI18n();
 const timer = useTimer();

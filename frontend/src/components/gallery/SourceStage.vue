@@ -81,8 +81,6 @@
               :artwork="playerArtwork"
               :fallback-name="playerFallbackName"
               :title="playerTitle"
-              :is-playing="!!player.isPlaying"
-              :is-loading="!!player.isLoading"
               :swipe-enabled="page.source !== 'radio'"
               :tracks="player.tracks || []"
               :current-index="player.currentIndex ?? -1"
