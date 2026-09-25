@@ -47,7 +47,7 @@ const props = defineProps({
   valueUnit: { type: String, default: '' }
 });
 
-const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
+const emit = defineEmits(['update:modelValue', 'change']);
 
 const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
@@ -104,7 +104,7 @@ function roundToStep(value) {
   return Math.round(value / props.step) * props.step;
 }
 
-function updateValues(newMin, newMax, triggerInput = true) {
+function updateValues(newMin, newMax) {
   newMin = clamp(roundToStep(newMin), props.min, props.max);
   newMax = clamp(roundToStep(newMax), props.min, props.max);
   
@@ -120,9 +120,6 @@ function updateValues(newMin, newMax, triggerInput = true) {
   
   if (newValue.min !== props.modelValue.min || newValue.max !== props.modelValue.max) {
     emit('update:modelValue', newValue);
-    if (triggerInput) {
-      emit('input', newValue);
-    }
   }
 }
 
@@ -160,10 +157,8 @@ function startDrag(event, type) {
   
   if (type === 'min') {
     isDraggingMin.value = true;
-    emit('drag-start', 'min');
   } else {
     isDraggingMax.value = true;
-    emit('drag-start', 'max');
   }
   
   document.addEventListener('pointermove', handleDrag);
@@ -185,9 +180,9 @@ function handleDrag(event) {
   const value = props.min + (percentage * (props.max - props.min));
   
   if (dragType === 'min') {
-    updateValues(value, props.modelValue.max, true);
+    updateValues(value, props.modelValue.max);
   } else {
-    updateValues(props.modelValue.min, value, true);
+    updateValues(props.modelValue.min, value);
   }
 }
 
@@ -198,12 +193,6 @@ function stopDrag() {
   isDraggingMin.value = false;
   isDraggingMax.value = false;
   dragType = null;
-
-  if (wasMin) {
-    emit('drag-end', 'min');
-  } else if (wasMax) {
-    emit('drag-end', 'max');
-  }
 
   if (wasMin || wasMax) {
     emit('change', { min: props.modelValue.min, max: props.modelValue.max });
@@ -224,7 +213,7 @@ function updateSizes() {
 }
 
 onMounted(() => {
-  updateValues(props.modelValue.min, props.modelValue.max, false);
+  updateValues(props.modelValue.min, props.modelValue.max);
   updateSizes();
   resizeObserver = new ResizeObserver(updateSizes);
   if (track.value) resizeObserver.observe(track.value);

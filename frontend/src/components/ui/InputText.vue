@@ -51,7 +51,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'focus', 'blur', 'submit']);
+const emit = defineEmits(['update:modelValue', 'blur', 'submit']);
 
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
@@ -103,8 +103,6 @@ function handleFocus(event) {
     event.target.blur();
     openKeyboard();
   }
-
-  emit('focus', event);
 }
 
 function handleBlur(event) {

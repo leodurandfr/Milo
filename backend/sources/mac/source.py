@@ -100,8 +100,6 @@ class MacSource(BaseAudioSource):
             config=config
         )
 
-        self.network_interface = self._config.get("network_interface")
-
         self._journal_task: Optional[asyncio.Task] = None
         # Streams heard arriving whose Mac is being named; one that ends
         # meanwhile is dropped from it, and its answer with it.
@@ -272,7 +270,7 @@ class MacSource(BaseAudioSource):
         or roc-recv's death must not wait behind it."""
         ip = address[0]
         try:
-            name = await resolve_sender_name(ip, self.network_interface)
+            name = await resolve_sender_name(ip)
         except Exception as e:
             self._logger.warning(f"Could not name {ip}: {e}")
             name = ip

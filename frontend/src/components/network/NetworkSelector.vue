@@ -82,7 +82,8 @@ const props = defineProps({
   showCountry: { type: Boolean, default: true },
   showLabel: { type: Boolean, default: true },
   // Action triggered when user presses Enter in the password field.
-  // 'connect' → live connect to wifi, 'save' → just persist the profile, null → emit `submit` to parent.
+  // 'connect' → live connect to wifi, 'save' → just persist the profile, null → nothing
+  // (the parent acts on `update:wifi` with its own button).
   submitAction: {
     type: String,
     default: null,
@@ -94,7 +95,7 @@ const props = defineProps({
   showConnectError: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(['update:wifi', 'submit']);
+const emit = defineEmits(['update:wifi']);
 
 const {
   networks,
@@ -122,8 +123,6 @@ function onPasswordSubmit(network) {
     connectToNetwork(network, t);
   } else if (props.submitAction === 'save') {
     saveNetwork(network, t);
-  } else {
-    emit('submit', network);
   }
 }
 

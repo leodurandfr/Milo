@@ -43,8 +43,8 @@ def lan(monkeypatch):
     fake.release()
 
 
-async def resolving(lan: FakeMdns, ip: str, interface=None) -> asyncio.Future:
-    naming = asyncio.ensure_future(resolve_sender_name(ip, interface))
+async def resolving(lan: FakeMdns, ip: str) -> asyncio.Future:
+    naming = asyncio.ensure_future(resolve_sender_name(ip))
     await settle()
     return naming
 
@@ -107,11 +107,12 @@ async def test_an_address_that_is_not_an_ip_never_reaches_the_network(lan):
     assert lan.remotes == []
 
 
-async def test_a_link_local_v6_sender_is_asked_on_its_interface(lan):
-    """A link-local address is unroutable without its scope; the reverse PTR
-    of a v6 sender lives under ip6.arpa."""
-    naming = await resolving(lan, "fe80::1c2", "eth0")
-    assert lan.remotes == [("fe80::1c2%eth0", 5353)]
+async def test_a_link_local_v6_sender_is_asked_on_its_scope(lan):
+    """roc-recv logs a link-local sender with its scope, the one thing that
+    routes it; the reverse PTR of a v6 sender lives under ip6.arpa, and the
+    address shown when nothing answers drops the scope, an interface index."""
+    naming = await resolving(lan, "fe80::1c2%1")
+    assert lan.remotes == [("fe80::1c2%1", 5353)]
     reverse = lan.queries[0][1][0][0]
     assert reverse.endswith(".ip6.arpa") and reverse.startswith("2.c.1.0.")
     lan.time_passes(1.0)

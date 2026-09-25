@@ -158,12 +158,16 @@ async def test_a_disc_with_no_audio_track_is_reported(world):
 
 async def test_a_drive_status_glitch_does_not_stop_the_disc(world):
     """E37: one drive-status probe answering an error counted as the disc
-    being removed: playback stopped and the album started again at track 1."""
+    being removed: playback stopped and the album started again at track 1.
+    It cannot come back while a disc plays because nothing asks the drive
+    then — udev says when the disc leaves — so that is what is pinned."""
     w = await world()
     await _playing_track(w, 2, 30)
     w.probe_glitches = 1
+    asks = w.status_asks
     await w.advance(4.5)
 
+    assert w.status_asks == asks, "the drive was polled under a playing disc"
     assert w.playing()
     assert w.track() == 2
 

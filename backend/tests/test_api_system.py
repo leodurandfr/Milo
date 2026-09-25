@@ -195,7 +195,7 @@ class TestSystemStatus:
         assert data["hostname_conflict"] is True
 
     def test_status_answers_without_the_optional_services(self, systemd):
-        """Both are injected optionally and a dev host has neither of them.
+        """All three are injected optionally and a dev host has none of them.
         Failing here would take the whole settings screen with it.
         """
         app = FastAPI()

@@ -337,28 +337,27 @@ async def _exchange(transport, replies: _Replies, reverse: str, records: List[Re
         records.extend(await _ask(transport, replies, [(s, PTR) for s in others]))
 
 
-async def resolve_sender_name(ip: str, interface: Optional[str] = None) -> str:
+async def resolve_sender_name(ip: str) -> str:
     """The name to show for the sender streaming from `ip`: a device-level
     instance name, else its presentable hostname, else the address itself —
-    within RESOLVE_BOUND_S whatever answers."""
+    within RESOLVE_BOUND_S whatever answers. A link-local `ip` carries its
+    scope (roc-recv logs `fe80::1%1`), which routes the query and is never
+    shown."""
+    shown = ip.split('%', 1)[0]
     try:
-        address = ipaddress.ip_address(ip.split('%', 1)[0])
+        address = ipaddress.ip_address(shown)
     except ValueError:
         logger.debug("Not an address, left as it is: %s", ip)
         return ip
-    target = ip
-    if address.version == 6 and address.is_link_local and '%' not in ip and interface:
-        # A link-local address is unroutable without its interface.
-        target = f"{ip}%{interface}"
     reverse = address.reverse_pointer
 
     try:
         transport, replies = await asyncio.get_running_loop().create_datagram_endpoint(
-            _Replies, remote_addr=(target, MDNS_PORT),
+            _Replies, remote_addr=(ip, MDNS_PORT),
         )
     except OSError as e:
         logger.warning("Cannot ask %s for its name: %s", ip, e)
-        return ip
+        return shown
 
     records: List[Record] = []
     exchange = asyncio.ensure_future(_exchange(transport, replies, reverse, records))
@@ -377,4 +376,4 @@ async def resolve_sender_name(ip: str, interface: Optional[str] = None) -> str:
     name = sender_name(records, reverse)
     if name is None:
         logger.debug("Nothing named %s: shown by its address", ip)
-    return name or ip
+    return name or shown
