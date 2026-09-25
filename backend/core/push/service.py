@@ -7,11 +7,13 @@ notify. `on_event` is synchronous and does nothing but mark the state dirty:
 a slow or unreachable APNs must never delay the WebSocket broadcast the UI
 depends on.
 
-There is a second way in, and only one: `align_session_to_playback`, called by
-the device's own report of the sessions it holds. It emits nothing on its own —
-it opens or closes the session when the bus, which ticks on events rather than
-on the absence of them, has left the two out of step. Read its docstring before
-adding a third entry point.
+There is a second way in: `align_session_to_playback`, called by the device's
+own report of the sessions it holds. It emits nothing on its own — it opens or
+closes the session when the bus, which ticks on events rather than on the
+absence of them, has left the two out of step. Read its docstring before adding
+another entry point. The only other one decides nothing:
+`session_token_registered` stirs the loop like a bus event, because what waits
+on a session token has no event of its own to wait for.
 
 **Throughput is the real hazard of pushing from an appliance.** APNs is not a
 WebSocket. Apple throttles frequent pushes and an abused budget degrades
@@ -98,6 +100,10 @@ START_REPORT_GRACE_S = 60.0
 # That is what every other player does, and it is the side of the trade whose
 # failure is merely untidy rather than a feature that stops working.
 #
+# Counted from the end of playback, and never restarted by choosing another
+# source: it was, for a day, and chaining sources kept a card of greyed-out
+# buttons up for as long as one kept choosing (owner, 2026-09-26).
+#
 # It does not apply to `none`: leaving the source ends the card at once (see
 # `_leaves_milo`). A source change never passes through `none`, so the gaps
 # this delay exists for are never cut short by it.
@@ -111,6 +117,15 @@ SESSION_IDLE_GRACE_S = 300.0
 # otherwise spend a push every half minute for ever.
 END_RETRY_S = 30.0
 END_ATTEMPTS = 5
+
+# How long an ended session waits for a token its `end` can go to — one ended
+# before the extension registered any, `none` chosen seconds after a `start`.
+# Registering a session token stirs this side (`session_token_registered`), so
+# the `end` leaves as soon as the token lands. Bounded like the retries: a
+# token that never comes is a card this side cannot reach, and the app reaches
+# it itself when it next runs — it reports the session, and it is adopted and
+# ended then.
+END_TOKEN_WAIT_S = 300.0
 
 
 class PushService:
@@ -147,11 +162,10 @@ class PushService:
         # The card last sent while nothing plays, so an idle cycle that changes
         # nothing spends no push — see `_publish_paused`.
         self._idle_card: Optional[Dict[str, Any]] = None
-        # The source the idle clock runs under: choosing another restarts it.
-        self._idle_source: Optional[str] = None
         # Ended sessions whose `end` some device has not taken yet: session id
-        # -> (attempts so far, earliest next try). See `_send_end`.
-        self._pending_ends: Dict[str, Tuple[int, float]] = {}
+        # -> (attempts so far, earliest next try, when to give up waiting for a
+        # token). See `_send_end`.
+        self._pending_ends: Dict[str, Tuple[int, float, float]] = {}
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -181,6 +195,17 @@ class PushService:
             if isinstance(event, SourcePosition):
                 self._seeked = True
             self._dirty.set()
+
+    def session_token_registered(self) -> None:
+        """A device registered a session token: act on it now.
+
+        Called by `POST /api/push/tokens`. What waits on a token — the `end` of
+        a session that ended before its token landed (`_send_end`), the first
+        `update` of one that had none — would otherwise wait for something
+        unrelated to stir the bus, and while nothing plays, nothing does.
+        Synchronous and free of I/O, like `on_event`.
+        """
+        self._dirty.set()
 
     # =========================================================================
     # THE DEVICE'S REPORT SEAM
@@ -334,18 +359,15 @@ class PushService:
         """
         async with self._session_lock:
             await self._retry_pending_ends()
+            # The session the phone holds, whoever opened it, on every cycle —
+            # as the report seam does. Idle too: after a restart of this side
+            # it is the only way `none` or the grace reaches the card still up.
+            self._adopt_reported_session()
             if not self._has_active_source(state):
-                # The session the phone holds, whoever opened it — after a
-                # restart of this side too — or `none` and the grace could only
-                # end a session this side already tracked.
-                if self._session_id is None:
-                    self._adopt_reported_session()
                 await self._consider_ending(state)
                 return
 
             self._idle_since = 0.0
-            self._idle_source = None
-            self._adopt_reported_session()
 
             if self._session_id is None:
                 await self._start_session(state)
@@ -373,32 +395,33 @@ class PushService:
         happened; without waking ourselves, a session would linger until
         something unrelated happened to stir the bus.
 
-        Nothing shortens the grace, not even a report from the running app: see
-        `align_session_to_playback`. The clock starts at the first idle cycle,
-        and only choosing another source restarts it: someone just asked for
-        that source, and its card gets five minutes from then.
+        On a quiet source nothing shortens the grace, not even a report from the
+        running app (see `align_session_to_playback`), and nothing lengthens
+        it: it counts from
+        the first idle cycle after playback. Choosing another source shows that
+        source's card for what is left of it, and no more (see
+        `SESSION_IDLE_GRACE_S`).
 
-        `none` ends the card at once (`_leaves_milo`) — when the card can be
-        reached. A session whose token has not landed yet has nothing an `end`
-        could go to: it takes the grace like any quiet source, so
-        `_publish_paused` keeps re-announcing its `start` until the token
-        lands, and the grace ends it. Ending it on the spot forgot a card still
-        showing "playing" with nobody left to close it.
+        `none` ends the card at once (`_leaves_milo`), whether or not its token
+        has landed: an `end` with nowhere to go yet waits for one in
+        `_pending_ends`. Riding out the grace instead, re-announcing the
+        `start`, drew a card on `none` — the Milō card dropped on 2026-09-25 —
+        and nothing woke this side to do it anyway.
         """
         if self._session_id is None:
             return
         if state.get("switching"):
             return
-        if self._leaves_milo(state) and self._registry.tokens_for_session(self._session_id):
+        if self._leaves_milo(state):
             await self._end_session()
             return
 
         now = time.time()
-        source = str(state.get("source") or "none")
-        chosen = source != "none" and source != self._idle_source
-        self._idle_source = source
-        if self._idle_since == 0.0 or chosen:
-            self._arm_idle_grace(source)
+        if self._idle_since == 0.0:
+            self._idle_since = now
+            # What the phone shows now is playback's card, not an idle one.
+            self._idle_card = None
+            self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
         elif now - self._idle_since >= SESSION_IDLE_GRACE_S:
             await self._end_session()
             return
@@ -407,12 +430,12 @@ class PushService:
 
     @staticmethod
     def _leaves_milo(state: Dict[str, Any]) -> bool:
-        """Was the source left — `none` selected, and no switch in flight?
+        """Was the source left — `none` selected?
 
-        That ends the card at once, from either seam — `_consider_ending`
-        serves both — without the grace, when it can be reached. For a
-        day (2026-09-25) `none` showed Milō's own card for five minutes; the
-        owner dropped it the same evening. Nothing on it could be pressed —
+        Asked by `_consider_ending`, which serves both seams and has already
+        stood aside during a switch. It ends the card at once, without the
+        grace. For a day (2026-09-25) `none` showed Milō's own card for five
+        minutes; the owner dropped it the same evening. Nothing on it could be pressed —
         `none` offers no command — and a card left on the Lock Screen after
         everything was stopped read as Milō still offering something to play,
         which is what he had asked to be rid of on 2026-09-22.
@@ -426,18 +449,7 @@ class PushService:
         would become indistinguishable here and the card would blink on every
         switch.
         """
-        return str(state.get("source") or "none") == "none" and not state.get("switching")
-
-    def _arm_idle_grace(self, source: str) -> None:
-        """Start the idle clock under `source`: the card has five minutes from now.
-
-        The idle card last sent is forgotten with it: playback, or another
-        source, has replaced what the phone shows since.
-        """
-        self._idle_since = time.time()
-        self._idle_source = source
-        self._idle_card = None
-        self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
+        return str(state.get("source") or "none") == "none"
 
     async def _publish_paused(self, state: Dict[str, Any]) -> None:
         """Say the music stopped, without saying the session did.
@@ -470,9 +482,10 @@ class PushService:
         foreground, so it cannot ask to be system primary, and nothing comes
         back until the app is relaunched. See `_consider_ending`.
 
-        **No token yet: knock again**, exactly as `_update_session` does and
+        **No token yet: knock again** (`_knock`), as `_update_session` does and
         for its reason — only a woken extension can register one, and only a
-        `start` wakes it without a token. A session that goes quiet before its
+        `start` wakes it without a token — unless the phone rebooted and the
+        session died with it. A session that goes quiet before its
         token has landed lives on this path, so without the knock a missed
         registration left it with no `update` and, at the end of the grace,
         no `end` to reach it.
@@ -481,7 +494,7 @@ class PushService:
             return
         targets = self._registry.tokens_for_session(self._session_id)
         if not targets:
-            await self._renew_start(state)
+            await self._knock(state)
             return
 
         attributes = await self._build_attributes(self._session_id, state)
@@ -536,9 +549,17 @@ class PushService:
           second round trip to come back, and without this window every start
           would be overwritten by the previous session's leftover token before
           the device had a chance to answer.
+
+        And a session this side ended is never followed back while its `end`
+        is still owed (`_pending_ends`) — even registered again after the
+        ending, which the app does on every launch, and which the first guard
+        cannot tell apart from a new session. Following it re-opened, with an
+        `update` or a re-announced `start`, the card that was being closed.
         """
         newest = self._registry.newest_session_token()
         if newest is None or newest.session_id == self._session_id:
+            return
+        if newest.session_id in self._pending_ends:
             return
 
         if newest.registered_at < self._session_cleared_at:
@@ -578,22 +599,14 @@ class PushService:
             self._session_id = session_id
             self._session_started_at = time.time()
             self._session_renewed_at = 0.0
+            self._bg.spawn(self._wake_if_tokenless(session_id), label="token-wait")
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
         targets = self._registry.tokens_for_session(self._session_id)
         if not targets:
-            if self._registry.was_lost_to_reboot(self._session_id):
-                logger.info(
-                    f"Now Playing session {self._session_id} died with the phone "
-                    "that held it — starting a new one"
-                )
-                self._session_id = None
-                self._session_started_at = 0.0
-                self._session_cleared_at = time.time()
-                return
-
-            # No token yet. Keep the session, and knock again.
+            # No token yet. Keep the session, and knock again — unless the
+            # phone that held it rebooted, and the session died with it.
             #
             # Dropping it is wrong — that was tried, and it turned a late
             # registration into a second, rival session: `8a3983dc` abandoned at
@@ -626,13 +639,46 @@ class PushService:
             # session id is what makes it a retry rather than a second session —
             # the phone rebuilds that session, and this service keeps addressing
             # the one it already knows.
-            await self._renew_start(state)
+            await self._knock(state)
             return
         payload = now_playing_payload(
             "update", self._session_id,
             await self._build_attributes(self._session_id, state),
         )
         await self._send_all(targets, payload, "nowplaying")
+
+    async def _knock(self, state: Dict[str, Any]) -> None:
+        """No token yet for the session held: let it go if the phone that held
+        it rebooted — the session died with it — else re-announce it.
+
+        Shared by the playing path (`_update_session`, whose comment says why
+        both) and the quiet one (`_publish_paused`). Never reached on `none`,
+        which ends the session instead: a `start` there would draw a card.
+        """
+        if self._registry.was_lost_to_reboot(self._session_id):
+            logger.info(
+                f"Now Playing session {self._session_id} died with the phone "
+                "that held it — let go"
+            )
+            self._session_id = None
+            self._session_started_at = 0.0
+            self._session_cleared_at = time.time()
+            return
+        await self._renew_start(state)
+
+    async def _wake_if_tokenless(self, session_id: str) -> None:
+        """Stir the coalescer once a re-announcement is due, if still needed.
+
+        The knock only happens on a cycle, and while nothing plays nothing
+        makes one: without this, a session whose token never landed was never
+        re-announced, and the grace ended it with no token to send the `end`
+        to. Nothing is stirred once the token has landed — that is
+        `session_token_registered`'s — so a start that goes well costs no
+        extra cycle.
+        """
+        await asyncio.sleep(START_REPORT_GRACE_S + 1)
+        if session_id == self._session_id and not self._registry.tokens_for_session(session_id):
+            self._dirty.set()
 
     async def _renew_start(self, state: Dict[str, Any]) -> None:
         """Re-send `start` for the session we hold, to shake a token loose.
@@ -658,6 +704,7 @@ class PushService:
             await self._build_attributes(self._session_id, state),
         )
         if await self._send_all(targets, payload, "nowplaying"):
+            self._bg.spawn(self._wake_if_tokenless(self._session_id), label="token-wait")
             logger.info(
                 f"Now Playing session {self._session_id} re-announced — still no "
                 "token for it"
@@ -672,16 +719,15 @@ class PushService:
         made `_adopt_reported_session` able to follow a session that no longer
         existed.
 
-        The session is forgotten at once, whatever Apple answers: the next
-        playback opens a new one for every device.
-        Delivering its `end` is `_send_end`'s business, apart from it.
+        The session is forgotten at once, whatever Apple answers and whether or
+        not its token has landed: the next playback opens a new one for every
+        device. Delivering its `end` is `_send_end`'s business, apart from it.
         """
         session_id, self._session_id = self._session_id, None
         self._session_started_at = 0.0
         self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()
         self._idle_since = 0.0
-        self._idle_source = None
         if session_id:
             await self._send_end(session_id, attempts=0)
         logger.info(f"Now Playing session {session_id} ended")
@@ -698,15 +744,34 @@ class PushService:
         app's report every couple of seconds included — and let go after
         `END_ATTEMPTS`.
 
+        **A session ended before any token landed waits for one**, up to
+        `END_TOKEN_WAIT_S`: `none` chosen seconds after a `start`, while the
+        extension's registration is still on its way. Registering stirs this
+        side (`session_token_registered`), and the next cycle sends the `end`.
+
         Kept apart from `_session_id` on purpose: a session held open for its
         `end` would carry on for the devices that refused it and not for the
-        ones that took it, and adopting a newer session would have dropped the
-        pending `end`. `_adopt_reported_session` cannot follow the waiting
-        token back: it was registered before `_session_cleared_at`.
+        ones that took it. `_adopt_reported_session` does not follow a pending
+        session back, even registered again.
         """
+        now = time.time()
+        first_wait = session_id not in self._pending_ends
+        _, _, give_up_at = self._pending_ends.get(
+            session_id, (0, 0.0, now + END_TOKEN_WAIT_S)
+        )
         targets = self._registry.tokens_for_session(session_id)
         if not targets:
+            if attempts == 0 and now < give_up_at:
+                self._pending_ends[session_id] = (0, 0.0, give_up_at)
+                if first_wait:
+                    self._bg.spawn(self._wake_after(END_TOKEN_WAIT_S), label="end-token-wait")
+                return
             self._pending_ends.pop(session_id, None)
+            if attempts == 0:
+                logger.warning(
+                    f"Now Playing session {session_id} ended before any token "
+                    "landed — no end could reach its card"
+                )
             return
         delivered, dead = await self._deliver(
             targets, now_playing_payload("end", session_id), "nowplaying"
@@ -717,7 +782,7 @@ class PushService:
 
         attempts += 1
         if waiting and attempts < END_ATTEMPTS:
-            self._pending_ends[session_id] = (attempts, time.time() + END_RETRY_S)
+            self._pending_ends[session_id] = (attempts, now + END_RETRY_S, give_up_at)
             self._bg.spawn(self._wake_after(END_RETRY_S), label="end-retry")
             logger.warning(
                 f"Now Playing session {session_id}: end refused for "
@@ -738,7 +803,7 @@ class PushService:
     async def _retry_pending_ends(self) -> None:
         """Send again the `end`s whose wait is over. See `_send_end`."""
         now = time.time()
-        for session_id, (attempts, not_before) in list(self._pending_ends.items()):
+        for session_id, (attempts, not_before, _) in list(self._pending_ends.items()):
             if now >= not_before:
                 await self._send_end(session_id, attempts)
 

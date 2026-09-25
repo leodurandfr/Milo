@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from backend.api.models import PushLiveSessionsRequest, PushTokenRegisterRequest
 from backend.api.responses import StatusResponse
 from backend.api.route_helpers import api_error_handler
+from backend.core.push.models import PushTokenKind
 
 if TYPE_CHECKING:
     from backend.core.push.service import PushService
@@ -55,6 +56,10 @@ def create_push_router(
                 session_id=request.session_id,
                 boot_time=request.boot_time,
             )
+            # What waits on a session token — an `end`, a first `update` —
+            # goes out now rather than at the next bus event.
+            if request.kind is PushTokenKind.SESSION:
+                push_service.session_token_registered()
             return {"status": "success"}
 
     @router.post("/sessions", response_model=StatusResponse)

@@ -49,8 +49,8 @@ SOURCE_CARDS: Dict[str, Tuple[str, str]] = {
     "music_library": ("Bibliothèque", "music-library"),
     "cd": ("Lecteur CD", "cd"),
 }
-# A source this table does not know yet — and `none`, in the one case a card
-# is still sent for it: see `source_card`.
+# A source this table does not know yet — and `none`, though Milō never sends
+# a card for it: see `source_card`.
 MILO_CARD: Tuple[str, str] = ("Milō", "milo")
 
 
@@ -90,8 +90,9 @@ def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 def source_card(state: Dict[str, Any]) -> Dict[str, Any]:
     """The card when `shown_track` has nothing: the selected source's name and
     icon, and who is sending, when someone is. Milō's for a source the table
-    does not know — and for `none`, drawn only by a `start` re-sent to a
-    session whose token has not landed (see `PushService._consider_ending`).
+    does not know. Never sent for `none`: the push service ends the session
+    there (`PushService._consider_ending`), and only the app draws this card,
+    for the moment before the `end` arrives.
 
     Every idle state draws something, so a session is never shown empty; it
     is ended instead — at once on `none`, after `SESSION_IDLE_GRACE_S`

@@ -11,7 +11,7 @@ import json
 import time
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -397,6 +397,7 @@ class TestRoutes:
     def mock_service(self):
         service = AsyncMock()
         service.align_session_to_playback = AsyncMock(return_value=None)
+        service.session_token_registered = MagicMock()
         return service
 
     @pytest.fixture
@@ -419,6 +420,25 @@ class TestRoutes:
         kwargs = mock_registry.register.await_args.kwargs
         assert kwargs["kind"] is PushTokenKind.PUSH_TO_START
         assert kwargs["environment"] is ApnsEnvironment.PRODUCTION
+
+    def test_a_session_token_stirs_the_service(self, client, mock_service):
+        """What waits on a session token — an `end`, a first `update` — goes
+        out now, not at the next bus event: while nothing plays, none comes."""
+        response = client.post("/api/push/tokens", json={
+            "token": "tok", "kind": "session", "environment": "production",
+            "device_id": "phone-1", "session_id": "sess-1",
+        })
+
+        assert response.status_code == 200
+        mock_service.session_token_registered.assert_called_once_with()
+
+    def test_other_tokens_do_not_stir_the_service(self, client, mock_service):
+        client.post("/api/push/tokens", json={
+            "token": "tok", "kind": "push_to_start",
+            "environment": "production", "device_id": "phone-1",
+        })
+
+        mock_service.session_token_registered.assert_not_called()
 
     def test_a_missing_environment_is_refused(self, client, mock_registry):
         """No default, by design: guessing the host is the BadDeviceToken
