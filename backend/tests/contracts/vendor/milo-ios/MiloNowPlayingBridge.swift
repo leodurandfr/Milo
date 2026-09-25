@@ -51,6 +51,22 @@ enum MiloSourceCard {
     /// `none`, et une source que la table ne connaît pas encore.
     static let milo = (title: "Milō", icon: "milo")
 
+    /// Les commandes qui rendent ce qu'une carte au repos montre — la seule
+    /// chose qu'elle puisse encore offrir.
+    static let resumeCommands: Set<String> = ["resume", "resume_playback"]
+
+    /// Les commandes que l'écran verrouillé peut offrir pour cet état.
+    ///
+    /// Avec une session, ce que la source accepte maintenant. Sans session,
+    /// seulement reprendre ce que la carte nomme : la radio garde `next`/`prev`
+    /// à l'arrêt pour parcourir ses favorites, mais une carte où rien ne joue
+    /// n'offre rien d'autre (demande de Leo, 25/09/2026). La même règle que
+    /// `lock_screen_controls` côté Milō.
+    static func lockScreenControls(for state: MiloAudioState) -> [String] {
+        guard state.session == nil else { return state.controls }
+        return state.controls.filter(resumeCommands.contains)
+    }
+
     static func card(for state: MiloAudioState) -> Card {
         let entry = sources[state.source] ?? milo
         let senders = state.session?.senders ?? []
@@ -155,7 +171,11 @@ enum MiloNowPlayingBridge {
             track?.album ?? "-",
             track?.artworkURL ?? "-",
             String(Int((track?.duration ?? 0).rounded())),
-            speakers
+            speakers,
+            // Les boutons de l'écran verrouillé : ils changent seuls quand une
+            // session finit sur la piste qu'elle reprendrait — même titre, même
+            // pochette, mais −15 / +30 à éteindre.
+            (a.controls ?? []).joined(separator: ",")
         ].joined(separator: "|")
     }
 
@@ -366,11 +386,10 @@ enum MiloNowPlayingBridge {
     /// n'envoie un `start` que sur un événement de lecture.
     ///
     /// **`isPlaying` reste, et ce n'est pas un oubli depuis que tout état se
-    /// dessine (`MiloSourceCard`).** Ouvrir et ne pas fermer sont
-    /// deux droits distincts, et Milō ne s'accorde que le second : son
-    /// `_start_session` n'est atteint que sous `_has_active_source`, donc il
-    /// n'ouvre jamais pour une source arrêtée, et il ferme celle qui existe au
-    /// bout de cinq minutes d'inactivité.
+    /// dessine (`MiloSourceCard`).** Milō ouvre lui-même la carte d'une source
+    /// qu'on vient de choisir sans lecture (`_open_idle`), et la ferme au bout
+    /// de cinq minutes — puis refuse de la rouvrir tant que cette source reste
+    /// au repos (`_closed_idle_source`). L'app n'a pas cette mémoire.
     ///
     /// Laisser passer une source arrêtée ici ferait donc rouvrir, deux secondes
     /// plus tard, la carte que Milō vient de fermer — et pour toujours, la
@@ -573,7 +592,7 @@ enum MiloNowPlayingBridge {
                 ?? anchorTimestamp.string(from: .now),
             currentTrack: track,
             devices: await buildDevices(),
-            controls: state.controls
+            controls: MiloSourceCard.lockScreenControls(for: state)
         )
     }
 
