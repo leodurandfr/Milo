@@ -229,7 +229,9 @@ async function openModal() {
     if (!closeButtonWrapper.value || !closeButton.value) return;
     closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-snappy)';
     closeButtonWrapper.value.classList.add('visible');
-    closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms var(--easeOutCubic)`;
+    // Inline, this replaces .interactive-press's transition, so it carries the
+    // press curve too — without it the tap scale snaps instead of easing.
+    closeButton.value.$el.style.transition = `var(--transition-press), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms var(--easeOutCubic)`;
     closeButton.value.$el.style.opacity = '1';
   }, ANIMATION_TIMINGS.closeButtonDelay);
   animationTimeouts.push(closeButtonTimeout);

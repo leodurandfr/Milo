@@ -180,7 +180,8 @@ onMounted(async () => {
     if (!closeButtonWrapper.value || !closeButtonRef.value) return;
     closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-snappy)';
     closeButtonWrapper.value.classList.add('visible');
-    closeButtonRef.value.$el.style.transition = 'opacity 350ms var(--easeOutCubic)';
+    // Keeps the press curve: this inline value replaces .interactive-press's.
+    closeButtonRef.value.$el.style.transition = 'var(--transition-press), opacity 350ms var(--easeOutCubic)';
     closeButtonRef.value.$el.style.opacity = '1';
   }, 500);
 });
