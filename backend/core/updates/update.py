@@ -602,10 +602,11 @@ class UpdateService(VersionService):
         the binary through the deploy wrapper, start it again, verify, and roll
         back to the backup if anything after the stop fails.
 
-        The one behavioural difference is service policy. CamillaDSP and
-        Navidrome are always-on, so they are stopped and started
-        unconditionally; go-librespot's Spotify service is on-demand, so its
-        previous state is preserved and an inactive service is left inactive.
+        The one behavioural difference is service policy. CamillaDSP is
+        always-on, so it is stopped and started unconditionally; go-librespot's
+        Spotify service is on-demand and Navidrome runs only while the dock
+        enables Music Library, so their previous state is preserved and an
+        inactive service is left inactive.
         """
         config = self.programs[program_key]
         display_name = config["log_name"]

@@ -35,12 +35,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
+from backend.config.constants import NAVIDROME_SERVICE
 from backend.core.audio_source import Result
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ReroutePolicy, ResumePolicy,
 )
 from backend.core.models.audio_wire import MusicLibraryDetails, ResumeView
 from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.music_library.disc_merge import (
@@ -177,6 +179,9 @@ class MusicLibrarySource(MpvAudioSource):
             self.invalidate_album_cache,
             self.broadcast_storages,
         )
+        # Starts and stops of the catalog (see set_catalog_running), in order.
+        self._catalog_bg = BackgroundTaskSet(self._logger, "source.music_library.catalog")
+        self._catalog_lock = asyncio.Lock()
         # Navidrome Subsonic client for the /api/music-library/* browse routes,
         # for building stream URLs at play time, and for the StorageManager's
         # post-mount rescans. Built lazily (the cred file only exists once the
@@ -567,9 +572,55 @@ class MusicLibrarySource(MpvAudioSource):
     # =========================================================================
 
     async def initialize(self) -> bool:
-        """Bring up the music origins (shares + USB watcher), then base init."""
+        """Start or stop the catalog as the dock says, bring up the music origins
+        (shares + USB watcher), then base init.
+
+        Nothing else starts the catalog: the unit has no [Install], and
+        PartOf=milo-backend never propagates a start. Fail-open: a catalog that
+        does not come up leaves an empty library, not a dead backend.
+        """
+        # A dock app id is the source id (AUDIO_SOURCE_APPS derives from the enum).
+        self.set_catalog_running(
+            self.source_id in await self._settings_service.get_setting("dock.enabled_apps")
+        )
         await self._shares.initialize()
         return await super().initialize()
+
+    def set_catalog_running(self, wanted: bool) -> None:
+        """Start or stop the catalog, at boot and when the dock toggles Music Library.
+
+        Navidrome runs exactly while the dock enables the source, whether or not
+        the source is active: it serves the settings screen and indexes a key
+        plugged in while another source plays.
+
+        Not awaited: `systemctl start` waits out the unit's ExecStartPre and its
+        config oneshot, which is no reason to hold up the storage layer at boot or
+        a dock toggle's HTTP answer — and a caller that gave up at the control
+        timeout would report a failure while systemd carried the job through
+        anyway. Requests are applied in the order they were made, in a task set
+        of their own: `_bg` is drained on every stop of the source.
+        """
+        self._catalog_bg.spawn(self._apply_catalog(wanted), label="catalog")
+
+    async def _apply_catalog(self, wanted: bool) -> None:
+        async with self._catalog_lock:
+            if wanted:
+                ok = await self._start_service(NAVIDROME_SERVICE)
+            else:
+                ok = await self._stop_service(NAVIDROME_SERVICE)
+        if not ok:
+            self._logger.warning(
+                "Could not %s %s; the library stays empty until it runs",
+                "start" if wanted else "stop", NAVIDROME_SERVICE,
+            )
+        elif wanted:
+            # Every storage space carries a null library id until the libraries
+            # are reconciled, and the library view drops those.
+            self._shares.catalog_started()
+
+    async def shutdown(self) -> None:
+        await self._catalog_bg.cancel_all()
+        await super().shutdown()
 
     def _resume_content(self, session: "LibrarySession"):
         track = session.queue[session.index]

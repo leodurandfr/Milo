@@ -369,6 +369,14 @@ class NetworkShareService:
         """
         await self._storage.request_scan()
 
+    def catalog_started(self) -> None:
+        """Navidrome has just been started: reconcile its libraries once it listens.
+
+        Until then every storage space carries a null library id, which the
+        library view drops.
+        """
+        self._libraries.reconcile_soon()
+
     async def note_scan_started(self) -> None:
         """Navidrome has just accepted a scan — push it and watch it closely.
 

@@ -31,6 +31,6 @@ SyslogIdentifier=milo-navidrome-config
 # milo-navidrome.service and ordered ahead of it by the Before= above, which is
 # why milo-first-boot's server-service list says it "needs no entry". A
 # WantedBy=multi-user.target here was enabled by nothing — dead as it
-# stood, and a trap if ever acted on: a converted satellite disables
-# milo-navidrome but not this, so an enabled [Install] would re-emit a Navidrome
-# catalog config at every boot on a machine that serves no catalog.
+# stood, and a trap if ever acted on: it would re-emit a Navidrome catalog
+# config at every boot, on a satellite that serves no catalog and on a unit
+# whose dock has Music Library switched off.

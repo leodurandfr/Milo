@@ -24,6 +24,7 @@ from backend.config.constants import (
     HARDWARE_FILE,
     MUSIC_LIBRARY_DATA_FILE,
     MUSIC_LIBRARY_MOUNT_ROOT,
+    NAVIDROME_SERVICE,
     NAVIDROME_URL,
 )
 from backend.core.system.diagnostic import probes
@@ -576,8 +577,8 @@ async def storage(ctx) -> str:
 
 
 async def _navidrome_lines() -> List[str]:
-    active = await probes.is_active("milo-navidrome.service")
-    fields: Dict[str, Any] = {"milo-navidrome.service": "active" if active else "not active"}
+    active = await probes.is_active(NAVIDROME_SERVICE)
+    fields: Dict[str, Any] = {NAVIDROME_SERVICE: "active" if active else "not active"}
     # Its own ping endpoint, unauthenticated, on loopback: enough to tell a dead
     # daemon from one that is merely busy indexing.
     reachable = await probes.run(

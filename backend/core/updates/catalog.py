@@ -45,6 +45,7 @@ Keys, per program:
                       preserving whatever state it was in.
     config_path       config file backed up alongside the binary.
 """
+from backend.config.constants import NAVIDROME_SERVICE
 from backend.core.updates.dependency_versions import apply_validated_versions
 
 PROGRAMS = {
@@ -168,12 +169,13 @@ PROGRAMS = {
         "validated_version_key": "NAVIDROME_VERSION",
         "log_name": "Navidrome",
         "binary_path": "/usr/local/bin/navidrome",
-        "service_name": "milo-navidrome.service",
+        "service_name": NAVIDROME_SERVICE,
         "backup_path": "/var/lib/milo/backups/navidrome",
         "asset_url": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz",
         # The tarball ships README/LICENSE next to the binary.
         "tar_member": "navidrome",
-        "always_on": True
+        # Not always_on: it runs only while the dock enables Music Library, so an
+        # update keeps whatever state it found rather than starting it.
     }
 }
 

@@ -609,8 +609,9 @@ and a storage/mount layer. Mental model: **≈ the Podcast source, with Navidrom
 standing in for the podcast catalogue and a mount layer underneath.**
 
 - **Two services, deliberately named differently.**
-  `milo-navidrome.service` is the always-on catalog **engine** (tech-named after the
-  product, like `milo-camilladsp`), `BindsTo=milo-backend`, owns
+  `milo-navidrome.service` is the catalog **engine** (tech-named after the product,
+  like `milo-camilladsp`), running while the dock enables Music Library — started by
+  the backend at init and on the dock toggle, never at boot — `PartOf=milo-backend`, owns
   `/var/lib/milo/navidrome`. `milo-music-library.service` is the on-demand **mpv
   player** (source-named, like `milo-podcast`), started on activation. Both exist —
   they are complementary, not alternatives.

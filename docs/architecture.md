@@ -508,8 +508,10 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   read-only under `/media/milo/<label>` by the `milo-mount` sudoers helper (SMB/NFS shares the
   same way; `milo-umount` reverses it). Navidrome only indexes folders — mounting the device is
   the backend's job
-- **Catalog engine:** `milo-navidrome.service` (always-on, `PartOf=milo-backend.service` — *not*
-  `BindsTo=`, which propagates stop only; the engine must follow a backend **restart** too) indexes
+- **Catalog engine:** `milo-navidrome.service` (runs exactly while the dock enables Music Library,
+  whether or not the source is active — no `[Install]`, the backend starts it at init and on the dock
+  toggle; `PartOf=milo-backend.service` — *not* `BindsTo=`, which propagates stop only; the engine
+  must follow a backend **restart** too) indexes
   everything under `/media/milo` and exposes a localhost **Subsonic API** (`127.0.0.1:4533`). A
   mount change triggers an explicit rescan. Scan state is **pushed, not polled**: one backend
   watcher (`shares.py::_watch_scan`) observes Navidrome for the whole appliance and broadcasts it
@@ -1035,8 +1037,8 @@ milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
 milo-tidal                # Tidal Connect (proprietary armhf daemon, backend-managed)
-milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from provisioning/navidrome.sh (before milo-navidrome)
-milo-navidrome            # Music Library catalog engine (Navidrome, always-on, PartOf=milo-backend)
+milo-navidrome-config     # Oneshot pulled by milo-navidrome: re-emit the Navidrome TOML from provisioning/navidrome.sh (before it)
+milo-navidrome            # Music Library catalog engine (Navidrome, backend-managed while the dock enables it, PartOf=milo-backend)
 milo-music-library        # Music Library player (mpv, gapless; streams from Navidrome)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)

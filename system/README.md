@@ -125,9 +125,9 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: SnapcastService
 - **Notes**: Plays synchronized audio from snapserver
 
-### Infrastructure Services (Always Enabled, backend-linked)
+### Infrastructure Services (backend-linked)
 
-Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopped on demand by the backend's source lifecycle), these are always-on daemons other sources depend on. They use `PartOf=milo-backend.service`, which — unlike `BindsTo=` — propagates both stop **and** restart, so a backend crash/restart doesn't leave them running stale.
+Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopped on demand by the backend's source lifecycle), these are always-on daemons other sources depend on (Navidrome: always-on while the dock enables Music Library, and started by the backend rather than at boot). They use `PartOf=milo-backend.service`, which — unlike `BindsTo=` — propagates both stop **and** restart, so a backend crash/restart doesn't leave them running stale.
 
 #### milo-camilladsp.service
 - **Role**: CamillaDSP audio processor (volume control + EQ/compressor/loudness, always in the audio path)
@@ -139,8 +139,8 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 #### milo-navidrome.service
 - **Role**: Navidrome catalog engine for the Music Library source (Subsonic API, localhost-only, indexes `/media/milo`)
 - **Dependencies**: local-fs.target, milo-backend.service; `Wants=milo-navidrome-config.service` (re-applies the baked TOML ahead of every start)
-- **Startup**: Enabled at boot
-- **Notes**: `ExecStartPre` runs `milo-navidrome-provision` to generate the per-device service-account credential on first boot. Reached lazily by the backend only when the music_library source activates, so no strict boot ordering before `milo-backend.service`.
+- **Startup**: Not enabled (no `[Install]`) — started by the backend at init and by the dock toggle, only while the dock enables Music Library; stopped when it is disabled
+- **Notes**: `ExecStartPre` runs `milo-navidrome-provision` to generate the per-device service-account credential on first boot. `After=milo-backend.service` only orders it behind the backend that starts it; the backend's clients (library reconcile, scan watcher, browse routes) wait for its port rather than for the unit.
 
 #### milo-navidrome-config.service
 - **Role**: Oneshot that reconciles the Navidrome catalog TOML (album-grouping persistent ID) from the single source of truth (`provisioning/navidrome.sh`) before Navidrome starts

@@ -143,6 +143,8 @@ class TestDoStart:
         """`initialize` is what mounts the configured shares and starts the USB
         watcher; a source initialised without it has no storage space at all."""
         source._shares.initialize = AsyncMock()
+        source._settings_service = Mock(get_setting=AsyncMock(return_value=["music_library"]))
+        source._service_manager.start = AsyncMock(return_value=True)
 
         with patch.object(MusicLibrarySource.__bases__[0], "initialize",
                           AsyncMock(return_value=True)):

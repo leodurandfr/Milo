@@ -384,6 +384,12 @@ def create_settings_router(
                                 if not success:
                                     raise ValueError(f"Failed to stop service {service}")
 
+                        # The catalog outlives the player, so stopping the source
+                        # left it running. Not awaited: see set_catalog_running.
+                        if app == AudioSource.MUSIC_LIBRARY.value:
+                            operations_log.append("Stopping the music library catalog")
+                            state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(False)
+
                     # === MULTIROOM ===
                     elif app == 'multiroom':
                         # set_multiroom_enabled owns the full transition: source restart
@@ -414,7 +420,12 @@ def create_settings_router(
                     logger.info(f"Processing enable for app: {app}")
 
                     # === AUDIO SOURCES: DO NOTHING ===
-                    if app in AUDIO_SOURCE_APPS:
+                    # Except the music library's catalog, which is not a player:
+                    # it serves the settings screen and indexes USB keys.
+                    if app == AudioSource.MUSIC_LIBRARY.value:
+                        operations_log.append("Starting the music library catalog")
+                        state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(True)
+                    elif app in AUDIO_SOURCE_APPS:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
 

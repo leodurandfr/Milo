@@ -1,15 +1,20 @@
 [Unit]
 Description=Milo Navidrome (Music Library catalog engine)
 Documentation=https://www.navidrome.org/docs/
-# Always-on catalog daemon for the music_library source (unlike the per-source
-# BindsTo units such as milo-music-library/radio/spotify — those are started
-# on-demand by the backend's own source lifecycle, this one just needs to be up
-# whenever the backend is). Localhost-only, indexes /media/milo. PartOf=, like
+# Catalog daemon for the music_library source (unlike the per-source BindsTo
+# units such as milo-music-library/radio/spotify, it runs whether or not the
+# source is active: it serves the settings screen and indexes a key plugged in
+# while another source plays). Localhost-only, indexes /media/milo. PartOf=, like
 # milo-camilladsp/milo-snapserver-multiroom/milo-snapclient-multiroom, propagates
 # both stop AND restart from the backend — BindsTo= only propagates stop, so a
 # backend restart (crash, Restart=always, manual `systemctl restart`) would leave
-# Navidrome dead until the whole appliance rebooted. The backend reaches it lazily
-# (only when the source activates), so no strict "before backend".
+# Navidrome dead until the whole appliance rebooted. After= only orders it behind
+# the backend that starts it: the backend's clients wait for its port, not the unit.
+#
+# No [Install], like the two snapcast units: the backend owns its lifecycle.
+# MusicLibrarySource.initialize starts it when the dock enables Music Library and
+# stops it otherwise, and the dock toggle does the same. PartOf= never propagates
+# start, so a `stop` + `start` of the backend relies on that to bring it back.
 After=local-fs.target milo-backend.service
 PartOf=milo-backend.service
 
@@ -54,6 +59,3 @@ PrivateTmp=true
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=milo-navidrome
-
-[Install]
-WantedBy=multi-user.target

@@ -299,6 +299,72 @@ async def test_reconcile_retry_stops_when_nothing_is_waiting(monkeypatch):
     assert service._get_admin.await_count == 1
 
 
+
+async def test_a_catalog_just_started_does_not_wait_out_the_plateau(monkeypatch):
+    # With Music Library off in the dock Navidrome is stopped, the boot reconcile
+    # fails and the retry loop settles on its plateau. Enabling the tile starts
+    # Navidrome and must restart the ramp: otherwise every storage space keeps a
+    # null library id — an empty library — for up to a minute after the tile
+    # came back.
+    from backend.sources.music_library import libraries as libraries_module
+
+    monkeypatch.setattr(libraries_module, "_RETRY_DELAYS_S", (0,))
+    monkeypatch.setattr(libraries_module, "_RETRY_PLATEAU_S", 3600)
+    admin = MagicMock()
+    admin.list_libraries = AsyncMock(side_effect=[
+        None, None,  # the boot reconcile, then the one ramp attempt
+        [{"id": 3, "name": "MUSIC", "path": "/media/milo/MUSIC"}],
+    ])
+    admin.grant_all_libraries = AsyncMock(return_value=True)
+    service = _reconciler(admin)
+
+    assert await service.reconcile({"/media/milo/MUSIC": "MUSIC"}, {"/media/milo/MUSIC"}) is False
+    await settle()
+    assert admin.list_libraries.await_count == 2, "the loop is not on its plateau yet"
+
+    service.reconcile_soon()
+    await settle()
+
+    try:
+        assert service.library_id("/media/milo/MUSIC") == 3
+    finally:
+        await service.cleanup()
+
+
+async def test_a_rearm_during_a_pass_still_cuts_the_next_wait_short(monkeypatch):
+    # The dock re-enables Music Library while the loop is inside a pass (a
+    # converge can take the admin timeout). Cleared at the top of the next
+    # iteration, that rearm was lost and the loop slept its whole plateau.
+    from backend.sources.music_library import libraries as libraries_module
+
+    monkeypatch.setattr(libraries_module, "_RETRY_DELAYS_S", (0,))
+    monkeypatch.setattr(libraries_module, "_RETRY_PLATEAU_S", 3600)
+    service = None
+    answers = iter([
+        None,  # the boot reconcile
+        None,  # the ramp attempt, during which the catalog is started
+        [{"id": 3, "name": "MUSIC", "path": "/media/milo/MUSIC"}],
+    ])
+
+    async def list_libraries():
+        answer = next(answers)
+        if answer is None and service._retrying:
+            service.reconcile_soon()
+        return answer
+
+    admin = MagicMock()
+    admin.list_libraries = AsyncMock(side_effect=list_libraries)
+    admin.grant_all_libraries = AsyncMock(return_value=True)
+    service = _reconciler(admin)
+
+    await service.reconcile({"/media/milo/MUSIC": "MUSIC"}, {"/media/milo/MUSIC"})
+    await settle()
+
+    try:
+        assert service.library_id("/media/milo/MUSIC") == 3
+    finally:
+        await service.cleanup()
+
 # === browse_scope() / playlists_in_scope() ==================================
 
 @pytest.fixture

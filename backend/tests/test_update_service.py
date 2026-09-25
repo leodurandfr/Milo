@@ -730,28 +730,30 @@ class TestUpdateBinaryProgram:
         assert mocks["_run_deploy"].await_args.args[0] == "install-binary"
 
     @pytest.mark.asyncio
-    async def test_on_demand_program_leaves_inactive_service_stopped(self, update_service):
-        """go-librespot's Spotify service is on-demand: updating must not start it."""
+    @pytest.mark.parametrize("program_key", ["go-librespot", "navidrome"])
+    async def test_on_demand_program_leaves_inactive_service_stopped(self, update_service, program_key):
+        """go-librespot's Spotify service is on-demand, and Navidrome runs only
+        while the dock enables Music Library: updating must not start either —
+        an update would otherwise run a catalog the dock switched off."""
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
 
         with self._flow(update_service, service_active=False) as mocks:
-            result = await update_service._update_binary_program("go-librespot", status)
+            result = await update_service._update_binary_program(program_key, status)
 
         assert result["success"] is True
         mocks["_stop_service"].assert_not_awaited()
         mocks["_start_service"].assert_not_awaited()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("program_key", ["camilladsp", "navidrome"])
-    async def test_always_on_program_restarts_even_when_inactive(self, update_service, program_key):
-        """CamillaDSP and Navidrome are always-on: the binary cannot be swapped
-        while it is in use, and the service must be back up afterwards — whatever
-        state it happened to be in when the update started.
+    async def test_always_on_program_restarts_even_when_inactive(self, update_service):
+        """CamillaDSP is always-on: the binary cannot be swapped while it is in
+        use, and the service must be back up afterwards — whatever state it
+        happened to be in when the update started.
         """
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
 
         with self._flow(update_service, service_active=False) as mocks:
-            result = await update_service._update_binary_program(program_key, status)
+            result = await update_service._update_binary_program("camilladsp", status)
 
         assert result["success"] is True
         mocks["_stop_service"].assert_awaited_once()

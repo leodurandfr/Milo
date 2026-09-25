@@ -38,6 +38,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from backend.config.constants import DEFAULT_DOCK_APPS
 from backend.core.state import AudioStateMachine
 
 RECORDINGS = Path(__file__).parent / "wire"
@@ -190,8 +191,16 @@ class LiveProcessWatch:
 
 
 def make_settings(values: Optional[Dict[str, Any]] = None) -> Mock:
-    """SettingsService reads answered from `values`, None for anything else."""
-    store = {"audio.auto_stop_delay": 120, **(values or {})}
+    """SettingsService reads answered from `values`, None for anything else.
+
+    `dock.enabled_apps` is one the validator guarantees, so it carries the real
+    default rather than None: the music library reads it at initialize.
+    """
+    store = {
+        "audio.auto_stop_delay": 120,
+        "dock.enabled_apps": list(DEFAULT_DOCK_APPS),
+        **(values or {}),
+    }
     settings = Mock()
     settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: store.get(key))
     settings.set_setting = AsyncMock(return_value=True)

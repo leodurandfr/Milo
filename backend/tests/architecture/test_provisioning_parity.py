@@ -213,10 +213,10 @@ def test_every_installable_unit_is_enabled_or_is_started_on_demand(bodies):
 
     `milo-navidrome-config.service` carried `WantedBy=multi-user.target` while
     being pulled by `Wants=` from `milo-navidrome.service` — enabled by nothing,
-    so the section did nothing. Acting on it would have broken what
-    `milo-first-boot`'s server-service list assumes: a converted satellite
-    disables `milo-navidrome` but not that unit, so an enabled [Install] would
-    re-emit a catalog config at every boot on a machine that serves no catalog.
+    so the section did nothing. Acting on it would have re-emitted a catalog
+    config at every boot on machines that serve no catalog: a satellite, and a
+    unit whose dock has Music Library off (`milo-navidrome` itself carries no
+    [Install] — the backend starts it only while the dock enables the source).
     """
     installable = {
         p.stem for p in sorted(SYSTEM_DIR.glob("*.service"))

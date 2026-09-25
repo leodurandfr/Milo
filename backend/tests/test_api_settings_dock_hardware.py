@@ -295,6 +295,57 @@ class TestTheDockEnables:
         assert _saved_dock_lists(settings)[0] == ["equalizer", "multiroom", "spotify"]
 
 
+class TestTheDockAndTheLibraryCatalog:
+    """Navidrome runs exactly while the dock enables Music Library, and the
+    dock is the only runtime switch for it: the player's units stop with the
+    source, the catalog does not."""
+
+    @pytest.fixture
+    def library(self, state_machine):
+        source = Mock(set_catalog_running=Mock())
+        state_machine.get_source = Mock(
+            side_effect=lambda s: source if s is AudioSource.MUSIC_LIBRARY else None
+        )
+        return source
+
+    def test_disabling_the_library_stops_its_catalog(self, client, settings, library):
+        _dock(settings, ["radio", "music_library"])
+
+        response = client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio"]})
+
+        assert response.status_code == 200
+        library.set_catalog_running.assert_called_once_with(False)
+
+    def test_disabling_the_playing_library_stops_its_catalog_too(
+        self, client, settings, state_machine, library
+    ):
+        """The transition to none stops the player, not the catalog."""
+        state_machine.system_state.active_source = AudioSource.MUSIC_LIBRARY
+        _dock(settings, ["radio", "music_library"])
+
+        client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio"]})
+
+        state_machine.transition_to_source.assert_awaited_once_with(AudioSource.NONE)
+        library.set_catalog_running.assert_called_once_with(False)
+
+    def test_enabling_the_library_starts_its_catalog(self, client, settings, library):
+        _dock(settings, ["radio"])
+
+        response = client.put(
+            "/api/settings/dock-apps", json={"enabled_apps": ["radio", "music_library"]}
+        )
+
+        assert response.status_code == 200
+        library.set_catalog_running.assert_called_once_with(True)
+
+    def test_other_sources_leave_the_catalog_alone(self, client, settings, library):
+        _dock(settings, ["radio", "spotify"])
+
+        client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio", "podcast"]})
+
+        library.set_catalog_running.assert_not_called()
+
+
 class TestTheDockAtomicity:
     """The rule the whole handler exists for: what is stored is what was applied."""
 

@@ -338,13 +338,11 @@ EOF
         log "Client shared libraries installed"
     fi
 
-    # 8. Disable server-only services. milo-navidrome and milo-ir-keytable are here
-    # for the same reason as the rest and not by symmetry: the first is the Music
-    # Library catalog engine a satellite never serves (measured on a flashed unit:
-    # 38 MB resident, indexing nothing, on the one machine whose only job is to
-    # decode a stream in real time), the second says so itself — it exists to run
-    # `Before=milo-backend.service`, and there is no backend here. milo-navidrome-config
-    # needs no entry: milo-navidrome pulls it with Wants=, so it follows.
+    # 8. Disable server-only services. milo-ir-keytable is here for the same reason
+    # as the rest and not by symmetry — it exists to run `Before=milo-backend.service`,
+    # and there is no backend here. milo-navidrome and milo-navidrome-config need no
+    # entry: neither carries an [Install], and the only thing that starts Navidrome
+    # is milo-backend, disabled here.
     local server_services=(
         milo-backend
         milo-kiosk
@@ -352,7 +350,6 @@ EOF
         milo-bluealsa
         milo-bluealsa-aplay
         milo-camilladsp
-        milo-navidrome
         milo-ir-keytable
         nginx
     )
@@ -569,7 +566,6 @@ configure_server() {
         milo-bluealsa
         milo-bluealsa-aplay
         milo-camilladsp
-        milo-navidrome
         milo-ir-keytable
         nginx
     )

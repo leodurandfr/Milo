@@ -38,6 +38,7 @@ retry, for as long as a storage space is still without its library id. A mount
 must never fail because the catalog engine was busy.
 """
 import asyncio
+import contextlib
 import logging
 from typing import Any, Dict, Optional, Set
 
@@ -53,7 +54,7 @@ logger = logging.getLogger("source.music_library.libraries")
 _RETRY_DELAYS_S = (5, 15, 30, 45)
 # Cadence the retry settles on once the ramp is spent. There is no other
 # periodic pass, and milo-navidrome is PartOf=milo-backend.service, so it goes
-# down with every backend restart and comes back on its own schedule: a catch-up
+# down with every backend restart and opens its port on its own schedule: a catch-up
 # that expired left every storage space with a null library id until the next
 # mount change, and the frontend drops those — an empty library, no message, for
 # the whole session.
@@ -85,6 +86,9 @@ class NavidromeLibraryService:
         # a grant that failed is retried even once nothing else needs changing.
         self._granted: set = set()
         self._retrying = False
+        # Set by a fresh reason to retry while the loop sleeps: it restarts the
+        # ramp, so the next attempt is seconds away rather than a plateau away.
+        self._rearm = asyncio.Event()
 
     async def cleanup(self) -> None:
         await self._bg.cancel_all()
@@ -257,9 +261,20 @@ class NavidromeLibraryService:
             self._admin = NavidromeAdminClient.from_cred_file()
         return self._admin
 
+    def reconcile_soon(self) -> None:
+        """Reconcile again a few seconds from now, whatever the last pass said.
+
+        For a Navidrome that was just started: it opens its port a moment after
+        its unit reports started, so a reconcile made at once fails, and a loop
+        already on its plateau would leave every storage space without a
+        library id — an empty library — for up to a minute.
+        """
+        self._schedule_retry()
+
     def _schedule_retry(self) -> None:
         """Retry the reconcile until it lands (one loop at a time)."""
         if self._retrying:
+            self._rearm.set()
             return
         self._retrying = True
         self._bg.spawn(self._retry_loop(), label="library-reconcile-retry")
@@ -278,9 +293,17 @@ class NavidromeLibraryService:
             attempt = 0
             while True:
                 ramping = attempt < len(_RETRY_DELAYS_S)
-                await asyncio.sleep(
-                    _RETRY_DELAYS_S[attempt] if ramping else _RETRY_PLATEAU_S
-                )
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._rearm.wait(),
+                        _RETRY_DELAYS_S[attempt] if ramping else _RETRY_PLATEAU_S,
+                    )
+                    # Cleared only once received: a rearm that landed during
+                    # the last pass (a converge can take the admin timeout)
+                    # must still cut the next wait short.
+                    self._rearm.clear()
+                    attempt = 0
+                    continue
                 attempt += 1
                 async with self._lock:
                     if await self._converge():

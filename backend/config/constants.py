@@ -40,10 +40,13 @@ CD_DEVICE = "/dev/sr0"
 # =============================================================================
 # MUSIC LIBRARY / NAVIDROME (catalog engine sidecar)
 # =============================================================================
-# Navidrome runs as an always-on daemon (milo-navidrome.service) indexing the
-# mount root and exposing a localhost Subsonic API. The music_library source
-# talks to it over HTTP — never over the LAN (respects "local network only").
-# DataFolder lives under MILO_DATA_DIR so backup/restore captures it.
+# Navidrome runs as a daemon (milo-navidrome.service) indexing the mount root
+# and exposing a localhost Subsonic API, for as long as the dock enables Music
+# Library — the backend starts and stops it, nothing else does. The
+# music_library source talks to it over HTTP — never over the LAN (respects
+# "local network only"). DataFolder lives under MILO_DATA_DIR so backup/restore
+# captures it.
+NAVIDROME_SERVICE = "milo-navidrome.service"
 MUSIC_LIBRARY_MOUNT_ROOT = Path("/media/milo")     # Navidrome MusicFolder (mounts appear here)
 # Network-share config (SMB/NFS). Non-secret only — id/type/host/path/name.
 # The share secrets (username/password/domain) never land here; they live in a
