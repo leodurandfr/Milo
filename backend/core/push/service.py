@@ -104,6 +104,15 @@ START_REPORT_GRACE_S = 60.0
 # went instead of dropping it.
 SESSION_IDLE_GRACE_S = 300.0
 
+# An `end` Apple did not take is sent again, at most this often and this many
+# times in all, before its tokens are let go anyway. The phone's card only
+# leaves the Lock Screen on an `end` — the app never closes one — so dropping
+# the tokens of a refused `end` left its card up until iOS reclaimed it.
+# Bounded, because a token that keeps failing without being called dead would
+# otherwise spend a push every half minute for ever.
+END_RETRY_S = 30.0
+END_ATTEMPTS = 5
+
 
 class PushService:
     """Coalesces state changes into APNs pushes and owns the session lifecycle."""
@@ -144,6 +153,9 @@ class PushService:
         # reopened while it stays selected and quiet. See `_may_open_idle`.
         self._idle_source: Optional[str] = None
         self._closed_idle_source: Optional[str] = None
+        # Ended sessions whose `end` some device has not taken yet: session id
+        # -> (attempts so far, earliest next try). See `_send_end`.
+        self._pending_ends: Dict[str, Tuple[int, float]] = {}
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -334,6 +346,7 @@ class PushService:
         as soon as playback starts (owner's call, 2026-09-25). See `_open_idle`.
         """
         async with self._session_lock:
+            await self._retry_pending_ends()
             if not self._has_active_source(state):
                 if self._session_id is None:
                     self._adopt_reported_session()
@@ -700,20 +713,75 @@ class PushService:
         it behind is what let fifteen of them pile up in the registry, and what
         made `_adopt_reported_session` able to follow a session that no longer
         existed.
+
+        The session is forgotten at once, whatever Apple answers: what comes
+        next — a source chosen, playback — opens a new one for every device.
+        Delivering its `end` is `_send_end`'s business, apart from it.
         """
         session_id, self._session_id = self._session_id, None
         self._session_started_at = 0.0
         self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()
         self._idle_since = 0.0
-        targets = self._registry.tokens_for_session(session_id) if session_id else []
-        if targets:
-            await self._send_all(
-                targets, now_playing_payload("end", session_id), "nowplaying"
-            )
-            for target in targets:
-                await self._registry.unregister(target.token)
+        if session_id:
+            await self._send_end(session_id, attempts=0)
         logger.info(f"Now Playing session {session_id} ended")
+
+    async def _send_end(self, session_id: str, attempts: int) -> None:
+        """Send `end` to every token of an ended session that still has one.
+
+        **A token is only dropped once its device has the `end`**, or Apple has
+        called it dead. They used to be dropped whatever Apple answered, and a
+        refused `end` left the card on the Lock Screen with nobody left to
+        close it: the app no longer ends sessions. A refused token stays
+        registered and the session waits in `_pending_ends`, to be sent again
+        no sooner than `END_RETRY_S` — whatever else calls in meanwhile, the
+        app's report every couple of seconds included — and let go after
+        `END_ATTEMPTS`.
+
+        Kept apart from `_session_id` on purpose: a session held open for its
+        `end` would carry on for the devices that refused it and not for the
+        ones that took it, and adopting a newer session would have dropped the
+        pending `end`. `_adopt_reported_session` cannot follow the waiting
+        token back: it was registered before `_session_cleared_at`.
+        """
+        targets = self._registry.tokens_for_session(session_id)
+        if not targets:
+            self._pending_ends.pop(session_id, None)
+            return
+        delivered, dead = await self._deliver(
+            targets, now_playing_payload("end", session_id), "nowplaying"
+        )
+        for token in delivered:
+            await self._registry.unregister(token)
+        waiting = [t for t in targets if t.token not in delivered and t.token not in dead]
+
+        attempts += 1
+        if waiting and attempts < END_ATTEMPTS:
+            self._pending_ends[session_id] = (attempts, time.time() + END_RETRY_S)
+            self._bg.spawn(self._wake_after(END_RETRY_S), label="end-retry")
+            logger.warning(
+                f"Now Playing session {session_id}: end refused for "
+                f"{len(waiting)} device(s), retrying in {END_RETRY_S:.0f}s "
+                f"(attempt {attempts}/{END_ATTEMPTS})"
+            )
+            return
+
+        self._pending_ends.pop(session_id, None)
+        for target in waiting:
+            await self._registry.unregister(target.token)
+        if waiting:
+            logger.warning(
+                f"Now Playing session {session_id}: end never taken by "
+                f"{len(waiting)} device(s) after {END_ATTEMPTS} attempts — let go"
+            )
+
+    async def _retry_pending_ends(self) -> None:
+        """Send again the `end`s whose wait is over. See `_send_end`."""
+        now = time.time()
+        for session_id, (attempts, not_before) in list(self._pending_ends.items()):
+            if now >= not_before:
+                await self._send_end(session_id, attempts)
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
         """Project the published state into the attributes the card draws."""
@@ -852,15 +920,26 @@ class PushService:
     async def _send_all(self, targets, payload: Dict[str, Any], push_type: str,
                         priority: int = 10) -> bool:
         """Send to each target, purge the ones APNs called dead. True if any landed."""
+        delivered, _ = await self._deliver(targets, payload, push_type, priority)
+        return bool(delivered)
+
+    async def _deliver(self, targets, payload: Dict[str, Any], push_type: str,
+                       priority: int = 10) -> Tuple[List[str], List[str]]:
+        """`_send_all`, saying which tokens Apple took and which it called dead.
+
+        The rest — refused for a reason that may pass — is what `_end_session`
+        sends again.
+        """
         results = await asyncio.gather(*(
             self._apns.send(t, payload, push_type, priority=priority) for t in targets
         ))
 
-        delivered = []
+        delivered, dead = [], []
         for target, result in zip(targets, results):
             if result.ok:
                 delivered.append(target.token)
             elif result.dead:
+                dead.append(target.token)
                 await self._registry.purge(
                     target.token, invalidated_at=result.invalidated_at
                 )
@@ -871,7 +950,7 @@ class PushService:
         # it say the opposite of what happened.
         if delivered:
             await self._registry.mark_pushed(delivered)
-        return bool(delivered)
+        return delivered, dead
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:

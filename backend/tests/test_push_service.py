@@ -25,6 +25,7 @@ from backend.core.push.apns_client import ApnsResult
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
 from backend.core.state import AudioStateMachine
 from backend.core.push.service import (
+    END_ATTEMPTS,
     MIN_PUSH_INTERVAL_S,
     SESSION_IDLE_GRACE_S,
     START_REPORT_GRACE_S,
@@ -886,6 +887,103 @@ class TestSourceTransitions:
         await service._publish()
 
         assert service._session_id != ended
+        assert sent_events(apns) == ["start"]
+
+    async def _ended_past_the_grace(self, service, registry, apns):
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        past_the_grace(service)
+        return service._session_id
+
+    async def test_a_refused_end_keeps_its_token_and_goes_again(
+        self, service, registry, apns
+    ):
+        """The card only leaves the Lock Screen on an `end`, and the app no
+        longer closes one. Dropping the token whatever Apple answered left a
+        refused `end` with nobody to send it again."""
+        session_id = await self._ended_past_the_grace(service, registry, apns)
+        apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
+        assert service._session_id is None
+        assert "sess" in registry.held
+
+        apns.send.return_value = ApnsResult(ok=True, status=200)
+        service._pending_ends[session_id] = (1, 0.0)        # the wait is over
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
+        assert sent_sessions(apns) == [session_id]
+        assert "sess" not in registry.held
+        assert service._pending_ends == {}
+
+    async def test_an_end_is_not_sent_again_before_its_wait(
+        self, service, registry, apns
+    ):
+        """The app reports every couple of seconds. Retrying on each report
+        spent the attempts in seconds and let the card go almost at once."""
+        await self._ended_past_the_grace(service, registry, apns)
+        apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
+        await service._publish()
+        apns.send.reset_mock()
+
+        await service._publish()
+        await service.align_session_to_playback("phone-1")
+
+        assert sent_events(apns) == []
+
+    async def test_an_end_refused_every_time_is_let_go(self, service, registry, apns):
+        """Bounded: a token failing without being called dead would otherwise
+        spend a push every half minute for ever."""
+        session_id = await self._ended_past_the_grace(service, registry, apns)
+        apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
+        apns.send.reset_mock()
+
+        await service._publish()
+        for _ in range(END_ATTEMPTS - 1):
+            attempts, _ = service._pending_ends[session_id]
+            service._pending_ends[session_id] = (attempts, 0.0)
+            await service._publish()
+
+        assert sent_events(apns) == ["end"] * END_ATTEMPTS
+        assert service._pending_ends == {}
+        assert "sess" not in registry.held
+
+    async def test_a_dead_token_needs_no_second_end(self, service, registry, apns):
+        """A token Apple calls dead has no card left to close."""
+        await self._ended_past_the_grace(service, registry, apns)
+        apns.send.return_value = ApnsResult(ok=False, status=410, reason="Unregistered",
+                                            dead=True)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["end"]
+        assert service._pending_ends == {}
+
+    async def test_a_pending_end_does_not_hold_back_the_next_card(
+        self, service, registry, apns
+    ):
+        """Held open for its `end`, the session carried on for the devices that
+        refused it and not for those that took it. It is forgotten at once, so
+        what comes next opens a card for everyone."""
+        await self._ended_past_the_grace(service, registry, apns)
+        apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
+        await service._publish()
+        apns.send.return_value = ApnsResult(ok=True, status=200)
+        service.machine.get_current_state.return_value = dict(PLAYING)
+        apns.send.reset_mock()
+
+        await service._publish()
+
         assert sent_events(apns) == ["start"]
 
     async def test_ending_drops_the_token_that_only_addressed_it(
