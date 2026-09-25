@@ -436,6 +436,31 @@ class TestSessionLifecycle:
 
         assert sent_events(apns) == ["end"]
 
+    async def test_knocking_on_an_ended_session_never_says_playing(
+        self, service, registry, apns
+    ):
+        """Music started again before the ended session's token landed: the
+        knock carries the state of NOW, whose playback belongs to the next
+        session. Saying playing raised a second card, playing, beside it."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        ended = service._session_id
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        service.machine.get_current_state.return_value = dict(PLAYING)
+        await service._publish()                        # the next session's start
+        assert service._session_id not in (None, ended)
+        apns.send.reset_mock()
+
+        service._endings[ended].knocked_at -= START_REPORT_GRACE_S + 1
+        await service._publish()
+
+        knocks = [c.args[1]["aps"]["attributes"] for c in apns.send.await_args_list
+                  if c.args[1]["aps"].get("event") == "start"
+                  and c.args[1]["aps"]["attributes"]["id"] == ended]
+        assert len(knocks) == 1
+        assert knocks[0]["isPlaying"] is False
+
     async def test_a_token_that_never_lands_is_waited_for_a_while_only(
         self, service, registry, apns
     ):
@@ -1043,7 +1068,7 @@ class TestSourceTransitions:
         """Left out of the search rather than stopping it: a session the app
         opened just before re-registering the ended one is still found, and no
         rival is minted beside it."""
-        session_id = await self._ended_past_the_grace(service, registry, apns)
+        await self._ended_past_the_grace(service, registry, apns)
         apns.send.return_value = ApnsResult(ok=False, status=500, reason="InternalServerError")
         await service._publish()                        # the end is refused
         live = tok(PushTokenKind.SESSION, "app-b", session_id="APP-B")
@@ -1392,10 +1417,49 @@ class TestRestart:
 
         apns.send.return_value = ApnsResult(ok=True, status=200)
         apns.send.reset_mock()
+        service._session_renewed_at -= START_REPORT_GRACE_S + 1
         await service._publish()
 
         assert sent_events(apns) == ["start"]
         assert service._unconfirmed is None
+
+    async def test_a_refused_re_announcement_is_spaced_not_repeated_per_cycle(
+        self, service, registry, apns
+    ):
+        """A refusal that may pass — a 429 above all — answered by a `start`
+        on every cycle would spend the budget Apple is already rationing, and
+        wake the extension each time. Once at once, then spaced."""
+        self._restarted(registry, "pts", "sess")
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
+        apns.send.return_value = ApnsResult(ok=False, status=429, reason="TooManyRequests")
+
+        await service._publish()
+        await service._publish()
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+        assert service._unconfirmed == "OLD-1"
+
+    async def test_an_adopted_session_left_with_no_starter_is_still_fed(
+        self, service, registry, apns
+    ):
+        """The re-announcement's push-to-start token turned out dead and was
+        purged: no `start` can go anywhere any more, and waiting on one froze
+        the card for as long as playback lasted. It is fed updates instead."""
+        self._restarted(registry, "pts", "sess")
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OLD-1")
+        apns.send.return_value = ApnsResult(ok=False, status=410, reason="Unregistered")
+
+        await service._publish()
+        del registry.held["pts"]     # what the purge does to the real registry
+        apns.send.return_value = ApnsResult(ok=True, status=200)
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_events(apns) == ["update"]
+        assert sent_sessions(apns) == ["OLD-1"]
 
     async def test_a_quiet_side_does_not_swap_the_session_it_holds(
         self, service, registry, apns

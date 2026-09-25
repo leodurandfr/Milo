@@ -649,13 +649,19 @@ class PushService:
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
-        if self._session_id == self._unconfirmed:
+        if self._session_id == self._unconfirmed and self._registry.tokens_for(
+            PushTokenKind.PUSH_TO_START
+        ):
             # Adopted from a token read at boot: a `start` under the same id,
             # which rebuilds it if alive and reopens it if gone. See
-            # `_adopt_reported_session`. Only settled once Apple took it —
-            # no push-to-start token yet, or a refusal, and the next cycle
-            # tries again rather than feed a session that may be dead.
-            if await self._renew_start(state, now_due=True):
+            # `_adopt_reported_session`. Only settled once Apple took it; a
+            # refusal is tried again rather than feed a session that may be
+            # dead — at once the first time, then spaced like any
+            # re-announcement, or a 429 was answered by a `start` per cycle.
+            # With no push-to-start token left (purged since the adoption)
+            # there is nothing to re-announce to, and it is fed updates below
+            # rather than frozen for as long as playback lasts.
+            if await self._renew_start(state, now_due=self._session_renewed_at == 0.0):
                 self._unconfirmed = None
             return
         targets = self._registry.tokens_for_session(self._session_id)
@@ -759,7 +765,8 @@ class PushService:
             return False
         logger.info(
             f"Now Playing session {self._session_id} re-announced — "
-            + ("adopted across a restart" if now_due else "still no token for it")
+            + ("adopted across a restart" if self._session_id == self._unconfirmed
+               else "still no token for it")
         )
         return True
 
@@ -772,13 +779,16 @@ class PushService:
         playing when nothing is, whatever the state carries: Bluetooth's AVRCP
         feed can publish a transport while the source is not active (see
         `_publish_paused`), and a `start` saying playing puts a position iOS
-        extrapolates on a card the music has left.
+        extrapolates on a card the music has left. Nor for a session other
+        than the one held — an ended one knocked on (`_send_end`): what plays
+        now is the next session's, and saying so raised a second card,
+        playing, beside the real one.
         """
         targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         if not targets:
             return False
         attributes = await self._build_attributes(session_id, state)
-        if not self._has_active_source(state):
+        if session_id != self._session_id or not self._has_active_source(state):
             attributes["isPlaying"] = False
         if not await self._send_all(
             targets, now_playing_payload("start", session_id, attributes), "nowplaying"
