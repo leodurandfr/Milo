@@ -1,6 +1,6 @@
 """The Mac source's outside world, as measured on the unit (docs: source
 architecture, phase 3d): roc-recv 0.4.0 under milo-mac.service, its journal,
-systemd holding it, and Avahi naming the senders.
+systemd holding it, and each Mac's own mDNS responder naming it.
 
 What roc-recv was measured to do (2026-09-24, the owner's Mac with roc-vad):
 
@@ -14,8 +14,12 @@ What roc-recv was measured to do (2026-09-24, the owner's Mac with roc-vad):
 - roc-recv killed: systemd's `Restart=always` brings a new process 5 s later,
   under a new invocation, and a Mac still streaming reattaches to it at once
   (same address, the connect line within the process's first milliseconds).
-- `avahi-resolve` answers an address nobody names over mDNS after 5 s; the
-  owner's Mac cost 6.8 s from its connect line to its name.
+- A Mac's Bonjour responder answers a legacy unicast query sent to its
+  <ip>:5353 (2026-09-25, macOS 26): one response per query, echoing its id and
+  its questions, answering each question it holds records for — the reverse
+  PTR with its host, a service type with its instance, whose SRV target and
+  address ride along as additionals — and nothing at all when it holds none.
+  A host with no responder never answers.
 
 The journal is a list of (microseconds, pid, line), and `journalctl -o json`
 prints each entry with its `_PID`, as journald does. `journalctl -f` honors `-n`
@@ -25,13 +29,16 @@ roc-recv wrote can land after the next one started (`received_late`).
 """
 import json
 import asyncio
+import ipaddress
 import itertools
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import struct
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from unittest.mock import AsyncMock, Mock
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.shared import journalctl as journalctl_module
+from backend.sources.mac import mdns as mdns_module
 from backend.sources.mac import source as mac_module
 from backend.sources.mac.source import MacSource
 from backend.tests.golden.harness import (
@@ -41,24 +48,11 @@ from backend.tests.golden.harness import (
 UNIT = "milo-mac.service"
 FIRST_PID = 111424
 
-MINI_IP = "192.168.1.173"   # streams ROC from here, advertises Bonjour on .21
-AIR_IP = "192.168.1.34"     # advertises nothing: its router name is all there is
+MINI_IP = "192.168.1.173"   # Ethernet; the same Mac is on Wi-Fi at .21
+AIR_IP = "192.168.1.34"     # publishes no service: its host name is all there is
+SILENT_IP = "192.168.1.120"  # no responder at all
 MINI_NAME = "Mac mini de Léo"
 AIR_NAME = "MacBook-Air-de-Camille"
-
-AVAHI_REVERSE = {
-    MINI_IP: "a8fca8ba-7a2f-4862-8934-70b031dd2eab.home",
-    AIR_IP: "MacBook-Air-de-Camille.home",
-}
-AVAHI_FORWARD = {
-    "a8fca8ba-7a2f-4862-8934-70b031dd2eab.local": ("Mac-mini-de-Leo.local", "192.168.1.21"),
-}
-AVAHI_BROWSE = "\n".join([
-    r"=;eth0;IPv4;Mac\032mini\032de\032L\195\169o;_companion-link._tcp;local;"
-    r"Mac-mini-de-Leo.local;192.168.1.21;49153;",
-    r"=;eth0;IPv4;Mac\032mini\032de\032L\195\169o;_smb._tcp;local;"
-    r"Mac-mini-de-Leo.local;192.168.1.21;445;",
-])
 
 
 PORT = 53721
@@ -81,6 +75,236 @@ def leave_lines(ip: str, port: int = PORT) -> List[str]:
         f"[dbg] roc_pipeline: [receiver_session_router.cpp:425] session router: removing route: "
         f'n_ssrcs=1 cname="3c66" address={ip}:{port} has_session=1',
     ]
+
+
+# === Answers captured off the LAN (2026-09-25) ===
+# Verbatim but for privacy: every TXT string overwritten with 'x' and each
+# global IPv6 address moved into 2001:db8::/32, byte for byte, so every length
+# and compression pointer is the responder's own.
+
+# The owner's Mac mini (macOS 26) at .173, asked in one query for the reverse
+# PTR of 192.168.1.173, the four device-level services and the service types.
+MINI_ANSWER = bytes.fromhex(
+    "db7a84000006000c0000000c033137330131033136380331393207696e2d616464720461"
+    "72706100000c00010f5f636f6d70616e696f6e2d6c696e6b045f746370056c6f63616c00"
+    "000c0001085f616972706c6179c03c000c0001055f72616f70c03c000c0001045f726662"
+    "c03c000c0001095f7365727669636573075f646e732d7364045f756470c041000c0001c0"
+    "72000c00010000000a0007045f737368c03cc072000c00010000000a000c095f73667470"
+    "2d737368c03cc072000c00010000000a0002c04cc04c000c00010000000a0013104d6163"
+    "206d696e69206465204cc3a96fc04cc072000c00010000000a0002c05bc05b000c000100"
+    "00000a00201d324546364231323234303532404d6163206d696e69206465204cc3a96fc0"
+    "5bc072000c00010000000a0002c02cc02c000c00010000000a0013104d6163206d696e69"
+    "206465204cc3a96fc02cc00c000c00010000000a00120f4d61632d6d696e692d64652d4c"
+    "656fc041c072000c00010000000a0002c067c067000c00010000000a0013104d6163206d"
+    "696e69206465204cc3a96fc067c072000c00010000000a000a075f617371756963c084c0"
+    "d4002100010000000a0008000000001b58c15ac0d4001000010000000a015f0578787878"
+    "781a78787878787878787878787878787878787878787878787878781478787878787878"
+    "787878787878787878787878781e78787878787878787878787878787878787878787878"
+    "78787878787878780b787878787878787878787828787878787878787878787878787878"
+    "787878787878787878787878787878787878787878787878780578787878780678787878"
+    "78780e787878787878787878787878787804787878780d78787878787878787878787878"
+    "277878787878787878787878787878787878787878787878787878787878787878787878"
+    "787878782878787878787878787878787878787878787878787878787878787878787878"
+    "787878787878787878437878787878787878787878787878787878787878787878787878"
+    "787878787878787878787878787878787878787878787878787878787878787878787878"
+    "78787878781078787878787878787878787878787878104d6163206d696e69206465204c"
+    "c3a96f0c5f6465766963652d696e666fc03c001000010000000a00230e78787878787878"
+    "787878787878780a78787878787878787878087878787878787878c10100210001000000"
+    "0a0008000000001b58c15ac101001000010000000a00b80a787878787878787878780778"
+    "787878787878087878787878787878187878787878787878787878787878787878787878"
+    "787878780878787878787878780878787878787878780b78787878787878787878784378"
+    "787878787878787878787878787878787878787878787878787878787878787878787878"
+    "787878787878787878787878787878787878787878787878787878787878067878787878"
+    "780878787878787878780b78787878787878787878780478787878c13b00210001000000"
+    "0a000800000000c2aac15ac13b001000010000000a007f07787878787878781178787878"
+    "787878787878787878787878780c78787878787878787878787811787878787878787878"
+    "78787878787878780a787878787878787878781178787878787878787878787878787878"
+    "781178787878787878787878787878787878781678787878787878787878787878787878"
+    "787878787878c186002100010000000a000800000000170cc15ac186001000010000000a"
+    "000100c15a001c00010000000a0010fe800000000000001490b7fc9300750ac15a000100"
+    "010000000a0004c0a801adc15a001c00010000000a001020010db80000000004f331bcc6"
+    "96c567"
+)
+
+# The Freebox at .254, a responder publishing none of the device-level
+# services: the same first query, then the PTR of each type it listed.
+FREEBOX_TYPES_ANSWER = bytes.fromhex(
+    "8c1f84000006000800000000033235340131033136380331393207696e2d616464720461"
+    "72706100000c00010f5f636f6d70616e696f6e2d6c696e6b045f746370056c6f63616c00"
+    "000c0001085f616972706c6179c03c000c0001055f72616f70c03c000c0001045f726662"
+    "c03c000c0001095f7365727669636573075f646e732d7364045f756470c041000c0001c0"
+    "72000c00010000000a0007045f736d62c03cc072000c00010000000a000e0b5f6166706f"
+    "766572746370c03cc072000c00010000000a000f0c5f6465766963652d696e666fc03cc0"
+    "72000c00010000000a0009065f616469736bc03cc072000c00010000000a000b085f6662"
+    "782d617069c03cc072000c00010000000a0008055f68747470c03cc072000c0001000000"
+    "0a0009065f6874747073c03cc00c000c00010000000a00110e46726565626f782d536572"
+    "766572c041"
+)
+
+FREEBOX_WALK_ANSWER = bytes.fromhex(
+    "187284000007000f00000000045f736d62045f746370056c6f63616c00000c00010b5f61"
+    "66706f766572746370c011000c00010c5f6465766963652d696e666fc011000c0001065f"
+    "616469736bc011000c0001085f6662782d617069c011000c0001055f68747470c011000c"
+    "0001065f6874747073c011000c0001c06e000c00010000000a00110e46726565626f7820"
+    "536572766572c06ec087001000010000000a000100c087002100010000000a0017000000"
+    "0001bb0e46726565626f782d536572766572c016c0b7000100010000000a0004c0a801fe"
+    "c062000c00010000000a00110e46726565626f7820536572766572c062c0e40010000100"
+    "00000a000100c0e4002100010000000a0008000000000050c0b7c053000c00010000000a"
+    "00110e46726565626f7820536572766572c053c122002100010000000a00080000000000"
+    "50c0b7c046000c00010000000a00110e46726565626f7820536572766572c046c1530010"
+    "00010000000a002625787878787878787878787878787878787878787878787878787878"
+    "78787878787878787878c153002100010000000a0008000000000009c0b7c033000c0001"
+    "0000000a00110e46726565626f7820536572766572c033c1b6001000010000000a000e0d"
+    "78787878787878787878787878c1b6002100010000000a0008000000000000c0b7"
+)
+
+
+# === The LAN's mDNS responders, at the UDP boundary ===
+
+def _encode_name(name: str) -> bytes:
+    out = b""
+    for label in name.rstrip(".").split("."):
+        raw = label.encode()
+        out += bytes([len(raw)]) + raw
+    return out + b"\0"
+
+
+def _read_questions(query: bytes) -> List[Tuple[str, int]]:
+    """A query's questions — plain names, a querier compresses nothing."""
+    count = struct.unpack_from(">H", query, 4)[0]
+    offset, questions = 12, []
+    for _ in range(count):
+        labels = []
+        while query[offset]:
+            length = query[offset]
+            labels.append(query[offset + 1:offset + 1 + length].decode())
+            offset += 1 + length
+        qtype = struct.unpack_from(">H", query, offset + 1)[0]
+        offset += 5
+        questions.append((".".join(labels), qtype))
+    return questions
+
+
+def _record(name: str, rtype: int, rdata: bytes) -> bytes:
+    return _encode_name(name) + struct.pack(">HHIH", rtype, 1, 10, len(rdata)) + rdata
+
+
+class MacResponder:
+    """A Mac's mDNSResponder, as measured: its host, and the instance each
+    service type it publishes goes by (`services`: type -> instance label)."""
+
+    def __init__(self, ip: str, host: str, services: Dict[str, str]) -> None:
+        self.ip, self.host, self.services = ip, host, services
+
+    def __call__(self, query: bytes) -> List[bytes]:
+        questions = _read_questions(query)
+        answers, extras = [], []
+        for name, qtype in questions:
+            if qtype != 12:
+                continue
+            if name == ipaddress.ip_address(self.ip).reverse_pointer:
+                answers.append(_record(name, 12, _encode_name(self.host)))
+            elif name == "_services._dns-sd._udp.local":
+                answers += [_record(name, 12, _encode_name(t)) for t in self.services]
+            elif name in self.services:
+                instance = f"{self.services[name]}.{name}"
+                answers.append(_record(name, 12, _encode_name(instance)))
+                srv = struct.pack(">HHH", 0, 0, 7000) + _encode_name(self.host)
+                extras += [_record(instance, 33, srv), _record(instance, 16, b"\x00")]
+        if not answers:
+            return []
+        extras.append(_record(self.host, 1, ipaddress.IPv4Address(self.ip).packed))
+        header = query[:2] + struct.pack(">HHHHH", 0x8400, len(questions), len(answers), 0, len(extras))
+        return [header + query[12:] + b"".join(answers + extras)]
+
+
+RESPONDERS: Dict[str, Callable[[bytes], List[bytes]]] = {
+    MINI_IP: MacResponder(MINI_IP, "Mac-mini-de-Leo.local", {
+        "_companion-link._tcp.local": MINI_NAME,
+        "_raop._tcp.local": f"2EF6B1224052@{MINI_NAME}",
+        "_smb._tcp.local": MINI_NAME,
+    }),
+    AIR_IP: MacResponder(AIR_IP, f"{AIR_NAME}.local", {}),
+}
+
+
+class _Transport:
+    def __init__(self, lan: "FakeMdns", ip: str, protocol: Any) -> None:
+        self.lan, self.ip, self.protocol = lan, ip, protocol
+        self.closed = False
+
+    def sendto(self, data: bytes, addr: Any = None) -> None:
+        self.lan.queries.append((self.ip, _read_questions(data)))
+        if self.ip in self.lan.closed_ports:
+            # Nothing listens on 5353 there: the host answers ICMP port
+            # unreachable, which asyncio hands to the connected socket.
+            self.protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
+            return
+        responder = self.lan.responders.get(self.ip)
+        if responder is not None:
+            self.lan.answer(self, responder(data))
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeMdns:
+    """What the resolver reaches through `create_datagram_endpoint` — a socket
+    connected to <ip>:5353 — and the clock its bound runs on, which moves
+    only when a scenario says time passes."""
+
+    def __init__(self, responders: Dict[str, Callable[[bytes], List[bytes]]]) -> None:
+        self.responders = dict(responders)
+        self.queries: List[Tuple[str, List[Tuple[str, int]]]] = []
+        self.remotes: List[Any] = []
+        self.gates: Dict[str, asyncio.Event] = {}
+        self.refuses: Optional[OSError] = None
+        self.closed_ports: set = set()      # hosts up with no mDNS responder
+        self._now = 0.0
+        self._sleepers: List[Tuple[float, asyncio.Future]] = []
+        self._pending: List[asyncio.Task] = []
+
+    def install(self, monkeypatch) -> None:
+        proxy = AsyncioProxy(self._sleep)
+        proxy.get_running_loop = lambda: self
+        monkeypatch.setattr(mdns_module, "asyncio", proxy)
+
+    async def create_datagram_endpoint(self, factory, remote_addr, **_: Any):
+        self.remotes.append(remote_addr)
+        if self.refuses is not None:
+            raise self.refuses
+        protocol = factory()
+        transport = _Transport(self, remote_addr[0].split("%", 1)[0], protocol)
+        protocol.connection_made(transport)
+        return transport, protocol
+
+    def answer(self, transport: _Transport, packets: Sequence[bytes]) -> None:
+        async def deliver() -> None:
+            gate = self.gates.get(transport.ip)
+            if gate is not None:
+                await gate.wait()
+            for packet in packets:
+                if not transport.closed:
+                    transport.protocol.datagram_received(packet, (transport.ip, 5353))
+        self._pending.append(asyncio.ensure_future(deliver()))
+
+    def asked(self) -> List[str]:
+        return [ip for ip, _ in self.queries]
+
+    async def _sleep(self, delay: float, *a: Any, **k: Any) -> None:
+        wake = asyncio.get_running_loop().create_future()
+        self._sleepers.append((self._now + delay, wake))
+        await wake
+
+    def time_passes(self, seconds: float) -> None:
+        self._now += seconds
+        for at, wake in list(self._sleepers):
+            if at <= self._now and not wake.done():
+                wake.set_result(None)
+
+    def release(self) -> None:
+        for gate in self.gates.values():
+            gate.set()
 
 
 class _Pipe:
@@ -117,14 +341,11 @@ class _Follow:
 
 
 class _OneShot:
-    def __init__(self, output: str, returncode: int = 0, gate: Optional[asyncio.Event] = None) -> None:
+    def __init__(self, output: str, returncode: int = 0) -> None:
         self._output = output.encode()
         self.returncode = returncode
-        self._gate = gate
 
     async def communicate(self) -> Tuple[bytes, bytes]:
-        if self._gate is not None:
-            await self._gate.wait()
         return self._output, b""
 
     def kill(self) -> None:
@@ -156,8 +377,7 @@ class MacWorld(WireReader):
         self.follows: List[_Follow] = []
         self.streaming: Dict[str, int] = {}       # Macs with Milō as their output: ip -> port
         self.watches: List[Tuple[int, Callable[[], None]]] = []
-        self.avahi_gates: Dict[str, asyncio.Event] = {}
-        self.avahi_calls: List[Tuple[str, ...]] = []
+        self.mdns = FakeMdns(RESPONDERS)
         self.unit_state = ("inactive", "success")
         self.journal_refuses = False
         # The pidfd fallback: /proc checked every 10 s, so a death is heard late.
@@ -193,6 +413,7 @@ class MacWorld(WireReader):
         monkeypatch.setattr(journalctl_module, "asyncio", proxy)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(self._sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
+        self.mdns.install(monkeypatch)
 
         self.machine, self.recorder = make_state_machine()
         self.source = MacSource(
@@ -251,8 +472,6 @@ class MacWorld(WireReader):
         program = argv[0]
         if program == "journalctl":
             return self._journalctl(argv)
-        if program in ("avahi-resolve", "avahi-browse"):
-            return self._avahi(argv)
         raise AssertionError(f"unexpected process {argv}")
 
     def _journalctl(self, argv: Tuple[str, ...]):
@@ -279,18 +498,6 @@ class MacWorld(WireReader):
         self.follows.append(follow)
         return follow
 
-    def _avahi(self, argv: Tuple[str, ...]):
-        self.avahi_calls.append(argv)
-        if argv[0] == "avahi-browse":
-            return _OneShot(AVAHI_BROWSE)
-        if "-a" in argv:
-            ip = argv[-1]
-            gate = self.avahi_gates.get(ip)
-            name = AVAHI_REVERSE.get(ip)
-            return _OneShot(f"{ip}\t{name}" if name else "", 0 if name else 1, gate)
-        found = AVAHI_FORWARD.get(argv[-1])
-        return _OneShot(f"{found[0]}\t{found[1]}" if found else "", 0 if found else 1)
-
     # === the Macs, as measured ===
 
     async def mac_streams(self, ip: str = MINI_IP, port: int = PORT) -> None:
@@ -316,11 +523,14 @@ class MacWorld(WireReader):
         self._log(lines, pid=pid)
 
     def name_is_slow(self, ip: str) -> asyncio.Event:
-        """Avahi takes its time to name `ip` (6.8 s for the owner's Mac): the
-        reverse lookup answers when the returned event is set."""
+        """The Mac at `ip` holds its answer until the returned event is set."""
         gate = asyncio.Event()
-        self.avahi_gates[ip] = gate
+        self.mdns.gates[ip] = gate
         return gate
+
+    async def time_passes(self, seconds: float) -> None:
+        self.mdns.time_passes(seconds)
+        await settle()
 
     async def kill_roc_recv(self) -> None:
         self.unit_state = ("activating", "signal")

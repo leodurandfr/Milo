@@ -13,7 +13,7 @@ from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import SourceErrorReason
 from backend.tests.golden.harness import settle
 from backend.tests.mac_world import (
-    AIR_IP, AIR_NAME, MINI_IP, MINI_NAME, PORT, MacWorld, connect_lines,
+    AIR_IP, AIR_NAME, MINI_IP, MINI_NAME, PORT, SILENT_IP, MacWorld, connect_lines,
 )
 
 
@@ -21,8 +21,7 @@ from backend.tests.mac_world import (
 async def world(monkeypatch):
     w = MacWorld(monkeypatch)
     yield w
-    for gate in w.avahi_gates.values():
-        gate.set()
+    w.mdns.release()
     await w.source.shutdown()
 
 
@@ -32,6 +31,35 @@ async def test_a_mac_picking_milo_is_shown_by_its_bonjour_name(world):
     await world.select()
     await world.mac_streams(MINI_IP)
     assert world.active() and world.names() == [MINI_NAME]
+
+
+async def test_the_mac_itself_is_asked_for_its_name(world):
+    """E73: the router's reverse zone answered for the Mac, with a name DHCP
+    had rotated ('mac-mini-de-leo2' once the Mac leased on Ethernet and
+    Wi-Fi), and avahi kept one address per name. The name now comes from
+    the one responder that cannot confuse the Mac with another: its own."""
+    await world.select()
+    await world.mac_streams(MINI_IP)
+    assert world.mdns.asked() and set(world.mdns.asked()) == {MINI_IP}
+    assert world.names() == [MINI_NAME]
+
+
+async def test_a_mac_publishing_no_service_is_shown_by_its_host_name(world):
+    """Its responder still answers the reverse PTR with the host it owns."""
+    await world.select()
+    await world.mac_streams(AIR_IP)
+    assert world.active() and world.names() == [AIR_NAME]
+
+
+async def test_a_sender_nothing_answers_for_is_shown_by_its_address_after_a_second(world):
+    """A host with no responder never answers, and the Mac is not shown
+    until it has had its chance — then by its address, a second on."""
+    await world.select()
+    await world.mac_streams(SILENT_IP)
+    assert world.mdns.asked() == [SILENT_IP]
+    assert not world.active()
+    await world.time_passes(1.0)
+    assert world.active() and world.names() == [SILENT_IP]
 
 
 async def test_a_mac_already_streaming_when_the_source_starts_is_shown(world):
@@ -53,13 +81,14 @@ async def test_the_mac_picking_another_output_ends_the_session(world):
 
 async def test_a_mac_already_named_is_not_looked_up_again(world):
     """roc-recv can announce the same address again within one run; each
-    lookup costs up to 6.8 s of avahi (measured), for a name already known."""
+    lookup is a question to the Mac, for a name already known."""
     await world.select()
     await world.mac_streams(MINI_IP)
-    lookups = len(world.avahi_calls)
+    lookups = len(world.mdns.queries)
+    assert lookups
     world._log(connect_lines(MINI_IP))
     await settle()
-    assert len(world.avahi_calls) == lookups
+    assert len(world.mdns.queries) == lookups
     assert world.names() == [MINI_NAME]
 
 
@@ -374,10 +403,10 @@ async def test_a_mac_reopening_its_stream_is_not_dropped_by_the_old_ones_end(wor
     ends the old one, and the old one's end must not take the Mac away."""
     await world.select()
     await world.mac_streams(MINI_IP, port=53721)
-    lookups = len(world.avahi_calls)
+    lookups = len(world.mdns.queries)
     await world.mac_streams(MINI_IP, port=58825)
     assert world.names() == [MINI_NAME]
-    assert len(world.avahi_calls) == lookups
+    assert len(world.mdns.queries) == lookups
     await world.mac_leaves(MINI_IP, port=53721)
     assert world.active() and world.names() == [MINI_NAME]
     await world.mac_leaves(MINI_IP, port=58825)

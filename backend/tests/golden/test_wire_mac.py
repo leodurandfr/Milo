@@ -1,10 +1,11 @@
 """Mac's wire, scenario by scenario (see harness.py for the rules).
 
-The outside world is two programs: roc-recv, whose journal is the only thing
-that says a sender connected or left, and Avahi, which names the sender from
-its IP. Both are faked as the processes the source spawns — `journalctl` and
-`avahi-resolve`/`avahi-browse` — so a stimulus is a line roc-recv logs, and a
-name is what the LAN advertises.
+The outside world is roc-recv, whose journal is the only thing that says a
+sender connected or left, and each sender's mDNS responder, which names it.
+The journal is faked as the process the source spawns (`journalctl`), the
+responders at the UDP socket the source opens to <ip>:5353
+(tests/mac_world.py) — so a stimulus is a line roc-recv logs, and a name is
+what the sender answers.
 
 The journal is timestamped: lines an earlier roc-recv wrote precede the
 running one's start, and `journalctl -f --since=@<start>` replays from there
@@ -28,26 +29,19 @@ from backend.tests.golden.harness import (
     AsyncioProxy, LiveProcessWatch, Wire, check_recording, instant_short_sleep, make_settings,
     make_state_machine, make_systemd, settle,
 )
+from backend.tests.mac_world import FakeMdns, MacResponder
 
-# Two Macs on the LAN. The mini advertises Bonjour services under its
-# instance name; the Air advertises nothing, so only its hostname is left.
+# Two Macs on the LAN. The mini publishes services under its instance name;
+# the Air publishes none, so only its host name is left.
 MINI_IP = "192.168.1.21"
 AIR_IP = "192.168.1.34"
-AVAHI_REVERSE = {
-    MINI_IP: "a8fca8ba-7a2f-4862-8934-70b031dd2eab.home",
-    AIR_IP: "MacBook-Air-de-Camille.home",
+RESPONDERS = {
+    MINI_IP: MacResponder(MINI_IP, "Mac-mini-de-Leo.local", {
+        "_companion-link._tcp.local": "Mac mini de Léo",
+        "_smb._tcp.local": "Mac mini de Léo",
+    }),
+    AIR_IP: MacResponder(AIR_IP, "MacBook-Air-de-Camille.local", {}),
 }
-AVAHI_FORWARD = {
-    "a8fca8ba-7a2f-4862-8934-70b031dd2eab.local": ("Mac-mini-de-Leo.local", MINI_IP),
-}
-AVAHI_BROWSE = "\n".join([
-    r"+;eth0;IPv4;Mac\032mini\032de\032L\195\169o;_companion-link._tcp;local",
-    rf"=;eth0;IPv4;Mac\032mini\032de\032L\195\169o;_companion-link._tcp;local;"
-    rf"Mac-mini-de-Leo.local;{MINI_IP};49153;",
-    rf"=;eth0;IPv4;Mac\032mini\032de\032L\195\169o;_smb._tcp;local;"
-    rf"Mac-mini-de-Leo.local;{MINI_IP};445;",
-    r"=;eth0;IPv4;NAS\032Leo;_smb._tcp;local;NAS-Leo.local;192.168.1.30;445;",
-])
 
 
 def roc_connect(ip: str) -> List[str]:
@@ -93,30 +87,13 @@ class _FollowProcess:
         return self.returncode
 
 
-class _OneShotProcess:
-    """A command that prints its answer and exits."""
-
-    def __init__(self, output: str, returncode: int = 0) -> None:
-        self._output = output.encode()
-        self.returncode = returncode
-
-    async def communicate(self) -> Tuple[bytes, bytes]:
-        return self._output, b""
-
-    def kill(self) -> None:
-        pass
-
-    async def wait(self) -> int:
-        return self.returncode
-
-
 # When the running roc-recv started (µs), and its pid, as systemd reports them.
 START_USEC = 1_790_254_635_371_598
 ROC_PID = 4242
 
 
 class FakeLan:
-    """roc-recv's journal and the LAN's mDNS, as the spawned processes see them."""
+    """roc-recv's journal, as the spawned `journalctl` sees it."""
 
     def __init__(self) -> None:
         self.journal: List[Tuple[int, int, str]] = []   # (µs, pid, line)
@@ -134,20 +111,7 @@ class FakeLan:
                     if usec >= since_usec:
                         self.follow.print(pid, line)
             return self.follow
-        if program == "avahi-resolve":
-            if "-a" in argv:
-                ip = argv[-1]
-                return self._answer(f"{ip}\t{AVAHI_REVERSE[ip]}" if ip in AVAHI_REVERSE else None)
-            name = argv[-1]
-            found = AVAHI_FORWARD.get(name)
-            return self._answer(f"{found[0]}\t{found[1]}" if found else None)
-        if program == "avahi-browse":
-            return self._answer(AVAHI_BROWSE)
         raise AssertionError(f"unexpected process {argv}")
-
-    @staticmethod
-    def _answer(output: Optional[str]) -> _OneShotProcess:
-        return _OneShotProcess(output, 0) if output is not None else _OneShotProcess("", 1)
 
 
 class Mac:
@@ -161,6 +125,8 @@ class Mac:
         monkeypatch.setattr(journalctl_module, "asyncio", fake)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", LiveProcessWatch, raising=False)
+        # Every sender here answers: the naming bound never has to pass.
+        FakeMdns(RESPONDERS).install(monkeypatch)
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         systemd = make_systemd()

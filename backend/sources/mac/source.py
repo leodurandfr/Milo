@@ -28,12 +28,12 @@ D-Bus. So the journal is the feed, and what was measured on the unit
 
 The session is the set of Macs attached (several at once), opened when the
 first one is named and ended when the last one leaves or roc-recv exits.
-Naming a Mac (mdns.py) can take seconds — 6.8 s for the owner's — so it runs
-beside the mailbox and posts its answer.
+Naming a Mac (mdns.py) asks the Mac itself and gives up after a second when
+nothing answers — too long for the mailbox to wait, so it runs beside it and
+posts its answer.
 """
 import asyncio
 import contextlib
-import ipaddress
 import json
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Set, Tuple
@@ -45,8 +45,8 @@ from backend.core.models.session import (
 )
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.journalctl import follow_unit
-from backend.sources.mac.log_patterns import classify_line, normalize_ip
-from backend.sources.mac.mdns import is_private_hostname, service_name_for_addresses
+from backend.sources.mac.log_patterns import classify_line
+from backend.sources.mac.mdns import resolve_sender_name
 
 
 @dataclass(eq=False)
@@ -272,11 +272,11 @@ class MacSource(BaseAudioSource):
         self._namers.spawn(self._name_sender(address), label="name")
 
     async def _name_sender(self, address: Tuple[str, Optional[int]]) -> None:
-        """Beside the mailbox: the lookup can take seconds, and a departure or
-        roc-recv's death must not wait behind it."""
+        """Beside the mailbox: the lookup can take a second, and a departure
+        or roc-recv's death must not wait behind it."""
         ip = address[0]
         try:
-            name = await self._resolve_hostname(ip)
+            name = await resolve_sender_name(ip, self.network_interface)
         except Exception as e:
             self._logger.warning(f"Could not name {ip}: {e}")
             name = ip
@@ -315,123 +315,6 @@ class MacSource(BaseAudioSource):
         session — unless the last named one simply left."""
         if reason is not EndReason.SENDER_LEFT:
             self._naming.clear()
-
-    async def _resolve_hostname(self, ip: str) -> str:
-        """Resolve the connected Mac's display name from its ROC source IP.
-
-        The Bonjour service instance name is what the user recognises — "Mac
-        mini de Léo" — so it is what we ask for, matched by advertised address.
-        A hostname is only the fallback, and a private one is worth less than
-        the IP: see mdns.py for why neither the reverse nor the forward lookup
-        can be trusted to answer with a name meant to be read.
-
-        Two addresses are offered to the match because they can differ: a Mac
-        streams ROC from one interface while advertising Bonjour on another (a
-        private Wi-Fi address next to the wired one), and the forward lookup is
-        what bridges the two.
-        """
-        if not ip:
-            return "Mac"
-
-        reverse = await self._avahi_reverse(ip)
-        label = reverse.split('.', 1)[0] if reverse else None
-
-        advertised_ip = None
-        if label:
-            canonical, advertised_ip = await self._avahi_forward(f"{label}.local")
-            if canonical:
-                label = canonical.split('.', 1)[0]
-
-        service_name = await self._bonjour_name((ip, advertised_ip))
-        if service_name:
-            return service_name
-
-        return label if label and not is_private_hostname(label) else ip
-
-    async def _bonjour_name(self, addresses: Tuple[Optional[str], ...]) -> Optional[str]:
-        """Look up the Bonjour instance name advertised at any of `addresses`.
-
-        `-t` stops at the end of the cache dump (~1 s on a home LAN) instead of
-        browsing forever; a Mac that has not been seen yet simply yields no
-        match, and the caller falls back to a hostname.
-        """
-        out = await self._run_avahi(["avahi-browse", "-a", "-r", "-p", "-t"])
-        return service_name_for_addresses(out, addresses) if out else None
-
-    async def _avahi_reverse(self, ip: str) -> Optional[str]:
-        """avahi-resolve -a <ip> → hostname (mDNS '.local' or a router '.home')."""
-        try:
-            ip_norm = normalize_ip(ip)
-            scope = None
-
-            if '%' in ip_norm:
-                ip_only, scope = ip_norm.split('%', 1)
-            else:
-                ip_only = ip_norm
-
-            addr = ipaddress.ip_address(ip_only)
-
-            # Add scope for link-local IPv6
-            if addr.version == 6 and addr.is_link_local and scope is None and self.network_interface:
-                ip_norm = f"{ip_only}%{self.network_interface}"
-
-            args = ["avahi-resolve", "-a", ip_norm]
-            if addr.version == 6:
-                args.insert(1, "-6")
-        except Exception as e:
-            self._logger.debug(f"Bad IP for mDNS reverse {ip}: {e}")
-            return None
-
-        out = await self._run_avahi(args)
-        if out:
-            parts = out.split()
-            if len(parts) >= 2:
-                return parts[1].rstrip('.')
-        return None
-
-    async def _avahi_forward(self, name: str) -> Tuple[Optional[str], Optional[str]]:
-        """avahi-resolve -n <name> → (canonical hostname, address it resolves to).
-
-        '.local' is mDNS-only, so this can only be answered by the Mac itself —
-        never by the router's '.home' unicast zone — which is what makes the
-        address it answers with the Mac's own, whichever interface it came from.
-        """
-        out = await self._run_avahi(["avahi-resolve", "-n", name])
-        if out:
-            parts = out.split()
-            if len(parts) >= 2:
-                return parts[0].rstrip('.'), parts[1]
-            if parts:
-                return parts[0].rstrip('.'), None
-        return None, None
-
-    async def _run_avahi(self, args: list) -> Optional[str]:
-        """Run an avahi query; return stripped stdout or None on failure."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            self._logger.error("mDNS resolution skipped: %s not installed", args[0])
-            return None
-        except OSError as e:
-            # Spawn can fail transiently (EMFILE/ENOMEM/…) — fall back so the
-            # caller still registers the client under its bare IP.
-            self._logger.warning("avahi-resolve spawn failed: %s", e)
-            return None
-
-        try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
-        except asyncio.TimeoutError:
-            proc.kill()
-            with contextlib.suppress(Exception):
-                await proc.wait()  # reap the killed child so its transport closes
-            self._logger.debug("Timeout running %s", " ".join(args))
-            return None
-
-        return stdout.decode().strip() if proc.returncode == 0 else None
 
     def _session_fields(self, session: MacSession) -> Dict[str, Any]:
         """The Macs attached, by name — one entry per Mac, however many
