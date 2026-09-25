@@ -80,7 +80,7 @@ async def test_a_skip_is_not_left_as_a_pause(world):
     await _phone_plays(world)
     await world.skips()
     assert world.playing()
-    assert world.meta().get("title") == "L.A.D.Y"
+    assert world.session()["title"] == "L.A.D.Y"
     await world.advance(DELAY + 1)
     assert world.drops == [] and world.restarts == [] and world.playing()
 
@@ -129,10 +129,11 @@ async def test_the_next_sender_inherits_nothing(world):
     assert not world.active()
     await world.connects(MAC, "Mac mini de Léo")
     await world.send(ssnc("pbeg"))
-    meta = world.meta()
-    assert world.active()
-    assert "duration" not in meta and "position" not in meta
-    assert "title" not in meta and "album_art_url" not in meta
+    session = world.session()
+    assert session is not None
+    assert session["duration_ms"] is None and session["position"] is None
+    assert session["title"] is None and session["artwork"] is None
+    assert world.state()["details"]["artwork_width"] is None
 
 
 async def test_a_newcomer_replaces_a_sender_whose_goodbye_is_late(world):
@@ -141,11 +142,11 @@ async def test_a_newcomer_replaces_a_sender_whose_goodbye_is_late(world):
     sender's title and cover until it sent tags of its own."""
     await _phone_plays(world)
     await world.connects(MAC, "Mac mini de Léo")
-    meta = world.meta()
-    assert meta.get("client_name") == "Mac mini de Léo"
-    assert "title" not in meta and "album_art_url" not in meta
+    session = world.session()
+    assert session["senders"] == ["Mac mini de Léo"]
+    assert session["title"] is None and session["artwork"] is None
     await world.says_goodbye(PHONE)          # the late goodbye
-    assert world.active() and world.meta().get("client_name") == "Mac mini de Léo"
+    assert world.active() and world.session()["senders"] == ["Mac mini de Léo"]
 
 
 async def test_a_takeover_hands_the_output_to_the_newcomer(world):
@@ -154,8 +155,8 @@ async def test_a_takeover_hands_the_output_to_the_newcomer(world):
     await world.send(ssnc("pend"), ssnc("disc", PHONE.encode()))
     await world.connects(MAC, "Mac mini de Léo")
     await world.system_audio_plays()
-    assert world.active() and world.meta().get("client_name") == "Mac mini de Léo"
-    assert world.meta().get("title") == "Energy"
+    assert world.active() and world.session()["senders"] == ["Mac mini de Léo"]
+    assert world.session()["title"] == "Energy"
 
 
 # === The daemon ===
@@ -179,7 +180,7 @@ async def test_a_session_on_the_restarted_daemon_is_not_cut(world):
     await _phone_plays(world)
     await world.advance(11)
     assert world.playing()
-    assert world.meta().get("title") == "Soul Officer"
+    assert world.session()["title"] == "Soul Officer"
 
 
 async def test_a_daemon_that_does_not_answer_is_restarted(world):
@@ -215,10 +216,11 @@ async def test_a_failed_restart_still_hears_the_sender(world):
 async def test_a_source_switch_ends_the_session(world):
     await _phone_plays(world)
     await world.leave()
-    assert world.state()["active_source"] == "none"
+    assert world.state()["source"] == "none"
+    assert world.session_ends() == ["source_switch"]
     await world.select()
     assert not world.active()
-    assert "title" not in world.meta()
+    assert world.state()["resume"] is None
 
 
 async def test_a_reroute_ends_the_session(world):
@@ -226,8 +228,9 @@ async def test_a_reroute_ends_the_session(world):
     restarts, and the sender has to reconnect (REROUTE = END_SESSION)."""
     await _phone_plays(world)
     await world.reroute()
-    assert world.state()["active_source"] == "airplay"
+    assert world.state()["source"] == "airplay"
     assert not world.active()
+    assert world.session_ends() == ["reroute"]
     assert world.errors() == []
 
 
@@ -236,12 +239,13 @@ async def test_a_reroute_ends_the_session(world):
 async def test_a_new_stream_after_a_pause_is_not_paused(world):
     """A phone paused in Music, its stream torn down, then Spotify on the same
     phone: a Realtime stream opens with no `pres`. It played — and stayed
-    PAUSED, so the idle timeout dropped a sender that was playing."""
+    PAUSED, so the idle timeout dropped a sender that was playing. A Realtime
+    stream is CONNECTED (it never reports a pause)."""
     await _phone_plays(world)
     await world.pauses()
     await world.tears_the_stream_down()
     await world.system_audio_plays("Spotify track")
-    assert world.playing()
+    assert world.phase() == "connected"
     await world.advance(DELAY + 1)
     assert world.drops == [] and world.active()
 
@@ -255,8 +259,8 @@ async def test_announcements_left_over_from_a_stopped_source_are_not_replayed(wo
     await world.leave()
     await world.select()
     await world.connects(MAC, "Mac mini de Léo")
-    assert world.meta().get("title") is None
-    assert world.meta().get("client_name") == "Mac mini de Léo"
+    assert world.session()["title"] is None
+    assert world.session()["senders"] == ["Mac mini de Léo"]
 
 
 async def test_leftovers_after_a_goodbye_open_nothing(world):

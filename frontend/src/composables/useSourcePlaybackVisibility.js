@@ -2,11 +2,11 @@
 // Playback state detection + player visibility for audio source components.
 //
 // Visibility follows whether the source has something to show, which the
-// backend now publishes: a source that stops with something to resume keeps
-// its identity in the metadata (the station a press would re-tune, the episode
-// and the second it stopped at, the saved queue). So the pane stays up on a
-// stop and goes down on an ending — and there is nothing left to key on
-// `source_state`, which answers a different question ("is a session live").
+// backend publishes: a source that stops with something to resume keeps its
+// identity in its details and its resume point (the station a press would
+// re-tune, the episode and the second it stopped at, the saved queue). So the
+// pane stays up on a stop and goes down on an ending — and nothing here keys
+// on the session, which answers a different question ("is a session live").
 //
 // It used to hide on the READY transition, which forced each source to keep a
 // sticky copy of what it had just lost: displayStation in RadioSource.vue for
@@ -15,7 +15,7 @@
 // the published state — and none surviving a reload. The state carries it now.
 //
 // A pause never hides the pane, as before: a paused source still has its
-// identity, so this is keyed on neither `is_playing` nor a timer.
+// identity, so this is keyed on neither the phase nor a timer.
 //
 // What the three copies DID legitimately buy is the leave animation: the pane
 // takes time to go, and binding it straight to the live value blanks its
@@ -39,18 +39,16 @@ export function useSourcePlaybackVisibility(source, { content }) {
   const shouldShowPlayer = ref(false);
   const displayed = ref(null);
 
-  const isPlaying = computed(() => {
-    if (unifiedStore.systemState.active_source !== source) return false;
-    return unifiedStore.systemState.metadata?.is_playing || false;
+  const phase = computed(() => {
+    if (unifiedStore.systemState.source !== source) return null;
+    return unifiedStore.systemState.session?.phase ?? null;
   });
 
-  const isBuffering = computed(() => {
-    if (unifiedStore.systemState.active_source !== source) return false;
-    return unifiedStore.systemState.metadata?.is_buffering || false;
-  });
+  const isPlaying = computed(() => phase.value === 'playing');
+  const isBuffering = computed(() => phase.value === 'loading');
 
   const hasSomethingToShow = computed(() => {
-    if (unifiedStore.systemState.active_source !== source) return false;
+    if (unifiedStore.systemState.source !== source) return false;
     return !!content();
   });
 

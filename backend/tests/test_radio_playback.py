@@ -8,7 +8,7 @@ besides the web UI. Also covers `on_shazam_setting_changed`, the live half of
 
 Each scenario drives the outside world only (mpv simulated, the station store
 and the directory faked, a real state machine) and reads what the clients read:
-the command's answer, `source_state`/`metadata`, the `source/error` banners,
+the command's answer, the state's `session`/`details`, the `source/error` banners,
 and what mpv was told to load.
 """
 import asyncio
@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from backend.tests.golden.harness import settle
-from backend.tests.golden.test_old_wire_radio import FIP, NOVA
+from backend.tests.golden.test_wire_radio import FIP, NOVA
 from backend.tests.radio_world import RadioWorld
 
 # A station from a search: not a favorite, carried in the request body.
@@ -53,7 +53,7 @@ class TestResolutionChain:
 
         assert result["success"] is True
         assert radio.loads()[-1][1] == "http://local/jazz"
-        assert radio.meta()["station_name"] == "Jazz (renamed)"
+        assert radio.details()["station"]["name"] == "Jazz (renamed)"
         radio.api.get_station_by_id.assert_not_awaited()
 
     async def test_the_body_the_caller_sent_is_used_before_the_directory(self, radio):
@@ -98,8 +98,8 @@ class TestResolutionChain:
         assert result["success"] is False
         assert "ghost" in result["error"]
         assert radio.loads() == []
-        assert radio.state()["source_state"] == "ready"
-        assert radio.meta()["is_buffering"] is False
+        assert not radio.active()
+        assert not radio.buffering()
 
     async def test_a_directory_that_fails_is_reported_and_leaves_no_spinner(self, radio):
         """The one arm that catches the unexpected: the directory lookup
@@ -114,7 +114,7 @@ class TestResolutionChain:
         assert "directory down" in result["error"]
         assert radio.errors() == ["playback_failed"]
         assert radio.loads() == []
-        assert radio.meta()["is_buffering"] is False
+        assert not radio.buffering()
 
     async def test_the_click_counter_does_not_stand_between_the_tap_and_the_sound(
         self, radio
@@ -167,9 +167,9 @@ class TestSwitchingStations:
 
         assert radio.loads()[-1][2] == "replace"
         assert [entry.url for entry in radio.mpv.playlist] == [FIP["url"]]
-        assert radio.state()["source_state"] == "active"
-        assert radio.meta()["station_id"] == "fip"
-        assert radio.meta()["is_playing"] is True
+        assert radio.active()
+        assert radio.station() == "fip"
+        assert radio.playing()
         assert radio.errors() == []
 
     async def test_the_in_band_state_of_the_previous_station_is_not_inherited(self, radio):
@@ -181,11 +181,11 @@ class TestSwitchingStations:
         await radio.select()
         await radio.tune(FIP)
         await radio.tick(4)
-        assert radio.meta()["track_title"] == "Snibor"
+        assert radio.track_title() == "Snibor"
 
         radio.stream_title(None)
         await radio.tune(NOVA)
-        assert "track_title" not in radio.meta()
+        assert radio.track_title() is None
         await radio.tick(8)
 
         assert radio.shazam_running()
@@ -198,9 +198,9 @@ class TestSwitchingStations:
 
         await radio.tune(FIP)
 
-        assert radio.state()["source_state"] == "active"
-        assert radio.meta()["station_id"] == "fip"
-        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (False, True)
+        assert radio.active()
+        assert radio.station() == "fip"
+        assert radio.phase() == "loading"
 
 
 class TestStreamRefusedByMpv:
@@ -217,9 +217,9 @@ class TestStreamRefusedByMpv:
         assert result["success"] is False
         assert result["error"] == "Unable to load stream: Jazz Radio"
         assert radio.errors() == ["stream_load_failed"]
-        assert radio.state()["source_state"] == "ready"
-        assert radio.meta()["station_id"] == "s1"
-        assert radio.meta()["is_buffering"] is False
+        assert not radio.active()
+        assert radio.station() == "s1"
+        assert not radio.buffering()
 
 
 class TestNowPlayingGates:
@@ -240,7 +240,7 @@ class TestNowPlayingGates:
         await radio.tick(16)
 
         radio.data.is_station_shazam_enabled.assert_called_with("fip")
-        assert "track_title" not in radio.meta()
+        assert radio.track_title() is None
         assert not radio.shazam_running()
 
     async def test_the_fallback_starts_after_the_grace_when_both_gates_are_open(
@@ -269,7 +269,7 @@ class TestNowPlayingGates:
         radio.stream_title("Miles Davis - So What")
         await radio.tune(FIP)
         await radio.tick(4)
-        assert radio.meta()["track_title"] == "So What"
+        assert radio.track_title() == "So What"
 
 
 class TestStopPlayback:
@@ -285,7 +285,7 @@ class TestStopPlayback:
 
         assert result["success"] is True
         assert not radio.shazam_running()
-        assert radio.state()["source_state"] == "ready"
+        assert not radio.active()
         assert ("stop",) in radio.mpv.sent
 
     async def test_stop_keeps_the_station_so_resume_can_retune_it(self, radio):
@@ -294,13 +294,13 @@ class TestStopPlayback:
         await radio.select()
         await radio.tune(FIP)
         await radio.command("stop")
-        assert radio.meta()["station_id"] == "fip"
+        assert radio.station() == "fip"
 
         result = await radio.command("resume_playback")
 
         assert result["success"] is True
         assert radio.loads()[-1][1] == FIP["url"]
-        assert radio.state()["source_state"] == "active"
+        assert radio.active()
 
     async def test_stop_with_mpv_unreachable_still_ends_the_session(self, radio):
         """`stop` also comes from the idle timeout and the lock screen; mpv not
@@ -312,8 +312,8 @@ class TestStopPlayback:
         result = await radio.command("stop")
 
         assert result["success"] is True
-        assert radio.state()["source_state"] == "ready"
-        assert radio.meta()["is_playing"] is False
+        assert not radio.active()
+        assert not radio.playing()
 
 
 class TestResumeDispatch:

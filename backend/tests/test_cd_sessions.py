@@ -47,9 +47,8 @@ async def test_opening_the_source_with_a_disc_in_does_not_play(world):
     w = await world()
     await w.select()
 
-    assert w.state()["source_state"] == "active"
-    assert w.meta()["is_playing"] is False
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.phase() == "paused"
+    assert w.disc()["id"] == DISC_ID
     assert w.track() == 1
 
 
@@ -72,7 +71,7 @@ async def test_a_drive_replugged_with_its_disc_in_does_not_play(world):
     await w.plug(disc="audio")
     await w.advance(1.1)
 
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.disc()["id"] == DISC_ID
     assert not w.playing()
 
 
@@ -103,8 +102,8 @@ async def test_a_refused_eject_leaves_the_disc_as_it_was(world):
     await w.advance(3)
 
     assert result["success"] is False
-    assert w.meta()["disc_id"] == DISC_ID
-    assert not w.meta().get("ejecting")
+    assert w.disc()["id"] == DISC_ID
+    assert w.availability() is None
     assert (await w.command("play_track", {"track_number": 4}))["success"] is True
     assert w.track() == 4
 
@@ -124,8 +123,8 @@ async def test_an_eject_is_over_when_the_disc_is_out_even_if_it_is_pushed_back(w
     await w.insert()
     await w.advance(3)
 
-    assert not w.meta().get("ejecting")
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.availability() is None
+    assert w.disc()["id"] == DISC_ID
 
 
 # === E36: a disc that cannot be read ===
@@ -138,8 +137,10 @@ async def test_a_disc_that_never_becomes_readable_is_reported(world):
     await w.insert(readable=False)
     await w.advance(60)
 
-    assert not w.meta().get("disc_present")
+    assert w.availability() == "unreadable_disc"
     assert w.errors() == ["disc_unreadable"]
+    # E67: a disc Milō cannot play still comes out.
+    assert w.state()["controls"] == ["eject"]
 
 
 async def test_a_disc_with_no_audio_track_is_reported(world):
@@ -149,7 +150,7 @@ async def test_a_disc_with_no_audio_track_is_reported(world):
     await w.insert(disc="data")
     await w.advance(10)
 
-    assert not w.meta().get("disc_present")
+    assert w.availability() == "unreadable_disc"
     assert w.errors() == ["disc_unreadable"]
 
 
@@ -168,15 +169,15 @@ async def test_a_drive_status_glitch_does_not_stop_the_disc(world):
 
 
 async def test_a_read_error_mid_track_keeps_the_disc_and_the_track(world):
-    """A read error is a lost stream, not a removal: banner, READY, and a press
-    on play resumes the same track at the same second."""
+    """A read error is a lost stream, not a removal: banner, no session, and a
+    press on play resumes the same track at the same second."""
     w = await world()
     await _playing_track(w, 2, 40)
     await w.read_error(errno.EIO)
 
-    assert w.state()["source_state"] == "ready"
+    assert not w.active()
     assert w.errors() == ["stream_disconnected"]
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.disc()["id"] == DISC_ID
     await w.command("resume")
     assert w.reader.starts[-1][0] == kernel_lba(2, 40)
 
@@ -203,8 +204,7 @@ async def test_a_reroute_while_paused_comes_back_paused(world):
     await w.command("pause")
     await w.reroute()
 
-    assert w.state()["source_state"] == "active"
-    assert w.meta()["is_playing"] is False
+    assert w.phase() == "paused"
     assert w.track() == 3
     assert w.reader.starts[-1][0] == kernel_lba(3, 12)
 
@@ -218,14 +218,15 @@ async def test_a_seek_with_nothing_playing_moves_the_resume_point_only(world):
     w = await world(settings={"audio.auto_stop_delay": 30})
     await _playing_track(w, 2, 20)
     await w.command("pause")
-    await w.advance(31)                       # auto-stop: READY, drive released
-    assert w.state()["source_state"] == "ready"
+    await w.advance(31)                       # auto-stop: no session, drive released
+    assert not w.active()
     starts = len(w.reader.starts)
 
     await w.command("seek", {"position_ms": 90_000})
     assert len(w.reader.starts) == starts
     assert not w.reader.running
-    assert w.position_s() == 90
+    assert not w.active()
+    assert (w.track(), w.resume_ms()) == (2, 90_000)
 
     await w.command("resume")
     assert w.reader.starts[-1][0] == kernel_lba(2, 90)
@@ -266,8 +267,9 @@ async def test_the_end_of_the_disc_goes_back_to_track_1(world):
     await _playing_track(w, 8, 35)
     await w.disc_runs_out()
 
-    assert w.state()["source_state"] == "ready"
-    assert w.track() == 1
+    assert not w.active()
+    assert w.session_ends()[-1] == "eof"
+    assert (w.track(), w.resume_ms()) == (1, 0)
     assert w.errors() == []
 
 
@@ -276,9 +278,9 @@ async def test_unplugging_the_drive_mid_play_forgets_the_disc(world):
     await _playing_track(w, 4, 10)
     await w.unplug()
 
-    assert w.state()["source_state"] == "ready"
-    assert w.meta().get("drive_connected") is False
-    assert "disc_id" not in w.meta()
+    assert not w.active()
+    assert w.availability() == "no_drive"
+    assert w.disc() is None
 
 
 async def test_every_track_position_maps_through_the_same_lead_in(world):
@@ -365,8 +367,7 @@ async def test_a_seek_while_paused_moves_the_playhead_and_stays_paused(world):
 
     assert w.reader.starts[-1][0] == kernel_lba(3, 70)
     assert w.mpv.paused is True
-    assert w.state()["source_state"] == "active"
-    assert w.meta()["is_playing"] is False
+    assert w.phase() == "paused"
     assert w.position_s() == 70
 
 
@@ -401,8 +402,7 @@ async def test_a_resume_mpv_refuses_leaves_the_disc_paused(world):
     w.mpv.accept = False
     result = await w.command("resume")
     assert result["success"] is False
-    assert w.state()["source_state"] == "active"
-    assert w.meta()["is_playing"] is False
+    assert w.phase() == "paused"
 
 
 # === Opening and leaving the source ===
@@ -411,7 +411,7 @@ async def test_a_service_that_will_not_start_fails_the_start(world):
     w = await world()
     w.systemd.start.return_value = False
     await w.select()
-    assert w.state()["source_state"] == "error"
+    assert w.state()["service"] == "failed"
     assert w.reader.starts == []
 
 
@@ -419,7 +419,8 @@ async def test_an_empty_drive_preloads_nothing(world):
     w = await world(disc=None)
     await w.select()
     assert w.reader.starts == []
-    assert w.state()["source_state"] == "ready"
+    assert not w.active()
+    assert w.availability() == "no_disc"
 
 
 async def test_the_preload_is_paused_before_mpv_opens_the_fifo(world):
@@ -458,8 +459,7 @@ async def test_leaving_and_coming_back_resumes_the_track_paused(world):
     await w.select()
 
     assert w.reader.starts[-1][0] == kernel_lba(3, 20)
-    assert w.state()["source_state"] == "active"
-    assert w.meta()["is_playing"] is False
+    assert w.phase() == "paused"
 
 
 async def test_the_auto_stop_releases_the_drive_and_keeps_the_point(world):
@@ -468,9 +468,10 @@ async def test_the_auto_stop_releases_the_drive_and_keeps_the_point(world):
     await w.command("pause")
     await w.advance(31)
 
-    assert w.state()["source_state"] == "ready"
+    assert not w.active()
+    assert w.session_ends() == ["idle_timeout"]
     assert not w.reader.running
-    assert (w.track(), w.position_s()) == (5, 12)
+    assert (w.track(), w.resume_ms()) == (5, 12_000)
 
 
 async def test_a_reader_that_never_gets_ready_is_a_failed_load(world):
@@ -481,7 +482,7 @@ async def test_a_reader_that_never_gets_ready_is_a_failed_load(world):
 
     assert result["success"] is False
     assert not w.reader.running
-    assert w.state()["source_state"] == "ready"
+    assert not w.active()
     assert "stream_load_failed" in w.errors()
 
 
@@ -505,7 +506,7 @@ async def test_a_disc_inserted_while_the_source_is_closed_is_not_looked_up(world
     assert w.lookups == 0
     await w.select()
     assert w.lookups == 1
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.disc()["id"] == DISC_ID
     assert not w.playing()
 
 
@@ -513,11 +514,11 @@ async def test_an_unknown_disc_is_named_by_the_retry_once_musicbrainz_knows_it(w
     w = await world()
     w.named = False
     await w.select()
-    assert w.meta().get("album") is None
+    assert w.disc()["album"] is None
 
     w.named = True
     await w.advance(61)
-    assert w.meta()["album"] == "Eight"
+    assert w.disc()["album"] == "Eight"
 
 
 async def test_no_retry_runs_for_a_source_that_is_closed(world):
@@ -540,15 +541,16 @@ async def test_a_disc_ejected_during_its_lookup_is_not_written_back(world):
     w.lookup_gate.set()
     await w.advance(3)
 
-    assert "disc_id" not in w.meta()
-    assert not w.meta().get("disc_present")
+    assert w.disc() is None
+    assert w.availability() == "no_disc"
 
 
 async def test_a_lookup_that_fails_leaves_the_disc_playable_with_plain_titles(world):
     w = await world()
     w.lookup_raises = True
     await w.select()
-    assert w.meta()["title"] == "Track 1"
+    assert w.session()["title"] == "Track 1"
+    assert w.disc()["tracks"][1]["title"] == "Track 2"
     assert (await w.command("play_track", {"track_number": 2}))["success"] is True
 
 
@@ -559,7 +561,7 @@ async def test_a_toc_that_fails_once_is_read_again(world):
     w.toc_failures = 1
     await w.insert()
     await w.advance(3)
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.disc()["id"] == DISC_ID
 
 
 async def test_a_toc_that_never_reads_is_reported_unreadable(world):
@@ -568,7 +570,7 @@ async def test_a_toc_that_never_reads_is_reported_unreadable(world):
     w.toc_failures = 99
     await w.insert()
     await w.advance(10)
-    assert not w.meta().get("disc_present")
+    assert w.availability() == "unreadable_disc"
     assert w.errors() == ["disc_unreadable"]
 
 
@@ -580,28 +582,29 @@ async def test_the_disc_plays_before_its_jacket_and_says_one_is_coming(world):
     w.cover_gate = asyncio.Event()
     await w.select()
     await w.insert()
-    assert w.meta()["artwork_pending"] is True
+    assert w.state()["details"]["artwork_pending"] is True
     assert w.reader.starts, "the disc waited for its jacket"
 
     w.cover_gate.set()
     await w.advance(0.1)
-    assert w.meta()["artwork_pending"] is False
-    assert w.meta()["album_art_url"] == "/api/cd/cover/world-disc-1"
+    assert w.state()["details"]["artwork_pending"] is False
+    assert w.session()["artwork"] == "/api/cd/cover/world-disc-1"
 
 
 async def test_a_jacket_the_archive_does_not_have_lifts_the_veil(world):
     w = await world()
     w.cover_known, w.cover_answer = True, None
     await w.select()
-    assert w.meta()["artwork_pending"] is False
-    assert "album_art_url" not in w.meta()
+    assert w.state()["details"]["artwork_pending"] is False
+    assert w.disc()["cover_url"] is None
+    assert w.session()["artwork"] is None
 
 
 async def test_a_jacket_fetch_that_raises_still_lifts_the_veil(world):
     w = await world()
     w.cover_known, w.cover_answer = True, OSError("archive unreachable")
     await w.select()
-    assert w.meta()["artwork_pending"] is False
+    assert w.state()["details"]["artwork_pending"] is False
 
 
 async def test_a_disc_swapped_during_the_fetch_is_not_given_the_old_jacket(world):
@@ -614,7 +617,8 @@ async def test_a_disc_swapped_during_the_fetch_is_not_given_the_old_jacket(world
     await w.insert()
     w.cover_gate.set()
     await w.advance(0.1)
-    assert "album_art_url" not in w.meta()
+    assert w.disc()["cover_url"] is None
+    assert w.session()["artwork"] is None
 
 
 async def test_opening_the_source_again_asks_for_a_jacket_left_unfetched(world):
@@ -627,7 +631,8 @@ async def test_opening_the_source_again_asks_for_a_jacket_left_unfetched(world):
     await w.select()
     await w.advance(0.1)
     assert w.cover_fetches == 2
-    assert w.meta()["album_art_url"] == "/api/cd/cover/world-disc-1"
+    assert w.disc()["cover_url"] == "/api/cd/cover/world-disc-1"
+    assert w.session()["artwork"] == "/api/cd/cover/world-disc-1"
 
 
 # === The drive ===
@@ -639,18 +644,17 @@ async def test_an_eject_udev_never_confirms_is_settled_by_asking_the_drive(world
     w.eject_silent = True
     await w.source.command("eject", None)
     await w.advance(6)
-    assert not w.meta().get("ejecting")
-    assert not w.meta().get("disc_present")
+    assert w.availability() == "no_disc"
+    assert w.disc() is None
 
 
 async def test_a_drive_unplugged_then_replugged_empty_is_empty(world):
     w = await world()
     await w.select()
     await w.unplug()
-    assert w.meta()["drive_connected"] is False
+    assert w.availability() == "no_drive"
     await w.plug()
-    assert w.meta()["drive_connected"] is True
-    assert not w.meta().get("disc_present")
+    assert w.availability() == "no_disc"
 
 
 async def test_the_live_position_answers_a_state_request(world):
@@ -658,8 +662,9 @@ async def test_the_live_position_answers_a_state_request(world):
     await _playing_track(w, 2, 10)
     w.playhead(42.5)
     assert await w.source.refresh_when_idle() is True
+    await settle()
     # Sector precision: 1/75 s.
-    assert abs(w.source.metadata["position"] - 42_500) < 1000 / 75
+    assert abs(w.position_ms() - 42_500) < 1000 / 75
 
 
 async def test_a_host_without_udev_has_no_drive_and_runs_on(monkeypatch):
@@ -681,8 +686,9 @@ async def test_a_host_without_udev_has_no_drive_and_runs_on(monkeypatch):
     w.source._drive = NoUdev()
     assert await w.source.initialize() is True
     await w.select()
-    assert w.state()["source_state"] == "ready"
-    assert w.meta()["drive_connected"] is False
+    assert w.state()["service"] == "running"
+    assert not w.active()
+    assert w.availability() == "no_drive"
     await w.source.shutdown()
 
 
@@ -694,7 +700,7 @@ async def test_a_zero_delay_keeps_a_paused_disc_loaded(world):
     await _playing_track(w, 2, 10)
     await w.command("pause")
     await w.advance(3600)
-    assert w.state()["source_state"] == "active"
+    assert w.phase() == "paused"
     assert w.reader.running
 
 
@@ -748,8 +754,8 @@ async def test_an_inserted_disc_shows_as_loading_within_the_probe_interval(world
     await w.select()
     await w.insert(readable=False)            # 2.1 s pass, the disc still spins
 
-    assert w.meta()["disc_present"] is True
-    assert "disc_id" not in w.meta()
+    assert w.availability() == "reading_disc"
+    assert w.disc() is None
 
 
 async def test_no_probe_runs_for_a_closed_source_or_a_drive_holding_a_disc(world):
@@ -773,8 +779,7 @@ async def test_the_probe_can_find_a_disc_but_never_lose_one(world):
     await w.select()
     w.probe_glitches = 5
     await w.advance(10)
-    assert w.meta()["drive_connected"] is True
-    assert not w.meta().get("disc_present")
+    assert w.availability() == "no_disc"
 
 
 # === Code review, 2026-09-23 ===
@@ -790,8 +795,8 @@ async def test_an_eject_the_drive_did_not_carry_out_leaves_the_disc_shown(world)
     await w.source.command("eject", None)
     await w.advance(6)
 
-    assert not w.meta().get("ejecting")
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.availability() is None
+    assert w.disc()["id"] == DISC_ID
 
 
 async def test_an_eject_cut_by_a_source_switch_does_not_stay_ejecting(world):
@@ -810,8 +815,8 @@ async def test_an_eject_cut_by_a_source_switch_does_not_stay_ejecting(world):
     await w.advance(6)
     await w.select()
 
-    assert not w.meta().get("ejecting")
-    assert w.meta()["disc_id"] == DISC_ID
+    assert w.availability() is None
+    assert w.disc()["id"] == DISC_ID
 
 
 async def test_an_unknown_disc_is_looked_up_again_until_it_is_named(world):
@@ -821,11 +826,11 @@ async def test_an_unknown_disc_is_looked_up_again_until_it_is_named(world):
     w.named = False
     await w.select()
     await w.advance(61)                   # first retry: still unknown
-    assert w.meta().get("album") is None
+    assert w.disc()["album"] is None
 
     w.named = True
     await w.advance(61)
-    assert w.meta()["album"] == "Eight"
+    assert w.disc()["album"] == "Eight"
 
 
 async def test_a_toc_read_that_hangs_does_not_hold_up_leaving_the_source(world):
@@ -855,3 +860,22 @@ async def test_a_refused_eject_keeps_the_track_and_second(world):
     await w.command("resume")
 
     assert w.reader.starts[-1][0] == kernel_lba(7, 30)
+
+
+# === E58: the drive's state rides on the one state ===
+
+async def test_a_drive_change_off_screen_is_one_state_carrying_it(world):
+    """E58: a drive change was its own event (`system/cd_drive_status`), which
+    a client could see before or after the state it belonged to. It is now
+    the CD's `availability` in the one state, published whether or not CD is
+    on screen — a client that shows the CD card greyed reads it there."""
+    w = await world(disc=None, plugged=False)
+    assert w.availability() == "no_drive"
+    before = len(w.recorder.envelopes)
+    await w.plug()
+
+    sent = w.recorder.envelopes[before:]
+    assert sent, "the drive change was not published"
+    assert {(e["category"], e["type"]) for e in sent} == {("source", "state")}
+    assert sent[-1]["data"]["source"] == "none"
+    assert sent[-1]["data"]["availability"]["cd"] == "no_disc"

@@ -27,16 +27,14 @@ export function useEpisodePlaybackStatus(episodeRef) {
   const podcastStore = usePodcastStore();
   const unifiedStore = useUnifiedAudioStore();
 
+  // `currentEpisode` is already null unless podcast is the selected source.
   const isCurrentEpisode = computed(() => podcastStore.currentEpisode?.uuid === episodeRef.value?.uuid);
-  const isPodcastActive = computed(() => unifiedStore.systemState.active_source === 'podcast');
+  const phase = computed(() => (isCurrentEpisode.value ? unifiedStore.systemState.session?.phase : null));
 
-  const isCurrentlyPlaying = computed(() =>
-    isCurrentEpisode.value && isPodcastActive.value && (unifiedStore.systemState.metadata?.is_playing || false)
-  );
+  const isCurrentlyPlaying = computed(() => phase.value === 'playing');
 
   const isCurrentEpisodeBuffering = computed(() =>
-    podcastStore.isEpisodePending(episodeRef.value?.uuid) ||
-    (isCurrentEpisode.value && isPodcastActive.value && (unifiedStore.systemState.metadata?.is_buffering || false))
+    podcastStore.isEpisodePending(episodeRef.value?.uuid) || phase.value === 'loading'
   );
 
   // Progress for a non-current episode: prefer the live cache entry (kept fresh
@@ -51,10 +49,13 @@ export function useEpisodePlaybackStatus(episodeRef) {
     return episodeProgress.value?.completed === true;
   });
 
+  // The current episode's playhead, from the state (ms).
+  const live = computed(() => (isCurrentEpisode.value ? podcastStore.currentEpisodeProgress : null));
+
   const hasProgress = computed(() => {
-    // If this is the current episode, read live position from unified store (ms)
+    // A remaining time needs the duration, which a loading file has not announced yet.
     if (isCurrentEpisode.value) {
-      return (unifiedStore.systemState.metadata?.position || 0) > 0;
+      return (live.value?.positionMs || 0) > 0 && !!live.value?.durationMs;
     }
     return (episodeProgress.value?.position || 0) > 0;
   });
@@ -62,10 +63,9 @@ export function useEpisodePlaybackStatus(episodeRef) {
   const timeRemaining = computed(() => {
     let remaining;
 
-    // If this is the current episode, use live data (unified store, ms → s)
+    // If this is the current episode, use its live playhead (ms → s)
     if (isCurrentEpisode.value) {
-      const meta = unifiedStore.systemState.metadata;
-      remaining = Math.floor(((meta?.duration || 0) - (meta?.position || 0)) / 1000);
+      remaining = Math.floor(((live.value?.durationMs || 0) - (live.value?.positionMs || 0)) / 1000);
     } else {
       const progress = episodeProgress.value;
       if (!progress) return '';
@@ -81,9 +81,10 @@ export function useEpisodePlaybackStatus(episodeRef) {
   });
 
   const formattedDuration = computed(() => {
-    // If this is the current episode, use live duration from unified store (ms → s)
-    if (isCurrentEpisode.value) {
-      return formatDuration(Math.floor((unifiedStore.systemState.metadata?.duration || 0) / 1000));
+    // If this is the current episode and its file announced a duration, use it
+    // (ms → s); a loading one has none yet.
+    if (isCurrentEpisode.value && live.value?.durationMs) {
+      return formatDuration(Math.floor(live.value.durationMs / 1000));
     }
     // Otherwise, use episode's static duration
     return formatDuration(episodeRef.value?.duration || 0);

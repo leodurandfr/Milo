@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import SourceState
 
 
 class Unit:
@@ -232,12 +231,13 @@ async def test_shutdown_ends_the_mailbox(probe):
     assert not response["success"]
 
 
-async def test_a_failed_start_leaves_error_and_the_mailbox_alive():
+async def test_a_failed_start_answers_false_and_leaves_the_mailbox_alive():
+    """The failure is the state machine's to show (`service: failed`); the
+    source must answer it and still take the retry's messages."""
     unit = Unit()
     unit.start = AsyncMock(side_effect=RuntimeError("unit refused"))
     source = Probe(unit)
     assert await source.start() is False
-    assert source.state == SourceState.ERROR
     assert (await source.command("play", None))["success"]
     await source.shutdown()
 
@@ -249,13 +249,11 @@ class Flaky(Probe):
         super().__init__(unit)
         self.broken = False
 
-    def _connection_state(self):
+    def _controls(self):
         if self.broken:
             raise ValueError("unexpected AVRCP payload")
-        return True, None, {"n": len(self.log)}
-
-    def _update_connection_state(self):
-        self.emit_connection_state(*self._connection_state())
+        # Moves with every command, so the net has something to republish.
+        return [f"after-{len(self.log)}"]
 
 
 async def test_a_projection_that_raises_does_not_kill_the_mailbox():
@@ -263,7 +261,7 @@ async def test_a_projection_that_raises_does_not_kill_the_mailbox():
     cost that republish, not every later command, stop and start."""
     source = Flaky(Unit())
     await source.command("play", None)
-    source._update_connection_state()
+    source._publish()
     source.broken = True
 
     async with asyncio.timeout(5):              # a hang guard, not a budget

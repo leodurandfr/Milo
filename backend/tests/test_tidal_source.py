@@ -281,7 +281,8 @@ MAD_AGAIN = {
 
 
 def transport(world):
-    return world.meta().get("is_playing"), world.meta().get("is_buffering")
+    """(playing, loading), as the shared player draws the transport."""
+    return world.playing(), world.buffering()
 
 
 class TestEventMapping:
@@ -292,11 +293,13 @@ class TestEventMapping:
         await world.sends(MAD_AGAIN, status("PAUSED", 0, 237000))
 
         assert world.active()
-        meta = world.meta()
-        assert meta["title"] == "Mad Again"
-        assert meta["artist"] == "BunnaB, Guest"
-        assert meta["album"] == "Ice Cream Summer"
-        assert meta["album_art_url"] == "https://cdn/1280.jpg"
+        session = world.session()
+        assert session["title"] == "Mad Again"
+        assert session["artist"] == "BunnaB, Guest"
+        assert session["album"] == "Ice Cream Summer"
+        assert session["artwork"] == "https://cdn/1280.jpg"
+        # No sender name: with the transport on screen the player draws it.
+        assert session["senders"] == []
 
     async def test_a_media_frame_alone_does_not_claim_buffering(self, world):
         """Buffering belongs to the player status. A track running into the
@@ -307,7 +310,7 @@ class TestEventMapping:
 
         await world.sends(media(HYPNOTIZE))
 
-        assert world.meta()["title"] == HYPNOTIZE
+        assert world.session()["title"] == HYPNOTIZE
         assert transport(world) == (True, False)
 
     async def test_player_status_drives_playing_and_buffering(self, world):
@@ -317,14 +320,14 @@ class TestEventMapping:
         seen = {}
         for state in ("BUFFERING", "PLAYING", "PAUSED", "IDLE"):
             await world.sends(status(state, 500))
-            seen[state] = transport(world)
+            seen[state] = world.phase()
 
         assert seen == {
-            "BUFFERING": (False, True),
-            "PLAYING": (True, False),
-            "PAUSED": (False, False),
+            "BUFFERING": "loading",
+            "PLAYING": "playing",
+            "PAUSED": "paused",
             # A skip's first millisecond, or nothing left to play: not playing.
-            "IDLE": (False, False),
+            "IDLE": "paused",
         }
         assert world.active()
 
@@ -338,31 +341,31 @@ class TestEventMapping:
         """
         await world.mac_plays(STILL_DRE)
         await world.plays_on(1)
-        assert "position" in world.meta()
+        assert world.session()["position"] is not None
 
         await world.playback_fails(4)
 
         assert transport(world) == (False, False)
-        assert "position" not in world.meta()
+        assert world.session()["position"] is None
+        assert "pause" not in world.state()["controls"]
         # The session survives: the phone is still attached and the card stays
         # actionable, so the track it failed on is still named.
         assert world.active()
-        assert world.meta()["title"] == STILL_DRE
+        assert world.session()["title"] == STILL_DRE
         assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
 
-    async def test_a_moved_playhead_alone_skips_the_full_broadcast(self, world):
-        """The daemon ticks about twice a second. A full_state per tick would
-        push the whole system state to every client at that rate; the frontend
-        interpolates locally and only needs the drift correction."""
+    async def test_a_moved_playhead_alone_is_not_broadcast(self, world):
+        """The daemon ticks about twice a second. A broadcast per tick would
+        push to every client at that rate; the anchor already says where the
+        playhead is, so a tick that agrees with it sends nothing at all."""
         await world.mac_plays(STILL_DRE)
         publishes = len(world.published())
 
         await world.plays_on(3)
 
         assert len(world.published()) == publishes
-        corrections = world.envelopes("source", "position_update")
-        assert corrections, "no drift correction was broadcast either"
-        assert len(corrections) < 6, "every tick was broadcast"
+        assert world.positions() == []
+        assert world.position_ms() == world.daemon.progress
 
     async def test_a_state_that_cannot_be_read_leaves_the_screen_alone(self, world):
         """`releaseResources` and `notifySessionState 0` are what the end of a
@@ -375,15 +378,14 @@ class TestEventMapping:
         await world.sends({"command": "notifySessionState", "state": "gone"})
 
         assert len(world.published()) == publishes
-        assert world.playing() and world.meta()["title"] == STILL_DRE
+        assert world.playing() and world.session()["title"] == STILL_DRE
 
     async def test_an_explicit_zero_ends_the_session(self, world):
         await world.mac_plays(STILL_DRE)
 
         await world.sends({"command": "notifySessionState", "state": 0})
 
-        assert world.state()["source_state"] == "ready"
-        assert "title" not in world.meta()
+        assert world.session() is None
         assert world.errors() == []
 
     async def test_released_resources_end_the_session(self, world):
@@ -391,8 +393,7 @@ class TestEventMapping:
 
         await world.sends({"command": "releaseResources"})
 
-        assert world.state()["source_state"] == "ready"
-        assert "title" not in world.meta()
+        assert world.session() is None
         assert world.errors() == []
 
 

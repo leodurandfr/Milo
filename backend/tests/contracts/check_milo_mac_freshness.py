@@ -82,11 +82,16 @@ def extract_rest(api_swift: str) -> set[tuple[str, str]]:
 
     TWO passes, and the second is the one that matters.
 
-    Most requests funnel through two helpers, where the verb is explicit:
-        send("<path>", method: "<M>", ...)   # method omitted -> GET
-        fetchJSON("<path>")                   # always GET (wraps send)
+    Most requests funnel through three helpers, where the verb is explicit:
+        send("<path>", method: "<M>", ...)         # method omitted -> GET
+        sendCommand("<path>", method: "<M>", ...)  # the mutations (7f5457dc8f)
+        fetchJSON("<path>")                         # always GET (wraps send)
     The helper *definitions* take a variable, not a string literal, so they do
-    not match.
+    not match. `sendCommand` is the one that was missed: Milo-Mac 7f5457dc8f
+    moved all eleven mutations onto it, the first pass saw none of them, and the
+    second pass read every PUT/PATCH/POST as a GET — eleven false errors in
+    every freshness run from then on (backend issue #2), which buried the
+    drift the job exists to report.
 
     But "every request funnels through those two" was the docstring's claim and
     it was FALSE — measured 2026-09-20 against Milo-Mac 1f708a2. Three routes
@@ -114,7 +119,7 @@ def extract_rest(api_swift: str) -> set[tuple[str, str]]:
     explicit: set[str] = set()
 
     for m in re.finditer(
-        r'\b(?:send|fetchJSON)\(\s*"([^"]+)"(?:\s*,\s*method:\s*"(\w+)")?',
+        r'\b(?:send|sendCommand|fetchJSON)\(\s*"([^"]+)"(?:\s*,\s*method:\s*"(\w+)")?',
         api_swift,
     ):
         method = (m.group(2) or "GET").upper()
@@ -223,10 +228,20 @@ def main(argv: list[str]) -> int:
     snapshot_stale = upstream != vendored
 
     errors, warnings = compute_diff(manifest, api_swift, ws_swift)
+    # The decoder is compared by content, not by an extracted surface: every key
+    # the source/state invariant pins is read there, and a key it stops reading
+    # changes no route and no event.
+    decoder = Path(argv[1]) / "Milo Mac" / "MiloAudioState.swift"
+    if decoder.read_text() != (VENDOR_DIR / "MiloAudioState.swift").read_text():
+        snapshot_stale = True
+        warnings.append(
+            "MiloAudioState.swift differs from the vendored copy — the source/state "
+            "invariant describes a decoder upstream no longer has."
+        )
     if snapshot_stale:
         warnings.append(
             "Vendored snapshot under vendor/milo-mac/ has fallen behind upstream "
-            "Milo-Mac — refresh the two .swift files AND milo_mac_contract.json in "
+            "Milo-Mac — refresh the three .swift files AND milo_mac_contract.json in "
             "one conscious commit (the offline test enforces manifest == snapshot)."
         )
 

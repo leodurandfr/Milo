@@ -7,6 +7,15 @@ import asyncio
 import json
 from unittest.mock import Mock, AsyncMock, patch
 from backend.ws.manager import WebSocketManager, WebSocketServer
+from backend.core.models.audio_state import AudioSource
+from backend.core.state import AudioStateMachine
+
+
+def _state_with(source: AudioSource):
+    """A real state machine's `get_current_state`, with `source` selected."""
+    machine = AudioStateMachine()
+    machine.system_state.active_source = source
+    return machine.get_current_state
 
 
 class TestWebSocketManager:
@@ -202,14 +211,8 @@ class TestWebSocketServer:
     def mock_state_machine(self):
         """State machine mock"""
         sm = Mock()
-        sm.get_current_state = Mock(return_value={
-            "active_source": "none",
-            "source_state": "inactive",
-            "metadata": {},
-            "multiroom": {"enabled": False},
-            "equalizer": {"enabled": False}
-        })
-        sm.refresh_active_metadata = AsyncMock()
+        sm.get_current_state = _state_with(AudioSource.NONE)
+        sm.refresh_active_view = AsyncMock(return_value=False)
         # Mock volume_service for _send_volume_state
         sm.volume_service = Mock()
         sm.volume_service.wait_for_availability = AsyncMock()
@@ -257,7 +260,8 @@ class TestWebSocketServer:
         sent_data = json.loads(mock_websocket.send_text.call_args_list[0][0][0])
         assert sent_data["category"] == "system"
         assert sent_data["type"] == "initial_state"
-        assert "full_state" in sent_data["data"]
+        assert "full_state" not in sent_data["data"]
+        assert sent_data["data"]["state"] == AudioStateMachine().get_current_state()
 
     @pytest.mark.asyncio
     async def test_websocket_endpoint_disconnect(self, server, mock_websocket):
@@ -280,12 +284,7 @@ class TestWebSocketServer:
         """Test that initial state is properly sent"""
         from fastapi import WebSocketDisconnect
 
-        mock_state_machine.get_current_state = Mock(return_value={
-            "active_source": "spotify",
-            "source_state": "connected",
-            "metadata": {"title": "Test Song"},
-            "multiroom": {"enabled": True}
-        })
+        mock_state_machine.get_current_state = _state_with(AudioSource.SPOTIFY)
 
         mock_websocket.receive_text = AsyncMock(side_effect=[
             '{"type": "ready"}',
@@ -296,8 +295,10 @@ class TestWebSocketServer:
 
         # Verify that the initial state contains the correct data
         sent_data = json.loads(mock_websocket.send_text.call_args_list[0][0][0])
-        assert sent_data["data"]["full_state"]["active_source"] == "spotify"
-        assert sent_data["data"]["full_state"]["source_state"] == "connected"
+        assert sent_data["data"]["state"]["source"] == "spotify"
+        assert sent_data["data"]["state"]["service"] == "running"
+        # The player is re-read first, so the anchor sent is the player's own.
+        mock_state_machine.refresh_active_view.assert_awaited_once()
 
     # ===================
     # PING TESTS
@@ -354,14 +355,8 @@ class TestWebSocketIntegration:
         # Create real objects
         manager = WebSocketManager()
         state_machine = Mock()
-        state_machine.get_current_state = Mock(return_value={
-            "active_source": "bluetooth",
-            "source_state": "connected",
-            "metadata": {"device_name": "iPhone"},
-            "multiroom": {"enabled": False},
-            "equalizer": {"enabled": True}
-        })
-        state_machine.refresh_active_metadata = AsyncMock()
+        state_machine.get_current_state = _state_with(AudioSource.BLUETOOTH)
+        state_machine.refresh_active_view = AsyncMock(return_value=False)
         # Mock volume_service for _send_volume_state
         volume_service = Mock()
         volume_service.wait_for_availability = AsyncMock()
@@ -388,7 +383,7 @@ class TestWebSocketIntegration:
         assert len(sent_messages) >= 1
         initial_state = sent_messages[0]
         assert initial_state["type"] == "initial_state"
-        assert initial_state["data"]["full_state"]["active_source"] == "bluetooth"
+        assert initial_state["data"]["state"]["source"] == "bluetooth"
 
         # Verify that the connection was cleaned up
         assert ws not in manager.active_connections

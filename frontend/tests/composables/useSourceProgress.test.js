@@ -1,15 +1,18 @@
 // frontend/tests/composables/useSourceProgress.test.js
 /**
- * useSourceProgress interpolates the playback position locally between the
- * backend's periodic broadcasts. Three rules carry the weight:
+ * useSourceProgress draws one source's playhead from the backend's position
+ * anchor: `ms` at the instant `at`, moving at `rate` while the phase is
+ * playing (docs: "le fil", §2). Three rules carry the weight:
  *
- *  - the timer only runs for the *active* source (an instance created for
- *    another source would interpolate someone else's position),
- *  - interpolation is scaled by mpv's playback_speed, so a 1.5× podcast bar
- *    doesn't drift,
- *  - every consumer seeds on how stale the last broadcast is, so one mounting
- *    mid-song doesn't start a whole broadcast interval behind (AirPlay only
- *    emits every 30 s; Spotify and Qobuz emit none at all).
+ *  - the formula is the only interpolation: a consumer mounting mid-track reads
+ *    the same number as one open for an hour, with no staleness to compensate,
+ *  - only the *selected* source's session is drawn (an instance created for
+ *    another source would show someone else's playhead),
+ *  - a seek shows its target at once, and the anchor it causes replaces it.
+ *
+ * The sub-second smoothing the bar used to do itself is gone: the backend moves
+ * the anchor only past a 2 s discontinuity, so every anchor that arrives is one
+ * to land on exactly (backend tests/test_wire_state.py).
  *
  * A host component is mounted only to give the composable a lifecycle; nothing
  * is rendered or asserted on the DOM.
@@ -17,19 +20,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
-import { useSourceProgress } from '@/composables/useSourceProgress';
+import { positionAt, useSourceProgress } from '@/composables/useSourceProgress';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { resetApiCallMock, ok } from '../helpers/apiCallMock';
 import { apiCall } from '@/services/apiCall';
+import { makeSession, publishState } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
+// Epoch seconds the tests' anchors are taken at.
+const T0 = 1_750_000_000;
+
 /** Mount a host exposing the composable for `source`. */
-function mountProgress(source, options = {}) {
+function mountProgress(source) {
   let progress;
   const Host = defineComponent({
     setup() {
-      progress = useSourceProgress(source, options);
+      progress = useSourceProgress(source);
       return () => h('div');
     },
   });
@@ -37,35 +44,47 @@ function mountProgress(source, options = {}) {
   return { progress, wrapper };
 }
 
-function broadcast(store, { source = 'spotify', metadata = {} } = {}) {
-  store.updateState({
-    data: {
-      full_state: {
-        active_source: source,
-        source_state: 'active',
-        transitioning: false,
-        multiroom_enabled: false,
-        equalizer_effects_enabled: false,
-        metadata,
-      },
-    },
-  });
+function anchor(ms, { at = T0, rate = 1 } = {}) {
+  return { ms, at, rate };
 }
+
+describe('positionAt', () => {
+  it('moves the anchor by wall time × rate while playing', () => {
+    expect(positionAt(anchor(1000, { rate: 1.5 }), 'playing', null, (T0 + 2) * 1000)).toBe(4000);
+  });
+
+  it('holds the anchor in every other phase', () => {
+    for (const phase of ['loading', 'paused', 'connected']) {
+      expect(positionAt(anchor(1000), phase, null, (T0 + 60) * 1000)).toBe(1000);
+    }
+  });
+
+  it('is bounded by the duration and by zero', () => {
+    expect(positionAt(anchor(9000), 'playing', 10000, (T0 + 5) * 1000)).toBe(10000);
+    // A sender whose clock runs ahead of ours stamps an anchor in our future.
+    expect(positionAt(anchor(0), 'playing', 10000, (T0 - 1) * 1000)).toBe(0);
+  });
+
+  it('answers null without an anchor', () => {
+    expect(positionAt(null, 'playing', 10000, T0 * 1000)).toBeNull();
+  });
+});
 
 describe('useSourceProgress', () => {
   let store;
 
+  function publish({ source = 'spotify', session = null, resume = null } = {}) {
+    publishState(store, { source, service: 'running', session, resume, controls: ['pause', 'seek'] });
+  }
+
+  function playing(position, overrides = {}) {
+    return makeSession({ duration_ms: 200000, position, ...overrides });
+  }
+
   beforeEach(() => {
     resetApiCallMock();
-    // `performance` must be faked too: staleness compensation measures the age
-    // of the last broadcast with performance.now(), so leaving it on the real
-    // clock would make every seed look perfectly fresh.
-    vi.useFakeTimers({
-      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'],
-    });
-    // Move off zero: the store stamps positionTimestamp with performance.now(),
-    // and the composable treats a falsy stamp as "never received".
-    vi.advanceTimersByTime(1000);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(T0 * 1000);
     store = useUnifiedAudioStore();
   });
 
@@ -73,282 +92,144 @@ describe('useSourceProgress', () => {
     vi.useRealTimers();
   });
 
-  describe('seeding from the store', () => {
-    it('starts uninitialised until a position arrives', () => {
+  describe('reading the anchor', () => {
+    it('is uninitialised until an anchor arrives', () => {
+      publish({ session: playing(null) });
       const { progress } = mountProgress('spotify');
 
       expect(progress.isPositionInitialized.value).toBe(false);
       expect(progress.currentPosition.value).toBe(0);
     });
 
-    it('adopts the broadcast position and duration', () => {
-      broadcast(store, { metadata: { position: 5000, duration: 200000 } });
+    it('adopts the anchor and the duration', () => {
+      publish({ session: playing(anchor(42000)) });
       const { progress } = mountProgress('spotify');
 
       expect(progress.isPositionInitialized.value).toBe(true);
-      expect(progress.currentPosition.value).toBe(5000);
+      expect(progress.currentPosition.value).toBe(42000);
       expect(progress.duration.value).toBe(200000);
+      expect(progress.progressPercentage.value).toBe(21);
     });
 
-    it('lands on a restart that answers the position the store already holds', async () => {
-      // Previous on a track already anchored at 0 — the state a track start
-      // leaves behind for the 30 s until the source's next periodic sync. The
-      // restart re-sends 0, so nothing about the value says the playhead moved
-      // and the bar used to carry on from our own clock. Reported on the music
-      // library's expanded mobile player, where a second Previous is one tap.
-      broadcast(store, {
-        source: 'music_library',
-        metadata: { position: 0, duration: 244000, is_playing: true },
-      });
-      const { progress } = mountProgress('music_library');
-      vi.advanceTimersByTime(4000);
-      expect(progress.currentPosition.value).toBe(4000);
-
-      broadcast(store, {
-        source: 'music_library',
-        metadata: { position: 0, duration: 244000, is_playing: true },
-      });
-      await nextTick();
-
-      expect(progress.currentPosition.value).toBe(0);
-    });
-
-    it('resets on a track change even when the position stays at 0', () => {
-      broadcast(store, { metadata: { position: 0, duration: 200000 } });
+    it('reads mid-track exactly where a long-open consumer does', () => {
+      // The Lyrics view mounting 30 s after the anchor was taken.
+      publish({ session: playing(anchor(10000)) });
+      vi.setSystemTime((T0 + 30) * 1000);
       const { progress } = mountProgress('spotify');
 
-      broadcast(store, { metadata: { position: 0, duration: 150000 } });
-
-      expect(progress.duration.value).toBe(150000);
+      expect(progress.currentPosition.value).toBe(40000);
     });
-  });
 
-  describe('progressPercentage', () => {
-    it('is the position over the duration', () => {
-      broadcast(store, { metadata: { position: 50000, duration: 200000 } });
+    it('is 0 % for a stream with no duration, not NaN', () => {
+      publish({ session: playing(anchor(5000), { duration_ms: null }) });
       const { progress } = mountProgress('spotify');
-
-      expect(progress.progressPercentage.value).toBe(25);
-    });
-
-    it('is 0 for a stream with no duration, not NaN', () => {
-      // Web radio has no duration; a NaN would blow up the bar's width style.
-      broadcast(store, { metadata: { position: 50000, duration: 0 } });
-      const { progress } = mountProgress('radio');
 
       expect(progress.progressPercentage.value).toBe(0);
     });
+
+    it('shows the resume point when there is no session', () => {
+      publish({
+        source: 'podcast',
+        resume: { title: 'Ep', artist: null, album: null, artwork: null, duration_ms: 60000, position_ms: 15000 },
+      });
+      const { progress } = mountProgress('podcast');
+
+      expect(progress.currentPosition.value).toBe(15000);
+      expect(progress.duration.value).toBe(60000);
+    });
+
+    it("never draws another source's playhead", () => {
+      publish({ source: 'radio', session: playing(anchor(42000)) });
+      const { progress } = mountProgress('spotify');
+
+      expect(progress.isPositionInitialized.value).toBe(false);
+    });
+
+    it('lands on a `source/position` for its session', async () => {
+      publish({ session: playing(anchor(42000)) });
+      const { progress } = mountProgress('spotify');
+
+      store.updatePosition({ source: 'spotify', session_id: 'session-1', position: anchor(90000) });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(90000);
+    });
   });
 
-  describe('local interpolation', () => {
-    it('advances by real time while playing', () => {
-      broadcast(store, { metadata: { position: 0, duration: 200000, is_playing: true } });
-      const { progress } = mountProgress('spotify');
-
-      vi.advanceTimersByTime(1000);
-
-      expect(progress.currentPosition.value).toBe(1000);
-    });
-
-    it('does not advance while paused', () => {
-      broadcast(store, { metadata: { position: 4000, duration: 200000, is_playing: false } });
+  describe('moving the bar', () => {
+    it('advances with the clock while playing', async () => {
+      publish({ session: playing(anchor(1000)) });
       const { progress } = mountProgress('spotify');
 
       vi.advanceTimersByTime(2000);
-
-      expect(progress.currentPosition.value).toBe(4000);
-    });
-
-    it('freezes while buffering', () => {
-      broadcast(store, { metadata: { position: 4000, duration: 200000, is_playing: true, is_buffering: true } });
-      const { progress } = mountProgress('spotify');
-
-      vi.advanceTimersByTime(2000);
-
-      expect(progress.currentPosition.value).toBe(4000);
-    });
-
-    it('scales with mpv playback_speed', () => {
-      // A 1.5× podcast advances 1.5 s of media per second of wall clock.
-      broadcast(store, {
-        source: 'podcast',
-        metadata: { position: 0, duration: 200000, is_playing: true, playback_speed: 1.5 },
-      });
-      const { progress } = mountProgress('podcast');
-
-      vi.advanceTimersByTime(1000);
-
-      expect(progress.currentPosition.value).toBe(1500);
-    });
-
-    it('picks up a speed change on the next tick', () => {
-      broadcast(store, {
-        source: 'podcast',
-        metadata: { position: 0, duration: 200000, is_playing: true, playback_speed: 1 },
-      });
-      const { progress } = mountProgress('podcast');
-      vi.advanceTimersByTime(1000);
-
-      store.systemState.metadata.playback_speed = 2;
-      vi.advanceTimersByTime(1000);
+      await nextTick();
 
       expect(progress.currentPosition.value).toBe(3000);
     });
 
-    it('advances by wall clock, not by tick count, when the browser throttles', () => {
-      // A backgrounded tab has its 100 ms interval throttled to ~1 Hz. Counting
-      // ticks made the bar advance ten times too slowly, and nothing corrects it
-      // before the next broadcast — never, on Spotify, between two events.
-      broadcast(store, { metadata: { position: 0, duration: 200000, is_playing: true } });
+    it('scales with the rate', async () => {
+      publish({ session: playing(anchor(1000, { rate: 1.5 })) });
       const { progress } = mountProgress('spotify');
 
-      // One firing for a second of wall clock: the browser skipped nine.
-      const tickClock = performance.now.bind(performance);
-      vi.spyOn(performance, 'now').mockImplementation(() => tickClock() + 900);
-      vi.advanceTimersByTime(100);
-
-      expect(progress.currentPosition.value).toBe(1000);
-      performance.now.mockRestore();
-    });
-
-    it('does not credit time spent buffering once playback resumes', () => {
-      // The mirror image of the throttling fix: reading a clock must not hand
-      // back the seconds the bar deliberately stood still for.
-      broadcast(store, {
-        metadata: { position: 0, duration: 200000, is_playing: true, is_buffering: true },
-      });
-      const { progress } = mountProgress('spotify');
       vi.advanceTimersByTime(2000);
+      await nextTick();
 
-      store.systemState.metadata.is_buffering = false;
-      vi.advanceTimersByTime(1000);
-
-      expect(progress.currentPosition.value).toBe(1000);
+      expect(progress.currentPosition.value).toBe(4000);
     });
 
-    it('stops at the duration', () => {
-      broadcast(store, { metadata: { position: 9900, duration: 10000, is_playing: true } });
+    it('holds still while paused or loading', async () => {
+      for (const phase of ['paused', 'loading']) {
+        publish({ session: playing(anchor(1000), { phase }) });
+        const { progress, wrapper } = mountProgress('spotify');
+
+        vi.advanceTimersByTime(5000);
+        await nextTick();
+
+        expect(progress.currentPosition.value).toBe(1000);
+        wrapper.unmount();
+      }
+    });
+
+    it('stops at the duration', async () => {
+      publish({ session: playing(anchor(199000)) });
       const { progress } = mountProgress('spotify');
 
       vi.advanceTimersByTime(5000);
+      await nextTick();
 
-      expect(progress.currentPosition.value).toBe(10000);
+      expect(progress.currentPosition.value).toBe(200000);
     });
 
-    it('never ticks for a source that is not the active one', () => {
-      // The screensaver keeps a podcast tracker alive while Spotify plays.
-      broadcast(store, {
-        source: 'spotify',
-        metadata: { position: 1000, duration: 200000, is_playing: true },
-      });
-      const { progress } = mountProgress('podcast');
-
-      vi.advanceTimersByTime(3000);
-
-      expect(progress.currentPosition.value).toBe(1000);
-    });
-
-    it('stops interpolating once the source is taken over', () => {
-      broadcast(store, { metadata: { position: 0, duration: 200000, is_playing: true } });
+    it('stops ticking once another source is selected', async () => {
+      publish({ session: playing(anchor(1000)) });
       const { progress } = mountProgress('spotify');
-      vi.advanceTimersByTime(1000);
 
-      broadcast(store, {
-        source: 'radio',
-        metadata: { position: 0, duration: 0, is_playing: true },
-      });
-      const positionAtSwitch = progress.currentPosition.value;
-      vi.advanceTimersByTime(3000);
+      publish({ source: 'radio', session: playing(anchor(0)) });
+      await nextTick();
 
-      expect(progress.currentPosition.value).toBe(positionAtSwitch);
+      expect(progress.isPositionInitialized.value).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
     });
 
     it('stops the timer when the consumer unmounts', () => {
-      broadcast(store, { metadata: { position: 0, duration: 200000, is_playing: true } });
-      const { progress, wrapper } = mountProgress('spotify');
-      vi.advanceTimersByTime(500);
+      publish({ session: playing(anchor(1000)) });
+      const { wrapper } = mountProgress('spotify');
+      expect(vi.getTimerCount()).toBe(1);
 
       wrapper.unmount();
-      const positionAtUnmount = progress.currentPosition.value;
-      vi.advanceTimersByTime(3000);
 
-      expect(progress.currentPosition.value).toBe(positionAtUnmount);
-    });
-  });
-
-  describe('staleness compensation', () => {
-    it('advances the seed by the age of the last broadcast', () => {
-      // A consumer mounting mid-song — the Lyrics modal — needs line-level
-      // sync: seeding at the raw broadcast value leaves it a whole interval
-      // behind.
-      broadcast(store, { metadata: { position: 10000, duration: 200000, is_playing: true } });
-      vi.advanceTimersByTime(4000);
-
-      const { progress } = mountProgress('spotify');
-
-      expect(progress.currentPosition.value).toBeGreaterThanOrEqual(13900);
-      expect(progress.currentPosition.value).toBeLessThanOrEqual(14100);
-    });
-
-    it('applies to the player remounted when the Lyrics view closes', () => {
-      // The Lyrics view replaces the source's whole slot, so closing it mounts
-      // a fresh player. Seeding at the raw anchor brought its bar back to where
-      // the track was when the view opened — 30 s behind the room, with nothing
-      // to correct it: Spotify and Qobuz broadcast no periodic position.
-      broadcast(store, { metadata: { position: 60000, duration: 300000, is_playing: true } });
-      vi.advanceTimersByTime(30000);
-
-      const { progress } = mountProgress('spotify');
-
-      expect(progress.currentPosition.value).toBeGreaterThanOrEqual(89900);
-      expect(progress.currentPosition.value).toBeLessThanOrEqual(90100);
-    });
-
-    it('scales the compensation by playback_speed, as the tick loop does', () => {
-      // mpv reports media time, so 4 s of wall clock at 2x is 8 s of episode.
-      // Seeding on raw wall clock leaves the bar short by the difference, and
-      // the mpv sources only re-anchor every 30 s.
-      broadcast(store, {
-        source: 'podcast',
-        metadata: { position: 10000, duration: 200000, is_playing: true, playback_speed: 2 },
-      });
-      vi.advanceTimersByTime(4000);
-
-      const { progress } = mountProgress('podcast');
-
-      expect(progress.currentPosition.value).toBeGreaterThanOrEqual(17900);
-      expect(progress.currentPosition.value).toBeLessThanOrEqual(18100);
-    });
-
-    it('does not compensate while paused', () => {
-      broadcast(store, { metadata: { position: 10000, duration: 200000, is_playing: false } });
-      vi.advanceTimersByTime(4000);
-
-      const { progress } = mountProgress('spotify');
-
-      expect(progress.currentPosition.value).toBe(10000);
-    });
-
-    it('never seeds past the end of the track', () => {
-      broadcast(store, { metadata: { position: 9000, duration: 10000, is_playing: true } });
-      vi.advanceTimersByTime(30000);
-
-      const { progress } = mountProgress('spotify');
-
-      expect(progress.currentPosition.value).toBe(10000);
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 
   describe('seekTo', () => {
-    it('moves the bar immediately and sends the seek command', async () => {
-      broadcast(store, { metadata: { position: 1000, duration: 200000, is_playing: true } });
+    it('moves the bar at once and sends the seek command', async () => {
+      publish({ session: playing(anchor(1000), { phase: 'paused' }) });
       const { progress } = mountProgress('spotify');
       apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
       const seeking = progress.seekTo(120000);
       expect(progress.currentPosition.value).toBe(120000);
-      // seekTo holds the guard open for 50 ms after the command resolves.
-      await vi.advanceTimersByTimeAsync(100);
       await seeking;
 
       expect(apiCall.post).toHaveBeenCalledWith(
@@ -358,82 +239,44 @@ describe('useSourceProgress', () => {
       );
     });
 
-    it('ignores the echo of the old position while the seek settles', async () => {
-      broadcast(store, { metadata: { position: 1000, duration: 200000, is_playing: true } });
+    it('gives the bar to the anchor the seek caused', async () => {
+      publish({ session: playing(anchor(1000), { phase: 'paused' }) });
       const { progress } = mountProgress('spotify');
       apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
-      const seeking = progress.seekTo(120000);
-      // A stale broadcast arriving mid-seek must not rewind the bar.
-      broadcast(store, { metadata: { position: 1100, duration: 200000, is_playing: true } });
+      await progress.seekTo(120000);
+      store.updatePosition({ source: 'spotify', session_id: 'session-1', position: anchor(119500) });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(119500);
+    });
+
+    it('keeps the target through a state that did not move the anchor', async () => {
+      // Every `source/state` replaces the whole state with fresh objects: a
+      // phase flip or a favorite landing before the seek's own anchor must not
+      // snap the bar back to where it was.
+      publish({ session: playing(anchor(1000), { phase: 'paused' }) });
+      const { progress } = mountProgress('spotify');
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
+
+      await progress.seekTo(120000);
+      publish({ session: playing(anchor(1000), { phase: 'paused', title: 'Renamed' }) });
+      await nextTick();
 
       expect(progress.currentPosition.value).toBe(120000);
-      await vi.advanceTimersByTimeAsync(100);
-      await seeking;
-    });
-  });
-
-  describe('sub-second corrections', () => {
-    it('does not drag the bar back for a source whose clock lags ours', async () => {
-      // Measured on Bluetooth over the WebSocket: BlueZ's playhead advances
-      // slower than real time for the first seconds of a track (815 ms, then
-      // 915 ms with 780 ms of wall clock between them). Adopting each correction
-      // pulled the display back across the second boundary, and the digit
-      // flickered 0:00/0:01 on every skip.
-      broadcast(store, { source: 'bluetooth', metadata: { position: 815, duration: 286230, is_playing: true } });
-      const { progress } = mountProgress('bluetooth');
-
-      vi.advanceTimersByTime(800);
-      expect(progress.currentPosition.value).toBe(1615);
-
-      broadcast(store, { source: 'bluetooth', metadata: { position: 915, duration: 286230, is_playing: true } });
-      await nextTick();
-
-      expect(progress.currentPosition.value).toBe(1615);
     });
 
-    it('still lands exactly on anything that really moved the playhead', async () => {
-      broadcast(store, { source: 'bluetooth', metadata: { position: 45000, duration: 286230, is_playing: true } });
-      const { progress } = mountProgress('bluetooth');
-      vi.advanceTimersByTime(500);
+    it('lets the target go after the hold when no anchor comes back', async () => {
+      publish({ session: playing(anchor(1000), { phase: 'paused' }) });
+      const { progress } = mountProgress('spotify');
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
-      // A Previous restarting the track.
-      broadcast(store, { source: 'bluetooth', metadata: { position: 0, duration: 286230, is_playing: true } });
-      await nextTick();
-      expect(progress.currentPosition.value).toBe(0);
-
-      // And a track change lands even when the two positions are close, because
-      // the duration moved with it.
-      vi.advanceTimersByTime(500);
-      broadcast(store, { source: 'bluetooth', metadata: { position: 148, duration: 241506, is_playing: true } });
-      await nextTick();
-      expect(progress.currentPosition.value).toBe(148);
-    });
-
-    it('adopts them for a consumer that asked for exact corrections', async () => {
-      // What the Lyrics views opt into: they sync lines, so the fraction of a
-      // second the player smooths over is the whole point.
-      broadcast(store, { source: 'bluetooth', metadata: { position: 815, duration: 286230, is_playing: true } });
-      const { progress } = mountProgress('bluetooth', { exactCorrections: true });
-
-      vi.advanceTimersByTime(800);
-      broadcast(store, { source: 'bluetooth', metadata: { position: 915, duration: 286230, is_playing: true } });
+      await progress.seekTo(120000);
+      expect(progress.currentPosition.value).toBe(120000);
+      vi.advanceTimersByTime(1000);
       await nextTick();
 
-      expect(progress.currentPosition.value).toBe(915);
-    });
-
-    it('lands exactly while paused, where no local clock is running', async () => {
-      // A pause is where a source re-anchors, and the value it settles on is the
-      // one the user can check against the screen.
-      broadcast(store, { source: 'bluetooth', metadata: { position: 60000, duration: 286230, is_playing: true } });
-      const { progress } = mountProgress('bluetooth');
-      vi.advanceTimersByTime(500);
-
-      broadcast(store, { source: 'bluetooth', metadata: { position: 60200, duration: 286230, is_playing: false } });
-      await nextTick();
-
-      expect(progress.currentPosition.value).toBe(60200);
+      expect(progress.currentPosition.value).toBe(1000);
     });
   });
 });

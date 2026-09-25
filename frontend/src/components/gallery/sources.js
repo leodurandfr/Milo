@@ -4,62 +4,57 @@
  *
  * The catalogue next door answers "what does this component do"; this file
  * answers "what does a source look like, in every state it can reach". The two
- * are not the same question: AudioPlayerFull serves seven sources and none of
+ * are not the same question: AudioPlayerFull serves six sources and none of
  * them shows the same thing, while CD alone moves between that player and the
- * status card on metadata the enum has no name for. A reader after either one
- * had to assemble it from four component pages and useRichDisplay's source
- * code.
+ * status card on a disc the state describes whether or not it plays. A reader
+ * after either one had to assemble it from four component pages and
+ * useRichDisplay's source code.
  *
  * ## A scenario is a stimulus, not a state someone named
  *
  * Every scenario below is a list of **WebSocket events in the backend's own
- * wire shape** — the envelope `ws_events.py::WsEvent.to_envelope` builds, around
- * the `full_state` `state.py::get_current_state()` injects. `SourceStage` hands
- * each one to `unifiedAudioStore.updateState`, which is the exact handler
- * `App.vue` registers for these pairs, so the record goes through the same Zod
- * validation a real broadcast does. Then *the app's own rules* decide what
- * appears: `useRichDisplay()` picks the player or the status card,
- * `useSourceStatusDisplay()` derives the card's display state — the backend
- * enum plus CD's three pseudo-states — and `currentDeviceName` maps the
- * per-source identity field.
+ * wire shape** — the envelope `ws_events.py::WsEvent.to_envelope` builds around
+ * a `source/state`, whose data is the whole AudioState (`audio_wire.py`), every
+ * key present. `SourceStage` hands each one to `unifiedAudioStore.updateState`,
+ * which is the exact handler `App.vue` registers for the pair, so the state
+ * goes through the same strict Zod schema a real broadcast does — and a state
+ * missing one key is refused whole, which is why `audioState()` below builds
+ * every one of them complete. Then *the app's own rules* decide what appears:
+ * `richSourceFor()` picks the player or the status card, `displayStateFor()`
+ * derives the card's display state, and the session's `senders` name who is
+ * sending.
  *
  * This is a stricter rule than it looks, and it is the second attempt. The first
- * wrote a `systemState` snapshot straight into the store and gave each one a
- * hand-written name — and hand-written names drift into *fiction*: "small cover"
- * and "sender stopped" were two AirPlay scenarios rendering the same screen,
- * pixel for pixel, because the status card never reads a cover width. Naming a
- * scenario after the screen it produces means knowing that screen, which is the
- * app's job, not this file's.
+ * wrote a snapshot straight into the store and gave each one a hand-written
+ * name — and hand-written names drift into *fiction*: "small cover" and "sender
+ * stopped" were two AirPlay scenarios rendering the same screen, pixel for
+ * pixel, because the status card never reads a cover width. Naming a scenario
+ * after the screen it produces means knowing that screen, which is the app's
+ * job, not this file's.
  *
- * So a scenario is named after **what it sends**, never after what comes back.
- * `scenarioId()` derives the id from the final event's `source_state` plus the
- * metadata fields the app's deciders branch on: `active is_playing
- * album_art_width=128` names a stimulus, and every token in it is a real field
- * on the wire.
+ * So a scenario is named by `scenarioId()`, never by hand. Its first token is
+ * the display state the app derives from the state (`displayStateFor`, one of
+ * DISPLAY_STATES — the same list the scenario select and the card's validator
+ * read), then the source's `availability` entry when the display state does not
+ * already spell it, then the fields the app's deciders branch on: `playing
+ * title artist artwork_width=128 senders=1` names a stimulus, and every token
+ * after the first is a field on the wire.
  *
  * Two scenarios that produce the same screen therefore keep two *names*, and the
  * collision surfaces instead of being swept under one — but surfacing it is
  * all the derivation does. What to do about it is a judgement, made once and
  * written down: either the app is wrong, which is the finding the page exists
  * for, or the screen is genuinely already documented and the second tab goes.
- * AirPlay has had one of each. Its cover gate once had three inputs and one
- * outcome, which was a finding; its pre-metadata window draws the same card as
- * its declined-cover one for a reason the card is right about, so it is stated
- * in the page summary and has no tab. A tab that repeats a screen costs more
- * than the state it documents — it teaches a reader that a new tab need not
- * mean a new screen, and after that none of them is worth opening.
+ * A tab that repeats a screen costs more than the state it documents — it
+ * teaches a reader that a new tab need not mean a new screen, and after that
+ * none of them is worth opening.
  *
- * What is exact here is the *shape*: the envelope, `full_state`, and every field
- * name inside them. A metadata record is not a packet capture, and one thing it
- * leaves out on purpose — `emit_connection_state` puts `is_playing` and
- * `is_buffering` in every record of every media source, READY included (forced
- * off there, along with the media fields it drops). Restating both on every
- * scenario would put two tokens no decider can branch on into every name in
- * the select, which is the list a reader actually reads. They are stated here
- * once instead, and carried only where one of them is the difference. A field that *does* discriminate is carried even when it never
- * changes — Qobuz's `account_authenticated`, Mac's empty `client_names` — because a
- * reader who only ever sees the field on the interesting scenario concludes it
- * only exists there.
+ * What is exact here is the *shape*: the envelope, the state and every key
+ * inside it, checked by the guardrail against `audio_wire.py` and against the
+ * commands each source's `COMMANDS` declares. One field is stamped at replay
+ * rather than written: a position anchor's `at`, which is the instant the
+ * backend published — a replay publishes now, and a fixed instant would put
+ * every playing bar at its end.
  *
  * ## Nothing here reaches the appliance
  *
@@ -79,11 +74,10 @@
  * AudioSourceLayout the header its source passes, and mounts the source's real
  * browsing view inside it. Everything below the wrapper is the app's.
  *
- * Their audio state barely varies — READY until something is in session, and
- * `hasRichDisplay` returns true for them whatever the record carries, ERROR
- * excepted — so outside that one scenario the event alone cannot tell two of
- * theirs apart. What does is the *catalogue* condition, and that arrives over
- * HTTP rather than the socket.
+ * `richSourceFor` draws their view whatever the session says — the view is
+ * where the first station, episode or album is chosen — so outside a session
+ * the state alone cannot tell two of theirs apart. What does is the
+ * *catalogue* condition, and that arrives over HTTP rather than the socket.
  * Those scenarios therefore carry a `condition`, spelled with the real field
  * names of the fixture that produces it (`stations=0`, `scanning`), each token
  * checked by the guardrail against the scenario's own browser block. Two axes,
@@ -105,14 +99,16 @@
  * checked against what the store actually exports *and* whether it can be
  * written, which is the check that caught `favoriteStations` being derived.
  *
- * Plain data, no `.vue` import: the guardrail reads this file to check the pages
- * against ALL_AUDIO_SOURCES, every event against the backend's own models, and
- * every fabricated metadata key against the files that read it.
- * `SourceStage.vue` is what turns a scenario into a mounted component.
+ * No `.vue` import: the guardrail reads this file under Node to check the pages
+ * against ALL_AUDIO_SOURCES, every state against the backend's own models, and
+ * every name token against the files that branch on it. `SourceStage.vue` is
+ * what turns a scenario into a mounted component.
  */
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import stationImageCapsule from './samples/station-image-capsule.webp';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { displayStateFor } from '@/composables/useSourceStatusDisplay';
 
 /** Prefix that tells a source page apart from a catalogue entry in `?c=`. */
 export const SOURCE_PAGE_PREFIX = 'source:';
@@ -122,10 +118,11 @@ export const SOURCE_PAGE_PREFIX = 'source:';
  *
  * There is exactly one threshold and it is not here: it is
  * `UNTRUSTED_SENDER_MIN_ARTWORK_PX` (300 px) in `constants/imageQuality.js`,
- * which is what `useRichDisplay` compares against. These two are what real
- * senders push on either side of it — a media app's artwork, and the favicon of
- * whatever page a browser tab is playing from — so a reader of the AirPlay tabs
- * sees the two things that actually happen rather than 299 and 301.
+ * which is what `richSourceFor` compares `details.artwork_width` against. These
+ * two are what real senders push on either side of it — a media app's artwork,
+ * and the favicon of whatever page a browser tab is playing from — so a reader
+ * of the AirPlay tabs sees the two things that actually happen rather than 299
+ * and 301.
  *
  * Which is also why they are literals rather than `THRESHOLD ± 1`: derived
  * values would follow the gate wherever it moved and stop being sizes anyone has
@@ -137,72 +134,44 @@ export const MEDIA_APP_COVER_PX = 600;
 export const FAVICON_COVER_PX = 128;
 
 /**
- * The files that read what these events carry. Checked key by key by the
- * guardrail, which is what stops a fixture outliving the field it fabricates.
- */
-export const METADATA_READERS = [
-  'App.vue',
-  'components/audio/AudioSourceView.vue',
-  'components/audio/AudioPlayerFull.vue',
-  'composables/useRichDisplay.js',
-  'composables/useSourceStatusDisplay.js',
-  'composables/useSourceProgress.js',
-  'utils/playbackBuffering.js',
-  'utils/nowPlayingMetadata.js',
-  'stores/cdStore.js'
-];
-
-/**
- * The files that turn a record into a screen — the app's deciders. Every field
+ * The files that turn a state into a screen — the app's deciders. Every field
  * in BEHAVIOURAL_FIELDS must be read by one of them, or it is not behavioural
  * and has no business in a scenario's name.
  *
- * "Which screen" is the first two; the rest decide which *face* of it, which is
- * the same kind of difference and worth the same tab. playbackBuffering answers
- * the spinner, useSourceProgress answers whether the playhead advances or is
- * frozen. That last one is the whole reason `is_playing` is still here: it used
- * to gate AirPlay's rich display, and when that clause went it stopped choosing
- * a component — this list going red is how that was noticed — but it still
- * separates a paused player from a playing one.
+ * "Which screen" is the first three; the rest decide which *face* of it, which
+ * is the same kind of difference and worth the same tab: useSourceProgress
+ * answers whether the playhead advances and what a stopped source shows, and
+ * nowPlayingMetadata what the player keeps naming — a title is its whole
+ * requirement, which is what lets an unidentified disc (no artist) on screen.
  */
 export const DECIDERS = [
   'composables/useRichDisplay.js',
   'composables/useSourceStatusDisplay.js',
   'components/audio/AudioSourceView.vue',
-  'utils/playbackBuffering.js',
-  'composables/useSourceProgress.js'
+  'composables/useSourceProgress.js',
+  'utils/nowPlayingMetadata.js'
 ];
 
 /**
- * The metadata fields the deciders branch on, in the order a name spells them.
+ * The fields the deciders branch on, in the order a name spells them.
  *
- * Not a taxonomy of our own: each appears in a condition in DECIDERS, and the
- * guardrail fails on any that does not. Everything else a source emits —
- * `album_art_url`, `position`, `disc_album` — is *content*: it changes what the
- * screen says, never which screen you get, so it stays out of the name.
+ * Not a taxonomy of our own: each is read in DECIDERS, and the guardrail fails
+ * on any that is not. `resume` is the resume point standing in for a session
+ * (what play would bring back); `title` and `artist` are the session's, or the
+ * resume point's when there is no session; `artwork_width` is AirPlay's detail;
+ * `senders` the session's list of who is sending. Everything else a state
+ * carries — the artwork URL, the anchor, the duration, the station — is
+ * *content*: it changes what the screen says, never which screen you get, so it
+ * stays out of the name. The phase is not here because the first token already
+ * says it.
  */
-export const BEHAVIOURAL_FIELDS = [
-  'title',
-  'artist',
-  'album_art_width',
-  'device_name',
-  'client_name',
-  'client_names',
-  'is_playing',
-  'is_buffering',
-  'drive_connected',
-  'disc_present',
-  'cache_ready',
-  'ejecting',
-  'account_authenticated'
-];
+export const BEHAVIOURAL_FIELDS = ['resume', 'title', 'artist', 'artwork_width', 'senders'];
 
 /**
  * How a field renders inside a name. Presence is enough for a string — the value
- * is content, and a track title in a tab would be noise; a number and an
- * explicit `false` are themselves the discriminating part, so they are printed;
- * an array prints its length, which is what separates Mac's one sender from its
- * two.
+ * is content, and a track title in a tab would be noise; a number is itself the
+ * discriminating part, so it is printed; an array prints its length, which is
+ * what separates Mac's one sender from its two.
  */
 function spell(key, value) {
   if (value === true) return key;
@@ -211,99 +180,111 @@ function spell(key, value) {
   return `${key}=${value}`;
 }
 
+/** The behavioural facts a state carries, by BEHAVIOURAL_FIELDS. */
+function factsOf(state) {
+  const record = state.session ?? state.resume;
+  const values = {
+    resume: !state.session && state.resume ? true : undefined,
+    title: record?.title ?? undefined,
+    artist: record?.artist ?? undefined,
+    artwork_width: state.details?.artwork_width ?? undefined,
+    senders: state.session?.senders.length ? state.session.senders : undefined
+  };
+  return BEHAVIOURAL_FIELDS
+    .filter(key => values[key] !== undefined)
+    .map(key => spell(key, values[key]));
+}
+
 /**
  * A scenario's name, derived from what it sends — never written by hand.
  *
- * The final event is what the screen settles on, so the id reads its
- * `full_state`: the source state (the backend enum value, verbatim), then
- * `network_unavailable` when set — it replaces the state on screen, so it
- * belongs in the name for the same reason the state does — followed by the
- * behavioural metadata it carries, then the catalogue condition for the three
+ * The final event is what the screen settles on, so the id reads its state: the
+ * display state the app derives from it, then the source's availability entry —
+ * unless the display state already spells it (reading a disc, ejecting), which
+ * is asked of the derivation itself rather than listed here — followed by the
+ * behavioural facts it carries, then the catalogue condition for the three
  * sources that have one.
  */
 export function scenarioId(events, browser) {
-  const settled = events[events.length - 1].data.full_state;
-  const metadata = settled.metadata || {};
-  const facts = BEHAVIOURAL_FIELDS
-    .filter(key => metadata[key] !== undefined)
-    .map(key => spell(key, metadata[key]));
+  const state = events[events.length - 1].data;
+  const display = displayStateFor(state);
+  const reason = state.availability[state.source];
+  const spelled = reason && displayStateFor({ ...state, availability: {} }) === display ? [reason] : [];
 
-  return [
-    settled.source_state,
-    ...(settled.network_unavailable ? [settled.network_unavailable] : []),
-    ...facts,
-    ...(browser?.condition ?? [])
-  ].join(' ');
+  return [display, ...spelled, ...factsOf(state), ...(browser?.condition ?? [])].join(' ');
 }
 
-/**
- * The wire envelope, as `WsEvent.to_envelope` builds it. `timestamp` is the one
- * field nothing on this side reads, so it is pinned rather than faked — which
- * also keeps a scenario byte-identical across runs.
- */
-function envelope(category, type, origin, data) {
-  return { category, type, origin, data, timestamp: 0 };
-}
+/** Any id a session carries — 32 hex characters, as `Session.id` is. */
+const SESSION_ID = '5f0c2a9e7b3d4c18a6e1f0b2d9c7a345';
 
 /**
- * `full_state`, as `AudioStateMachine.get_current_state()` assembles it: the
- * dataclass's own `to_dict()` plus the two global flags it pulls from the
- * routing and CamillaDSP services. Both are carried because the real payload
- * always carries them, and `unifiedAudioStore` mirrors both.
+ * A complete AudioState, as `audio_wire.py::AudioState` publishes it: every key
+ * present, all ten availability entries, a running service and nothing in
+ * session. A scenario states only what differs.
  */
-function fullState(
-  source, sourceState, metadata,
-  { transitioning = false, error = null, networkUnavailable = null } = {}
-) {
+export function audioState(source, overrides = {}) {
+  const { availability, ...rest } = overrides;
   return {
-    active_source: source,
-    source_state: sourceState,
-    transitioning,
-    metadata,
-    error,
+    source,
+    switching: false,
+    service: 'running',
+    service_error: null,
+    availability: {
+      ...Object.fromEntries(ALL_AUDIO_SOURCES.map(entry => [entry, null])),
+      ...availability
+    },
+    session: null,
+    controls: [],
+    resume: null,
+    details: null,
     multiroom_enabled: false,
     equalizer_effects_enabled: true,
-    network_unavailable: networkUnavailable
+    ...rest
+  };
+}
+
+/** A complete session (`SessionView`): every key present, nothing named. */
+export function session(overrides = {}) {
+  return {
+    id: SESSION_ID,
+    phase: 'playing',
+    title: null,
+    artist: null,
+    album: null,
+    artwork: null,
+    senders: [],
+    duration_ms: null,
+    position: null,
+    ...overrides
+  };
+}
+
+/** A position anchor at `ms`. `at` is stamped at replay — see replayed(). */
+export function anchor(ms, rate = 1) {
+  return { ms, at: 0, rate };
+}
+
+/**
+ * A state as it is published *now*: the anchor's `at` is the one instant the
+ * state carries, and a replay is a publish. Left at its fixture value, a
+ * playing bar would run from 1970 and sit at its end.
+ */
+export function replayedState(state, nowSeconds) {
+  if (!state.session?.position) return state;
+  return {
+    ...state,
+    session: { ...state.session, position: { ...state.session.position, at: nowSeconds } }
   };
 }
 
 /**
- * `source/state_changed` — the event every source lifecycle change rides on.
- * `data` carries the model's own three fields plus the injected snapshot, and
- * the snapshot is what the app reads: `new_state` and `metadata` are duplicated
- * inside it, and only podcastStore takes the metadata straight off the event.
+ * The wire envelope, as `WsEvent.to_envelope` builds it: `origin` is the
+ * state's source. `timestamp` is the one field nothing on this side reads, so it
+ * is pinned rather than faked — which also keeps a scenario byte-identical
+ * across runs.
  */
-function stateChanged(source, newState, metadata = {}, options = {}) {
-  return envelope('source', 'state_changed', source, {
-    source,
-    new_state: newState,
-    metadata,
-    full_state: fullState(source, newState, metadata, options)
-  });
-}
-
-/**
- * `system/state_changed` — the state machine's settled snapshot, emitted when
- * it has finished moving on its own rather than at a source's request. Like
- * `transition_start` it declares nothing of its own beyond `source: 'system'`:
- * the payload that matters is the injected `full_state`.
- */
-function systemStateChanged(source, sourceState, metadata = {}, options = {}) {
-  return envelope('system', 'state_changed', 'system', {
-    source: 'system',
-    full_state: fullState(source, sourceState, metadata, options)
-  });
-}
-
-/**
- * `system/transition_start` — what the state machine emits before a switch, and
- * the only honest way to reach `transitioning`. It declares no fields of its
- * own: the whole payload is the injected snapshot.
- */
-function transitionStart(source) {
-  return envelope('system', 'transition_start', 'system', {
-    full_state: fullState(source, 'starting', {}, { transitioning: true })
-  });
+function stateEvent(state) {
+  return { category: 'source', type: 'state', origin: state.source, data: state, timestamp: 0 };
 }
 
 /** Assembles a scenario and derives its name. The only way one is built. */
@@ -317,133 +298,138 @@ function scenario(events, label, note, browser) {
   };
 }
 
+/** One published state for `source`: what a scenario states, over the defaults. */
+function published(source, label, note, overrides = {}) {
+  return scenario([stateEvent(audioState(source, overrides))], label, note);
+}
+
 /**
- * `transitioning` is what every source's first state actually looks like — but
- * it is only *one* of the two ways STARTING reaches the wire, and the tab
- * documents that one.
- *
- * A source switch goes through `transition_to_source`, which sets the flag and
- * empties the metadata. A multiroom reroute goes through `exclusive_transition`,
- * which deliberately does neither: the flag stays false so the STARTING push
- * reaches the UI at all, and `metadata=None` keeps the current track on screen
- * while the source is released and re-acquired. `useRichDisplay` short-circuits
- * on the flag, not on the state, so that second form draws the card only for the
- * six sources whose own gate needs ACTIVE — CD keeps its player (its gate never
- * looks at the state) and the three browsers keep their layout (theirs returns
- * true unconditionally). Not a tab, because there is no stimulus a
- * dispatcher page can send that reaches it: the reroute's record is the *last
- * source's* metadata under a new state, and reproducing that means replaying
- * two events to document a window the app crosses in a second. Stated here so
- * the tab below is not read as the whole of STARTING.
+ * A source switch under way: `switching` with the service starting, which is
+ * what every source's first state looks like — and, since the multiroom switch
+ * raises `switching` too (D7), what a reroute looks like while the source is
+ * released and taken again. Nothing is listed in `controls` meanwhile.
  */
 function starting(source) {
-  return scenario(
-    [transitionStart(source)],
+  return published(
+    source,
     'Starting',
-    'transitioning — the status card takes over whatever the source is, and the spinner replaces its icon. One of the two states that read as a sentence broken over two lines ("Démarrage de" / the source), so the phrase leads and the source name takes the emphasised line — which is also why French needs three keys for it, agreeing the article with the source noun. The 500 ms floor holds the *card\'s* phrase, not the card: `shouldShowSourceStatus` reads `transitioning` raw, so a transition that completes into a rich display hands the screen over at once and the floor never applies.'
+    'switching with the service starting — the status card takes over whatever the source is, and the spinner replaces its icon. One of the two states that read as a sentence broken over two lines ("Démarrage de" / the source), so the phrase leads and the source name takes the emphasised line — which is also why French needs three keys for it, agreeing the article with the source noun. The 500 ms floor holds the *card\'s* phrase, not the card: AudioSourceView reads `switching` raw, so a switch that completes into a rich display hands the screen over at once and the floor never applies.',
+    { switching: true, service: 'starting' }
   );
-}
-
-/** Nothing is playing yet: the source is up and idle. */
-function ready(source, label, note, metadata = {}) {
-  return scenario([stateChanged(source, 'ready', metadata)], label, note);
-}
-
-function active(source, label, note, metadata) {
-  return scenario([stateChanged(source, 'active', metadata)], label, note);
 }
 
 /**
- * `SourceState.ERROR` — the source is not operational, which one place writes:
- * the state machine, when a transition fails. It stops the target, leaves it
- * *selected* and keeps the message in `full_state.error`, then broadcasts the
- * settled snapshot — so this is a `system/state_changed`, not a source event,
- * and the metadata is empty because a source that never started has none.
- *
- * The message the user reads rides on `system/error` — the state machine's own
- * event, emitted just before the settled snapshot, which raises App.vue's
- * banner over whatever is on screen. Not `source/error`: that is the other
- * channel, for an operation that failed on a source still standing (a station
- * that will not tune), and `broadcast_error`'s docstring is explicit that the
- * two never ride together. Neither is replayed here — the banner belongs to
- * the app shell, not to the source's own screen.
+ * A failed start: the state machine stops the target, leaves it *selected* with
+ * `service: failed` and the reason in `service_error` — whose message is for the
+ * journal, never shown. Nothing is in session, because a source that never
+ * started has none. What the user reads rides on `source/error` and raises
+ * App.vue's banner over whatever is on screen; it is not replayed here — the
+ * banner belongs to the app shell, not to the source's own screen.
  */
 function errored(source, note, message) {
-  return scenario(
-    [systemStateChanged(source, 'error', {}, { error: message })],
-    'Error',
-    note
-  );
+  return published(source, 'Error', note, {
+    service: 'failed',
+    service_error: { reason: 'start_failed', message }
+  });
 }
 
 /**
  * The link is missing what this source needs. The backend has already crossed
  * NetworkManager's level with the source's own NETWORK_REQUIREMENT, so the
- * scenario states the *answer* — the same one field the app reads — rather
- * than re-deriving it: `no_network` when nothing is reachable, `no_internet`
- * when the LAN is up but has no route out. Either one drops the source to the
- * status card, browser sources included: a favourites grid whose every tap
- * fails is a worse screen than one naming the reason.
+ * scenario states the *answer* — the source's availability entry — rather than
+ * re-deriving it: `no_network` when nothing is reachable, `no_internet` when
+ * the LAN is up but has no route out. Either one drops the source to the status
+ * card, browser sources included: a favourites grid whose every tap fails is a
+ * worse screen than one naming the reason.
  */
-function offline(source, reason, note, metadata = {}) {
-  return scenario(
-    [systemStateChanged(source, 'ready', metadata, { networkUnavailable: reason })],
+function offline(source, reason, note) {
+  return published(
+    source,
     reason === 'no_network' ? 'No network' : 'No internet',
-    note
+    note,
+    { availability: { [source]: reason } }
   );
 }
 
 /**
- * A browser source's scenario: the record, plus the browser's own setup.
+ * A browser source's scenario: the state, plus the browser's own setup.
  *
- * READY or ACTIVE follows the stand-in by default, because that is what the
- * backend does: all three publish through
- * `emit_connection_state(bool(<the thing in session>))` — a tuned station, a
- * current episode, a non-empty queue — so a favourites grid with no player
- * pane is a READY record. Neither state changes *which component* mounts here
- * (`hasRichDisplay` returns true for these three whatever they carry), which
- * is precisely why every one of them could say `active` and nothing noticed.
- *
- * The pane no longer follows the state, so `state` can be set against the
- * default: `useSourcePlaybackVisibility` shows the pane while the source has
- * something to draw, and a source that stops with something to resume keeps
- * its identity in the published metadata. A pane over a READY record is
- * therefore a real screen — the stopped-but-resumable one — where it used to
- * be one the app could not produce.
- *
- * `browser.metadata` is for the fields that survive `PlaybackMetadata.split`
- * and reach a decider: radio's `is_buffering` is the only one so far, and it is
- * what tells "the stream is opening" apart from "it is playing". The rest of
- * what these three publish (station_id, episode_uuid, the queue) is read by
- * their own stores, which the stage does not mount — that is what the fixtures
- * below stand in for.
+ * `browser.state` is what the backend publishes alongside the catalogue the
+ * fixtures serve — nothing in session for a grid being browsed, a session for a
+ * station tuning or an episode playing, a resume point for a station stopped
+ * but still tuned. None of it changes *which component* mounts here
+ * (`richSourceFor` draws these three whatever the session says); it is what the
+ * pane and the transport read.
  */
 function browsing(source, label, note, browser) {
-  const state = browser.state ?? (browser.player ? 'active' : 'ready');
-  return scenario(
-    [stateChanged(source, state, browser.metadata ?? {})],
-    label,
-    note,
-    browser
-  );
+  return scenario([stateEvent(audioState(source, browser.state ?? {}))], label, note, browser);
 }
 
-/** Shared by the CD scenarios that have a disc: identity + its tracklist. */
+/** Radio's `details.station`, from the favourites entry the grid shows. */
+function radioStation(station) {
+  return {
+    id: station.id,
+    name: station.name,
+    url: `https://streams.example/${station.id}.mp3`,
+    country: station.countrycode === 'GB' ? 'United Kingdom' : 'France',
+    genre: station.genre ?? null,
+    favicon: station.favicon || null,
+    bitrate: 128,
+    codec: 'MP3'
+  };
+}
+
+/** One track of the sample disc, as `CdTrack` carries it. */
+const CD_TRACKS = [
+  { number: 1, title: 'Keep', duration_ms: 312000 },
+  { number: 2, title: 'Snippet', duration_ms: 96000 },
+  { number: 3, title: 'Kind', duration_ms: 268000 },
+  { number: 4, title: 'Unter', duration_ms: 401000 }
+];
+
+/** A disc MusicBrainz identified: `details.disc`. */
 const CD_DISC = {
-  disc_present: true,
-  cache_ready: true,
-  disc_id: 'yvYlA5_2ZK6mQvZ1kZ0rXqLg7dM-',
-  disc_album: 'Felt',
-  disc_artist: 'Nils Frahm',
-  disc_year: '2011',
-  disc_cover_url: musicPlaceholder,
-  track_count: 4,
-  tracks: [
-    { number: 1, title: 'Keep', duration: 312000 },
-    { number: 2, title: 'Snippet', duration: 96000 },
-    { number: 3, title: 'Kind', duration: 268000 },
-    { number: 4, title: 'Unter', duration: 401000 }
-  ]
+  id: 'yvYlA5_2ZK6mQvZ1kZ0rXqLg7dM-',
+  album: 'Felt',
+  artist: 'Nils Frahm',
+  year: '2011',
+  cover_url: musicPlaceholder,
+  tracks: CD_TRACKS
+};
+
+/** `details` of the CD with the sample disc in, `current` its 1-based track. */
+function cdDetails(current, disc = CD_DISC) {
+  return { kind: 'cd', disc, current_track: current, artwork_pending: false };
+}
+
+/** A CD session on track `number` of the sample disc. */
+function cdSession(number, overrides = {}) {
+  const track = CD_TRACKS[number - 1];
+  return session({
+    title: track.title,
+    artist: CD_DISC.artist,
+    album: CD_DISC.album,
+    artwork: CD_DISC.cover_url,
+    duration_ms: track.duration_ms,
+    ...overrides
+  });
+}
+
+/** The track the Connect sources play in every scenario of theirs. */
+const SAYS = {
+  title: 'Says',
+  artist: 'Nils Frahm',
+  album: 'Spaces',
+  artwork: musicPlaceholder,
+  duration_ms: 511000
+};
+
+/** The AirPlay sender's track, and who sends it. */
+const ZARATHOUSTRA = {
+  title: 'Ainsi parlait Zarathoustra',
+  artist: 'Alain Bashung',
+  album: 'Bleu pétrole',
+  senders: ['Leo’s iPhone']
 };
 
 /**
@@ -622,37 +608,24 @@ export const SOURCE_PAGES = [
     source: 'spotify',
     title: 'Spotify',
     family: 'C — active player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls)',
+    uses: 'AudioSourceStatus · AudioPlayerFull',
     via: 'dispatcher',
     summary:
-      'The only Connect source Milō drives back: AudioPlayerFull with the full transport. Its rich display is gated on title + artist alone — Spotify is a trusted metadata provider, so no cover-quality check. There is no "active, no metadata" scenario here any more: the source no longer publishes ACTIVE unless go-librespot answered with a track, so the gap between the session opening and the first track event now reads as ready instead of as a card with nothing to draw.',
+      'The only Connect source Milō drives back with a full transport: `controls` lists pause or resume, next, prev and — once the track plays — seek, and AudioPlayerFull draws a button for each command listed and nothing else. Its rich display needs a title and nothing more: Spotify is a trusted metadata provider, so no cover-quality check. A session opens only at the first track go-librespot can name, so there is no "connected, nothing to draw" screen: the gap before it reads as ready.',
     scenarios: [
       starting('spotify'),
-      ready('spotify', 'Ready', 'Connected to go-librespot, no phone has picked the speaker yet.'),
-      active('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport. The buttons report to the event log instead of reaching the unit.', {
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        position: 192000,
-        duration: 511000
+      published('spotify', 'Ready', 'Connected to go-librespot, no phone has picked the speaker yet. Nothing in session, so nothing in `controls` either — there is no transport to offer before a phone hands over a queue.'),
+      published('spotify', 'Loading', 'A track is on its way: the play/pause glyph gives way to a spinner and the bar holds 0:00, because `seek` is never listed while loading — scrubbing a track that has not started would be refused.', {
+        session: session({ ...SAYS, phase: 'loading', position: anchor(0) }),
+        controls: ['pause', 'next', 'prev']
       }),
-      active('spotify', 'Paused', 'Same record, is_playing false — the glyph flips and useSourceProgress stops ticking.', {
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: false,
-        position: 192000,
-        duration: 511000
+      published('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport, the bar interactive because `seek` is listed. The buttons report to the event log instead of reaching the unit.', {
+        session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
+        controls: ['pause', 'seek', 'next', 'prev']
       }),
-      active('spotify', 'Buffering', 'is_buffering swaps the play/pause glyph for a spinner (isSourceBuffering). The bar keeps its last position.', {
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        is_buffering: true,
-        position: 0,
-        duration: 511000
+      published('spotify', 'Paused', 'Same session, phase paused: `controls` trades pause for resume, the glyph flips, and useSourceProgress stops advancing the anchor.', {
+        session: session({ ...SAYS, phase: 'paused', position: anchor(192000) }),
+        controls: ['resume', 'seek', 'next', 'prev']
       }),
       offline(
         'spotify',
@@ -661,7 +634,7 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'spotify',
-        'go-librespot not coming up. The source stays selected — that is what makes the retry possible — and the card says so: "Spotify / Error", with a Retry CTA that re-posts the source selection and re-runs the transition the state machine gave up on. The message itself is the banner\'s.',
+        'go-librespot not coming up. The source stays selected — that is what makes the retry possible — and the card says so: "Spotify / Error", with a Retry CTA that re-posts the source selection and re-runs the start the state machine gave up on. The message itself is the banner\'s.',
         'go-librespot failed to start'
       )
     ]
@@ -672,38 +645,27 @@ export const SOURCE_PAGES = [
     source: 'qobuz',
     title: 'Qobuz',
     family: 'B — passive player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress)',
+    uses: 'AudioSourceStatus · AudioPlayerFull',
     via: 'dispatcher',
     summary:
-      'Receiver-driven, so AudioPlayerFull draws a read-only bar and a source bar instead of a transport. The only source with a login state: account_authenticated false swaps the idle line and arms the connect CTA, and only an explicit false does — an absent field reads as connected so the card never flashes the CTA before the proxy has answered.',
+      'Receiver-driven: the source declares no command at all, so `controls` is always empty and AudioPlayerFull draws a source bar where a transport would be, under a read-only progress bar. The only source with an account: `availability.qobuz` reads `no_account` when the one-time login is missing, which swaps the idle line for the connect CTA — and a missing link outranks it, since with no route out the account cannot be checked.',
     scenarios: [
       starting('qobuz'),
-      ready(
-        'qobuz',
-        'Ready',
-        'Account connected, waiting for the app to pick the speaker. The extra rides every record the source publishes, this one included — which is the point of carrying it here: account_authenticated is not a field that appears when something is wrong, it is a field that is always there and is sometimes false.',
-        { account_authenticated: true }
-      ),
-      ready(
+      published('qobuz', 'Ready', 'Account connected, waiting for the app to pick the speaker: availability is null, which is what "the source can work" looks like — the account is not a field that appears when something is wrong, it is the absence of a reason.'),
+      published(
         'qobuz',
         'Ready, no account',
-        'account_authenticated false — the only path to the second CTA in AudioSourceStatus, and only an explicit false arms it, so the CTA cannot flash before the proxy has answered. Tapping it calls inject("openSettings"), which is absent here, so it no-ops.',
-        { account_authenticated: false }
+        'availability no_account — the only path to the connect CTA in AudioSourceStatus. Tapping it calls inject("openSettings"), which is absent here, so it no-ops.',
+        { availability: { qobuz: 'no_account' } }
       ),
-      active(
-        'qobuz',
-        'Active, before now_playing',
-        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. No client_name: the proxy exposes no controller identity, so currentDeviceName is empty and the generic active line prints "Qobuz / playing", the shape every source without a sender to name lands on, which is why it needs no branch of its own any more.',
-        { is_playing: true, account_authenticated: true }
-      ),
-      active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar, which names no device: with no client_name on the record the bar falls back to the source\'s own label, "Qobuz".', {
-        title: 'Ambre',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        account_authenticated: true,
-        position: 64000,
-        duration: 264000
+      published('qobuz', 'Loading', 'The app picked a track and the proxy is fetching it. Trusted CDN cover, so no artwork_width gate — a title is enough for the player, which draws the spinner-free receiver bar: with no command listed there is no play button to spin.', {
+        session: session({ ...SAYS, phase: 'loading', position: anchor(0) })
+      }),
+      published('qobuz', 'Playing', 'Read-only bar above the source bar, which names no device: the proxy exposes no controller identity, so `senders` is empty and the bar falls back to the source\'s own label, "Qobuz".', {
+        session: session({ ...SAYS, phase: 'playing', position: anchor(64000) })
+      }),
+      published('qobuz', 'Paused', 'The app paused. Nothing on this screen is a transport, so what changes is the playhead alone: the anchor stops advancing.', {
+        session: session({ ...SAYS, phase: 'paused', position: anchor(64000) })
       }),
       offline(
         'qobuz',
@@ -712,7 +674,7 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'qobuz',
-        'The proxy sidecar will not start, which is also the moment the account state stops being knowable — so the connect CTA gives way to the retry one. Not because error outranks the account — the card resolves a missing prerequisite first, so an explicit account_authenticated false would still win here. There is none: a source that failed to start publishes no metadata at all, so the reason resolves to null and the error branch is what is left.',
+        'The proxy sidecar will not start. With nothing in availability the card resolves the error branch and offers the retry; an account missing on top of it would still win, since the card answers a missing prerequisite first.',
         'qobuz-proxy failed to start'
       )
     ]
@@ -723,37 +685,24 @@ export const SOURCE_PAGES = [
     source: 'tidal',
     title: 'TIDAL',
     family: 'C — active player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls, seekable false)',
+    uses: 'AudioSourceStatus · AudioPlayerFull',
     via: 'dispatcher',
     summary:
-      'Spotify\'s shape reached through a Unix socket instead of a WebSocket: the phone hands over a queue and Milō drives it back. One difference is visible on screen — the tisoc protocol has no seek command at all, so this is the only controlled source whose progress bar is inert (seekable false). Trusted CDN cover, so the rich display is gated on title + artist alone, like Spotify and unlike the two untrusted senders below.',
+      'Spotify\'s shape reached through a Unix socket instead of a WebSocket: the phone hands over a queue and Milō drives it back. One difference is visible on screen — the tisoc protocol has no seek command at all, so `seek` is never in `controls` and this is the only controlled source whose progress bar is inert. Trusted CDN cover, so a title is the whole gate, like Spotify and unlike AirPlay.',
     scenarios: [
       starting('tidal'),
-      ready('tidal', 'Ready', 'The daemon acknowledged startService and is advertising over mDNS; no phone has picked the speaker yet. Reaching this state is the proof the source is usable — a daemon that never answers would reject every session.'),
-      active('tidal', 'Playing', 'Rich display earned: transport plus a bar that draws position but refuses a scrub. The buttons report to the event log instead of reaching the unit.', {
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        position: 192000,
-        duration: 511000
+      published('tidal', 'Ready', 'The daemon acknowledged startService and is advertising over mDNS; no phone has picked the speaker yet. Reaching this state is the proof the source is usable — a daemon that never answers would reject every session.'),
+      published('tidal', 'Loading', 'The daemon passes through BUFFERING on every track change, so this is a normal step rather than a stall: the spinner replaces the glyph. No anchor yet — the daemon has not reported a position — so the bar is not drawn.', {
+        session: session({ ...SAYS, phase: 'loading' }),
+        controls: ['pause', 'next', 'prev']
       }),
-      active('tidal', 'Paused', 'Same record, is_playing false. A paused track keeps its session and its cover — the daemon reports the end of one explicitly, so nothing here is a stale leftover.', {
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: false,
-        position: 192000,
-        duration: 511000
+      published('tidal', 'Playing', 'Rich display earned: transport plus a bar that draws position but refuses a scrub, because `seek` is not listed. The buttons report to the event log instead of reaching the unit.', {
+        session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
+        controls: ['pause', 'next', 'prev']
       }),
-      active('tidal', 'Buffering', 'The daemon passes through BUFFERING on every track change, so this is a normal step rather than a stall: the spinner replaces the glyph and the bar holds its last position.', {
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        is_buffering: true,
-        position: 0,
-        duration: 511000
+      published('tidal', 'Paused', 'Same session, phase paused. A paused track keeps its session and its cover — the daemon reports the end of one explicitly, so nothing here is a stale leftover.', {
+        session: session({ ...SAYS, phase: 'paused', position: anchor(192000) }),
+        controls: ['resume', 'next', 'prev']
       }),
       offline(
         'tidal',
@@ -773,35 +722,37 @@ export const SOURCE_PAGES = [
     source: 'airplay',
     title: 'AirPlay',
     family: 'B — passive player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress FALSE)',
+    uses: 'AudioSourceStatus · AudioPlayerFull',
     via: 'dispatcher',
     summary:
-      'The one passive player with no progress bar: an AirPlay sender that pauses announces it on no channel shairport-sync can pass on (measured 2026-08-07 — pfls/pend never fire, core/caps holds 0x01, D-Bus PlayerState still says "Playing" 96 s in, FramePosition keeps counting because shairport writes silence), so is_playing stays true and the bar ran on through a paused track. The sender draws its own position. The untrusted-sender gate lives here too: title, artist AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. What the gate deliberately does *not* read is is_playing: a sender that quits ends the session and the source publishes READY on its own, so the only thing left carrying is_playing=false is a pause, and the card is not the answer to a pause. Two states are missing from the tabs on purpose. The first: ACTIVE is reached on shairport\'s `conn`, before any audio flows, carrying nothing but the name off X-Apple-Client-Name — the window Qobuz documents as "Active, before now_playing". It has no tab because it draws the same "Connecté à / Leo’s iPhone" as the declined-cover scenario below, and a tab that repeats a screen teaches a reader to stop trusting that a new tab is a new screen. A pause has no tab for the same reason, and it is the sharper case of the two: the gate has no is_playing clause — a sender that really quits sends `disc`, which clears the track, the cover and the name and publishes READY, so the card comes back on its own — and with showControls and showProgress both off, this player reads the flag nowhere else either. No transport to flip, no bar to freeze. A paused sender therefore draws the playing tab below, to the pixel: same markup, same computed styles, measured.',
+      'The receiver whose phase depends on the stream: a Buffered sender (iPhone Music) says when it pauses, a Realtime one (a Mac\'s system audio) never does, so that session stays `connected` — "Connecté à <sender>", never a player whose bar runs on through a pause. The untrusted-sender gate lives here too: a title AND `details.artwork_width` above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. No command is declared, so `controls` is empty and the player draws the source bar, naming the sender from `senders`.',
     scenarios: [
       starting('airplay'),
-      ready('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
-      active(
+      published('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
+      published('airplay', 'Connected, no track', 'A Realtime sender — a Mac casting its system audio — or a sender connected before any audio: nothing to name and no pause to hear of, so the phase is connected and the card names the sender from `senders`.', {
+        session: session({ phase: 'connected', senders: ['Leo’s MacBook'] }),
+        details: { kind: 'airplay', artwork_width: null }
+      }),
+      published('airplay', 'Loading, no cover yet', 'The track is named before its cover arrives, and artwork_width is null until it does — so the gate declines the player and the card stands in, naming the sender, rather than drawing a player with an empty artwork slot.', {
+        session: session({ ...ZARATHOUSTRA, phase: 'loading' }),
+        details: { kind: 'airplay', artwork_width: null }
+      }),
+      published(
         'airplay',
-        'Active, favicon cover',
-        `album_art_width ${FAVICON_COVER_PX} is under UNTRUSTED_SENDER_MIN_ARTWORK_PX (300, and the only number here that is a rule), so the rich display is declined and the card names the sender instead. This is what browser audio looks like — a page favicon where a media app would push a real cover — and it is the only reason the gate exists. It is also the screen the pre-metadata window lands on, for a different reason the card cannot show: it reads neither the cover width nor the flag, only the sender's name.`,
+        'Playing, favicon cover',
+        `artwork_width ${FAVICON_COVER_PX} is under UNTRUSTED_SENDER_MIN_ARTWORK_PX (300, and the only number here that is a rule), so the rich display is declined and the card names the sender instead. This is what browser audio looks like — a page favicon where a media app would push a real cover — and it is the only reason the gate exists.`,
         {
-          title: 'Ainsi parlait Zarathoustra',
-          artist: 'Alain Bashung',
-          album_art_url: musicPlaceholder,
-          is_playing: true,
-          client_name: 'Leo’s iPhone',
-          album_art_width: FAVICON_COVER_PX
+          session: session({ ...ZARATHOUSTRA, phase: 'playing', artwork: musicPlaceholder, duration_ms: 297000, position: anchor(41000) }),
+          details: { kind: 'airplay', artwork_width: FAVICON_COVER_PX }
         }
       ),
-      active('airplay', 'Playing', 'All three conditions met. The source bar carries the sender name. position and duration ride the record — the source ages them for a client connecting mid-track — but no bar is drawn from them, because nothing tells this source when the sender paused.', {
-        title: 'Ainsi parlait Zarathoustra',
-        artist: 'Alain Bashung',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        client_name: 'Leo’s iPhone',
-        album_art_width: MEDIA_APP_COVER_PX,
-        position: 41000,
-        duration: 297000
+      published('airplay', 'Playing', 'Title and a cover wide enough: AudioPlayerFull, with the sender named in the source bar and a read-only bar drawn from the anchor — a Buffered sender reports its pauses, so this bar stops when the music does.', {
+        session: session({ ...ZARATHOUSTRA, phase: 'playing', artwork: musicPlaceholder, duration_ms: 297000, position: anchor(41000) }),
+        details: { kind: 'airplay', artwork_width: MEDIA_APP_COVER_PX }
+      }),
+      published('airplay', 'Paused', 'The sender paused and said so. The gate reads no phase — the player stays, and the card is not the answer to a pause — so what changes is the playhead, frozen at the anchor.', {
+        session: session({ ...ZARATHOUSTRA, phase: 'paused', artwork: musicPlaceholder, duration_ms: 297000, position: anchor(41000) }),
+        details: { kind: 'airplay', artwork_width: MEDIA_APP_COVER_PX }
       }),
       offline(
         'airplay',
@@ -810,7 +761,7 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'airplay',
-        'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. The sender name goes with it, so the source that most depends on naming its sender falls back to naming itself: "AirPlay / Error", with the retry.',
+        'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. No session, so no sender to name: the source that most depends on naming its sender falls back to naming itself, "AirPlay / Error", with the retry.',
         'shairport-sync failed to start'
       )
     ]
@@ -824,136 +775,67 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (+ both slots)',
     via: 'dispatcher',
     summary:
-      'The widest state matrix of any source here, and the one whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum, all derived by useSourceStatusDisplay from the metadata of a READY record — which is exactly why those scenarios are named by the fields they set rather than by a state. Two of them are operations under way, loading_disc and ejecting, and they join the four backend members in DISPLAY_STATES. The third, an empty drive bay, is not a state at all but a missing prerequisite, and it sits with no_network / no_internet / no_account in UNAVAILABLE_REASONS — the one of the four with no CTA, since plugging a drive in is not something the UI can offer.',
+      'The widest matrix here, and the one source whose player shows with nothing in session: a disc that is READY publishes a resume point (track 1 at 0:00 by default, D8), and a resume point with a title is enough for the player. Everything else about the drive is its availability entry — no_drive, no_disc, reading_disc, unreadable_disc, ejecting. Two of those are operations under way, drawn as the display states loading_disc and ejecting with a spinner; the other three are missing prerequisites, and only unreadable_disc has a CTA: eject, the one way out of a slot drive.',
     scenarios: [
       starting('cd'),
-      ready(
-        'cd',
-        'No drive',
-        'drive_connected false — the source is up but the hardware is missing. useSourceStatusDisplay reads this one field into the reason "no_drive", which replaces whatever the state would otherwise have said.',
-        { drive_connected: false }
-      ),
-      ready(
-        'cd',
-        'Drive empty',
-        'Drive present, no disc: the plain idle line, and the only CD scenario that reaches the generic READY branch.',
-        { drive_connected: true }
-      ),
-      ready(
-        'cd',
-        'Reading the disc',
-        'disc_present with no cache_ready/disc_id yet — the MusicBrainz lookup is in flight. Pseudo-state "loading_disc", spinner in place of the icon. A fallback DiscInfo always sets disc_id, so this window cannot hang.',
-        { drive_connected: true, disc_present: true }
-      ),
-      active(
-        'cd',
-        'Spinning up the drive',
-        'The window `_preload_track_1` opens on every start with a disc in: reader and mpv are loaded *paused* so a play tap resumes instantly, and while the drive spins up `_is_buffering` alone carries the record into ACTIVE — `is_playing` and `is_paused` are both still false. So the player is on screen with the spinner over the glyph, and the bar already drawn at 0:00 over track 1’s length: `_build_metadata` publishes position and duration in every state, because they are where a play press would restart and that is what a stopped source has to say. It settles into the tab below a second later, when the preload parks itself paused.',
-        {
-          ...CD_DISC,
-          drive_connected: true,
-          title: 'Keep',
-          artist: 'Nils Frahm',
-          album_art_url: musicPlaceholder,
-          is_playing: false,
-          is_buffering: true,
-          current_track: 1,
-          position: 0,
-          duration: 312000
-        }
-      ),
-      ready(
-        'cd',
-        'Disc ready, not playing',
-        'source_state is still "ready" and the player shows anyway — the CD branch of hasRichDisplay never looks at the state. The backend projects the idle view here: track 1’s title and the disc artist, and the bar at 0:00 over track 1’s length — where a play press would start. Nothing animates it: useSourceProgress runs its timer on `is_playing`, so it sits still and says where rather than counting.',
-        {
-          ...CD_DISC,
-          drive_connected: true,
-          is_playing: false,
-          title: 'Keep',
-          artist: 'Nils Frahm',
-          album_art_url: musicPlaceholder,
-          current_track: 1,
-          position: 0,
-          duration: 312000
-        }
-      ),
-      ready(
+      published('cd', 'No drive', 'availability no_drive — the source is up but the hardware is missing. The card names the reason and offers nothing: plugging a drive in is not something the UI can do.', {
+        availability: { cd: 'no_drive' }
+      }),
+      published('cd', 'Drive empty', 'availability no_disc: a drive with nothing in it. No CTA either, and no `details` — the CD describes a disc only once it is READY or unreadable.', {
+        availability: { cd: 'no_disc' }
+      }),
+      published('cd', 'Reading the disc', 'availability reading_disc — the TOC read and the MusicBrainz lookup are under way. The display state is loading_disc, a spinner in place of the icon, and `eject` is already listed: a disc can be taken back while it is read.', {
+        availability: { cd: 'reading_disc' },
+        controls: ['eject']
+      }),
+      published('cd', 'Disc unreadable', 'availability unreadable_disc, with `details.disc` null: the drive holds something Milō cannot read. The card offers eject, because a slot drive has no button of its own (E67) and the disc would otherwise be stuck.', {
+        availability: { cd: 'unreadable_disc' },
+        controls: ['eject'],
+        details: cdDetails(null, null)
+      }),
+      published('cd', 'Disc ready, not playing', 'Nothing in session and the player shows anyway: the resume point names track 1 at 0:00 — what a play press would start — and useSourceProgress draws that frozen bar from `position_ms`. The transport is live because `controls` lists resume, seek and the track commands with no session behind them.', {
+        resume: { title: 'Keep', artist: 'Nils Frahm', album: 'Felt', artwork: musicPlaceholder, duration_ms: 312000, position_ms: 0 },
+        controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject'],
+        details: cdDetails(1)
+      }),
+      published(
         'cd',
         'Disc not identified',
-        'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. `_build_fallback_disc_info` answers with the TOC alone: a disc_id (so this is not the loading window), generic "Track N" titles from the real track count and durations, and no album, artist, year or cover at all — the publisher drops a key it has no value for, so they are absent from the record rather than present and null. The rich-display rule admits it anyway, since it asks for disc_present + cache_ready and never for an artist, so the player draws the track title it does know over "Unknown Artist" — which is the honest label here, the artist genuinely being unknown — and the disc placeholder stands in for the cover. This is the only CD record with no artist, and it is what AudioPlayerFull\'s snapshot rule had to be relaxed for: demanding title AND artist left the player on its empty seed and showed "Unknown Title" over a tracklist that listed the tracks correctly.',
+        'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. The TOC alone answers: generic "Track N" titles from the real track count and durations, and no album, artist, year or cover. The player is admitted on the title alone and draws "Unknown Artist" — the honest label here — over the disc placeholder. Demanding an artist too is what once left this player on its empty seed over a tracklist that listed the tracks correctly.',
         {
-          drive_connected: true,
-          disc_present: true,
-          cache_ready: true,
-          disc_id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
-          track_count: 4,
-          tracks: [
-            { number: 1, title: 'Track 1', duration: 312000 },
-            { number: 2, title: 'Track 2', duration: 96000 },
-            { number: 3, title: 'Track 3', duration: 268000 },
-            { number: 4, title: 'Track 4', duration: 401000 }
-          ],
-          title: 'Track 1',
-          is_playing: false,
-          current_track: 1,
-          position: 0,
-          duration: 312000
+          resume: { title: 'Track 1', artist: null, album: null, artwork: null, duration_ms: 312000, position_ms: 0 },
+          controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject'],
+          details: cdDetails(1, {
+            id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
+            album: null,
+            artist: null,
+            year: null,
+            cover_url: null,
+            tracks: CD_TRACKS.map(track => ({ ...track, title: `Track ${track.number}` }))
+          })
         }
       ),
-      active(
-        'cd',
-        'Changing track',
-        'A track change republishes the *target* track at position 0 with is_buffering set, on purpose and before the ~1 s reader restart, so the bar snaps to 0:00 and freezes instead of interpolating the outgoing position and then jumping back. The spinner replaces the glyph (isSourceBuffering). The drive’s other buffering window is the preload above, and it is a different screen rather than the same one from the other side: there the bar is not drawn at all.',
-        {
-          ...CD_DISC,
-          drive_connected: true,
-          title: 'Kind',
-          artist: 'Nils Frahm',
-          album_art_url: musicPlaceholder,
-          is_playing: true,
-          is_buffering: true,
-          current_track: 3,
-          position: 0,
-          duration: 268000
-        }
-      ),
-      active('cd', 'Playing', 'AudioPlayerFull with the full transport. hasNext is false on the last track, mirroring the backend’s "next" no-op.', {
-        ...CD_DISC,
-        drive_connected: true,
-        title: 'Kind',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        current_track: 3,
-        position: 74000,
-        duration: 268000
+      published('cd', 'Loading a track', 'A play press or a track change opens a session in loading while the reader restarts: the bar snaps to 0:00 on the target track and stays there, since `seek` is not listed while loading, and the spinner replaces the glyph.', {
+        session: cdSession(3, { phase: 'loading', position: anchor(0) }),
+        controls: ['pause', 'next', 'prev', 'play_track', 'eject'],
+        details: cdDetails(3)
       }),
-      active(
-        'cd',
-        'Paused',
-        'ACTIVE with is_playing false, which is a different record from "Disc ready, not playing" above even though both draw the player: a paused session is still a session (`_is_paused` counts towards the ACTIVE gate) while the idle one is not, and `source_state` is the only thing on the record that says so. The bar looks the same in both, drawn and frozen: the idle projection publishes the resume point rather than zeroing it, so the two screens differ by their state and their transport, not by what they draw. Auto-stop is armed here and lands on that idle screen: `_auto_stop_action` releases the drive but keeps `_current_track` and the position, so the disc stays visible and a tap on play resumes the same track.',
-        {
-          ...CD_DISC,
-          drive_connected: true,
-          title: 'Kind',
-          artist: 'Nils Frahm',
-          album_art_url: musicPlaceholder,
-          is_playing: false,
-          current_track: 3,
-          position: 74000,
-          duration: 268000
-        }
-      ),
-      ready(
-        'cd',
-        'Ejecting',
-        'ejecting wins over a ready disc in hasRichDisplay, so the player gives way to the card mid-eject rather than lingering over a disc that is leaving.',
-        { ...CD_DISC, drive_connected: true, ejecting: true }
-      ),
+      published('cd', 'Playing', 'AudioPlayerFull with the full transport. On the last track `next` leaves `controls`, and the button with it.', {
+        session: cdSession(4, { phase: 'playing', position: anchor(74000) }),
+        controls: ['pause', 'seek', 'prev', 'play_track', 'eject'],
+        details: cdDetails(4)
+      }),
+      published('cd', 'Paused', 'A paused session is still a session, and the screen says so by its transport — resume instead of pause — while the bar freezes at the anchor. Auto-stop ends it on the idle screen above, keeping the track and the second as the resume point, so the disc stays visible and play resumes where it was.', {
+        session: cdSession(3, { phase: 'paused', position: anchor(74000) }),
+        controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject'],
+        details: cdDetails(3)
+      }),
+      published('cd', 'Ejecting', 'availability ejecting outranks the disc: the display state is ejecting, a spinner, and the player gives way to the card rather than lingering over a disc that is leaving. `eject` is not listed — it is already happening.', {
+        availability: { cd: 'ejecting' }
+      }),
       errored(
         'cd',
-        'The one source whose rich display ignores source_state — except here: ERROR drops to the card before the CD branch is ever reached, so a disc still in the drive is no longer drawn. The metadata goes with the failed start, which is also what tells the three pseudo-states apart from this one: they are READY records about the drive, not a source that failed.',
+        'The one failure that takes the disc off screen: a failed start publishes no resume point and no details, so the card is what is left, with the retry. The drive states above are availability on a running source, not a source that failed.',
         'cd-paranoia failed to open the drive'
       )
     ]
@@ -964,37 +846,28 @@ export const SOURCE_PAGES = [
     source: 'bluetooth',
     title: 'Bluetooth',
     family: 'C — active player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls, seekable false)',
+    uses: 'AudioSourceStatus · AudioPlayerFull',
     via: 'dispatcher',
     summary:
-      'The one source whose two feeds answer different questions: BlueALSA says who is connected, BlueZ AVRCP says what is playing — and the second is optional. So this is also the only source that moves between the card and the player on metadata alone, which is what the first two active records below show. AVRCP has no seek (inert bar, like TIDAL) and carries no cover either, so the one in the artwork slot was looked up from the track text by shared/artwork_resolver.py — album first, iTunes — and merged in at publish time; a miss leaves the slot on the source glyph. The disconnect CTA appears twice: on the card, and again as the player’s action button, since the card is gone exactly when a user wants to kick the phone off.',
+      'The one source whose two feeds answer different questions: BlueALSA says who is linked, BlueZ AVRCP says what is playing — and the second is optional. So a link with nothing to name is `connected` and draws the card, and a sender publishing a track draws the player, which is what the first two sessions below show. AVRCP has no seek (never listed, so the bar is inert, like TIDAL) and carries no cover either: the one in the artwork slot was looked up from the track text by shared/artwork_resolver.py. `disconnect` is listed for every session, so the CTA appears twice: on the card, and again as the player’s action button, since the card is gone exactly when a user wants to kick the phone off. A connected sender that does have a player (a Mac for its first 100 s) lists resume, next and prev as well and draws the same card, so it has no tab.',
     scenarios: [
       starting('bluetooth'),
-      ready('bluetooth', 'Ready', 'Discoverable, nothing paired-and-connected. No CTA in this state.'),
-      active('bluetooth', 'Connected, no AVRCP', 'A sender that publishes no player — or publishes an empty track — stays on the card: device_name fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
-        device_name: 'Leo’s iPhone'
+      published('bluetooth', 'Ready', 'Discoverable, nothing linked. No CTA in this state.'),
+      published('bluetooth', 'Connected, no track', 'A sender that publishes no player — or an empty track — stays on the card: `senders` fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
+        session: session({ phase: 'connected', senders: ['Leo’s iPhone'] }),
+        controls: ['disconnect']
       }),
-      active('bluetooth', 'Playing', 'Title + artist is the whole gate — requiring the artist is what does the work AirPlay gets from its cover-size check, since a web video publishes a title and rarely an artist. Transport plus a bar that draws position and refuses a scrub. The cover is not the sender’s: AVRCP carries none, so it was resolved from this track’s own text and can perfectly well be absent, which leaves the slot on the source glyph.', {
-        device_name: 'Leo’s iPhone',
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: true,
-        position: 192000,
-        duration: 511000
+      published('bluetooth', 'Playing', 'Status playing and a stream flowing. A title is the gate; transport plus a bar that draws position and refuses a scrub. The cover is not the sender’s: AVRCP carries none, so it was resolved from this track’s own text and can perfectly well be absent.', {
+        session: session({ ...SAYS, phase: 'playing', senders: ['Leo’s iPhone'], position: anchor(192000) }),
+        controls: ['pause', 'next', 'prev', 'disconnect']
       }),
-      active('bluetooth', 'Paused', 'Same record, is_playing false. Like the two untrusted senders there is no is_playing clause in the gate, and here there could not be one even in principle: this player draws a pause button, and dropping to the card on pause would delete the button that was just pressed.', {
-        device_name: 'Leo’s iPhone',
-        title: 'Says',
-        artist: 'Nils Frahm',
-        album_art_url: musicPlaceholder,
-        is_playing: false,
-        position: 192000,
-        duration: 511000
+      published('bluetooth', 'Paused', 'Status paused. The player stays — it draws a pause button, and dropping to the card on pause would delete the button that was just pressed — with resume in place of pause.', {
+        session: session({ ...SAYS, phase: 'paused', senders: ['Leo’s iPhone'], position: anchor(192000) }),
+        controls: ['resume', 'next', 'prev', 'disconnect']
       }),
       errored(
         'bluetooth',
-        'bluealsa failing to come up takes the device name with it, so the disconnect CTA goes with the line it belonged to — the card cannot offer a disconnect from a source it can no longer address. What sits in the same slot instead is the retry, which is the one action that still means something here.',
+        'bluealsa failing to come up leaves no session, so no device to name and no disconnect: the card cannot offer to drop a link the source can no longer address. What sits in the same slot instead is the retry, which is the one action that still means something here.',
         'bluealsa failed to start'
       )
     ]
@@ -1008,29 +881,24 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus only',
     via: 'dispatcher',
     summary:
-      'The other mute receiver, and the only source whose device name is an array: several Macs can stream over ROC at once, and formatDeviceNames joins them across two lines. The card shows no CTA at all — its disconnect branch is Bluetooth\'s alone, which is also why the store\'s `disconnectSource("mac")` returning true without sending anything is never reached. The sender stops from its own side, and there is nothing for Milō to end: roc-vad streams unbroken 44.1 kHz for as long as Milō is the Mac\'s output, silence included, so "connected" here can never mean "playing" and there is no idle edge an auto-stop could key on either.',
+      'The mute receiver: one session whose `senders` is every Mac streaming over ROC, joined across two lines by formatDeviceNames, and whose phase is always `connected` — roc-vad streams unbroken 44.1 kHz for as long as Milō is the Mac\'s output, silence included, so "connected" here can never mean "playing". No command is declared, so the card shows no CTA at all: the sender stops from its own side, and there is nothing for Milō to end.',
     scenarios: [
       starting('mac'),
-      ready(
-        'mac',
-        'Ready',
-        'roc-recv is listening; no Mac is sending. The array is on the record either way — it is the source\'s one extra and it passes through in both states — so idle is an empty list rather than an absent field, which is what makes "one entry" below a length and not a presence.',
-        { client_names: [] }
-      ),
-      active('mac', 'One Mac streaming', 'client_names is an array even with a single entry, which is why the name spells its length rather than its presence.', {
-        client_names: ['Leo’s MacBook']
+      published('mac', 'Ready', 'roc-recv is listening; no Mac is sending, so nothing is in session and the card invites a connection.'),
+      published('mac', 'One Mac streaming', '`senders` is a list even with a single entry, which is why the name spells its length rather than its presence. The card reads "Audio received from" rather than "Connected to": a ROC stream is not a link to one device.', {
+        session: session({ phase: 'connected', senders: ['Leo’s MacBook'] })
       }),
-      active('mac', 'Two Macs streaming', 'The case the array exists for — formatDeviceNames breaks the second line, which is why status-line-2 carries white-space: pre-line.', {
-        client_names: ['Leo’s MacBook', 'Studio iMac']
+      published('mac', 'Two Macs streaming', 'The case the list exists for — formatDeviceNames breaks the second line, which is why status-line-2 carries white-space: pre-line.', {
+        session: session({ phase: 'connected', senders: ['Leo’s MacBook', 'Studio iMac'] })
       }),
       offline(
         'mac',
         'no_network',
-        'ROC is a LAN stream, so only a dead link blocks it. The sender list is the one Mac field this scenario does not send, and the only one whose absence is not a shortcut: a missing prerequisite outranks the state, so the card stops at the phrase and never reaches the "audio received from" wording that reads the names. Empty by construction here anyway — with no network there is nothing to receive from.'
+        'ROC is a LAN stream, so only a dead link blocks it. A missing prerequisite outranks the session, so the card stops at the phrase and never reaches the "audio received from" wording — and with no network there is nothing to receive from anyway.'
       ),
       errored(
         'mac',
-        'roc-recv failing to bind its port. The sender list empties, so the "audio received from" line — the one wording the card still chooses per source, because a ROC stream is not a connection to one device — gives way to the same two-line error screen every other source gets.',
+        'roc-recv failing to bind its port. No session, so the "audio received from" line gives way to the same two-line error screen every other source gets.',
         'roc-recv failed to bind'
       )
     ]
@@ -1044,7 +912,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'hasRichDisplay returns true for the three browser sources whatever they carry — their own layout handles empty and loading — so the status card is reached in exactly two places: while transitioning, and in ERROR, which is checked before the per-source rules precisely because a browser whose every tap would fail is worse than no browser. The player is the one with no progress bar at all: a live stream has no duration, which is also why its command is resume_playback (re-tune) rather than resume.',
+      'richSourceFor draws the three browser sources whatever the session says — their own layout handles empty and loading — so the status card is reached in exactly three places: while switching, when the service failed, and when the link is missing (a favourites grid whose every tap would fail is worse than no grid). The player is the one with no progress bar at all: a live stream has no duration, and no pause either — its transport is `stop` while tuned and `resume_playback` (re-tune) once stopped.',
     scenarios: [
       starting('radio'),
       browsing('radio', 'Favourites loading', 'favoritesInitialized false — the grid is sixteen SkeletonStationCards. It is the state a cold boot opens on, and the only one where the count on screen is a guess rather than the truth.', {
@@ -1057,7 +925,7 @@ export const SOURCE_PAGES = [
         seed: { radio: { favoritesInitialized: false } },
         player: null
       }),
-      browsing('radio', 'No favourites yet', 'Initialised and empty, which is a different thing from loading and is why favoritesInitialized exists: MessageContent says there is nothing rather than shimmering for ever at a unit that simply has no favourites.', {
+      browsing('radio', 'No favourites yet', 'Initialised and empty, which is a different thing from loading and is why favoritesInitialized exists: MessageContent says there is nothing rather than shimmering for ever at a unit that simply has no favourites. `next` and `prev` step through the favourites, so with none they are not listed.', {
         condition: ['stations=0'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
@@ -1069,23 +937,32 @@ export const SOURCE_PAGES = [
         condition: ['stations=6'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
+        state: { controls: ['next', 'prev'] },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
         player: null
       }),
-      browsing('radio', 'Tuning a station', 'ACTIVE before a single byte of audio: `_handle_play_station` sets the station and `_is_buffering` and publishes *before* trying the stream, so `emit_connection_state(bool(_current_station))` is already true. The pane is therefore in — the app shows it on ACTIVE, not on is_playing — with the station drawn and the transport spinning, while bufferingStationId marks the same card in the grid and the rest of it stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader. The one scenario here whose record carries metadata: `is_buffering` is what separates this from the playing tab *in the name*, and on a unit it is what isSourceBuffering reads. Not here — hasRichDisplay has already returned true for a browser source, so no decider looks at the record again, and the spinner on this page is the pane\'s own isLoading, transcribed below.', {
+      browsing('radio', 'Tuning a station', 'A session in loading before a single byte of audio: the station is named and the transport spins, while bufferingStationId marks the same card in the grid and the rest of it stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader.', {
         condition: ['bufferingStationId'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
-        metadata: { is_buffering: true },
+        state: {
+          session: session({
+            phase: 'loading',
+            title: RADIO_STATION_WITH_IMAGE.name,
+            album: RADIO_STATION_WITH_IMAGE.name,
+            artwork: RADIO_STATION_WITH_IMAGE.favicon
+          }),
+          controls: ['stop', 'next', 'prev'],
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
+        },
         // The marked card in the grid, and only that: it comes from
-        // RadioSource's own computed (isBuffering + metadata.station_id), which
-        // lives in the wrapper the stage replaces — hence the prop.
-        // `currentStation` and `isPlaying` are deliberately not passed, though
-        // the wrapper does pass them: FavoritesView reads the first only as
-        // `currentStation?.id === station.id && isPlaying`, and nothing is
-        // playing yet, so neither would change anything on screen. The pane's
-        // station is the fixture's, below.
+        // RadioSource's own computed, which lives in the wrapper the stage
+        // replaces — hence the prop. `currentStation` and `isPlaying` are
+        // deliberately not passed, though the wrapper does pass them:
+        // FavoritesView reads the first only as `currentStation?.id ===
+        // station.id && isPlaying`, and nothing is playing yet, so neither would
+        // change anything on screen. The pane's station is the fixture's, below.
         props: { bufferingStationId: 'st-nova' },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
@@ -1101,32 +978,50 @@ export const SOURCE_PAGES = [
         condition: ['currentStation', 'artwork'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
+        state: {
+          session: session({
+            phase: 'playing',
+            title: RADIO_STATION_WITH_IMAGE.name,
+            album: RADIO_STATION_WITH_IMAGE.name,
+            artwork: RADIO_STATION_WITH_IMAGE.favicon
+          }),
+          controls: ['stop', 'next', 'prev'],
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
+        },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
         player: {
           // Both halves of the same station: the grid card and the pane resolve
           // their image from one favicon, exactly as RadioSource does through
-          // getFaviconUrl(radioStore.currentStation.favicon).
+          // getFaviconUrl on the station it plays.
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
           track: null,
           isPlaying: true,
           controls: { favorite: true }
         }
       }),
-      browsing('radio', 'Stopped, still tuned', 'The screen a stop leaves: the pane stays, drawn on the station the backend is still publishing as what a play press would re-tune, and the transport shows play rather than stop. The one scenario here whose record is READY *with* a pane — which is why `state` is set against the default. It used to be unreachable: every stop published `{is_playing, is_buffering}` alone, so this component kept its own copy of the station for `auto_stop_delay` and the screen existed only inside that window, never after a reload.', {
+      browsing('radio', 'Stopped, still tuned', 'The screen a stop leaves: no session, and a resume point naming the station a play press would re-tune — so the pane stays, drawn on that station, and `controls` offers resume_playback where the playing screen offered stop. The recognised track annotates a running stream and goes with it.', {
         condition: ['currentStation', 'artwork'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
-        state: 'ready',
-        metadata: { is_playing: false },
+        state: {
+          resume: {
+            title: RADIO_STATION_WITH_IMAGE.name,
+            artist: null,
+            album: RADIO_STATION_WITH_IMAGE.name,
+            artwork: RADIO_STATION_WITH_IMAGE.favicon,
+            duration_ms: null,
+            position_ms: null
+          },
+          controls: ['resume_playback', 'next', 'prev'],
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
+        },
         props: { isPlaying: false, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
         player: {
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
-          // The other half of the same rule: the recognised track annotates a
-          // running stream and goes with it, so a stopped station draws none.
           track: null,
           isPlaying: false,
           controls: { favorite: true }
@@ -1136,6 +1031,15 @@ export const SOURCE_PAGES = [
         condition: ['currentStation'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
+        state: {
+          session: session({
+            phase: 'playing',
+            title: RADIO_STATION_NO_IMAGE.name,
+            album: RADIO_STATION_NO_IMAGE.name
+          }),
+          controls: ['stop', 'next', 'prev'],
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_NO_IMAGE), track: null }
+        },
         props: { isPlaying: true, currentStation: RADIO_STATION_NO_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
@@ -1146,10 +1050,25 @@ export const SOURCE_PAGES = [
           controls: { favorite: false }
         }
       }),
-      browsing('radio', 'Track detected', 'Shazam matched the stream: the station drops to the kicker and the track takes the title. The station image is what the kicker icon shows — and on the Phone viewport the same image slides in behind the cover, so switch the viewport to see the pair overlap.', {
+      browsing('radio', 'Track detected', 'Shazam matched the stream: `details.track` carries it, the session takes its title, artist and cover, and the station drops to the kicker. The station image is what the kicker icon shows — and on the Phone viewport the same image slides in behind the cover, so switch the viewport to see the pair overlap.', {
         condition: ['currentStation', 'artwork', 'track'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
+        state: {
+          session: session({
+            phase: 'playing',
+            title: 'Ainsi parlait Zarathoustra',
+            artist: 'Alain Bashung',
+            album: RADIO_STATION_WITH_IMAGE.name,
+            artwork: musicPlaceholder
+          }),
+          controls: ['stop', 'next', 'prev'],
+          details: {
+            kind: 'radio',
+            station: radioStation(RADIO_STATION_WITH_IMAGE),
+            track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder }
+          }
+        },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
@@ -1170,7 +1089,7 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'radio',
-        'mpv not coming up. Like the offline case above, the app leaves the browser by itself rather than drawing a favourites grid whose every tap would fail — so this is one of the two scenarios here that needs no stand-in. The favourites are still there; the retry CTA is what brings them back.',
+        'mpv not coming up. Like the offline case above, the app leaves the browser by itself rather than drawing a favourites grid whose every tap would fail — so this is one of the scenarios here that needs no stand-in. The favourites are still there; the retry CTA is what brings them back.',
         'mpv failed to start'
       )
     ]
@@ -1184,13 +1103,14 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The same two parts as Radio, with a progress bar and a swipe gesture — but swipeEnabled without a tracks queue, so the swipe seeks (±15/30 s) instead of skipping and no text carousel is built. Its header is the one that changes shape as you descend: title, subtitle and the back affordance are all driven by the current view.',
+      'The same two parts as Radio, with a progress bar and a swipe gesture — but swipeEnabled without a tracks queue, so the swipe seeks (±15/30 s) instead of skipping and no text carousel is built. `set_speed` is listed even with nothing in session, since the speed is chosen before an episode starts. Its header is the one that changes shape as you descend: title, subtitle and the back affordance are all driven by the current view.',
     scenarios: [
       starting('podcast'),
       browsing('podcast', 'Browsing the charts', 'The home view, three header actions and no back. Unlike the other two browsers this one fetches from the component rather than a store, so its charts are served as an HTTP fixture — the real loadData() runs.', {
         condition: ['results'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
+        state: { controls: ['set_speed'] },
         api: {
           '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
           '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
@@ -1201,6 +1121,7 @@ export const SOURCE_PAGES = [
         condition: ['api_error'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
+        state: { controls: ['set_speed'] },
         api: {
           '/api/podcast/discover/top-charts': { api_error: true },
           '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
@@ -1211,6 +1132,27 @@ export const SOURCE_PAGES = [
         condition: ['episodeName'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
+        state: {
+          session: session({
+            phase: 'playing',
+            title: 'Épisode 214',
+            artist: 'Le Code a changé',
+            album: 'Le Code a changé',
+            duration_ms: 2940000,
+            position: anchor(812000)
+          }),
+          controls: ['pause', 'seek', 'set_speed'],
+          details: {
+            kind: 'podcast',
+            episode: {
+              uuid: 'ep-214',
+              name: 'Épisode 214',
+              image_url: null,
+              podcast: { uuid: 'sub-1', name: 'Le Code a changé', image_url: null }
+            },
+            speed: 1
+          }
+        },
         api: {
           '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
           '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
@@ -1220,7 +1162,7 @@ export const SOURCE_PAGES = [
         player: {
           podcastName: 'Le Code a changé',
           episodeName: 'Épisode 214',
-          // Left unset: the source passes currentEpisode.image_url, and with no
+          // Left unset: the source passes the episode's image_url, and with no
           // episode image the shared fallback helper answers with the bundled
           // microphone, which is what an episode with no artwork shows on the unit.
           episodeImage: null,
@@ -1249,7 +1191,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The richest of the three: the only source that passes tracks + currentIndex, which is what turns the mobile swipe into the three-cell text carousel, and the only one where hasEntityLinks is true — the artwork and the secondary line become links to the album and the artist. Both are Phone-viewport behaviours; the docked desktop card shows the full transport row instead.',
+      'The richest of the three: the only source whose details carry a queue, which is what turns the mobile swipe into the three-cell text carousel, and the only one where hasEntityLinks is true — the artwork and the secondary line become links to the album and the artist. Both are Phone-viewport behaviours; the docked desktop card shows the full transport row instead. It needs no network, so it has no offline screen: its own two reasons (no_storage, catalog_unavailable) are drawn by its view, with the storage wizard at hand, never by the card.',
     scenarios: [
       starting('music_library'),
       browsing('music_library', 'One USB key', 'A single storage space, and so no storage picker at all: with one library every tab already shows all of it, and a one-button ButtonGroup would be a control with nothing to choose. The tabs below are the whole chrome.', {
@@ -1284,6 +1226,23 @@ export const SOURCE_PAGES = [
         condition: ['tracks=3'],
         layout: ML_HEADER,
         view: 'ml-home',
+        state: {
+          session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
+          controls: ['pause', 'seek', 'next', 'prev', 'set_shuffle', 'play_index', 'stop'],
+          details: {
+            kind: 'music_library',
+            queue: [
+              { id: 's-1', title: 'Ambre', artist: 'Nils Frahm', albumId: 'al-2', artistId: 'ar-3' },
+              { id: 's-2', title: 'Says', artist: 'Nils Frahm', albumId: 'al-2', artistId: 'ar-3' },
+              { id: 's-3', title: 'Hammers', artist: 'Nils Frahm', albumId: 'al-2', artistId: 'ar-3' }
+            ],
+            queue_index: 1,
+            shuffle: true,
+            track_id: 's-2',
+            album_id: 'al-2',
+            artist_id: 'ar-3'
+          }
+        },
         ...mlSetup({ storages: ML_STORAGE_MIXED, albums: ML_ALBUMS, activeLibraryId: 2 }),
         player: {
           // What nowPlaying projects: title, artist, cover — nothing else
@@ -1326,16 +1285,7 @@ export function allEvents() {
   return SOURCE_PAGES.flatMap(page => page.scenarios.flatMap(entry => entry.events));
 }
 
-/**
- * Every fabricated metadata record. The guardrail checks a record's own keys,
- * not nested ones, so handing it the snapshots alone would leave every metadata
- * field unguarded — which is the half that actually drifts.
- */
-export function allMetadata() {
-  return allEvents().map(event => event.data.full_state.metadata);
-}
-
-/** The state a scenario settles on, as the app reads it off the wire. */
+/** The state a scenario settles on — the data of its last `source/state`. */
 export function settledState(entry) {
-  return entry.events[entry.events.length - 1].data.full_state;
+  return entry.events[entry.events.length - 1].data;
 }

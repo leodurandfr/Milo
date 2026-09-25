@@ -1,34 +1,66 @@
 // frontend/tests/schemas/api.test.js
 /**
- * The API schemas are *resilience* schemas, not validators: every field carries
- * a `.catch()` default so a malformed field degrades to a sane value instead of
- * rejecting the whole payload — losing one field beats freezing the UI on a
- * stale state.
+ * Two kinds of schema live in schemas/api.js, on purpose:
  *
- * These tests pin that contract (coercion, not rejection) plus the enum
- * vocabularies, which are shared with the backend.
+ *  - the audio state is STRICT: its vocabularies are frozen by the spec, and a
+ *    state that does not parse is refused whole — a coerced default is how a
+ *    renamed field became a silent "nothing is playing". Because refusal is
+ *    total, the schema is held equal to the backend model it mirrors
+ *    (core/models/audio_wire.py), read from source, so drift fails here and
+ *    not on the kiosk.
+ *  - the others are *resilience* schemas: every field carries a `.catch()`
+ *    default so a malformed field degrades to a sane value instead of rejecting
+ *    the whole payload. Their tests pin coercion, not rejection.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
-  SystemStateSchema,
+  AudioStateSchema,
+  AvailabilityReasonSchema,
+  PhaseSchema,
+  PositionAnchorSchema,
+  ServiceStateSchema,
   VolumeStateSchema,
   SnapcastServerConfigSchema,
   SnapcastCapabilitiesSchema,
   validateSchema,
 } from '@/schemas/api';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { makeAudioState, makeSession } from '../helpers/audioState';
 
-const VALID_SYSTEM_STATE = {
-  active_source: 'spotify',
-  source_state: 'active',
-  transitioning: false,
-  metadata: { title: 'Song', artist: 'Artist' },
+const HERE = dirname(fileURLToPath(import.meta.url));
+const MODELS_DIR = resolve(HERE, '../../../backend/core/models');
+
+const VALID_STATE = makeAudioState({
+  source: 'spotify',
+  service: 'running',
+  session: makeSession({ title: 'Song', artist: 'Artist', position: { ms: 1000, at: 1_750_000_000.5, rate: 1 } }),
+  controls: ['pause', 'seek'],
   multiroom_enabled: true,
   equalizer_effects_enabled: true,
-};
+});
+
+/** The annotated fields of one pydantic class, in declaration order. */
+function modelFields(source, className) {
+  const body = new RegExp(`^class ${className}\\(BaseModel\\):\\n((?:    .*\\n|\\n)*)`, 'm').exec(source);
+  if (!body) throw new Error(`class ${className} not found — the extractor is broken`);
+  const fields = [...body[1].matchAll(/^    ([a-z_]+):/gm)].map(m => m[1]);
+  if (fields.length === 0) throw new Error(`class ${className} has no fields — the extractor is broken`);
+  return fields;
+}
+
+/** The string values of a `class X(str, Enum)` or of a `X = Literal[...]`. */
+function enumValues(source, name) {
+  const cls = new RegExp(`^class ${name}\\(str, Enum\\):\\n((?:    .*\\n|\\n)*)`, 'm').exec(source);
+  const literal = new RegExp(`^${name} = Literal\\[([^\\]]*)\\]`, 'm').exec(source);
+  const text = cls ? cls[1].replace(/"""[\s\S]*?"""/, '') : literal?.[1];
+  if (!text) throw new Error(`${name} not found — the extractor is broken`);
+  const values = [...text.matchAll(cls ? /=\s*"([a-z_]+)"/g : /"([a-z_]+)"/g)].map(m => m[1]);
+  if (values.length < 2) throw new Error(`${name} has fewer than two values — the extractor is broken`);
+  return values;
+}
 
 const VALID_VOLUME_STATE = {
   mode: 'multiroom',
@@ -40,85 +72,68 @@ const VALID_VOLUME_STATE = {
   zones: { z1: { id: 'z1', name: 'Zone 1', client_ids: ['dc:a6:32:7e:d3:43'] } },
 };
 
-describe('SystemStateSchema', () => {
+describe('AudioStateSchema', () => {
   it('parses a complete state', () => {
-    const result = SystemStateSchema.safeParse(VALID_SYSTEM_STATE);
+    const result = AudioStateSchema.safeParse(VALID_STATE);
 
     expect(result.success).toBe(true);
-    expect(result.data.active_source).toBe('spotify');
-    expect(result.data.metadata.title).toBe('Song');
+    expect(result.data).toEqual(VALID_STATE);
   });
 
-  it('defaults metadata to an empty object when absent', () => {
-    const { active_source, source_state, transitioning, multiroom_enabled } = VALID_SYSTEM_STATE;
-    const result = SystemStateSchema.safeParse({
-      active_source, source_state, transitioning, multiroom_enabled,
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.data.metadata).toEqual({});
+  it('refuses an unknown source, service or phase rather than coercing it', () => {
+    const cases = [
+      { ...VALID_STATE, source: 'gramophone' },
+      { ...VALID_STATE, service: 'levitating' },
+      { ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'stopped' } },
+      { ...VALID_STATE, availability: { ...VALID_STATE.availability, radio: 'on_holiday' } },
+    ];
+    for (const state of cases) expect(AudioStateSchema.safeParse(state).success).toBe(false);
   });
 
-  it('coerces an unknown source to none instead of rejecting', () => {
-    const result = SystemStateSchema.safeParse({ ...VALID_SYSTEM_STATE, active_source: 'gramophone' });
-
-    expect(result.success).toBe(true);
-    expect(result.data.active_source).toBe('none');
-    // The rest of the payload survives the coercion.
-    expect(result.data.source_state).toBe('active');
+  it('refuses a state missing a key', () => {
+    for (const key of Object.keys(VALID_STATE)) {
+      const { [key]: _missing, ...partial } = VALID_STATE;
+      expect(AudioStateSchema.safeParse(partial).success, key).toBe(false);
+    }
   });
 
-  it('coerces an unknown source_state to ready', () => {
-    const result = SystemStateSchema.safeParse({ ...VALID_SYSTEM_STATE, source_state: 'levitating' });
+  it("keeps a source's details it does not type", () => {
+    const details = { kind: 'radio', station: { id: 's1', name: 'FIP' }, track: null };
+    const result = AudioStateSchema.safeParse({ ...VALID_STATE, details });
 
-    expect(result.success).toBe(true);
-    expect(result.data.source_state).toBe('ready');
-  });
-
-  it('coerces non-boolean flags to false', () => {
-    const result = SystemStateSchema.safeParse({
-      ...VALID_SYSTEM_STATE,
-      transitioning: 'yes',
-      multiroom_enabled: 1,
-    });
-
-    expect(result.data.transitioning).toBe(false);
-    expect(result.data.multiroom_enabled).toBe(false);
-  });
-
-  it('drops a metadata payload of the wrong type rather than blocking the update', () => {
-    const result = SystemStateSchema.safeParse({ ...VALID_SYSTEM_STATE, metadata: 'not an object' });
-
-    expect(result.success).toBe(true);
-    expect(result.data.metadata).toEqual({});
-  });
-
-  it('accepts nulls for metadata fields the backend could not resolve', () => {
-    // A CD whose MusicBrainz lookup failed sends album/artist/year as null.
-    const result = SystemStateSchema.safeParse({
-      ...VALID_SYSTEM_STATE,
-      metadata: { title: 'Track 1', artist: null, album: null, duration: null },
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.data.metadata.artist).toBeNull();
-  });
-
-  it('passes through source-specific metadata fields', () => {
-    const result = SystemStateSchema.safeParse({
-      ...VALID_SYSTEM_STATE,
-      metadata: { station_id: 's1', track_title: 'So What', custom_field: 42 },
-    });
-
-    expect(result.data.metadata.station_id).toBe('s1');
-    expect(result.data.metadata.custom_field).toBe(42);
+    expect(result.data.details).toEqual(details);
   });
 
   it('accepts every canonical audio source', () => {
-    for (const source of ['none', ...ALL_AUDIO_SOURCES]) {
-      const result = SystemStateSchema.safeParse({ ...VALID_SYSTEM_STATE, active_source: source });
-      expect(result.data.active_source, `${source} was coerced away`).toBe(source);
+    for (const source of ALL_AUDIO_SOURCES) {
+      expect(AudioStateSchema.safeParse({ ...VALID_STATE, source }).success).toBe(true);
     }
+  });
+});
+
+describe('AudioStateSchema ↔ backend core/models/audio_wire.py', () => {
+  // A strict schema refuses the whole state on one unknown key or value, so a
+  // field added or renamed on the backend alone blanks the kiosk. Read the
+  // backend's own declarations, never a copy of them.
+  const wire = readFileSync(resolve(MODELS_DIR, 'audio_wire.py'), 'utf8');
+  const session = readFileSync(resolve(MODELS_DIR, 'session.py'), 'utf8');
+
+  const keysOf = (schema) => Object.keys(schema.shape).sort();
+  const shape = AudioStateSchema.shape;
+
+  it('declares exactly the fields of AudioState and of each nested model', () => {
+    expect(keysOf(AudioStateSchema)).toEqual(modelFields(wire, 'AudioState').sort());
+    expect(keysOf(shape.session.unwrap())).toEqual(modelFields(wire, 'SessionView').sort());
+    expect(keysOf(shape.resume.unwrap())).toEqual(modelFields(wire, 'ResumeView').sort());
+    expect(keysOf(shape.service_error.unwrap())).toEqual(modelFields(wire, 'ServiceError').sort());
+    expect(keysOf(shape.availability)).toEqual(modelFields(wire, 'Availability').sort());
+    expect(keysOf(PositionAnchorSchema)).toEqual(modelFields(wire, 'PositionAnchor').sort());
+  });
+
+  it('speaks the vocabularies the backend declares', () => {
+    expect([...ServiceStateSchema.options].sort()).toEqual(enumValues(session, 'ServiceState').sort());
+    expect([...PhaseSchema.options].sort()).toEqual(enumValues(session, 'Phase').sort());
+    expect([...AvailabilityReasonSchema.options].sort()).toEqual(enumValues(wire, 'AvailabilityReason').sort());
   });
 });
 
@@ -214,10 +229,10 @@ describe('Snapcast schemas', () => {
 
 describe('validateSchema', () => {
   it('reports success and returns the parsed data', () => {
-    const result = validateSchema(SystemStateSchema, VALID_SYSTEM_STATE, 'test');
+    const result = validateSchema(AudioStateSchema, VALID_STATE, 'test');
 
     expect(result.success).toBe(true);
-    expect(result.data.active_source).toBe('spotify');
+    expect(result.data.source).toBe('spotify');
   });
 
   it('reports failure with the issues when the payload cannot be salvaged', () => {
@@ -239,8 +254,7 @@ describe('ALL_AUDIO_SOURCES ↔ backend AudioSource enum', () => {
   // The Zod source enums are built from this constant: a source added on the
   // backend but not here is coerced to 'none' on every state update, which
   // reads as "the new source silently does nothing".
-  const HERE = dirname(fileURLToPath(import.meta.url));
-  const AUDIO_STATE_PATH = resolve(HERE, '../../../backend/core/models/audio_state.py');
+  const AUDIO_STATE_PATH = resolve(MODELS_DIR, 'audio_state.py');
 
   it('lists exactly the backend enum values, minus the none sentinel', () => {
     const source = readFileSync(AUDIO_STATE_PATH, 'utf8');

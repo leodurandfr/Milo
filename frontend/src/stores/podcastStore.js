@@ -1,8 +1,9 @@
 // frontend/src/stores/podcastStore.js
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { positionAt } from '@/composables/useSourceProgress';
 
 // Maximum progress entries to cache (prevents unbounded memory growth)
 const MAX_PROGRESS_ENTRIES = 200;
@@ -11,12 +12,51 @@ export const usePodcastStore = defineStore('podcast', () => {
   const unifiedStore = useUnifiedAudioStore();
 
   // === PLAYBACK STATE ===
-  const currentEpisode = ref(null);
-  const playbackSpeed = ref(1.0);
+  // The podcast's content, while podcast is the selected source: the episode
+  // (live, or the one kept to resume) and the speed.
+  const podcastDetails = computed(() => {
+    const state = unifiedStore.systemState;
+    if (state.source !== 'podcast' || state.details?.kind !== 'podcast') return null;
+    return state.details;
+  });
+  const currentEpisode = computed(() => podcastDetails.value?.episode ?? null);
   // Canonical list fetched from backend (GET /api/podcast/playback-speeds).
   // Safe fallback used until the first successful fetch.
   const playbackSpeeds = ref([1.0]);
   const pendingEpisodeUuid = ref(null); // Optimistic loading state before WebSocket confirms
+
+  // The current episode's playhead, as the state describes it: the live
+  // session's anchor, or the resume point when no session runs.
+  const playhead = computed(() => {
+    const uuid = currentEpisode.value?.uuid;
+    if (!uuid) return null;
+    const { session, resume } = unifiedStore.systemState;
+    if (session) {
+      return {
+        uuid, sessionId: session.id, anchor: session.position,
+        phase: session.phase, durationMs: session.duration_ms,
+      };
+    }
+    if (resume) {
+      return { uuid, sessionId: null, positionMs: resume.position_ms, durationMs: resume.duration_ms };
+    }
+    return null;
+  });
+
+  /** Where `view` puts the playhead now (ms), or null when it has none. */
+  function playheadMs(view) {
+    return view.sessionId !== null
+      ? positionAt(view.anchor, view.phase, view.durationMs, Date.now())
+      : view.positionMs;
+  }
+
+  // The current episode's position and duration (ms), for its EpisodeCard.
+  // Read once per state: the card shows it only while the playhead stands
+  // still (loading, paused, stopped) — a playing episode reads "now playing".
+  const currentEpisodeProgress = computed(() => {
+    const view = playhead.value;
+    return view ? { positionMs: playheadMs(view), durationMs: view.durationMs } : null;
+  });
 
   // === PROGRESS CACHE ===
   // Reactive cache of playback progress for all episodes
@@ -69,6 +109,10 @@ export const usePodcastStore = defineStore('podcast', () => {
     playback_speed: 1.0
   });
 
+  // The speed the state publishes beside an episode; the saved setting when
+  // there is none.
+  const playbackSpeed = computed(() => podcastDetails.value?.speed ?? settings.value.playback_speed);
+
   // === COMPUTED ===
   const hasSubscriptions = computed(() => subscriptions.value.size > 0);
 
@@ -84,8 +128,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       pendingEpisodeUuid.value = null;
       throw new Error('Failed to play episode');
     }
-    // State will be updated via WebSocket broadcast from backend
-    // pendingEpisodeUuid will be cleared in _applyMetadata()
+    // Cleared by the first state that carries this episode (watch below).
   }
 
   async function pause() {
@@ -97,8 +140,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   async function setSpeed(speed) {
-    // The applied speed comes back on the metadata broadcast (_applyMetadata),
-    // which also snaps an off-grid request to the nearest valid value.
+    // The applied speed comes back in the state (`details.speed`), which also
+    // snaps an off-grid request to the nearest valid value.
     await unifiedStore.sendCommand('podcast', 'set_speed', { speed });
   }
 
@@ -122,102 +165,62 @@ export const usePodcastStore = defineStore('podcast', () => {
     });
     if (result.ok && result.data.settings) {
       settings.value = { ...settings.value, ...result.data.settings };
-      playbackSpeed.value = result.data.settings.playback_speed || 1.0;
     }
   }
 
-  // === WEBSOCKET STATE HANDLER ===
+  // === WEBSOCKET STATE HANDLERS ===
 
-  // Applies an already-flat metadata object to the podcast store state.
-  // Callers are responsible for extracting metadata from whichever envelope
-  // they receive (initial_state payload vs source.state_changed event).
-  function _applyMetadata(metadata) {
-    // Handle episode end FIRST (before updating any other state)
-    if (metadata.episode_ended === true) {
-      // Flip the just-finished episode to "already listened" in the reactive
-      // cache so its EpisodeCard shows the badge without a re-fetch. Capture the
-      // uuid before nulling currentEpisode below; merge to preserve position/duration.
-      const finishedUuid = metadata.episode_uuid;
-      if (finishedUuid && metadata.completed === true) {
-        progressCache.value.set(finishedUuid, {
-          ...(progressCache.value.get(finishedUuid) || {}),
-          completed: true,
-          last_played: Date.now()
-        });
-      }
-
-      // An episode that ended leaves nothing to resume, and the backend says
-      // so by publishing no resume identity beside episode_ended. The player
-      // goes with it.
-      currentEpisode.value = null;
-
-      // RETURN EARLY - don't process any other updates from this event
-      return;
+  // The optimistic spinner ends with the first state naming the episode asked
+  // for — including when it was already the resume episode, so this watches
+  // every state rather than a change of episode.
+  watch(() => unifiedStore.systemState, () => {
+    if (pendingEpisodeUuid.value && currentEpisode.value?.uuid === pendingEpisodeUuid.value) {
+      pendingEpisodeUuid.value = null;
     }
+  }, { flush: 'sync' });
 
-    // Update episode metadata (only if NOT an episode_ended event)
-    if (metadata.current_episode) {
-      currentEpisode.value = metadata.current_episode;
+  // The session that ended at the end of its file: its last playhead would
+  // overwrite the "listened" mark handleSessionEnded has just written.
+  let endedSessionId = null;
 
-      // Clear pending state - WebSocket has confirmed playback
-      if (pendingEpisodeUuid.value === metadata.current_episode.uuid) {
-        pendingEpisodeUuid.value = null;
-      }
-    } else if (!metadata.episode_uuid) {
-      // Nothing loaded and nothing to resume: the source published the inert
-      // pair alone. A stop that CAN be resumed publishes `current_episode`
-      // like a playing one does and takes the branch above — which is what
-      // keeps the player on screen without this store holding a copy.
-      currentEpisode.value = null;
-    }
-    // Backend emits position/duration in milliseconds (wire convention shared
-    // with all other audio sources). Live position for the playing episode is
-    // read directly from unifiedStore.systemState.metadata; here we only derive
-    // seconds for the per-episode progress cache (EpisodeCard "X min left").
-    const positionSeconds = metadata.position !== undefined
-      ? Math.floor(metadata.position / 1000)
-      : undefined;
-    const durationSeconds = metadata.duration !== undefined
-      ? Math.floor(metadata.duration / 1000)
-      : undefined;
-
-    if (metadata.playback_speed !== undefined) {
-      playbackSpeed.value = metadata.playback_speed;
-    }
-
-    // Update progress cache for reactive updates in EpisodeCard
-    if (
-      metadata.episode_uuid &&
-      positionSeconds !== undefined &&
-      durationSeconds !== undefined
-    ) {
-      progressCache.value.set(metadata.episode_uuid, {
-        position: positionSeconds,
-        duration: durationSeconds,
-        last_played: Date.now()
-      });
-      enforceProgressCacheLimit();
-    }
-
-    // Note: is_playing and is_buffering are read from unifiedAudioStore.systemState.metadata
-    // They are updated by the unified audio state machine via WebSocket
+  /** Record `view`'s playhead, as of now, in the progress cache (seconds). */
+  function recordProgress(view) {
+    if (!view || (view.sessionId !== null && view.sessionId === endedSessionId)) return;
+    const positionMs = playheadMs(view);
+    if (positionMs == null || view.durationMs == null) return;
+    progressCache.value.set(view.uuid, {
+      position: Math.floor(positionMs / 1000),
+      duration: Math.floor(view.durationMs / 1000),
+      last_played: Date.now()
+    });
+    enforceProgressCacheLimit();
   }
 
-  // Called from App.vue on system.initial_state / system.state_changed when
-  // full_state.active_source === 'podcast' and metadata is already flat.
-  function handleInitialMetadata(metadata) {
-    _applyMetadata(metadata);
-  }
+  // Keeps EpisodeCard's "X min left" right for an episode once it is no longer
+  // the current one. The anchor is republished only on a discontinuity, so the
+  // episode being left is recorded as of the moment it is left: the state that
+  // replaces it is the last word on where it stopped.
+  watch(playhead, (current, previous) => {
+    recordProgress(previous);
+    recordProgress(current);
+  }, { flush: 'sync' });
 
-  // Called from App.vue on source.state_changed; metadata is nested under
-  // event.data.metadata (the event also carries new_state). A null metadata is
-  // a state-only change (the multiroom reroute's STARTING) and says nothing
-  // about the episode.
-  function handleSourceEvent(event) {
-    if (event.origin !== 'podcast') return;
-    if (event.type === 'state_changed' && event.data?.metadata) {
-      _applyMetadata(event.data.metadata);
-    }
+  /**
+   * `source/session_ended`, before the state that follows it. An episode
+   * played to its end (reason 'eof') is marked listened in the cache, so its
+   * EpisodeCard shows the badge without a refetch.
+   */
+  function handleSessionEnded({ source, session_id, reason }) {
+    if (source !== 'podcast' || reason !== 'eof') return;
+    const view = playhead.value;
+    if (!view || view.sessionId !== session_id) return;
+    endedSessionId = session_id;
+    // Merged, so the card keeps the duration it already knew.
+    progressCache.value.set(view.uuid, {
+      ...(progressCache.value.get(view.uuid) || {}),
+      completed: true,
+      last_played: Date.now()
+    });
   }
 
   // === PENDING STATE HELPER ===
@@ -494,24 +497,17 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   // === RETURN ===
-  // The subscriptions list is one half of what a missed delta costs. The other
-  // is the now-playing slice: _applyMetadata is its only writer and
-  // source/state_changed its only trigger, so a tab backgrounded across an
-  // episode change comes back with the mirror healed and currentEpisode still
-  // on the previous episode. App.vue resyncs unifiedStore first and alone, so
-  // its snapshot is the freshly fetched one — re-applying it here needs no
-  // second request and reuses the very entry point boot feeds.
+  // The now-playing slice is a view of unifiedStore.systemState, which App.vue
+  // heals first: only the subscriptions list has deltas of its own to refetch.
   async function resync() {
     await preloadSubscriptionsList({ force: true });
-    if (unifiedStore.systemState.active_source === 'podcast') {
-      _applyMetadata(unifiedStore.systemState.metadata || {});
-    }
   }
 
   return {
     resync,
     // State
     currentEpisode,
+    currentEpisodeProgress,
     playbackSpeed,
     playbackSpeeds,
     pendingEpisodeUuid,
@@ -543,8 +539,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     setSpeed,
     loadPlaybackSpeeds,
     loadSettings,
-    handleInitialMetadata,
-    handleSourceEvent,
+    handleSessionEnded,
 
     // Pending state helper
     isEpisodePending,

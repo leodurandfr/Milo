@@ -43,13 +43,13 @@ const emit = defineEmits(['update:ready']);
 
 const lyricsStore = useLyricsStore();
 const timer = useTimer();
-const { currentPosition, duration, isPositionInitialized } = useSourceProgress(props.source, { exactCorrections: true });
+const { currentPosition, duration, isPositionInitialized } = useSourceProgress(props.source);
 
-// Sync when we have timestamped lines AND the source is a real player (a
-// duration means it exposes a position clock; radio has neither → plain). We
+// Sync when we have timestamped lines AND the session is a real track (a
+// duration means it carries a position anchor; radio has neither → plain). We
 // deliberately do NOT wait for the position to initialize — committing to the
-// synced layout up-front avoids a plain→synced flip while the first periodic
-// position tick arrives (position events are ~1-2 s apart, interpolated).
+// synced layout up-front avoids a plain→synced flip while the session's first
+// anchor arrives.
 const isSynced = computed(() =>
   Array.isArray(props.synced) && props.synced.length > 0 && duration.value > 0
 );

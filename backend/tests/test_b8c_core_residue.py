@@ -402,7 +402,6 @@ class TestTheAutoStopReload:
         settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: stored.get(key))
         state_machine = Mock()
         state_machine.broadcast = AsyncMock()
-        state_machine.update_source_state = AsyncMock()
         systemd = Mock()
         systemd.start = AsyncMock(return_value=True)
         systemd.stop = AsyncMock(return_value=True)

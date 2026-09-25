@@ -17,7 +17,7 @@ import unicodedata
 import uuid
 import io
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiofiles
 from PIL import Image
@@ -267,9 +267,11 @@ class StationDataService:
 
     SCHEMA_VERSION: int = 1
 
-    def __init__(self, state_machine=None):
+    def __init__(self, state_machine=None, on_favorites_changed: Optional[Callable[[], None]] = None):
         self.logger = logging.getLogger("source.radio.data")
         self._state_machine = state_machine
+        # The radio source's: its next/prev step these favorites.
+        self._on_favorites_changed = on_favorites_changed
         self.image_manager = ImageManager()
 
         self._data_file = Path('/var/lib/milo/radio_data.json')
@@ -307,6 +309,10 @@ class StationDataService:
             f"{len(self._manual_stations)} custom stations"
         )
         self._loaded = True
+
+    def _favorites_moved(self) -> None:
+        if self._on_favorites_changed is not None:
+            self._on_favorites_changed()
 
     async def _broadcast(self, event: WsEvent) -> None:
         """Broadcast a typed radio event via state machine (WebSocket)."""
@@ -491,6 +497,7 @@ class StationDataService:
 
         if success:
             await self._broadcast(RadioFavoriteAdded(station_id=station_id))
+            self._favorites_moved()
 
         return success
 
@@ -509,6 +516,7 @@ class StationDataService:
 
         if success:
             await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
+            self._favorites_moved()
 
         return success
 

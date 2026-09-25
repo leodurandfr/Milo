@@ -16,28 +16,28 @@ import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { nowPlayingArtwork, nowPlayingArtworkPending } from '@/utils/nowPlayingArtwork';
+import { nowPlayingOf } from '@/utils/nowPlayingMetadata';
 import { useRichDisplay } from '@/composables/useRichDisplay';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
 
-// Media sources: the countdown only runs while audio is actually playing — an
-// idle unit showing a paused track has nothing to fade into. The two receivers
-// below are armed by a connected sender instead, because neither is guaranteed
-// to report a play state at all. Bluetooth may nonetheless *have* one (see
-// isPlaybackStopped); Mac never does.
-const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'qobuz', 'music_library', 'spotify', 'cd', 'tidal'];
-const PASSIVE_SOURCES = ['bluetooth', 'mac'];
+// The receivers drawn with a bottom bar naming the other end. They draw no
+// progress bar here, whatever their main view does: the bar row is theirs.
+const RECEIVER_SOURCES = ['airplay', 'bluetooth', 'qobuz'];
+
+// The sources whose screensaver can draw a progress bar — every rich view
+// without a bottom bar and with a playhead to show (radio has none).
+const PROGRESS_SOURCES = ['podcast', 'music_library', 'spotify', 'tidal', 'cd'];
 
 /**
- * How long playback must stay stopped before the overlay steps aside.
+ * How long playback must stay paused before the overlay steps aside.
  *
- * A pause and the gap between two tracks are one and the same thing on the wire
- * — `is_playing: false` — so only duration tells them apart: a handover closes
- * in well under a second (Spotify's `not_playing` followed by the next track's
- * `metadata`), a pause lasts until someone presses play. Three seconds sits
- * above the gap and below what reads as a screen that stopped answering.
+ * A pause can also be the sliver between two tracks, so only duration tells
+ * the two apart: a handover closes in well under a second, a pause lasts until
+ * someone presses play. Three seconds sits above the gap and below what reads
+ * as a screen that stopped answering.
  */
 const PAUSE_DISMISS_MS = 3000;
 
@@ -61,33 +61,10 @@ export function useScreensaver() {
   const { t } = useI18n();
   const timer = useTimer();
 
-  const {
-    currentPosition: podcastPosition,
-    duration: podcastDuration,
-    progressPercentage: podcastProgressPercentage,
-    isPositionInitialized: podcastProgressReady,
-  } = useSourceProgress('podcast');
-
-  const {
-    currentPosition: libraryPosition,
-    duration: libraryDuration,
-    progressPercentage: libraryProgressPercentage,
-    isPositionInitialized: libraryProgressReady,
-  } = useSourceProgress('music_library');
-
-  const {
-    currentPosition: spotifyPosition,
-    duration: spotifyDuration,
-    progressPercentage: spotifyProgressPercentage,
-    isPositionInitialized: spotifyProgressReady,
-  } = useSourceProgress('spotify');
-
-  const {
-    currentPosition: cdPosition,
-    duration: cdDuration,
-    progressPercentage: cdProgressPercentage,
-    isPositionInitialized: cdProgressReady,
-  } = useSourceProgress('cd');
+  // One playhead per source that can draw a bar; only the selected one moves.
+  const progressBySource = Object.fromEntries(
+    PROGRESS_SOURCES.map((source) => [source, useSourceProgress(source)])
+  );
 
   // --- Reactive state ---
   const isScreensaverVisible = ref(false);
@@ -106,21 +83,9 @@ export function useScreensaver() {
 
   /**
    * What keeps the screensaver up is having something to show: a source still on
-   * the air. Nothing about the playback itself belongs here — playback is asked
-   * separately, by canArmScreensaver and by isPlaybackStopped, because a single
-   * expression answering all three is the bug this split fixes.
-   *
-   * `is_playing` dips to false when a track ends *on its own*, so a screensaver
-   * keyed on it closed itself between two tracks — no touch, no user, just the
-   * gap. The sources carry that dip each from its own channel: Spotify's
-   * `not_playing` event (published straight from the event, without re-reading
-   * /status — which is why polling /status at 10 Hz across two boundaries never
-   * sees it) and Tidal's BUFFERING/IDLE player states. A skip commanded from the
-   * sender never produced it, which is what made it look intermittent. AirPlay
-   * is absent from that list on purpose: its `pfls` flush was once assumed to
-   * carry the same dip, but shairport-sync sends neither `pfls` nor `pend`
-   * from a macOS sender (measured 2026-08-07, sources/airplay/source.py), which
-   * is also why an AirPlay pause never dismisses anything here.
+   * the air, i.e. a session. Nothing about the playback itself belongs here —
+   * playback is asked separately, by canArmScreensaver and by isPlaybackStopped,
+   * because a single expression answering all three is the bug this split fixes.
    */
   const screensaverStillApplies = computed(() => {
     // Pi-screen-only: a remote Mac/iPhone viewing the UI never shows it (matches
@@ -131,66 +96,30 @@ export function useScreensaver() {
     // Lyrics is itself a full-screen reading view that scrolls on its own: covering
     // it after a delay would hide the thing being read, without any user inactivity.
     if (lyricsStore.isOpen) return false;
-    return unifiedStore.systemState.source_state === 'active';
+    return unifiedStore.systemState.session !== null;
   });
 
-  /**
-   * Whether `is_playing` means anything for the source on the air.
-   *
-   * Both halves below ask it, and they must get the same answer: a source whose
-   * pause dismisses the overlay is a source whose pause must also keep it from
-   * appearing, or a paused sender would draw one every idle stretch just to lose
-   * it three seconds later.
-   *
-   * Bluetooth is the one source that can go either way, because it has two feeds
-   * and only one of them is guaranteed: BlueALSA says a sender is connected,
-   * AVRCP says what is playing — and an AVRCP player is optional, may appear
-   * seconds after the link, and can go away with the app that published it.
-   * `is_playing` alone cannot tell "no player" from "paused", since
-   * PlaybackMetadata always serializes it: a sender with no player publishes
-   * `is_playing: false` for the whole session, and reading that as a pause would
-   * take its screensaver away three seconds in and never give it back. So the
-   * source says it outright — `has_avrcp`, see sources/bluetooth/source.py.
-   *
-   * Not inferred from the track text either, and that is measured rather than
-   * cautious: a Mac mini registers a player whose play/pause is accurate while
-   * serving no title and no artist (2026-09-18, on the unit). Every guess from
-   * the track would have read that sender as having no transport at all — and
-   * pausing it is exactly the case this rule exists for.
-   */
-  const reportsPlayState = computed(() => {
-    const source = unifiedStore.systemState.active_source;
-    if (PLAYBACK_GATED_SOURCES.includes(source)) return true;
-    return source === 'bluetooth' && unifiedStore.systemState.metadata?.has_avrcp === true;
-  });
+  const phase = computed(() => unifiedStore.systemState.session?.phase ?? null);
 
   /**
    * Whether playback has stopped, as opposed to handing over to the next track.
    *
-   * `is_buffering` separates the two while the gap is still open: a source
-   * loading what comes next is not paused. It is a bonus, not the mechanism —
-   * only Spotify, Tidal, Music Library and CD ever set it, and Spotify clears it
-   * for the sliver between `not_playing` and the next track's `metadata`. AirPlay
-   * never sets it at all, so its handovers are held by the wall clock alone.
-   * Accepted as the price of one rule per source rather than four.
+   * Only `paused` says so. A session `loading` its next track is not paused, and
+   * a `connected` one (Mac, a Bluetooth sender Milō cannot read, AirPlay's
+   * system audio) has no play state at all: reading that as a pause would take
+   * its screensaver away three seconds in and never give it back.
    */
-  const isPlaybackStopped = computed(() => {
-    if (!reportsPlayState.value) return false;
-    const metadata = unifiedStore.systemState.metadata || {};
-    if (metadata.is_buffering === true) return false;
-    return metadata.is_playing !== true;
-  });
+  const isPlaybackStopped = computed(() => phase.value === 'paused');
 
-  /** Whether the inactivity countdown may run: the above, plus live playback. */
+  /**
+   * Whether the inactivity countdown may run: the above, plus live playback —
+   * an idle unit showing a paused track has nothing to fade into. A connected
+   * sender reports no play state, so the link alone arms it; the two halves
+   * agree, so a paused sender is never handed an overlay it would lose 3 s later.
+   */
   const canArmScreensaver = computed(() => {
     if (!screensaverStillApplies.value) return false;
-    const source = unifiedStore.systemState.active_source;
-    if (!PLAYBACK_GATED_SOURCES.includes(source) && !PASSIVE_SOURCES.includes(source)) {
-      return false;
-    }
-    // A receiver that reports nothing is armed by the link alone.
-    if (!reportsPlayState.value) return true;
-    return unifiedStore.systemState.metadata?.is_playing === true;
+    return phase.value === 'playing' || phase.value === 'connected';
   });
 
   // --- Timer management ---
@@ -337,61 +266,42 @@ export function useScreensaver() {
       };
     }
 
-    const metadata = unifiedStore.systemState.metadata || {};
+    const state = unifiedStore.systemState;
+    const nowPlaying = nowPlayingOf(state, source);
 
-    // Spotify, Tidal and CD: active players with rich metadata, rendered exactly
-    // like music_library (cover + title/artist + progress bar, no bottom bar),
-    // read straight from the shared metadata mirror. Every cover below comes
-    // from nowPlayingArtwork, which is also what AudioPlayerFull paints — the
+    // Spotify, Tidal and CD (Mac, always `connected`, never reaches a rich
+    // view): active players rendered exactly like music_library (cover +
+    // title/artist + progress bar, no bottom bar), read from the now-playing
+    // record. Every cover below comes from
+    // nowPlayingArtwork, which is also what AudioPlayerFull paints — the
     // screensaver crossfades into that view, so anything else reads as a glitch.
-    if (source === 'spotify' || source === 'tidal' || source === 'cd') {
+    if (!RECEIVER_SOURCES.includes(source)) {
       return {
         mode: 'media',
         sourceType: source,
-        artwork: nowPlayingArtwork(metadata),
-        artworkAnnounced: nowPlayingArtworkPending(metadata),
-        title: metadata.title || '',
-        subtitle: metadata.artist || null,
+        artwork: nowPlayingArtwork(nowPlaying),
+        artworkAnnounced: nowPlayingArtworkPending(state),
+        title: nowPlaying?.title || '',
+        subtitle: nowPlaying?.artist || null,
       };
     }
 
-    // The three receivers, all drawn the same way — cover, title/artist, and a
-    // bottom bar naming the other end. No progress bar: none of them shows one
-    // in its main view either. They differ only in what fills that bar, and the
-    // split below is the difference itself rather than a ternary hiding it.
-    const receiver = (stationName) => ({
-      mode: 'media',
-      sourceType: source,
-      artwork: nowPlayingArtwork(metadata),
-      artworkAnnounced: nowPlayingArtworkPending(metadata),
-      title: metadata.title || '',
-      subtitle: metadata.artist || null,
-      stationIcon: source,
-      stationName,
-    });
-
-    // Named by the sender. With no name on the record the bar hides itself
-    // (showBottomBar reads the name, not the icon) — a phone or a Mac always
-    // publishes one, so an empty slot here means the session is not really up.
-    if (source === 'bluetooth') return receiver(formatDeviceNames(metadata.device_name));
-    if (source === 'airplay') return receiver(metadata.client_name || null);
-
-    // Named by the service. Qobuz names nobody at all, so the bar reads the
-    // source's own label rather than being left for the user to interpret.
-    if (source === 'qobuz') return receiver(t(AUDIO_SOURCE_LABEL_KEYS[source]));
-
-    // Unreachable: a source with no branch here has no rich view either, so
-    // richSource sent it to simpleData. Carries no `artwork` key on purpose —
-    // the prop defaults to null, and a literal here would be the one thing the
-    // parity guard cannot tell apart from a source that forgot to derive its
-    // cover.
+    // The three receivers: cover, title/artist, and a bottom bar naming the
+    // other end — the sender when the channel names one (AirPlay, Bluetooth).
+    // Qobuz names nobody at all, so the bar reads the source's own label rather
+    // than being left for the user to interpret. With no name at all the bar
+    // hides itself (showBottomBar reads the name, not the icon).
     return {
       mode: 'media',
-      sourceType: null,
-      title: '',
-      subtitle: null,
-      stationFavicon: null,
-      stationName: null,
+      sourceType: source,
+      artwork: nowPlayingArtwork(nowPlaying),
+      artworkAnnounced: nowPlayingArtworkPending(state),
+      title: nowPlaying?.title || '',
+      subtitle: nowPlaying?.artist || null,
+      stationIcon: source,
+      stationName: source === 'qobuz'
+        ? t(AUDIO_SOURCE_LABEL_KEYS[source])
+        : formatDeviceNames(nowPlaying?.senders) || null,
     };
   }
 
@@ -404,32 +314,23 @@ export function useScreensaver() {
    * unavailable source from rendering a blank overlay.
    */
   function simpleData(source) {
-    const metadata = unifiedStore.systemState.metadata || {};
+    const senders = formatDeviceNames(unifiedStore.systemState.session?.senders);
 
     if (source === 'mac') {
       return {
         mode: 'simple',
         sourceType: source,
         title: t('status.audioReceivedFrom'),
-        subtitle: formatDeviceNames(metadata.client_names),
+        subtitle: senders,
       };
     }
 
-    if (source === 'bluetooth') {
+    if (RECEIVER_SOURCES.includes(source)) {
       return {
         mode: 'simple',
         sourceType: source,
         title: t('status.connectedTo'),
-        subtitle: formatDeviceNames(metadata.device_name),
-      };
-    }
-
-    if (source === 'airplay' || source === 'qobuz') {
-      return {
-        mode: 'simple',
-        sourceType: source,
-        title: t('status.connectedTo'),
-        subtitle: metadata.client_name || null,
+        subtitle: senders || null,
       };
     }
 
@@ -443,50 +344,22 @@ export function useScreensaver() {
   }
 
   const screensaverData = computed(() => {
-    const source = unifiedStore.systemState.active_source;
+    const source = unifiedStore.systemState.source;
     return richSource.value === null ? simpleData(source) : mediaData(source);
   });
 
+  // The bar the revealed player draws, restated: shown once the source has a
+  // duration and a position, exactly as ProgressBar gates itself there.
   const screensaverProgress = computed(() => {
-    const source = unifiedStore.systemState.active_source;
-
-    if (source === 'podcast') {
-      return {
-        currentPosition: podcastPosition.value,
-        duration: podcastDuration.value,
-        progressPercentage: podcastProgressPercentage.value,
-        isReady: podcastProgressReady.value,
-      };
-    }
-
-    if (source === 'music_library') {
-      return {
-        currentPosition: libraryPosition.value,
-        duration: libraryDuration.value,
-        progressPercentage: libraryProgressPercentage.value,
-        isReady: libraryProgressReady.value,
-      };
-    }
-
-    if (source === 'spotify') {
-      return {
-        currentPosition: spotifyPosition.value,
-        duration: spotifyDuration.value,
-        progressPercentage: spotifyProgressPercentage.value,
-        isReady: spotifyProgressReady.value,
-      };
-    }
-
-    if (source === 'cd') {
-      return {
-        currentPosition: cdPosition.value,
-        duration: cdDuration.value,
-        progressPercentage: cdProgressPercentage.value,
-        isReady: cdProgressReady.value,
-      };
-    }
-
-    return null;
+    if (richSource.value === null) return null;
+    const progress = progressBySource[unifiedStore.systemState.source];
+    if (!progress || !progress.duration.value || !progress.isPositionInitialized.value) return null;
+    return {
+      currentPosition: progress.currentPosition.value,
+      duration: progress.duration.value,
+      progressPercentage: progress.progressPercentage.value,
+      isReady: progress.isPositionInitialized.value,
+    };
   });
 
   // --- Watchers ---

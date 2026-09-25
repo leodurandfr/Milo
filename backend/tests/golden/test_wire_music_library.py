@@ -1,4 +1,4 @@
-"""Music Library's old wire, scenario by scenario (see harness.py for the rules)."""
+"""Music Library's wire, scenario by scenario (see harness.py for the rules)."""
 import copy
 
 import pytest
@@ -106,6 +106,7 @@ class Library:
     def __init__(self, monkeypatch, settings=None):
         self.mpv = PlaylistMpv()
         self.gate = TickGate()
+        self.gate.clocks.append(self.mpv.elapse)
         self._next_event = None
         monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))

@@ -2,8 +2,11 @@
 """
 Audio State Machine - single source of truth for audio state.
 
-Manages audio source transitions and broadcasts state changes
-to WebSocket clients via WebSocketManager.
+Owns the selection (which source, whether a switch is under way) and the
+service axis (running, starting, failed), composes them with what the selected
+source publishes (its view) and with every source's availability into the one
+`AudioState` the wire carries (docs: "Développeurs : le fil"), and broadcasts
+it as `source/state` whenever it changes.
 
 Usage:
     from backend.core.state import AudioStateMachine
@@ -16,29 +19,62 @@ Usage:
 import asyncio
 import contextlib
 import logging
+from dataclasses import dataclass, field
 from time import monotonic
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.core.models.audio_state import (
     AudioSource,
     ConnectivityLevel,
     NetworkRequirement,
     NetworkUnavailable,
-    SourceState,
-    SystemAudioState,
 )
+from backend.core.models.audio_wire import (
+    AudioState,
+    Availability,
+    PositionAnchor,
+    ServiceError,
+    SourceView,
+)
+from backend.core.models.session import ServiceState
 from backend.core.models.ws_events import (
-    SourceStateChanged,
-    SystemErrorEvent,
-    SystemStateChanged,
-    SystemTransitionComplete,
-    SystemTransitionStart,
+    AudioStateChanged,
+    SourcePosition,
+    SourceSessionEnded,
     WsEvent,
 )
 from backend.core.audio_source import BaseAudioSource
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SystemAudioState:
+    """The state machine's own record. What the wire shows is composed from
+    it by `AudioStateMachine.state()`."""
+    active_source: AudioSource = AudioSource.NONE
+    # A source switch is running: the target's publishes are dropped until the
+    # post-start resync reads its view.
+    transitioning: bool = False
+    # Multiroom toggles in flight (AudioRoutingService, `multiroom_switch()`).
+    multiroom_switches: int = 0
+    # The last start failed (sticky until a start succeeds): `service: failed`.
+    service_error: Optional[ServiceError] = None
+    # What the active source last published.
+    view: SourceView = field(default_factory=SourceView)
+
+    @property
+    def switching(self) -> bool:
+        return self.transitioning or self.multiroom_switches > 0
+
+
+def _without_position(state: Dict[str, Any]) -> Dict[str, Any]:
+    """The wire state minus the position axis, for "did it change"."""
+    session = state.get("session")
+    if not session or session.get("position") is None:
+        return state
+    return {**state, "session": {**session, "position": True}}
 
 
 class AudioStateMachine:
@@ -53,6 +89,9 @@ class AudioStateMachine:
     former across every acquisition of the latter. The multiroom reroute obeys
     the same order: reroute_active_source() takes the transition lock and
     AudioRoutingService holds only its own `_routing_lock` above it.
+
+    `_publish_lock` is taken last and alone: it orders what goes on the wire,
+    so a state composed later is never sent before one composed earlier.
     """
 
     # Above one SystemdServiceManager call, deliberately not above a whole
@@ -80,12 +119,6 @@ class AudioStateMachine:
     ALSA_RELEASE_SETTLE_S = 0.5
     INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
 
-    # States a source can sit in without ever producing audio, so the ones the
-    # inactivity sweep deactivates. ERROR is one of them because a failed
-    # transition leaves its source selected: without it, an errored source would
-    # stay selected forever — the one outcome the 12 h sweep exists to prevent.
-    IDLE_STATES = (SourceState.READY, SourceState.ERROR)
-
     def __init__(self):
         self.system_state = SystemAudioState()
         self.sources: Dict[AudioSource, Optional[BaseAudioSource]] = {
@@ -94,18 +127,26 @@ class AudioStateMachine:
         }
         self._transition_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()
+        self._publish_lock = asyncio.Lock()
+        # The last state broadcast, position axis aside, and the last anchor
+        # sent (in that state or on its own).
+        self._last_published: Optional[Dict[str, Any]] = None
+        self._last_position: Optional[Dict[str, Any]] = None
+        # Session ends not yet on the wire: each goes out ahead of the next
+        # publish, so no client reads it after the state it led to.
+        self._ended_sessions: List[SourceSessionEnded] = []
 
         # Inactivity monitor
         self._last_activity_time: float = monotonic()
         self._inactivity_monitor_task: Optional[asyncio.Task] = None
 
         # Set after creation in dependencies.py (circular dependency resolution).
-        # Ownership map of the back-references aggregated into full_state:
+        # Ownership map of the back-references composed into the state:
         #   routing_service      → multiroom_enabled
         #   camilladsp_service   → effects_enabled (DSP plane; named for what it
         #                          holds — EQ is just one of its effects)
-        #   connectivity_service → network_unavailable, crossed with the active
-        #                          source's NETWORK_REQUIREMENT
+        #   connectivity_service → availability, crossed with each source's
+        #                          NETWORK_REQUIREMENT
         self.ws_manager = None
         self.routing_service = None
         self.camilladsp_service = None
@@ -122,20 +163,18 @@ class AudioStateMachine:
         """Get audio source implementation for a specific source."""
         return self.sources.get(source)
 
-    def _network_unavailable(self, source: Optional[AudioSource] = None) -> Optional[str]:
-        """Whether a source is blocked by the current link, and how.
+    # === The state ===
 
-        Defaults to the *active* source, which is what full_state reports. The
-        explicit argument is for the transition path, which needs the answer for
-        the source it is moving *to* before that source is the active one.
+    def _connectivity_reason(self, source: AudioSource) -> Optional[str]:
+        """Whether `source` is blocked by the current link, and how.
 
         Two axes, both of which must say so: what NetworkManager reports, and
-        what the selected source needs. A LAN-only link breaks Spotify and
-        leaves AirPlay untouched; nothing breaks Bluetooth. Reporting on the
-        level alone is what made the old banner fire while playing a CD.
+        what the source needs. A LAN-only link breaks Spotify and leaves
+        AirPlay untouched; nothing breaks Bluetooth. Reporting on the level
+        alone is what made the old banner fire while playing a CD.
 
-        None whenever the source can work — including on UNKNOWN, the fail-open
-        level, and for AudioSource.NONE, which needs nothing.
+        None whenever the source can work — including on UNKNOWN, the
+        fail-open level.
         """
         if self.connectivity_service is None:
             return None
@@ -144,8 +183,7 @@ class AudioStateMachine:
         if level in (ConnectivityLevel.FULL, ConnectivityLevel.UNKNOWN):
             return None
 
-        target = source if source is not None else self.system_state.active_source
-        instance = self.sources.get(target)
+        instance = self.sources.get(source)
         requirement = instance.NETWORK_REQUIREMENT if instance else NetworkRequirement.NONE
         if requirement == NetworkRequirement.NONE:
             return None
@@ -158,23 +196,115 @@ class AudioStateMachine:
             return NetworkUnavailable.NO_INTERNET.value
         return None
 
-    def get_current_state(self) -> Dict[str, Any]:
-        """Return current system state as dict.
+    def availability_of(self, source: AudioSource) -> Optional[str]:
+        """Why `source` cannot work now, or None: the link first, then the
+        source's own reason (docs: "le fil", §3)."""
+        reason = self._connectivity_reason(source)
+        if reason is not None:
+            return reason
+        instance = self.sources.get(source)
+        if instance is None:
+            return None
+        try:
+            return instance.availability()
+        except Exception as e:
+            logger.error(f"{source.value} could not say whether it is available: {e}")
+            return None
 
-        Mirrors the full_state aggregation in `broadcast()`: pulls multiroom_enabled
-        from routing_service, equalizer_effects_enabled from camilladsp_service and
-        the connectivity level from connectivity_service, so the wire payload
-        (notably the initial_state on WS connect) carries all three.
+    def _service(self) -> ServiceState:
+        sm = self.system_state
+        if sm.active_source == AudioSource.NONE:
+            return ServiceState.STOPPED
+        if sm.transitioning:
+            return ServiceState.STARTING
+        if sm.service_error is not None:
+            return ServiceState.FAILED
+        if sm.switching:
+            return ServiceState.STARTING
+        return ServiceState.RUNNING
+
+    def state(self) -> AudioState:
+        """The whole state, as the wire carries it."""
+        sm = self.system_state
+        service = self._service()
+        view = sm.view
+        return AudioState(
+            source=sm.active_source,
+            switching=sm.switching,
+            service=service,
+            service_error=sm.service_error if service is ServiceState.FAILED else None,
+            availability=Availability(**{
+                source.value: self.availability_of(source)
+                for source in AudioSource if source != AudioSource.NONE
+            }),
+            session=view.session,
+            controls=list(view.controls) if service is ServiceState.RUNNING else [],
+            resume=view.resume if view.session is None else None,
+            details=view.details,
+            multiroom_enabled=(
+                self.routing_service.multiroom_enabled if self.routing_service else False
+            ),
+            equalizer_effects_enabled=(
+                self.camilladsp_service.effects_enabled if self.camilladsp_service else False
+            ),
+        )
+
+    def get_current_state(self) -> Dict[str, Any]:
+        """The state as a JSON-ready dict (GET /api/audio/state, initial_state)."""
+        return self.state().wire()
+
+    async def publish_state(self) -> None:
+        """Broadcast what moved since the last broadcast: `source/state` when
+        anything but the playhead did, else `source/position` when the
+        playhead alone did (a seek, a speed change, a drift past the
+        tolerance), else nothing.
+
+        Every writer of anything the state is composed of calls it: the
+        transitions, a source's publish, a source's availability, the
+        connectivity service, the multiroom and equalizer toggles.
         """
-        state = self.system_state.to_dict()
-        state["multiroom_enabled"] = (
-            self.routing_service.multiroom_enabled if self.routing_service else False
-        )
-        state["equalizer_effects_enabled"] = (
-            self.camilladsp_service.effects_enabled if self.camilladsp_service else False
-        )
-        state["network_unavailable"] = self._network_unavailable()
-        return state
+        async with self._publish_lock:
+            while self._ended_sessions:
+                await self.broadcast(self._ended_sessions.pop(0))
+            state = self.state()
+            wire = state.wire()
+            key = _without_position(wire)
+            session = wire["session"]
+            position = session["position"] if session else None
+            if key != self._last_published:
+                self._last_published = key
+                self._last_position = position
+                await self.broadcast(AudioStateChanged(**state.model_dump()))
+            elif position is not None and position != self._last_position:
+                self._last_position = position
+                await self.broadcast(SourcePosition(
+                    source=wire["source"], session_id=session["id"],
+                    position=PositionAnchor(**position),
+                ))
+
+    def session_ended(self, event: SourceSessionEnded) -> None:
+        """Queue a session's end for the next publish, ahead of its state.
+
+        Synchronous on purpose: a source's own background tasks are cancelled
+        by the STOP that can follow an end at once, and a clients' podcast card
+        marks an episode listened only while its state still names the session
+        the end names (frontend podcastStore.handleSessionEnded)."""
+        self._ended_sessions.append(event)
+
+    @contextlib.asynccontextmanager
+    async def multiroom_switch(self):
+        """Hold `switching` for a whole multiroom toggle (AudioRoutingService):
+        from its start to the end of its volume sync. Its end is the first
+        state where `switching` is false again (docs: "le fil", D7)."""
+        async with self._state_lock:
+            self.system_state.multiroom_switches += 1
+        await self.publish_state()
+        try:
+            yield
+        finally:
+            async with self._state_lock:
+                self.system_state.multiroom_switches -= 1
+            await self.publish_state()
 
     async def reroute_active_source(
         self, apply_mode: Callable[[], Awaitable[None]]
@@ -189,11 +319,9 @@ class AudioStateMachine:
 
         Posts RELEASE, runs `apply_mode` (snapcast reconcile + routing.env,
         owned by AudioRoutingService), then posts ACQUIRE. Messages the source
-        receives meanwhile wait their turn in its mailbox. `transitioning` is
-        deliberately not set: the STARTING published first must reach the UI
-        live. Every path that does not end in the source publishing its own
-        start — `apply_mode` raising, ACQUIRE answering False or raising —
-        republishes the source's real state, so STARTING is never the last word.
+        receives meanwhile wait their turn in its mailbox. What the source
+        publishes meanwhile reaches the wire live: `switching` (held by the
+        caller, `multiroom_switch()`) already says the service is starting.
         ACQUIRE follows RELEASE even when `apply_mode` raised: the mode in force
         is then the old one, and a source left released would stay silent under
         it (E08: Spotify's output parked on `null`). `apply_mode` raising is
@@ -208,70 +336,51 @@ class AudioStateMachine:
                 await apply_mode()
                 return
 
-            # State-only change: the current track stays visible during the
-            # reroute (a payload here would replace it).
-            await self.update_source_state(
-                source=active, new_state=SourceState.STARTING, metadata=None
-            )
+            # Held across the three steps: a command, a daemon's message or
+            # a stop arriving meanwhile waits for the whole of it, instead of
+            # landing on a released source or being undone by the reacquire.
+            async with instance.hold_mailbox():
+                # The device is freed first: in direct mode the source holds
+                # CamillaDSP's input, in multiroom mode snapclient needs it.
+                logger.info("Releasing source %s to free the ALSA device", active.value)
+                await instance.release_for_reroute()
+                await asyncio.sleep(self.ALSA_RELEASE_SETTLE_S)
 
-            try:
-                # Held across the three steps: a command, a daemon's message or
-                # a stop arriving meanwhile waits for the whole of it, instead of
-                # landing on a released source or being undone by the reacquire.
-                async with instance.hold_mailbox():
-                    # The device is freed first: in direct mode the source holds
-                    # CamillaDSP's input, in multiroom mode snapclient needs it.
-                    logger.info("Releasing source %s to free the ALSA device", active.value)
-                    await instance.release_for_reroute()
-                    await asyncio.sleep(self.ALSA_RELEASE_SETTLE_S)
+                switch_failed: Optional[BaseException] = None
+                try:
+                    await apply_mode()
+                except Exception as e:
+                    switch_failed = e
 
-                    switch_failed: Optional[BaseException] = None
-                    try:
-                        await apply_mode()
-                    except Exception as e:
-                        switch_failed = e
-
-                    logger.info("Re-acquiring source %s", active.value)
-                    reacquired = False
-                    try:
-                        reacquired = await instance.acquire_after_reroute()
-                        if not reacquired:
-                            logger.warning(
-                                "Source %s re-acquire returned False after the reroute "
-                                "(the reroute itself stands)", active.value
-                            )
-                    except Exception as e:
+                logger.info("Re-acquiring source %s", active.value)
+                reacquired = False
+                try:
+                    reacquired = await instance.acquire_after_reroute()
+                    if not reacquired:
                         logger.warning(
-                            "Source %s re-acquire failed after the reroute (non-fatal): %s",
-                            active.value, e,
+                            "Source %s re-acquire returned False after the reroute "
+                            "(the reroute itself stands)", active.value
                         )
-                    if switch_failed is not None:
-                        raise switch_failed
-                if not reacquired:
-                    await self.update_source_state(
-                        source=active, new_state=instance.state, metadata=instance.metadata
+                except Exception as e:
+                    logger.warning(
+                        "Source %s re-acquire failed after the reroute (non-fatal): %s",
+                        active.value, e,
                     )
-                elif self.system_state.source_state == SourceState.ERROR:
-                    # The reacquire is a full start that succeeded: the one thing
-                    # that lifts ERROR, which no publish of the source's may do.
-                    await self._resync_after_start(active, instance)
-            except Exception:
-                await self.update_source_state(
-                    source=active, new_state=instance.state, metadata=instance.metadata
-                )
-                raise
+                if switch_failed is not None:
+                    raise switch_failed
+            if reacquired and self.system_state.service_error is not None:
+                # The reacquire is a full start that succeeded: the one thing
+                # that lifts a failed start, which no publish of the source's may do.
+                await self._resync_after_start(active, instance)
 
     async def _resync_after_start(self, active: AudioSource, instance) -> None:
-        """Take the source's own state as the machine's, after a start succeeded."""
+        """Take the source's own view as the machine's, after a start succeeded."""
         async with self._state_lock:
             if self.system_state.active_source != active:
                 return
-            self.system_state.source_state = instance.state
-            self.system_state.metadata = instance.metadata
-            self.system_state.error = None
-        await self.broadcast(SourceStateChanged(
-            source=active.value, new_state=instance.state.value, metadata=instance.metadata,
-        ))
+            self.system_state.view = instance.view
+            self.system_state.service_error = None
+        await self.publish_state()
 
     async def transition_to_source(
         self,
@@ -303,11 +412,11 @@ class AudioStateMachine:
                 )
                 return False
 
-            # Re-selecting the active source is a no-op — unless it is the one
-            # in ERROR, where the same gesture is the retry: a failed transition
+            # Re-selecting the active source is a no-op — unless its last start
+            # failed, where the same gesture is the retry: a failed transition
             # leaves its source selected, so this is the path back.
             if self.system_state.active_source == target_source and \
-               self.system_state.source_state != SourceState.ERROR:
+               self.system_state.service_error is None:
                 logger.info(f"Already on source {target_source.value}")
                 return True
 
@@ -332,17 +441,11 @@ class AudioStateMachine:
                         old_source = self.system_state.active_source
                         self.system_state.transitioning = True
                         self.system_state.active_source = target_source
-                        self.system_state.source_state = (
-                            SourceState.STARTING if target_source != AudioSource.NONE
-                            else SourceState.READY
-                        )
-                        self.system_state.metadata = {}
-                        # A retry of an errored source starts from a clean slate:
-                        # the message settled by the previous attempt must not
-                        # ride along in full_state while this one is STARTING.
-                        self.system_state.error = None
+                        self.system_state.view = SourceView()
+                        # A retry of a failed source starts from a clean slate.
+                        self.system_state.service_error = None
 
-                    await self.broadcast(SystemTransitionStart())
+                    await self.publish_state()
 
                     # Stop old source
                     if old_source != AudioSource.NONE:
@@ -358,19 +461,14 @@ class AudioStateMachine:
 
                     async with self._state_lock:
                         self.system_state.transitioning = False
-                        if target_source != AudioSource.NONE:
-                            # Resync from the source's actual post-start state.
-                            # This recovers any update_source_state dropped while
-                            # transitioning (_do_start may have set CONNECTED with
-                            # metadata) — there is no buffer/replay, just this re-read.
-                            source = self.sources.get(target_source)
-                            if source:
-                                self.system_state.source_state = source.state
-                                self.system_state.metadata = source.metadata
-                            else:
-                                self.system_state.source_state = SourceState.READY
+                        # Resync from the source's actual post-start view. This
+                        # recovers any publish dropped while transitioning
+                        # (_do_start may have opened a session) — there is no
+                        # buffer/replay, just this re-read.
+                        source = self.sources.get(target_source)
+                        self.system_state.view = source.view if source else SourceView()
 
-                    await self.broadcast(SystemTransitionComplete())
+                    await self.publish_state()
 
                     # Reset inactivity timer on source change
                     self._last_activity_time = monotonic()
@@ -378,8 +476,11 @@ class AudioStateMachine:
                     # The one place the two axes are worth recording: a source
                     # that started fine and still cannot work. Without it, "the
                     # card showed the wrong screen" is unfalsifiable from the
-                    # logs — nothing else prints what full_state carried.
-                    blocked = self._network_unavailable(target_source)
+                    # logs — nothing else prints what the state carried.
+                    blocked = (
+                        self.availability_of(target_source)
+                        if target_source != AudioSource.NONE else None
+                    )
                     logger.info(
                         "Transition completed: %s%s",
                         target_source.value,
@@ -388,151 +489,79 @@ class AudioStateMachine:
                     return True
 
             except Exception as e:
-                # A timeout only earns its own message; both failures settle
+                # A timeout only earns its own reason; both failures settle
                 # identically (asyncio.TimeoutError is a builtin Exception).
                 if isinstance(e, asyncio.TimeoutError):
-                    error = "Transition timeout"
-                    message = f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
+                    error = ServiceError(
+                        reason="start_timeout",
+                        message=f"Transition timeout after {self.TRANSITION_TIMEOUT}s",
+                    )
                 else:
-                    error = message = str(e)
+                    error = ServiceError(reason="start_failed", message=str(e))
 
-                blocked = self._network_unavailable(target_source)
-                # WARNING, never ERROR — and not only when the link explains it.
-                # This module's logger is under the `backend` hierarchy, which
-                # WebSocketLogHandler forwards to the notification banner
-                # wholesale, so an ERROR here is a *second* user-facing report of
-                # one failure: the raw log line races the SystemErrorEvent below
-                # for App.vue's single-slot banner and, being emitted from a
-                # background task, usually lands last — replacing "Spotify ·
-                # error" with "Backend error". One failure, one notification: the
-                # event when the source is at fault, the status card alone when
-                # the link is. errors.log and the journal keep WARNING and above.
+                blocked = self._connectivity_reason(target_source)
+                # WARNING, never ERROR. This module's logger is under the
+                # `backend` hierarchy, which WebSocketLogHandler forwards to the
+                # notification banner wholesale, so an ERROR here would be a
+                # second user-facing report of one failure — the state already
+                # says `service: failed`, and the card offers the retry.
+                # errors.log and the journal keep WARNING and above.
                 logger.warning(
                     "Transition failed: %s%s",
-                    message,
+                    error.message,
                     f" (link is {blocked})" if blocked else "",
                 )
-                # ERROR lands with `transitioning` cleared, in the same write:
-                # the banner below carries full_state, and a STARTING in it drew
-                # a "starting" card under the error, Dock re-enabled, for as
-                # long as the failed target took to stop (E03).
+                # The failure lands with `transitioning` cleared, in the same
+                # write: a "starting" left in it drew a spinner under the
+                # failure for as long as the failed target took to stop (E03).
                 async with self._state_lock:
                     self.system_state.transitioning = False
-                    self.system_state.source_state = (
-                        SourceState.ERROR if target_source != AudioSource.NONE
-                        else SourceState.READY
+                    self.system_state.view = SourceView()
+                    self.system_state.service_error = (
+                        error if target_source != AudioSource.NONE else None
                     )
-                    self.system_state.metadata = {}
-                    self.system_state.error = error
-
-                # No banner when the link already explains it. The status card
-                # says "no internet" and offers the network settings, which is
-                # both more accurate and more actionable than a raw
-                # "Network is unreachable" over the top of it — and two
-                # notifications for one cause is what made this look broken.
-                if not blocked:
-                    await self.broadcast(SystemErrorEvent(
-                        source=target_source.value,
-                        error=error,
-                        message=message
-                    ))
+                await self.publish_state()
 
                 await self._settle_failed_transition(target_source, error, teardown)
                 return False
 
-    async def update_source_state(
-        self,
-        source: AudioSource,
-        new_state: SourceState,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> None:
-        """Update source state and broadcast via WebSocket."""
+    async def update_source_view(self, source: AudioSource, view: SourceView) -> None:
+        """Take what `source` published as the state's, and broadcast what
+        moved (publish_state)."""
         async with self._state_lock:
             if source != self.system_state.active_source:
-                logger.debug(f"Ignoring state update from inactive source: {source.value}")
+                logger.debug(f"Ignoring a publish from inactive source: {source.value}")
                 return
 
-            # Dropped, not buffered: updates from _do_start during a transition
+            # Dropped, not buffered: publishes from _do_start during a transition
             # are recovered by the post-start resync in transition_to_source().
             if self.system_state.transitioning:
-                logger.debug(f"Ignoring state update during transition: {source.value}")
+                logger.debug(f"Ignoring a publish during transition: {source.value}")
                 return
 
-            # ERROR is the answer to a failed start, and only a start that
-            # succeeds replaces it — through the resync of a transition or of a
-            # reroute, never through here. A source with a feed that outlives
-            # its start (the CD's disc watcher) otherwise published READY over
-            # it: the card lost "Retry" and re-selecting became a no-op (E07).
-            if (self.system_state.source_state == SourceState.ERROR
-                    and new_state != SourceState.ERROR):
-                logger.debug(f"Ignoring {new_state.value} from {source.value}: it is in error")
+            # A failed start is only lifted by a start that succeeds — through
+            # the resync of a transition or of a reroute, never through here. A
+            # source with a feed that outlives its start (the CD's disc watcher)
+            # otherwise published over it: the card lost "Retry" and
+            # re-selecting became a no-op (E07).
+            if self.system_state.service_error is not None:
+                logger.debug(f"Ignoring a publish from {source.value}: its start failed")
                 return
 
-            self.system_state.source_state = new_state
+            self.system_state.view = view
 
-            # Replace, don't merge: a state transition supplies the authoritative
-            # metadata for the new state, so stale fields from the previous track
-            # (title/artist/uri…) must not survive a partial READY payload.
-            # metadata=None means a state-only change — leave metadata untouched
-            # (e.g. AudioRoutingService flipping to STARTING during a reroute,
-            # which keeps the current track visible). Live position/duration are
-            # not affected: they flow through broadcast_position_update, never here.
-            if metadata is not None:
-                self.system_state.metadata = dict(metadata)
-
-            if new_state == SourceState.ERROR:
-                self.system_state.error = metadata.get("error") if metadata else "Unknown"
-            else:
-                self.system_state.error = None
-
-            # Reset inactivity timer when source becomes active
-            if new_state == SourceState.ACTIVE:
+            # Reset inactivity timer while a session is live
+            if view.session is not None:
                 self._last_activity_time = monotonic()
 
-        await self.broadcast(SourceStateChanged(
-            source=source.value,
-            new_state=new_state.value,
-            metadata=metadata
-        ))
-
-    async def update_position_metadata(
-        self, source: AudioSource, position: int, duration: int
-    ) -> None:
-        """Sync live position/duration into system_state.metadata (so a new WS
-        connection's initial_state carries them). The write stays here so state
-        mutation lives in the state machine.
-
-        Guarded exactly like update_source_state, plus ACTIVE: a playhead is a
-        claim about a live session, and every producer only ticks while it is
-        publishing one. Without the last two, a producer that awaits its
-        hardware between reading the playhead and pushing it (Bluetooth's AVRCP
-        read is the one that does) could stamp a position onto a payload that
-        has already gone idle. What is closed here is the cached record — the
-        one `initial_state` hands a connecting client; the live
-        SourcePositionUpdate is a separate event every consumer already gates
-        on is_playing, which is why nothing drew either of them."""
-        async with self._state_lock:
-            sm = self.system_state
-            if sm.active_source != source or sm.transitioning:
-                return
-            if sm.source_state is not SourceState.ACTIVE:
-                return
-            if sm.metadata is not None:
-                sm.metadata["position"] = position
-                sm.metadata["duration"] = duration
+        await self.publish_state()
 
     @handle_errors(default=False, level='warning')
-    async def refresh_active_metadata(self) -> bool:
-        """Refresh metadata from the active source (GET /api/audio/state, WS handshake).
-
-        Metadata only — unlike the post-start resync in transition_to_source(),
-        which re-reads `source.state` as well. The difference is deliberate but
-        narrow: a source that changes state re-publishes through
-        update_source_state() on its own, so there is nothing here to copy. Six
-        sources implement the hook (Spotify, Qobuz, CD, Podcast, Music Library,
-        Bluetooth). Spotify's reads go-librespot's /status and follows it through
-        the same reconcile() its /events handler uses, publishing any change
-        itself — this copy only carries the playhead it read.
+    async def refresh_active_view(self) -> bool:
+        """Re-read the active source's player before the state is read
+        (GET /api/audio/state, WS handshake), so the anchor it carries is the
+        player's own. A move beyond the tolerance is published by the source
+        itself; this copy only makes the read current.
         """
         active = self.system_state.active_source
         if active == AudioSource.NONE:
@@ -545,15 +574,15 @@ class AudioStateMachine:
         if not await source.refresh_when_idle():
             return False
 
-        # The hook awaited the source's daemon, and a transition may have run
+        # The hook awaited the source's player, and a transition may have run
         # inside that await: a switch away makes this the outgoing source's
-        # record, and one still in flight owns the record until its post-start
-        # resync. Either way the read is stale — the same guard as
-        # update_position_metadata().
+        # view, and one still in flight owns the record until its post-start
+        # resync. Either way the read is stale.
         async with self._state_lock:
-            if self.system_state.active_source != active or self.system_state.transitioning:
+            sm = self.system_state
+            if sm.active_source != active or sm.transitioning or sm.service_error is not None:
                 return False
-            self.system_state.metadata = source.metadata
+            sm.view = source.view
         return True
 
     @handle_errors(default=None)
@@ -605,17 +634,15 @@ class AudioStateMachine:
         return await instance.start()
 
     async def _settle_failed_transition(
-        self, target_source: AudioSource, error: str, teardown: Optional[asyncio.Task]
+        self, target_source: AudioSource, error: ServiceError, teardown: Optional[asyncio.Task]
     ) -> None:
         """Let the old teardown finish, stop the source whose start failed, then
-        settle it in ERROR.
+        settle it failed.
 
-        The source stays *selected*: "this source is in error" is exactly what
-        happened, and dropping back to "no source" would throw that away — plus
-        it is what makes the retry above reachable, since re-selecting a source
-        only restarts it while its state is ERROR. `error` is kept in
-        system_state so full_state carries the message the card reads; the
-        banner rides on the SystemErrorEvent emitted just before.
+        The source stays *selected*: "this source's start failed" is exactly
+        what happened, and dropping back to "no source" would throw that away —
+        plus it is what makes the retry above reachable, since re-selecting a
+        source only restarts it while its start is the one that failed.
 
         `teardown` is the previous source's stop when the timeout cut the wait
         for it: it is still running, it is awaited here and never re-issued (a
@@ -643,16 +670,14 @@ class AudioStateMachine:
 
         async with self._state_lock:
             self.system_state.active_source = target_source
-            self.system_state.source_state = (
-                SourceState.ERROR if target_source != AudioSource.NONE
-                else SourceState.READY
+            self.system_state.view = SourceView()
+            self.system_state.service_error = (
+                error if target_source != AudioSource.NONE else None
             )
-            self.system_state.metadata = {}
-            self.system_state.error = error
 
-        # Broadcast the settled state so the frontend knows the system is
-        # stable again — and which source it is stable on.
-        await self.broadcast(SystemStateChanged(source="system"))
+        # The settled state, once the target let go — republished only if it
+        # moved (a publish from the stopping source was dropped meanwhile).
+        await self.publish_state()
 
     # === Inactivity Monitor ===
 
@@ -687,7 +712,7 @@ class AudioStateMachine:
         return all_ok
 
     async def _monitor_inactivity(self) -> None:
-        """Deactivate source after inactivity timeout without ACTIVE state."""
+        """Deactivate the source after the inactivity timeout with no session."""
         with contextlib.suppress(asyncio.CancelledError):
             while True:
                 await asyncio.sleep(60)
@@ -700,17 +725,24 @@ class AudioStateMachine:
                     logger.error(f"Inactivity check failed: {e}")
 
     async def _check_inactivity(self) -> None:
-        """One inactivity tick: deactivate the source if it has idled too long."""
+        """One inactivity tick: deactivate the source if it has idled too long.
+
+        Idle is a selected source with no session — nothing it could ever
+        produce audio from, a failed start included: without it, a failed
+        source would stay selected forever — the one outcome the 12 h sweep
+        exists to prevent.
+        """
         # Atomic snapshot under lock
         async with self._state_lock:
-            source = self.system_state.active_source
-            source_state = self.system_state.source_state
-            transitioning = self.system_state.transitioning
+            sm = self.system_state
+            source = sm.active_source
+            idle = sm.view.session is None
+            switching = sm.switching
 
         if (
             source != AudioSource.NONE
-            and source_state in self.IDLE_STATES
-            and not transitioning
+            and idle
+            and not switching
             and (monotonic() - self._last_activity_time) >= self.INACTIVITY_TIMEOUT
         ):
             elapsed = monotonic() - self._last_activity_time
@@ -745,17 +777,12 @@ class AudioStateMachine:
 
         Sole emission API — envelope {category, type, origin, data, timestamp}.
         Payload shape and consumers are documented on the event model
-        (backend/core/models/ws_events.py), which also decides — alone — whether
-        full_state rides along, via its INCLUDE_FULL_STATE flag.
+        (backend/core/models/ws_events.py).
         """
         if not self.ws_manager:
             return
 
-        event_payload = event.wire_data()
-        if event.INCLUDE_FULL_STATE:
-            event_payload["full_state"] = self.get_current_state()
-
-        await self.ws_manager.broadcast_dict(event.to_envelope(event_payload))
+        await self.ws_manager.broadcast_dict(event.to_envelope())
 
         # APNs fan-out rides the same single emission point, so there is no
         # second place to remember to notify. Synchronous and non-raising by

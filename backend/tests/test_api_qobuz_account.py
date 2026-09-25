@@ -17,7 +17,7 @@ disk the account's state, and this router the only thing that edits it:
 * `logout` has to leave the cache without those keys or the sidecar signs
   straight back in on its next start, and the user's "disconnect" undoes itself
   the next time they play something;
-* `_clear_credentials` must preserve everything else in that file — it is
+* `clear_credentials` must preserve everything else in that file — it is
   qobuz-proxy's, not Milō's, and rewriting it whole would drop state Milō does
   not know the meaning of.
 """
@@ -30,6 +30,7 @@ from unittest.mock import AsyncMock, Mock
 
 from backend.api import qobuz_account
 from backend.api.qobuz_account import create_qobuz_account_router
+from backend.sources.qobuz import account
 
 
 CREDENTIALS = {
@@ -43,7 +44,7 @@ CREDENTIALS = {
 def cache(tmp_path, monkeypatch):
     """qobuz-proxy's token cache, moved off the appliance's own data dir."""
     path = tmp_path / "credentials.json"
-    monkeypatch.setattr(qobuz_account, "QOBUZ_CREDENTIALS_FILE", path)
+    monkeypatch.setattr(account, "QOBUZ_CREDENTIALS_FILE", path)
     return path
 
 
@@ -57,9 +58,15 @@ def systemd():
 
 
 @pytest.fixture
-def client(systemd):
+def account_changed():
+    """The Qobuz source's `account_changed`, which main.py hands the router."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def client(systemd, account_changed):
     app = FastAPI()
-    app.include_router(create_qobuz_account_router(systemd))
+    app.include_router(create_qobuz_account_router(systemd, account_changed))
     return TestClient(app)
 
 
@@ -227,3 +234,23 @@ class TestLogout:
 
         assert response.status_code == 200
         assert cache.stat().st_mtime_ns == before
+
+    def test_the_source_hears_of_the_logout_once_the_cache_is_cleared(
+        self, client, cache, account_changed
+    ):
+        """The source's `no_account` availability reads the same cache while
+        the sidecar is down. Told before the clear, it would re-read the token
+        and keep saying the account is connected; not told at all, the screen
+        keeps offering Qobuz as playable until something else republishes.
+        """
+        cache.write_text(json.dumps(CREDENTIALS))
+        seen = []
+
+        async def changed():
+            seen.append(json.loads(cache.read_text()))
+
+        account_changed.side_effect = changed
+
+        client.post("/api/qobuz/account/logout")
+
+        assert seen == [{}]

@@ -20,10 +20,11 @@ What breaks when they fail:
   (``/media/milo/nas-leo-d7992dfe``, 2403 songs / 155 albums / 16 missing).
   It is also the only honest progress figure while a scan runs: Subsonic's
   global count does not move until a scan ends.
-* **`refresh_metadata`** is the public ABC method `state.refresh_active_metadata`
-  calls on every WebSocket handshake. It re-reads the live playhead so a
-  reconnecting browser tab, or Milo-Mac, draws the bar where playback actually
-  is rather than where the last periodic tick left it.
+* **`refresh_metadata`** is the public ABC method `state.refresh_active_view`
+  reaches (through `refresh_when_idle`) on every WebSocket handshake and
+  GET /api/audio/state. It re-reads the live playhead so a reconnecting browser
+  tab, or Milo-Mac, is handed an anchor where playback actually is rather than
+  where the last reading left it.
 """
 import pytest
 from unittest.mock import AsyncMock, Mock
@@ -263,7 +264,7 @@ class TestOnlyOurOwnLibrariesAreManaged:
 # =============================================================================
 
 class TestRefreshMetadata:
-    """Driven the way the consumer drives it: `refresh_active_metadata` (the
+    """Driven the way the consumer drives it: `refresh_active_view` (the
     WebSocket handshake, GET /api/audio/state) on a real state machine, mpv
     simulated as measured."""
 
@@ -293,17 +294,17 @@ class TestRefreshMetadata:
         return reads
 
     async def test_the_live_playhead_replaces_the_last_tick(self, rig):
-        """The periodic sync is seconds old; a client that reconnects mid-track
-        would otherwise draw the bar where it was at the last tick."""
+        """The last reading is seconds old; a client that reconnects mid-track
+        would otherwise be handed the anchor the last reading left."""
         await self._playing(rig)
         rig.mpv.playhead(97.4)
-        assert rig.state()["metadata"]["position"] == 0
+        assert rig.state()["session"]["position"]["ms"] == 0
 
-        assert await rig.machine.refresh_active_metadata() is True
+        assert await rig.machine.refresh_active_view() is True
 
-        data = rig.state()["metadata"]
-        assert data["position"] == 97000
-        assert data["duration"] == 240000
+        live = rig.state()["session"]
+        assert live["position"]["ms"] == 97_400
+        assert live["duration_ms"] == 240_000
 
     async def test_a_pause_mpv_announced_is_what_the_handshake_hands_out(self, rig):
         """mpv is the one that knows: a pause it announced (whoever asked for
@@ -312,11 +313,11 @@ class TestRefreshMetadata:
         await rig.mpv.set_property("pause", True)
         await settle()
 
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
 
-        assert rig.state()["metadata"]["is_playing"] is False
+        assert rig.state()["session"]["phase"] == "paused"
 
-    async def test_a_buffering_stream_keeps_its_own_playing_flag(self, rig, monkeypatch):
+    async def test_a_buffering_stream_keeps_its_loading_phase(self, rig, monkeypatch):
         """mpv reports pause=False before the stream is actually up, so trusting
         it while buffering makes a track that has not started look like it is
         playing — and the progress bar run ahead of the sound."""
@@ -325,27 +326,25 @@ class TestRefreshMetadata:
         await rig.select()
         await rig.command("play_context", {"tracks": [self.TRACK]})
 
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
 
-        data = rig.state()["metadata"]
-        assert data["is_playing"] is False
-        assert data["is_buffering"] is True
+        assert rig.state()["session"]["phase"] == "loading"
 
     async def test_properties_mpv_cannot_answer_leave_the_last_known_values(self, rig):
         """mpv answers None between tracks; overwriting with it would show 0:00
         of 0:00 on a track that is playing."""
         await self._playing(rig)
         rig.mpv.playhead(10)
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
         rig.mpv.position = None
         rig.mpv.durations.clear()
         rig.mpv.default_duration = None
 
-        assert await rig.machine.refresh_active_metadata() is True
+        assert await rig.machine.refresh_active_view() is True
 
-        data = rig.state()["metadata"]
-        assert (data["position"], data["duration"]) == (10000, 240000)
-        assert data["is_playing"] is True
+        live = rig.state()["session"]
+        assert (live["position"]["ms"], live["duration_ms"]) == (10_000, 240_000)
+        assert live["phase"] == "playing"
 
     async def test_nothing_is_read_when_nothing_plays(self, rig):
         """No session, no playhead to hand out: the handshake must not wait on
@@ -353,7 +352,7 @@ class TestRefreshMetadata:
         await rig.select()
         reads = self._count_reads(rig)
 
-        assert await rig.machine.refresh_active_metadata() is False
+        assert await rig.machine.refresh_active_view() is False
         assert reads == []
 
     async def test_nothing_is_read_when_mpv_is_gone(self, rig):
@@ -368,5 +367,5 @@ class TestRefreshMetadata:
         await settle()
         reads = self._count_reads(rig)
 
-        assert await rig.machine.refresh_active_metadata() is False
+        assert await rig.machine.refresh_active_view() is False
         assert reads == []

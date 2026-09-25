@@ -1,4 +1,4 @@
-"""Spotify's old wire, scenario by scenario (see harness.py for the rules).
+"""Spotify's wire, scenario by scenario (see harness.py for the rules).
 
 The outside world is go-librespot: its HTTP API (GET /, GET /status, POST
 /player/<cmd>) and its /events WebSocket, both answered by FakeLibrespot, plus

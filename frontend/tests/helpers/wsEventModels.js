@@ -21,6 +21,8 @@ import { dirname, resolve } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const WS_EVENTS_PATH = resolve(HERE, '../../../backend/core/models/ws_events.py');
+// The audio wire's models (the position anchor…), referenced by event fields.
+export const AUDIO_WIRE_PATH = resolve(HERE, '../../../backend/core/models/audio_wire.py');
 
 const CLASS_RE = /^class\s+(\w+)\(([^)]*)\):/;
 const CLASSVAR_RE = /^\s{4}([A-Z_]+)\s*=\s*(.+?)\s*(?:#.*)?$/;
@@ -151,7 +153,7 @@ const SCALAR_SAMPLES = {
  * A wire value for a backend annotation.
  *
  * `enumOptions` comes from the Zod schema when the field is a plain `str` on the
- * backend but a closed set on the frontend (e.g. fan `mode`, position_update
+ * backend but a closed set on the frontend (e.g. fan `mode`, source/position
  * `source`): the *shape* still comes from the backend, only the value domain is
  * borrowed — inventing 'sample' there would test the fixture, not the contract.
  */
@@ -178,8 +180,22 @@ export function sampleForType(type, enumOptions = null) {
     return SCALAR_SAMPLES[inner];
   }
 
-  // A referenced model (e.g. NetworkStatus): shape lives in another module.
+  // A model of the audio wire (e.g. PositionAnchor) is built from its own
+  // fields; any other referenced model (e.g. NetworkStatus) is not read here.
+  const wireModel = wireModels().get(inner);
+  if (wireModel) return samplePayload({ fields: wireModel.fields });
   return {};
+}
+
+let wireModelsCache = null;
+function wireModels() {
+  if (!wireModelsCache) {
+    wireModelsCache = parseClasses(readFileSync(AUDIO_WIRE_PATH, 'utf8'));
+    if (!wireModelsCache.has('PositionAnchor')) {
+      throw new Error(`audio_wire.py parse failed: no PositionAnchor in ${AUDIO_WIRE_PATH}`);
+    }
+  }
+  return wireModelsCache;
 }
 
 /** Enum options declared by a Zod schema field, or null. */
@@ -199,7 +215,7 @@ export function requiredKeys(objectSchema) {
 export function samplePayload(model, objectSchema = null) {
   const payload = {};
   for (const field of model.fields) {
-    const enumOptions = objectSchema ? zodEnumOptions(objectSchema.shape[field.name]) : null;
+    const enumOptions = objectSchema ? zodEnumOptions(objectSchema.shape?.[field.name]) : null;
     payload[field.name] = sampleForType(field.type, enumOptions);
   }
   return payload;

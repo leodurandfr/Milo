@@ -37,7 +37,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.sources.spotify.source import SpotifySource
 from backend.sources.spotify.websocket import LibrespotWebSocket
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import SourceErrorReason, SourceError, SourceErrorCleared
 from backend.tests.golden.harness import AsyncioProxy, instant_short_sleep
 from backend.tests.spotify_world import (
@@ -169,15 +169,15 @@ def spotify_source(config):
 def wired(spotify_source):
     """Source wired to a state machine, with its background spawns captured.
 
-    Yields (publish, spawned): `publish` records every state the source pushes
-    to the machine, `spawned` holds the coroutines it handed to
-    BackgroundTaskSet, so a test can run the deferred status retry on demand.
+    Yields `spawned`, the coroutines the source handed to BackgroundTaskSet
+    (closed unrun at teardown); what the source broadcast is read off
+    `state_machine.broadcast`.
     """
     spotify_source._api_url = "http://localhost:3678"
     spotify_source.auto_stop_enabled = False  # no stray 10s timer task
     state_machine = Mock()
     state_machine.broadcast = AsyncMock()
-    state_machine.update_source_state = AsyncMock()
+    state_machine.update_source_view = AsyncMock()
     state_machine.system_state = Mock(active_source=AudioSource.SPOTIFY)
     spotify_source.state_machine = state_machine
 
@@ -185,7 +185,7 @@ def wired(spotify_source):
     spotify_source._bg = Mock()
     spotify_source._bg.spawn = Mock(side_effect=lambda coro, **kw: spawned.append(coro))
 
-    yield state_machine.update_source_state, spawned
+    yield spawned
 
     for coro in spawned:
         coro.close()
@@ -256,7 +256,8 @@ class TestSpotifySourceLifecycle:
         try:
             await world.select()
 
-            assert world.state()["active_source"] == "spotify"
+            assert world.state()["source"] == "spotify"
+            assert world.state()["service"] == "running"
             assert opened == ["ws://localhost:3678/events"]
             assert journal.units == ["milo-spotify"]
             await world.phone_plays(PARAPLUIE)
@@ -292,8 +293,8 @@ class TestSpotifySourceLifecycle:
 
         assert stops_at_unit_stop == [1]
         world.systemd.stop.assert_awaited_once_with("milo-spotify.service")
-        assert world.source.state == SourceState.READY
-        assert world.state()["active_source"] == "none"
+        assert world.session() is None
+        assert world.state()["source"] == "none"
 
     @pytest.mark.asyncio
     async def test_wait_for_playback_ready_returns_on_200(self, spotify_source, caplog):
@@ -477,7 +478,7 @@ class TestProducerTruth:
 
         assert world.published() == before
         assert world.playing()
-        assert world.meta()["title"] == "Parapluie"
+        assert world.session()["title"] == "Parapluie"
 
     @pytest.mark.asyncio
     async def test_unreadable_status_retries(self, world):
@@ -495,12 +496,12 @@ class TestProducerTruth:
         await world.advance(SpotifySource.STATUS_RETRY_DELAY + 0.1)
 
         assert world.playing()
-        assert world.meta()["title"] == "Parapluie"
+        assert world.session()["title"] == "Parapluie"
 
     @pytest.mark.asyncio
     async def test_session_without_a_track_title_publishes_ready(self, world):
         """A readable status whose track carries no name is a session with
-        nothing to draw — the source stays READY, not a titleless ACTIVE."""
+        nothing to draw — no session is published, not a titleless one."""
         d = world.daemon
         d.session, d.account, d.paused, d.buffering = True, ACCOUNT, False, False
         d.track = {"uri": "spotify:track:untitled", "artist_names": ["Telepopmusik"],
@@ -508,7 +509,7 @@ class TestProducerTruth:
 
         await world._says({"type": "active"}, {"type": "playing"})
 
-        assert world.state()["source_state"] == SourceState.READY.value
+        assert world.session() is None
 
 
 class TestEventsReconnect:
@@ -530,22 +531,21 @@ class TestEventsReconnect:
 
         await world.events_blip()
 
-        assert world.state()["source_state"] == SourceState.READY.value
-        assert "title" not in world.meta()
+        assert world.session() is None
         await world.advance(DELAY + 1)
         assert world.stops_sent() == 0
 
     @pytest.mark.asyncio
     async def test_a_live_session_is_healed_on_reconnect(self, world):
-        """With a live session the source stays ACTIVE, and what the gap hid
-        (here, a skip) is read back."""
+        """A live session is kept, and what the gap hid (here, a skip) is read
+        back."""
         await world.phone_plays(PARAPLUIE)
         world.daemon.track = dict(LE_CHEMIN)  # skipped while nobody listened
 
         await world.events_blip()
 
         assert world.playing()
-        assert world.meta()["title"] == "Le Chemin"
+        assert world.session()["title"] == "Le Chemin"
 
 
 class TestAutoStop:
@@ -633,14 +633,16 @@ class TestMetadataTransform:
         song = track("Test Song", 180000, artists=("Artist 1", "Artist 2"), album="Test Album")
         await world.phone_plays(song)
 
-        metadata = (await world.get_state())["metadata"]
+        session = (await world.get_state())["session"]
 
-        assert metadata["title"] == "Test Song"
-        assert metadata["artist"] == "Artist 1, Artist 2"
-        assert metadata["album"] == "Test Album"
-        assert metadata["album_art_url"] == song["album_cover_url"]
-        assert metadata["duration"] == 180000
-        assert metadata["is_playing"] is True
+        assert session["title"] == "Test Song"
+        assert session["artist"] == "Artist 1, Artist 2"
+        assert session["album"] == "Test Album"
+        assert session["artwork"] == song["album_cover_url"]
+        assert session["duration_ms"] == 180000
+        assert session["phase"] == "playing"
+        # The account is an identity, never a name to show.
+        assert session["senders"] == []
 
 
 def mock_librespot_api(source, *, paused=True, post_status=200):
@@ -930,8 +932,7 @@ class TestTheEventThatIsNotRead:
 
         await world._says({"type": "inactive"}, {"type": "stopped"})
 
-        assert world.state()["source_state"] == SourceState.READY.value
-        assert "title" not in world.meta()
+        assert world.session() is None
 
 
 class TestLogBridge:

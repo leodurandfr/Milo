@@ -1,4 +1,4 @@
-"""Podcast's old wire, scenario by scenario (see harness.py for the rules)."""
+"""Podcast's wire, scenario by scenario (see harness.py for the rules)."""
 import copy
 from unittest.mock import AsyncMock
 
@@ -97,6 +97,7 @@ class Podcast:
     def __init__(self, monkeypatch, settings=None):
         self.mpv = EventMpv()
         self.gate = TickGate()
+        self.gate.clocks.append(self.mpv.elapse)
         self._ending = False
         monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))

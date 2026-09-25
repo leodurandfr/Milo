@@ -1,0 +1,6192 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "sender_plays_a_track_with_cover": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "position": {
+      "ms": 20000,
+      "at": 1790270020.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "position": {
+      "ms": 95000,
+      "at": 1790270020.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 95000,
+      "at": 1790270020.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "sender_pauses_and_resumes": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "track_changes_and_the_cover_follows": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 200000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 200000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=22857a947419",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 200000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 600
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "/api/airplay/artwork?v=22857a947419",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 200000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 600
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "/api/airplay/artwork?v=22857a947419",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 498000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 600
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Says (Live)",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "/api/airplay/artwork?v=22857a947419",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 498000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 600
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 200000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": null,
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 200000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "Says (Live)",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "artwork": "/api/airplay/artwork?v=22857a947419",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 498000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 600
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "sender_stops_and_disconnects": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "Lecture",
+      "artist": "YouTube",
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "Lecture",
+      "artist": "YouTube",
+      "album": null,
+      "artwork": "/api/airplay/artwork?v=d850dd735da0",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 64
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-2",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-2",
+     "phase": "loading",
+     "title": "Lecture",
+     "artist": "YouTube",
+     "album": null,
+     "artwork": "/api/airplay/artwork?v=d850dd735da0",
+     "senders": [],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 64
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "pause_auto_stops": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "daemon_dies_under_the_session": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "daemon_died"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "reason": "stream_disconnected"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error_cleared",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-2",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-2",
+     "phase": "loading",
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": null,
+     "senders": [],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "music_pauses_resumes_and_skips": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 10000,
+       "at": 1790270010.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 10000,
+       "at": 1790270010.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 20000,
+       "at": 1790270020.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 20000,
+       "at": 1790270020.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Sunson",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=22857a947419",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 200000,
+      "position": {
+       "ms": 0,
+       "at": 1790270020.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 600
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 10000,
+      "at": 1790270010.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Sunson",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=22857a947419",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 200000,
+     "position": {
+      "ms": 0,
+      "at": 1790270020.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 600
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "a_music_pause_is_ended_by_the_daemon": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "idle_timeout"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "All Melody",
+     "artist": "Nils Frahm",
+     "album": "All Melody",
+     "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 253000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": 1000
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "system_audio_is_connected": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": "Energy",
+      "artist": "Jean du Voyage",
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": 208000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Energy",
+      "artist": "Jean du Voyage",
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": 208000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": "Energy",
+     "artist": "Jean du Voyage",
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": 208000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "a_newcomer_before_the_late_goodbye": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "All Melody",
+      "artist": "Nils Frahm",
+      "album": "All Melody",
+      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 253000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": 1000
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": {
+      "kind": "airplay",
+      "artwork_width": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "airplay",
+    "data": {
+     "source": "airplay",
+     "session_id": "session-2",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-2",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "airplay",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-2",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": {
+     "kind": "airplay",
+     "artwork_width": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ }
+}

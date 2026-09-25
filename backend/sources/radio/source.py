@@ -18,17 +18,17 @@ from backend.core.models.ws_events import SourceErrorReason
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from urllib.parse import quote, urlparse
 
 from pydantic import BaseModel
 
 from backend.core.audio_source import Result
 from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.audio_wire import RadioDetails, RadioStation, RadioTrack, ResumeView
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
@@ -71,8 +71,8 @@ def _resolved_favicon(favicon: Optional[str]) -> Optional[str]:
     unit already serves (a custom station's upload, /api/radio/images/...) or
     an arbitrary external URL, which many stations serve behind a WAF that
     refuses a bare User-Agent — hence the proxy. Resolved here because
-    `album_art_url` is the cross-source floor, and a floor field a client has
-    to post-process is not a floor. The station *lists* keep resolving it
+    `artwork` is the cross-source floor, and a floor field a client has to
+    post-process is not a floor. The station *lists* keep resolving it
     client-side (frontend/src/utils/faviconUrl.js): those are directory rows,
     not playback metadata, and they carry the raw `favicon` on purpose.
     """
@@ -196,9 +196,11 @@ class RadioSource(MpvAudioSource):
             config=config
         )
 
-        # Station data service (initialized immediately for API access)
+        # Station data service (initialized immediately for API access). Its
+        # favorites decide whether next/prev are offered (`controls`).
         self._station_data = StationDataService(
-            state_machine=state_machine
+            state_machine=state_machine,
+            on_favorites_changed=self._favorites_changed,
         )
 
         # RadioBrowser API (initialized immediately for API access)
@@ -230,16 +232,6 @@ class RadioSource(MpvAudioSource):
         point = self._resume_point
         return point.content if point is not None else None
 
-    def _idle_metadata(self) -> Dict[str, Any]:
-        """A stopped radio still has a station to re-tune, so publish the full
-        projection (same reason the CD keeps a loaded disc visible).
-
-        Nothing ever tuned — a disconnect before the first play — has nothing
-        to resume, and falls back to the pair every player reads.
-        """
-        projection = self._build_playback_metadata()
-        return projection if projection else super()._idle_metadata()
-
     def _resume_content(self, session: RadioSession):
         return session.station.get("id") or "", 0, session.station
 
@@ -268,7 +260,7 @@ class RadioSource(MpvAudioSource):
                 if point.phase is not Phase.PAUSED:
                     await self._tune(point.content)
                     return True
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -349,7 +341,7 @@ class RadioSource(MpvAudioSource):
             station.get('id')
         )
         self.open_session(session)
-        self._update_connection_state()
+        self._publish()
 
         async def load():
             if await self._mpv_ready() and await self._set_mpv_pause(False):
@@ -390,7 +382,7 @@ class RadioSource(MpvAudioSource):
             if self._mpv:
                 await self._mpv.stop()
             await self.end_session(EndReason.USER_STOP)
-        self._update_connection_state()
+        self._publish()
         return self.success_response("Playback stopped")
 
     async def _handle_resume_playback(self) -> Dict[str, Any]:
@@ -496,60 +488,71 @@ class RadioSource(MpvAudioSource):
             return None
         return (track.get("title"), track.get("artist"))
 
-    def _build_playback_metadata(self) -> Dict[str, Any]:
-        """The station projection — the tuned one, or the one a play would re-tune.
+    # === The view (docs: "le fil") ===
 
-        The recognised track is deliberately absent when nothing is tuned: it
-        annotates a stream that is running, and the identity a stopped radio
-        carries is the station.
-        """
-        station = self._displayed_station
-        if not station:
-            return {}
-
+    def _session_fields(self, session: RadioSession) -> Dict[str, Any]:
+        """Two layers in one line: the recognized track when there is one, the
+        station otherwise (every generic consumer reads this line — the lock
+        screen, the widget, the shared player)."""
+        station = session.station
         track = self._resolve_track()
-        station_name = station.get('name')
-        is_playing, is_buffering = self._flags(self._session.phase if self._session else None)
-
         return {
-            "station_id": station.get('id'),
-            "station_name": station_name,
-            "station_url": station.get('url'),
-            "country": station.get('country'),
-            "genre": station.get('genre'),
-            "favicon": station.get('favicon'),
-            "bitrate": station.get('bitrate'),
-            "codec": station.get('codec'),
-            "is_favorite": self._station_data.is_favorite(
-                station.get('id')
-            ) if self._station_data else False,
-            "is_playing": is_playing,
-            "is_buffering": is_buffering,
-            # The cross-source floor every generic consumer reads (lock screen,
-            # widget, shared player). Radio has two layers and this is the
-            # one-line view of them: the recognised track when there is one,
-            # the station otherwise. Computing it here is what lets the clients
-            # stop each re-deriving it — see core/push/payloads.py.
-            "title": track["title"] if track else station_name,
+            "title": track["title"] if track else station.get("name"),
             "artist": track["artist"] if track else None,
-            "album": station_name,
-            "album_art_url": (
+            "album": station.get("name"),
+            "artwork": (
                 track["artwork"] if track and track.get("artwork")
-                else _resolved_favicon(station.get('favicon'))
+                else _resolved_favicon(station.get("favicon"))
             ),
-            # The two layers, kept apart for the consumers that draw them apart.
-            "track_title": track["title"] if track else None,
-            "track_artist": track["artist"] if track else None,
-            "track_artwork": track["artwork"] if track else None
         }
 
-    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
-        """The source's one publish site."""
-        self.emit_connection_state(*self._connection_state())
+    def _resume_view(self) -> Optional[ResumeView]:
+        station = self._displayed_station
+        if not station:
+            return None
+        return ResumeView(
+            title=station.get("name"), artist=None, album=station.get("name"),
+            artwork=_resolved_favicon(station.get("favicon")),
+            duration_ms=None, position_ms=None,
+        )
 
-    def _connection_state(self):
-        core, extras = PlaybackMetadata.split(self._build_playback_metadata())
-        return self._session is not None, core, extras
+    def _details(self) -> Optional[RadioDetails]:
+        """The station — tuned, or the one a play would re-tune — and the song
+        recognized in its stream. The song annotates a stream that is
+        running, so a stopped radio carries none."""
+        station = self._displayed_station
+        if not station:
+            return None
+        track = self._resolve_track()
+        return RadioDetails(
+            station=RadioStation(
+                id=station.get("id"), name=station.get("name"), url=station.get("url"),
+                country=station.get("country"), genre=station.get("genre"),
+                favicon=station.get("favicon"), bitrate=station.get("bitrate"),
+                codec=station.get("codec"),
+            ),
+            track=RadioTrack(
+                title=track.get("title"), artist=track.get("artist"), artwork=track.get("artwork"),
+            ) if track else None,
+        )
+
+    def _controls(self) -> List[str]:
+        """A live stream has no pause: stop, or re-tune what was stopped.
+        next/prev step the favorites, so they need one."""
+        steps = ["next", "prev"] if self._station_data.favorite_ids else []
+        if self._session is not None:
+            return ["stop", *steps]
+        station = self._displayed_station
+        if station and station.get("id"):
+            return ["resume_playback", *steps]
+        return steps
+
+    def _favorites_changed(self) -> None:
+        """The favorites moved (StationDataService): next/prev may have
+        appeared or gone. Posted; the net after it publishes what moved."""
+        async def nothing() -> None:
+            return None
+        self._post_result(nothing)
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
         """React to global Shazam toggle change."""
@@ -588,7 +591,7 @@ class RadioSource(MpvAudioSource):
 
     async def _republish_track(self) -> None:
         if self._session is not None and self._session.phase is Phase.PLAYING:
-            self._update_connection_state()
+            self._publish()
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
@@ -635,7 +638,7 @@ class RadioSource(MpvAudioSource):
                     await self._shazam.stop()
             if self._track_key(track) != self._track_key(session.inband_track):
                 session.inband_track = track
-                self._update_connection_state()
+                self._publish()
                 # In-band carries no artwork — resolve a cover off the actor
                 # (iTunes Search), then patch it in if the track is still up.
                 self._session_bg.spawn(
@@ -653,7 +656,7 @@ class RadioSource(MpvAudioSource):
                 if session.inband_empty_streak >= _INBAND_STALE_CLEAR_POLLS:
                     session.inband_track = None
                     session.inband_empty_streak = 0
-                    self._update_connection_state()
+                    self._publish()
             return
 
         # Never seen in-band for this station → count toward the Shazam grace,
@@ -685,7 +688,7 @@ class RadioSource(MpvAudioSource):
         async def apply() -> None:
             if session.inband_track is track and session.phase is Phase.PLAYING:
                 track["artwork"] = artwork
-                self._update_connection_state()
+                self._publish()
 
         self._post_result(apply, token=session)
 

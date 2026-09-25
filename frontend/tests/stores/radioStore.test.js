@@ -1,8 +1,8 @@
 // frontend/tests/stores/radioStore.test.js
 /**
  * radioStore owns the derived view of the radio source: what "the current
- * station" is (WS metadata enriched by locally-edited favorites), what the
- * recognised track is, progressive rendering of results, the top-stations
+ * station" is (the state's `details.station` enriched by locally-edited
+ * favorites), what the recognized track is, progressive rendering of results, the top-stations
  * cache and the network-error retry policy.
  *
  * The pass-through actions (play/stop/favorite) are covered only where the
@@ -13,6 +13,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
+import { makeSession, publishState } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -42,29 +43,38 @@ async function seedFavorites(store, stations) {
   await store.loadStations(true);
 }
 
-/** Put the unified store into "radio is playing X" without touching the network. */
-function playingRadio(metadata) {
-  publishRadio('active', metadata);
+const DETAILS_STATION = (id, extra = {}) => ({
+  id,
+  name: null,
+  url: null,
+  country: null,
+  genre: null,
+  favicon: null,
+  bitrate: null,
+  codec: null,
+  ...extra,
+});
+
+/** Put the unified store into "radio is playing `station`" without touching the network. */
+function playingRadio(station, track = null) {
+  publishState(useUnifiedAudioStore(), {
+    source: 'radio',
+    service: 'running',
+    session: makeSession({ phase: 'playing', title: station.name }),
+    controls: ['stop'],
+    details: { kind: 'radio', station, track },
+  });
 }
 
 /** The same, for a radio that stopped: still selected, no session, and the
- *  station the backend says a play press would re-tune. */
-function stoppedRadio(metadata) {
-  publishRadio('ready', { is_playing: false, ...metadata });
-}
-
-function publishRadio(sourceState, metadata) {
-  useUnifiedAudioStore().updateState({
-    data: {
-      full_state: {
-        active_source: 'radio',
-        source_state: sourceState,
-        transitioning: false,
-        multiroom_enabled: false,
-        equalizer_effects_enabled: false,
-        metadata,
-      },
-    },
+ *  station the backend says `resume_playback` would re-tune. */
+function stoppedRadio(station) {
+  publishState(useUnifiedAudioStore(), {
+    source: 'radio',
+    service: 'running',
+    controls: ['resume_playback'],
+    resume: { title: station.name, artist: null, album: null, artwork: null, duration_ms: null, position_ms: null },
+    details: { kind: 'radio', station, track: null },
   });
 }
 
@@ -81,59 +91,52 @@ describe('radioStore', () => {
   });
 
   describe('currentStation', () => {
-    it('is null when radio is not the active source', () => {
-      useUnifiedAudioStore().updateState({
-        data: {
-          full_state: {
-            active_source: 'spotify',
-            source_state: 'active',
-            transitioning: false,
-            multiroom_enabled: false,
-            equalizer_effects_enabled: false,
-            metadata: { station_id: 's1', station_name: 'Leftover' },
-          },
-        },
+    it('is null when radio is not the selected source', () => {
+      // Another source's state carries no radio details; a stale radio
+      // payload under another source must not surface either.
+      publishState(useUnifiedAudioStore(), {
+        source: 'spotify',
+        service: 'running',
+        session: makeSession({ title: 'Some track' }),
+        details: { kind: 'radio', station: DETAILS_STATION('s1', { name: 'Leftover' }), track: null },
       });
 
+      expect(useUnifiedAudioStore().systemState.source).toBe('spotify');
       expect(store.currentStation).toBeNull();
     });
 
-    it('is null while radio plays but no station is identified yet', () => {
-      playingRadio({ title: 'buffering' });
+    it('is null while radio has no station to show', () => {
+      publishState(useUnifiedAudioStore(), { source: 'radio', service: 'running' });
 
       expect(store.currentStation).toBeNull();
     });
 
-    it('builds the station from WS metadata', () => {
-      playingRadio({ station_id: 's1', station_name: 'FIP', country: 'France' });
+    it('builds the station from the state details', () => {
+      playingRadio(DETAILS_STATION('s1', { name: 'FIP', country: 'France' }));
 
       expect(store.currentStation).toMatchObject({
         id: 's1',
         name: 'FIP',
         country: 'France',
-        is_favorite: false,
       });
     });
 
-    it('prefers the local favorite record over WS metadata', async () => {
+    it('prefers the local favorite record over the state details', async () => {
       // A rename done in the UI updates favoriteStations immediately; the
-      // backend metadata still carries the old name until the next broadcast.
+      // backend state still carries the old name until the next broadcast.
       await seedFavorites(store, [STATION('s1', { name: 'My renamed station' })]);
-      playingRadio({ station_id: 's1', station_name: 'Stale name' });
+      playingRadio(DETAILS_STATION('s1', { name: 'Stale name' }));
 
       expect(store.currentStation.name).toBe('My renamed station');
-      expect(store.currentStation.is_favorite).toBe(true);
     });
   });
 
   describe('trackInfo', () => {
-    it('exposes the Shazam-recognised track while radio is active', () => {
-      playingRadio({
-        station_id: 's1',
-        track_title: 'So What',
-        track_artist: 'Miles Davis',
-        track_artwork: 'https://art/1.jpg',
-      });
+    it('exposes the recognized track while radio plays', () => {
+      playingRadio(
+        DETAILS_STATION('s1'),
+        { title: 'So What', artist: 'Miles Davis', artwork: 'https://art/1.jpg' },
+      );
 
       expect(store.trackInfo).toEqual({
         title: 'So What',
@@ -142,44 +145,33 @@ describe('radioStore', () => {
       });
     });
 
-    it('is null when no track has been recognised', () => {
-      playingRadio({ station_id: 's1' });
+    it('is null when no track has been recognized', () => {
+      playingRadio(DETAILS_STATION('s1'));
 
       expect(store.trackInfo).toBeNull();
     });
 
-    it('drops the recognised track when the station stops, and keeps the station', () => {
+    it('drops the recognized track when the station stops, and keeps the station', () => {
       // The two layers part company on a stop. The station is the identity and
       // the backend republishes it — it is what `resume_playback` re-tunes, and
       // what keeps the player on screen without the component snapshotting it.
-      // The recognised song annotates a stream that is running; holding it
-      // would claim a stopped radio is still on that track.
-      playingRadio({ station_id: 's1', station_name: 'FIP', track_title: 'So What' });
+      // The recognized song annotates a stream that is running.
+      playingRadio(DETAILS_STATION('s1', { name: 'FIP' }), { title: 'So What', artist: null, artwork: null });
 
-      stoppedRadio({ station_id: 's1', station_name: 'FIP' });
+      stoppedRadio(DETAILS_STATION('s1', { name: 'FIP' }));
 
       expect(store.currentStation).toMatchObject({ id: 's1', name: 'FIP' });
       expect(store.trackInfo).toBeNull();
     });
 
-    it('drops the recognised track as soon as radio stops being active', () => {
-      playingRadio({ station_id: 's1', track_title: 'So What' });
+    it('drops the recognized track as soon as radio stops being selected', () => {
+      playingRadio(DETAILS_STATION('s1'), { title: 'So What', artist: null, artwork: null });
       expect(store.trackInfo).not.toBeNull();
 
-      useUnifiedAudioStore().updateState({
-        data: {
-          full_state: {
-            active_source: 'none',
-            source_state: 'ready',
-            transitioning: false,
-            multiroom_enabled: false,
-            equalizer_effects_enabled: false,
-            metadata: { station_id: 's1', track_title: 'So What' },
-          },
-        },
-      });
+      publishState(useUnifiedAudioStore(), { source: 'none' });
 
       expect(store.trackInfo).toBeNull();
+      expect(store.currentStation).toBeNull();
     });
   });
 

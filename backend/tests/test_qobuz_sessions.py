@@ -16,6 +16,7 @@ DELAY = 120   # make_settings' audio.auto_stop_delay
 @pytest.fixture
 async def world(monkeypatch, tmp_path):
     w = QobuzWorld(monkeypatch, tmp_path)
+    await w.boot()
     await w.select()
     yield w
     await w.source.shutdown()
@@ -45,9 +46,9 @@ async def test_an_active_status_with_no_title_never_opens_a_session(world):
 async def test_a_track_that_plays_is_published_playing(world):
     await world.app_plays(ON_AND_ON)
     assert world.playing()
-    assert world.meta()["title"] == "On & On"
-    assert world.meta()["duration"] == 226000
-    assert world.meta()["account_authenticated"] is True
+    assert world.session()["title"] == "On & On"
+    assert world.session()["duration_ms"] == 226000
+    assert world.availability() is None
 
 
 # === The phase is the player's ===
@@ -60,7 +61,7 @@ async def test_a_skip_caught_loading_is_loading_on_the_same_session(world):
     for _ in range(5):
         await world.loads(NEXT_LIFETIME)
     assert world.active() and world.buffering()
-    assert world.meta()["title"] == "On & On"
+    assert world.session()["title"] == "On & On"
 
 
 async def test_the_next_track_replaces_the_playhead(world):
@@ -69,8 +70,8 @@ async def test_the_next_track_replaces_the_playhead(world):
     await world.loads(NEXT_LIFETIME)
     world.sidecar.player_state = "playing"
     await world.advance(1)
-    assert world.playing() and world.meta()["title"] == "Next Lifetime"
-    assert world.meta()["position"] < 2000
+    assert world.playing() and world.session()["title"] == "Next Lifetime"
+    assert world.position_ms() < 2000
 
 
 async def test_a_preview_running_into_the_next_track_keeps_playing(world):
@@ -79,7 +80,7 @@ async def test_a_preview_running_into_the_next_track_keeps_playing(world):
     await world.plays_on(29)
     world.sidecar.track, world.sidecar.position_ms = TYRONE, 0
     await world.advance(1)
-    assert world.playing() and world.meta()["title"] == "Tyrone"
+    assert world.playing() and world.session()["title"] == "Tyrone"
 
 
 async def test_a_pause_is_paused(world):
@@ -114,13 +115,14 @@ async def test_a_track_that_fails_to_load_is_reported_once(world):
 
 async def test_a_moving_playhead_is_not_a_full_state_every_second(world):
     """The old source re-published the whole state at every 1 Hz poll to move
-    the bar; the frontend interpolates, so a steady playhead is a correction
-    every 10 s and nothing else."""
+    the bar; every client moves it from the anchor, so a playhead that keeps
+    pace with it puts nothing on the wire at all."""
     await world.app_plays(ON_AND_ON)
-    before = len(world.published())
+    before, sent = len(world.published()), len(world.positions())
     await world.plays_on(20)
     assert len(world.published()) == before
-    assert 1 <= len(world.positions()) <= 3
+    assert len(world.positions()) == sent
+    assert world.position_ms() == 20000
 
 
 async def test_a_seek_in_the_app_goes_out_at_once(world):
@@ -129,7 +131,7 @@ async def test_a_seek_in_the_app_goes_out_at_once(world):
     sent = len(world.positions())
     await world.app_seeks(150000)
     assert len(world.positions()) == sent + 1
-    assert world.positions()[-1]["position"] >= 150000
+    assert world.positions()[-1]["position"]["ms"] >= 150000
 
 
 async def test_a_seek_while_paused_goes_out(world):
@@ -142,7 +144,7 @@ async def test_a_seek_while_paused_goes_out(world):
     sent = len(world.positions())
     await world.app_seeks(180000)
     assert len(world.positions()) == sent + 1
-    assert world.positions()[-1]["position"] == 180000
+    assert world.positions()[-1]["position"]["ms"] == 180000
 
 
 async def test_a_new_track_is_not_followed_by_a_repeated_playhead(world):
@@ -269,13 +271,15 @@ async def test_locking_the_app_volume_ends_the_session_it_restarts_under(world):
 async def test_a_poll_the_old_sidecar_answers_opens_nothing_after_a_lock(world):
     """The poll keeps running across the volume-lock restart: an answer the old
     sidecar gave in that window, handled after the session ended, reopened it
-    — ACTIVE flashed between two READYs."""
+    — a session flashed between two idle states."""
     await world.app_plays(ON_AND_ON)
     world.poll_lands_during_restart = True
     before = len(world.published())
     assert await world.source.on_allow_app_volume_changed(False)
     await world.advance(3)
-    assert [p["state"] for p in world.published()[before:]] == ["ready"]
+    after = world.published()[before:]
+    assert after and all(p["session"] is None for p in after)
+    assert world.session_ends() == ["user_stop"]
 
 
 async def test_an_unanswered_poll_changes_nothing(world):
@@ -293,10 +297,10 @@ async def test_a_new_track_keeps_the_length_until_its_own_is_known(world):
     world.sidecar.track, world.sidecar.position_ms = TYRONE, 0
     world.sidecar.duration_ms = 0
     await world.advance(1)
-    assert world.meta()["title"] == "Tyrone" and world.meta()["duration"] == 226000
+    assert world.session()["title"] == "Tyrone" and world.session()["duration_ms"] == 226000
     world.sidecar.duration_ms = 30000
     await world.advance(1)
-    assert world.meta()["duration"] == 30000
+    assert world.session()["duration_ms"] == 30000
 
 
 async def test_an_idle_speaker_publishes_nothing_per_poll(world):
@@ -312,7 +316,38 @@ async def test_a_logout_while_idle_is_published(world):
     await world.advance(1)
     world.sidecar.authenticated = False
     await world.advance(2)
-    assert world.meta()["account_authenticated"] is False
+    assert world.availability() == "no_account"
+    assert world.published()[-1]["availability"]["qobuz"] == "no_account"
+
+
+async def test_a_login_made_in_the_sidecar_outlives_it(monkeypatch, tmp_path):
+    """While the sidecar is down, the account is the token cache: a login
+    completed while Qobuz played must still read as connected once another
+    source is selected, or the source list offers "connect an account" to
+    someone who just did."""
+    world = QobuzWorld(monkeypatch, tmp_path, logged_in=False)
+    await world.select()
+    await world.advance(3)
+    assert world.availability() == "no_account"
+    world.sidecar_logs_in()
+    await world.advance(1)
+    assert world.availability() is None
+    await world.leave()
+    assert world.availability() is None
+    await world.source.shutdown()
+
+
+async def test_a_logout_from_the_settings_screen_is_published(world):
+    """The settings screen clears the cache while the sidecar is down, then
+    tells the source (api/qobuz_account.py): the state must say so at once,
+    not at the next selection."""
+    await world.leave()
+    assert world.availability() is None
+    world.credentials.write_text("{}")
+    await world.source.account_changed()
+    await world.advance(1)
+    assert world.availability() == "no_account"
+    assert world.published()[-1]["availability"]["qobuz"] == "no_account"
 
 
 async def test_a_starting_sidecar_does_not_flash_the_login_prompt(world):
@@ -329,4 +364,4 @@ async def test_a_starting_sidecar_does_not_flash_the_login_prompt(world):
         world.sidecar.authenticated = True
         await world.advance(3)
     assert len(world.restarts) == 2
-    assert all(p["account_authenticated"] is True for p in world.published())
+    assert all(p["availability"]["qobuz"] is None for p in world.published())

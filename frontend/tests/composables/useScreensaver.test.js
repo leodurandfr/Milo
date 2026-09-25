@@ -3,16 +3,14 @@
  * The screensaver is the physical display's idle state, and two things end it:
  * a finger on that display, and playback stopping. This file covers the
  * visibility half of useScreensaver, where those two live alongside the case
- * that must NOT end it: `is_playing` dips to false when a track ends on its own
- * (Spotify's `not_playing`, Tidal's BUFFERING/IDLE), and a screensaver keyed
- * on that flag closed itself there — no touch, no user, just the gap. A skip commanded from the sender never produced the dip, so the bug
- * read as random.
+ * that must NOT end it: the sliver between two tracks, and a sender that has
+ * no play state at all. A screensaver keyed on "not playing" closed itself in
+ * the gap — no touch, no user — and took a connected sender's away for good.
  *
- * Duration is the only thing that separates the gap from a pause, so the three
- * questions are asked separately and asserted separately: playback gates
- * *arming* the countdown; the source going off the air dismisses an overlay at
- * once; and playback stopping dismisses it only once the stop has outlasted any
- * handover — which is what the timings below are about.
+ * The three questions are asked separately and asserted separately: playback
+ * gates *arming* the countdown; the session ending dismisses an overlay at
+ * once; and a pause dismisses it only once it has outlasted any handover —
+ * which is what the timings below are about.
  *
  * The stores are the real ones, driven through the handler the WebSocket calls.
  * A host component is mounted only to give the composable a lifecycle; nothing
@@ -30,39 +28,44 @@ vi.mock('@/utils/kiosk', () => ({ isKiosk: () => true }));
 import { useScreensaver } from '@/composables/useScreensaver';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { makeSession, publishState } from '../helpers/audioState';
 
 const DELAY_SECONDS = 15;
 /** PAUSE_DISMISS_MS in the composable — restated so a bump shows up here. */
 const PAUSE_DISMISS_MS = 3000;
 
-const PLAYING = { title: 'Future Green', artist: 'Masahiro Sugaya', is_playing: true };
-/** What the wire carries between two tracks, and on a real pause. */
-const NOT_PLAYING = { ...PLAYING, is_playing: false };
-/** The same stop, with the next track already loading behind it. */
-const LOADING_NEXT = { ...NOT_PLAYING, is_buffering: true };
-/** A Bluetooth sender publishing an AVRCP player (a phone). */
-const BT_AVRCP_PLAYING = { ...PLAYING, device_name: 'iPhone', has_avrcp: true };
-/** One that registers no player: no track, and is_playing false for good. */
-const BT_NO_AVRCP = {
-  device_name: 'MacBook Pro', has_avrcp: false, is_playing: false, is_buffering: false,
-};
-/** A player whose sender names nothing — a video, a browser tab. */
-const BT_AVRCP_NO_TRACK = { device_name: 'iPhone', has_avrcp: true, is_playing: true };
+const TRACK = { title: 'Future Green', artist: 'Masahiro Sugaya' };
 
-function publish(store, fullState) {
-  store.updateState({
-    data: {
-      full_state: {
-        active_source: 'spotify',
-        source_state: 'active',
-        transitioning: false,
-        multiroom_enabled: false,
-        equalizer_effects_enabled: false,
-        metadata: PLAYING,
-        ...fullState,
-      },
-    },
-  });
+/** A Spotify session in `phase`, as the backend publishes it. */
+function spotify(phase, track = TRACK) {
+  return {
+    source: 'spotify',
+    service: 'running',
+    session: makeSession({ phase, ...track }),
+    controls: phase === 'paused' ? ['resume', 'seek', 'next', 'prev'] : ['pause', 'next', 'prev'],
+  };
+}
+
+/** A Bluetooth sender: a phone with an AVRCP player, or one Milō cannot read. */
+function bluetooth(phase, track = TRACK) {
+  const transport = phase === 'paused' ? ['resume', 'next', 'prev'] : ['pause', 'next', 'prev'];
+  return {
+    source: 'bluetooth',
+    service: 'running',
+    session: makeSession({ phase, senders: ['iPhone'], ...track }),
+    controls: phase === 'connected' ? ['disconnect'] : [...transport, 'disconnect'],
+  };
+}
+
+/** Two Macs streaming: always `connected`, never a play state. */
+const MAC = {
+  source: 'mac',
+  service: 'running',
+  session: makeSession({ phase: 'connected', senders: ['Studio'] }),
+};
+
+function publish(store, overrides = spotify('playing')) {
+  publishState(store, overrides);
 }
 
 function mountScreensaver() {
@@ -131,11 +134,11 @@ describe('useScreensaver visibility', () => {
     wrapper = mounted.wrapper;
     await idle();
 
-    publish(store, { metadata: NOT_PLAYING });
+    publish(store, spotify('paused'));
     await advance(PAUSE_DISMISS_MS - 500);
     expect(mounted.api.isScreensaverVisible.value).toBe(true);
 
-    publish(store, { metadata: { ...PLAYING, title: 'Sonic the Hedgehog' } });
+    publish(store, spotify('playing', { title: 'Sonic the Hedgehog', artist: 'Masahiro Sugaya' }));
     // Well past the window the handover just spent: resuming must have taken
     // the pending dismissal down with it, not merely postponed it.
     await advance(PAUSE_DISMISS_MS * 2);
@@ -150,7 +153,7 @@ describe('useScreensaver visibility', () => {
     wrapper = mounted.wrapper;
     await idle();
 
-    publish(store, { metadata: LOADING_NEXT });
+    publish(store, spotify('loading'));
     await advance(PAUSE_DISMISS_MS * 3);
 
     expect(mounted.api.isScreensaverVisible.value).toBe(true);
@@ -163,7 +166,7 @@ describe('useScreensaver visibility', () => {
     wrapper = mounted.wrapper;
     await idle();
 
-    publish(store, { metadata: NOT_PLAYING });
+    publish(store, spotify('paused'));
     await advance(PAUSE_DISMISS_MS - 500);
     expect(mounted.api.isScreensaverVisible.value).toBe(true);
 
@@ -193,7 +196,7 @@ describe('useScreensaver visibility', () => {
     wrapper = mounted.wrapper;
     await idle();
 
-    publish(store, { source_state: 'ready', metadata: NOT_PLAYING });
+    publish(store, { source: 'spotify', service: 'running' });
     await nextTick();
 
     expect(mounted.api.isScreensaverVisible.value).toBe(false);
@@ -202,7 +205,7 @@ describe('useScreensaver visibility', () => {
   it('never arms while the track is only paused', async () => {
     // The arming half of the split: a paused unit has nothing to fade into, so
     // the countdown never starts and no overlay is owed in the first place.
-    publish(store, { metadata: NOT_PLAYING });
+    publish(store, spotify('paused'));
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
 
@@ -212,9 +215,9 @@ describe('useScreensaver visibility', () => {
   });
 
   it('arms for a receiver that has no play state of its own', async () => {
-    // Bluetooth and Mac publish no is_playing; a connected sender is the whole
-    // condition, and gating them on playback would leave them screensaverless.
-    publish(store, { active_source: 'mac', metadata: { client_names: ['Studio'] } });
+    // A `connected` session has no play state; the link is the whole
+    // condition, and gating it on playback would leave it screensaverless.
+    publish(store, MAC);
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
 
@@ -224,9 +227,9 @@ describe('useScreensaver visibility', () => {
   });
 
   it('never dismisses that receiver for want of a play state', async () => {
-    // The other end of the same gate: a missing is_playing is not a stop, so a
+    // The other end of the same gate: no play state is not a stop, so a
     // connected sender keeps its screensaver for as long as it is connected.
-    publish(store, { active_source: 'mac', metadata: { client_names: ['Studio'] } });
+    publish(store, MAC);
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
     await idle();
@@ -239,12 +242,12 @@ describe('useScreensaver visibility', () => {
   it('dismisses a Bluetooth sender that publishes an AVRCP transport', async () => {
     // A phone: BlueALSA connected it, AVRCP says what is playing, and the view
     // behind the overlay is the player carrying the pause button just pressed.
-    publish(store, { active_source: 'bluetooth', metadata: BT_AVRCP_PLAYING });
+    publish(store, bluetooth('playing'));
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
     await idle();
 
-    publish(store, { active_source: 'bluetooth', metadata: { ...BT_AVRCP_PLAYING, is_playing: false } });
+    publish(store, bluetooth('paused'));
     await advance(PAUSE_DISMISS_MS + 100);
 
     expect(mounted.api.isScreensaverVisible.value).toBe(false);
@@ -254,10 +257,7 @@ describe('useScreensaver visibility', () => {
     // The symmetry the two halves owe each other: a sender whose pause takes the
     // overlay away must not be handed one in the first place, or a paused phone
     // would draw a screensaver every idle stretch just to lose it 3 s later.
-    publish(store, {
-      active_source: 'bluetooth',
-      metadata: { ...BT_AVRCP_PLAYING, is_playing: false },
-    });
+    publish(store, bluetooth('paused'));
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
 
@@ -271,26 +271,23 @@ describe('useScreensaver visibility', () => {
     // 2026-09-18: a Mac mini publishes a working player and no track text at all,
     // so the overlay is the status card — and pausing it still gives the screen
     // back. A video or a browser tab lands here the same way.
-    publish(store, { active_source: 'bluetooth', metadata: BT_AVRCP_NO_TRACK });
+    const NO_TRACK = { title: null, artist: null };
+    publish(store, bluetooth('playing', NO_TRACK));
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
     await idle();
 
-    publish(store, {
-      active_source: 'bluetooth',
-      metadata: { ...BT_AVRCP_NO_TRACK, is_playing: false },
-    });
+    publish(store, bluetooth('paused', NO_TRACK));
     await advance(PAUSE_DISMISS_MS + 100);
 
     expect(mounted.api.isScreensaverVisible.value).toBe(false);
   });
 
-  it('keeps one that publishes no AVRCP at all, is_playing false and all', async () => {
+  it('keeps one Milō cannot read the play state of', async () => {
     // No AVRCP player — a sender that registers none, or the window before one
-    // appears. The wire carries is_playing:false throughout, since
-    // PlaybackMetadata always serializes it; reading that as a pause would take
-    // this screensaver away three seconds in and never give it back.
-    publish(store, { active_source: 'bluetooth', metadata: BT_NO_AVRCP });
+    // appears: the session is `connected` throughout. Reading that as a pause
+    // would take this screensaver away three seconds in and never give it back.
+    publish(store, bluetooth('connected', { title: null, artist: null }));
     const mounted = mountScreensaver();
     wrapper = mounted.wrapper;
     await idle();

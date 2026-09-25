@@ -349,7 +349,9 @@ app.include_router(network_router)
 discovery_router = create_discovery_router(network_service, wifi_adoption_service)
 app.include_router(discovery_router)
 
-app.include_router(create_qobuz_account_router(systemd_manager))
+app.include_router(create_qobuz_account_router(
+    systemd_manager, get_service("qobuz_source").account_changed
+))
 
 app.include_router(create_lyrics_router(get_service("lyrics_service")))
 app.include_router(create_push_router(

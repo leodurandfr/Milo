@@ -1,0 +1,1189 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "one_mac_connects_by_its_bonjour_name": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "two_macs_then_one_leaves_then_the_other": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo",
+       "MacBook-Air-de-Camille"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "MacBook-Air-de-Camille"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo",
+      "MacBook-Air-de-Camille"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "MacBook-Air-de-Camille"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "already_streaming_at_select": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo",
+       "MacBook-Air-de-Camille"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "a_mac_that_left_before_select_is_not_replayed": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "mac",
+    "data": {
+     "source": "mac",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "mac",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ }
+}

@@ -509,7 +509,6 @@ def source(flag):
     src._settings_service.get_setting = AsyncMock(
         return_value={"allow_app_volume": False}
     )
-    src.emit_connection_state = Mock()
     return src
 
 

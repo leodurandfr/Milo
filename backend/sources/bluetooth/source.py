@@ -34,9 +34,9 @@ outlive its link (1.0 s measured) or belong to a phone the appliance turned
 away, and neither may name, or take the commands of, the one connected (E30).
 
 There is no seek. AVRCP offers only hold-style FastForward/Rewind, not a
-position command, so the progress bar is read-only (`:seekable="false"` on the
-player) and `seek` is deliberately absent from COMMANDS — the same shape Tidal
-lands on for its own protocol's reasons.
+position command, so the progress bar is read-only (no `seek` in `controls`)
+and `seek` is deliberately absent from COMMANDS — the same shape Tidal lands on
+for its own protocol's reasons.
 
 No album art comes over the link either (see avrcp.py), so the only image the
 player can show is one resolved from the track text — the shared
@@ -58,7 +58,7 @@ Features:
 """
 import asyncio
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -67,7 +67,6 @@ from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy,
     ReroutePolicy, Session,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.bluetooth.adapter import BluetoothAdapter
 from backend.sources.bluetooth.agent import BluetoothAgent
@@ -75,13 +74,6 @@ from backend.sources.bluetooth.avrcp import PLAYING_STATES, AvrcpController
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.shared.decorators import handle_errors
-
-# A floor on position-only broadcasts, not the cadence: the cadence belongs to
-# avrcp's POSITION_POLL_INTERVAL, since no sender observed here pushes a moved
-# playhead at all. This only stops a sender that *does* notify one — the
-# protocol allows it — from broadcasting at whatever rate it chooses, and is
-# therefore kept below the poll so our own ticks always get through.
-POSITION_BROADCAST_MIN_INTERVAL = 2.0
 
 # A new bluetoothd's adapter is announced while AutoEnable may still be
 # powering it, and BlueZ answers Busy to a write meanwhile: the configuration
@@ -94,11 +86,11 @@ ADAPTER_CONFIGURE_RETRY_S = 0.5
 class BluetoothSession(Session):
     """One phone holding the A2DP link; `sender` is its address.
 
-    `playback` is its AVRCP player's snapshot (keyed like PlaybackMetadata),
-    `status` that player's Status, `running` whether BlueALSA says its stream
-    flows. Cover art is resolved from the track text and held apart from
-    `playback`: the position poll replaces that dict wholesale, and the key
-    it was resolved for is what keeps a new track from inheriting it.
+    `playback` is its AVRCP player's snapshot (avrcp.snapshot()), `status`
+    that player's Status, `running` whether BlueALSA says its stream flows.
+    Cover art is resolved from the track text and held apart from `playback`:
+    the position poll replaces that dict wholesale, and the key it was
+    resolved for is what keeps a new track from inheriting it.
     """
     name: str = ""
     playback: Dict[str, Any] = field(default_factory=dict)
@@ -107,7 +99,6 @@ class BluetoothSession(Session):
     running: bool = False
     artwork_url: Optional[str] = None
     artwork_key: tuple = ()
-    last_progress_broadcast: float = 0.0
 
 
 def _same_device(a: Optional[str], b: Optional[str]) -> bool:
@@ -223,7 +214,7 @@ class BluetoothSource(BaseAudioSource):
             # must already be hidden, and step 3 opened it.
             await self._apply_exposure()
 
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -290,7 +281,7 @@ class BluetoothSource(BaseAudioSource):
         self._released = False
         if not await self._start_service(self.bluealsa_aplay_service):
             return False
-        self._update_connection_state()
+        self._publish()
         return True
 
     async def shutdown(self) -> None:
@@ -383,22 +374,16 @@ class BluetoothSource(BaseAudioSource):
 
     async def _handle_feed(self, events) -> None:
         """What BlueALSA, BlueZ and bluetoothd announced, in order, then one
-        publish: a full state when something the screen cannot interpolate
-        moved, a drift correction when only the playhead did."""
+        publish (the state machine sends a state, or a position alone)."""
         if not self._running:
             return
-        session = self._session
-        duration_before = session.playback.get("duration") if isinstance(session, BluetoothSession) else None
         arrived = False
         banners = []
-        player_moved = False
+        # A "player" event is read below, with the rest: an event is when to
+        # look, the controller is what to believe.
         for event in events:
             kind = event[0]
-            if kind == "player":
-                # Read below: an event is when to look, the controller is
-                # what to believe.
-                player_moved = True
-            elif kind == "linked":
+            if kind == "linked":
                 arrived = await self._link_up(event[1], event[2]) or arrived
             elif kind == "unlinked":
                 await self._link_down(event[1])
@@ -414,12 +399,8 @@ class BluetoothSource(BaseAudioSource):
         if isinstance(session, BluetoothSession):
             self._read_player(session)
             await self._follow(session)
-        duration = session.playback.get("duration") if isinstance(session, BluetoothSession) else None
-        if not self._publish_changes():
-            if duration != duration_before:
-                self._update_connection_state()
-            elif player_moved:
-                self._broadcast_progress()
+            self._read_playhead(session)
+        self._publish_changes()
         # The state first, then the banner: an event carrying the state it
         # reports on must carry the state after it.
         for reason in banners:
@@ -452,6 +433,7 @@ class BluetoothSource(BaseAudioSource):
         self.avrcp.follow_device(session.sender)
         self._read_player(session)
         await self._follow(session)
+        self._read_playhead(session)
         self._logger.info(f"Device connected: {name} ({address})")
         # Hide first: the appliance now has a sender, so it must stop
         # offering itself to a second one instead of kicking it afterwards.
@@ -642,7 +624,7 @@ class BluetoothSource(BaseAudioSource):
             return
         session.artwork_url = url
         session.artwork_key = track
-        self._update_connection_state()
+        self._publish()
 
     async def refresh_metadata(self) -> bool:
         """Re-read the playhead for `GET /api/audio/state` and the WS handshake.
@@ -659,25 +641,17 @@ class BluetoothSource(BaseAudioSource):
 
         await self.avrcp.read_position()
         self._read_player(session)
-        self._update_connection_state()
+        self._read_playhead(session)
+        self._publish_changes()
         return True
 
-    def _broadcast_progress(self) -> None:
-        """Drift-correct the playhead, at most every POSITION_BROADCAST_MIN_INTERVAL."""
-        session = self._session
-        if not isinstance(session, BluetoothSession):
-            return
+    def _read_playhead(self, session: BluetoothSession) -> None:
+        """The player's playhead to the position axis; none without a player."""
         position = session.playback.get("position")
-        duration = session.playback.get("duration")
-        if position is None or not duration:
-            return
-
-        now = asyncio.get_running_loop().time()
-        if now - session.last_progress_broadcast < POSITION_BROADCAST_MIN_INTERVAL:
-            return
-
-        session.last_progress_broadcast = now
-        self.broadcast_position_update(position, duration)
+        if session.has_player and position is not None:
+            self._observe_position(position)
+        else:
+            self._clear_position()
 
     # === Helper Methods ===
 
@@ -783,41 +757,36 @@ class BluetoothSource(BaseAudioSource):
             await self.agent.unregister()
         self._discard_feed()
 
-    def _update_connection_state(self) -> None:
-        """Publish connection + playback state.
+    # === The view (docs: "le fil") ===
 
-        Broadcast metadata (WS source/state_changed → system_state.metadata):
-        device_name — the extra the status card draws when the sender publishes
-        no track — plus whatever the phone's AVRCP player supplied of title,
-        artist, album, position, duration, plus album_art_url when a cover was
-        resolved from the track text. AVRCP itself never carries one (see
-        avrcp.py); the resolver is the only reason that field is ever set.
+    def _session_fields(self, session: BluetoothSession) -> Dict[str, Any]:
+        """Whatever the phone's AVRCP player supplied, plus a cover resolved
+        from the track text (AVRCP never carries one — see avrcp.py). The
+        phone's name is the sender the status card draws when it publishes no
+        track."""
+        playback = session.playback
+        artwork = (
+            session.artwork_url
+            if session.artwork_url and session.artwork_key == self._track_key(playback) else None
+        )
+        return {
+            "title": playback.get("title"),
+            "artist": playback.get("artist"),
+            "album": playback.get("album"),
+            "artwork": artwork,
+            "senders": [session.name] if session.name else [],
+            "duration_ms": playback.get("duration"),
+        }
 
-        is_playing is the session's phase: PLAYING only.
-
-        has_avrcp says whether the phone holding the link publishes a player at
-        all, and it is on the wire because nothing else on it can answer:
-        PlaybackMetadata always serializes is_playing, so a sender publishing no
-        player is indistinguishable from one sitting paused. The screensaver is
-        the consumer — it dismisses itself on a pause and must not do so for a
-        sender that never claimed to be playing. Measured on the unit
-        2026-09-18: a Mac mini registers a MediaPlayer1 whose play/pause is
-        accurate while answering no track metadata at all.
-        """
-        self.emit_connection_state(*self._connection_state())
-
-    def _connection_state(self):
+    def _controls(self) -> List[str]:
+        """The transport only when the phone holding the link has a player
+        (E33): a Mac's publishes its Status 100 s late, and its transport
+        works meanwhile."""
         session = self._session
         if not isinstance(session, BluetoothSession):
-            return False, PlaybackMetadata(), {"has_avrcp": False}
-
-        playback = dict(session.playback)
-        playback["is_playing"] = session.phase is Phase.PLAYING
-        if session.artwork_url and session.artwork_key == self._track_key(playback):
-            playback["album_art_url"] = session.artwork_url
-
-        return (
-            True,
-            PlaybackMetadata.model_validate(playback),
-            {"device_name": session.name, "has_avrcp": session.has_player},
-        )
+            return []
+        if not session.has_player:
+            return ["disconnect"]
+        if session.phase is Phase.PLAYING:
+            return ["pause", "next", "prev", "disconnect"]
+        return ["resume", "next", "prev", "disconnect"]

@@ -24,16 +24,16 @@ from backend.sources.podcast.source import PodcastSource
 from backend.sources.radio import source as radio_module
 from backend.sources.radio.source import RadioSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, TickGate, instant_short_sleep, make_settings, make_state_machine,
-    make_systemd, settle,
+    EPOCH, AsyncioProxy, TickGate, WireReader, instant_short_sleep, make_settings,
+    make_state_machine, make_systemd, settle,
 )
-from backend.tests.golden.test_old_wire_music_library import (
+from backend.tests.golden.test_wire_music_library import (
     ALBUM, FakeNavidrome, FakeShares,
 )
-from backend.tests.golden.test_old_wire_podcast import (
+from backend.tests.golden.test_wire_podcast import (
     EPISODE_A, EPISODE_B, FakeCatalog, MemoryPodcastData,
 )
-from backend.tests.golden.test_old_wire_radio import FIP, NOVA, FakeShazam, _RadioAsyncio
+from backend.tests.golden.test_wire_radio import FIP, NOVA, FakeShazam, _RadioAsyncio
 from backend.tests.mpv_sim import MpvSim
 
 # The loading watchdog, shortened: the timers below 1 s run at once here
@@ -41,7 +41,7 @@ from backend.tests.mpv_sim import MpvSim
 WATCHDOG_S = 0.5
 
 
-class Rig:
+class Rig(WireReader):
     """One source on a real state machine, mpv simulated, time in steps."""
 
     source_enum: AudioSource
@@ -52,6 +52,9 @@ class Rig:
         monkeypatch.setattr(mpv_audio_source, "MpvController", lambda **_: self.mpv)
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
+        # Anchors stamped on a frozen wall clock: the playhead the wire gives
+        # moves only when mpv's does, so a position reads exactly.
+        monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH)
         monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", WATCHDOG_S, raising=False)
         monkeypatch.setattr(state_module.AudioStateMachine, "ALSA_RELEASE_SETTLE_S", 0)
         self.machine, self.recorder = make_state_machine()
@@ -85,14 +88,8 @@ class Rig:
         await self.machine.reroute_active_source(apply_mode)
         await settle()
 
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def errors(self) -> List[str]:
-        return [
-            e["data"]["reason"] for e in self.recorder.envelopes
-            if e["category"] == "source" and e["type"] == "error"
-        ]
+    def details(self) -> Dict[str, Any]:
+        return self.state()["details"] or {}
 
     def loads(self) -> List[tuple]:
         return [c for c in self.mpv.sent if c[0] == "loadfile"]
@@ -132,7 +129,8 @@ class RadioRig(Rig):
         return await self.command("play_station", {"station_id": station["id"]})
 
     def station(self) -> Optional[str]:
-        return self.state()["metadata"].get("station_id")
+        """The station on screen: tuned, or the one a play re-tunes."""
+        return (self.details().get("station") or {}).get("id")
 
 
 @pytest.fixture
@@ -142,20 +140,20 @@ def radio(monkeypatch):
 
 async def test_radio_stream_that_stalls_ends_and_keeps_the_station(radio):
     """E43: a stream that stops delivering (mpv: paused-for-cache, then nothing
-    for minutes) used to stay ACTIVE on silence forever. Past the loading
-    watchdog the session ends as a lost stream: a banner, READY, and the station
+    for minutes) used to keep its session on silence forever. Past the loading
+    watchdog the session ends as a lost stream: a banner, no session, and the station
     kept so a press re-tunes it."""
     await radio.select()
     await radio.tune(FIP)
     await radio.tick()
-    assert radio.state()["metadata"]["is_playing"] is True
+    assert radio.playing()
 
     await radio.mpv.stalls()
     await radio.tick()
     await settle()
 
     state = radio.state()
-    assert state["source_state"] == "ready"
+    assert state["session"] is None
     assert radio.station() == "fip"
     assert "stream_disconnected" in radio.errors()
 
@@ -169,7 +167,7 @@ async def test_radio_stream_that_ends_after_its_sound_is_a_lost_stream(radio):
     await radio.mpv.ends("eof")
     await settle()
 
-    assert radio.state()["source_state"] == "ready"
+    assert not radio.active()
     assert radio.errors() == ["stream_disconnected"]
     assert radio.station() == "fip"
 
@@ -181,7 +179,7 @@ async def test_radio_dead_url_is_reported_when_mpv_says_so(radio):
     await radio.select()
     await radio.tune(FIP)
 
-    assert radio.state()["source_state"] == "ready"
+    assert not radio.active()
     assert radio.errors() == ["stream_load_failed"]
     assert radio.station() == "fip"
 
@@ -204,7 +202,7 @@ async def test_radio_knob_during_buffering_stops_then_retunes_the_shown_station(
     await dispatcher.dispatch_play_pause()
     await settle()
     assert [load[1] for load in radio.loads()] == [NOVA["url"], FIP["url"]]
-    assert radio.state()["source_state"] == "ready"
+    assert not radio.active()
 
     await dispatcher.dispatch_play_pause()
     await settle()
@@ -225,7 +223,7 @@ async def test_radio_shazam_stops_with_the_session(radio):
     await settle()
 
     assert not shazam.is_running
-    assert radio.state()["source_state"] == "ready"
+    assert not radio.active()
 
 
 async def test_radio_reroute_mid_play_plays_the_station_again(radio):
@@ -238,8 +236,8 @@ async def test_radio_reroute_mid_play_plays_the_station_again(radio):
 
     assert radio.loads()[-1][1] == FIP["url"]
     state = radio.state()
-    assert state["source_state"] == "active"
-    assert state["metadata"]["is_playing"] is True
+    assert state["session"] is not None
+    assert state["session"]["phase"] == "playing"
 
 
 # === Podcast ===
@@ -262,7 +260,8 @@ class PodcastRig(Rig):
         return await self.command("play_episode", {"episode_uuid": episode["uuid"]})
 
     def episode(self) -> Optional[str]:
-        return (self.state()["metadata"].get("current_episode") or {}).get("uuid")
+        """The episode on screen: live, or the one kept to resume."""
+        return (self.details().get("episode") or {}).get("uuid")
 
 
 @pytest.fixture
@@ -283,9 +282,9 @@ async def test_podcast_switching_away_keeps_the_episode_to_resume(podcast):
     await podcast.select()
 
     state = podcast.state()
-    assert state["source_state"] == "ready"
+    assert state["session"] is None
     assert podcast.episode() == EPISODE_A["uuid"]
-    assert state["metadata"]["position"] == 300_000
+    assert state["resume"]["position_ms"] == 300_000
 
 
 async def test_podcast_dead_url_is_not_marked_listened(podcast):
@@ -298,7 +297,7 @@ async def test_podcast_dead_url_is_not_marked_listened(podcast):
 
     assert podcast.data.completed == []
     assert podcast.errors() == ["stream_load_failed"]
-    assert podcast.state()["source_state"] == "ready"
+    assert not podcast.active()
     assert podcast.episode() == EPISODE_A["uuid"]
 
 
@@ -352,7 +351,7 @@ async def test_podcast_load_that_raises_is_one_failure_not_a_stuck_spinner(podca
     result = await podcast.play(EPISODE_A)
 
     assert result["success"] is False
-    assert podcast.state()["source_state"] == "ready"
+    assert not podcast.active()
     assert podcast.errors() == ["stream_load_failed"]
 
 
@@ -373,7 +372,7 @@ async def test_podcast_play_starts_at_the_position_it_carries(podcast, monkeypat
     assert answer["success"] is True
     assert podcast.loads()[-1][3] == 120
     assert not [c for c in podcast.mpv.sent if c[0] == "seek"]
-    assert podcast.state()["metadata"]["is_playing"] is True
+    assert podcast.playing()
 
 
 async def test_podcast_reroute_mid_play_resumes_at_the_same_second(podcast):
@@ -389,8 +388,8 @@ async def test_podcast_reroute_mid_play_resumes_at_the_same_second(podcast):
     last = podcast.loads()[-1]
     assert last[1] == EPISODE_A["audio_url"] and last[3] == 640
     state = podcast.state()
-    assert state["source_state"] == "active"
-    assert state["metadata"]["is_playing"] is True
+    assert state["session"] is not None
+    assert state["session"]["phase"] == "playing"
 
 
 async def test_podcast_stalled_stream_ends_and_keeps_the_episode(podcast):
@@ -406,9 +405,9 @@ async def test_podcast_stalled_stream_ends_and_keeps_the_episode(podcast):
     await settle()
 
     state = podcast.state()
-    assert state["source_state"] == "ready"
+    assert state["session"] is None
     assert podcast.episode() == EPISODE_A["uuid"]
-    assert state["metadata"]["position"] == 900_000
+    assert state["resume"]["position_ms"] == 900_000
     assert "stream_disconnected" in podcast.errors()
     assert podcast.data.completed == []
 
@@ -443,7 +442,8 @@ class LibraryRig(Rig):
         await settle()
 
     def track(self) -> Optional[str]:
-        return self.state()["metadata"].get("track_id")
+        """The track on screen: the live queue's, or the resume view's."""
+        return self.details().get("track_id")
 
 
 @pytest.fixture
@@ -460,11 +460,11 @@ async def test_library_storage_gone_ends_the_session_not_the_source(library):
     await library.tick()
 
     await library.key_pulled()
-    assert library.state()["source_state"] == "ready"
+    assert not library.active()
 
     result = await library.play_album()      # another storage, unscoped
     assert result["success"] is True
-    assert library.state()["source_state"] == "active"
+    assert library.active()
 
 
 async def test_library_resume_from_a_storage_gone_since_is_forgotten(library):
@@ -480,7 +480,7 @@ async def test_library_resume_from_a_storage_gone_since_is_forgotten(library):
     await library.select()
 
     state = library.state()
-    assert state["source_state"] == "ready"
+    assert state["session"] is None
     assert library.track() is None
 
 
@@ -492,8 +492,8 @@ async def test_library_queue_that_cannot_load_is_reported(library):
     await library.play_album()
     await library.tick()
 
-    assert library.state()["source_state"] == "ready"
-    assert "queue_ended" not in library.state()["metadata"]
+    assert not library.active()
+    assert "eof" not in library.session_ends()
     assert library.errors() == ["playback_failed"]
 
 
@@ -508,7 +508,7 @@ async def test_library_play_index_from_the_resume_view_plays(monkeypatch):
     await library.tick()
     await library.command("pause")            # the idle timeout ends the session
     await settle()
-    assert library.state()["source_state"] == "ready"
+    assert not library.active()
     assert library.track() == "tr-1"          # the resume view
 
     result = await library.command("play_index", {"index": 2})
@@ -516,8 +516,8 @@ async def test_library_play_index_from_the_resume_view_plays(monkeypatch):
     assert result["success"] is True
     assert library.track() == "tr-3"
     state = library.state()
-    assert state["source_state"] == "active"
-    assert state["metadata"]["is_playing"] is True
+    assert state["session"] is not None
+    assert state["session"]["phase"] == "playing"
 
 
 async def test_library_reroute_mid_play_resumes_playing_the_same_track(library):
@@ -531,9 +531,9 @@ async def test_library_reroute_mid_play_resumes_playing_the_same_track(library):
     await library.reroute()
 
     state = library.state()
-    assert state["source_state"] == "active"
+    assert state["session"] is not None
     assert library.track() == "tr-2"
-    assert state["metadata"]["is_playing"] is True
+    assert state["session"]["phase"] == "playing"
     started = [c for c in library.mpv.sent if c[0] == "loadfile" and c[3]]
     assert started and started[-1][3] == 75
 
@@ -556,7 +556,7 @@ async def test_library_resume_snapshot_expiry_is_published(monkeypatch):
     await settle()
 
     state = library.state()
-    assert state["source_state"] == "ready"
+    assert state["session"] is None
     assert library.track() is None
 
 
@@ -584,8 +584,8 @@ async def test_library_paused_queue_stays_paused_across_a_reroute(library):
 
     assert library.mpv.paused is True
     state = library.state()
-    assert state["source_state"] == "active"
-    assert state["metadata"]["is_playing"] is False
+    assert state["session"] is not None
+    assert state["session"]["phase"] == "paused"
 
 
 async def test_podcast_pause_then_play_another_episode_plays(podcast):
@@ -604,7 +604,7 @@ async def test_podcast_pause_then_play_another_episode_plays(podcast):
 
     assert podcast.mpv.paused is False
     assert podcast.episode() == EPISODE_B["uuid"]
-    assert podcast.state()["metadata"]["is_playing"] is True
+    assert podcast.playing()
 
 
 async def test_podcast_resumed_after_idle_end_that_fails_is_a_failed_load(monkeypatch):
@@ -620,11 +620,11 @@ async def test_podcast_resumed_after_idle_end_that_fails_is_a_failed_load(monkey
     await podcast.tick()
     await podcast.command("pause")
     await settle()
-    assert podcast.state()["source_state"] == "ready"
+    assert not podcast.active()
 
     podcast.mpv.auto_open = False
     await podcast.command("resume")
-    assert podcast.state()["metadata"]["is_buffering"] is True
+    assert podcast.buffering()
     await podcast.mpv.fails()
     await settle()
 
@@ -649,7 +649,7 @@ async def test_radio_restart_left_by_the_previous_station_is_not_the_new_ones_so
 
     await radio.tune(FIP)
     await settle()
-    assert radio.state()["metadata"]["is_buffering"] is True
+    assert radio.buffering()
     await radio.mpv.fails()
     await settle()
 
@@ -675,4 +675,4 @@ async def test_library_new_queue_mpv_refuses_leaves_nothing_playing(library):
 
     assert result["success"] is False
     assert library.mpv.current is None
-    assert library.state()["source_state"] == "ready"
+    assert not library.active()

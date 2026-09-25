@@ -1,0 +1,4156 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "set_speed"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "play_pause_resume": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 7000,
+      "at": 1790270001.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 9000,
+       "at": 1790270003.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 9000,
+       "at": 1790270003.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "senders": [],
+     "duration_ms": 1800000,
+     "position": {
+      "ms": 0,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "seek",
+     "set_speed"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "senders": [],
+     "duration_ms": 1800000,
+     "position": {
+      "ms": 9000,
+      "at": 1790270003.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "resume",
+     "seek",
+     "set_speed"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "seek_and_speed": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.5
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.5
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.5
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.5
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 600000,
+      "at": 1790270001.0,
+      "rate": 1.5
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 1200000,
+      "at": 1790270002.0,
+      "rate": 1.5
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 1200000,
+       "at": 1790270002.0,
+       "rate": 1.25
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.25
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "senders": [],
+     "duration_ms": 1800000,
+     "position": {
+      "ms": 1200000,
+      "at": 1790270002.0,
+      "rate": 1.25
+     }
+    },
+    "controls": [
+     "pause",
+     "seek",
+     "set_speed"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.25
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "duration_learned_from_mpv_and_periodic_sync": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "A Quiet Tuesday",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:d4e5f6",
+       "guid": "daily-0922",
+       "name": "A Quiet Tuesday",
+       "description": "",
+       "date_published": 1758441600,
+       "duration": 0,
+       "audio_url": "https://cdn.example/daily-0922.mp3",
+       "image_url": "https://img.example/daily.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 413,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "A Quiet Tuesday",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:d4e5f6",
+       "guid": "daily-0922",
+       "name": "A Quiet Tuesday",
+       "description": "",
+       "date_published": 1758441600,
+       "duration": 0,
+       "audio_url": "https://cdn.example/daily-0922.mp3",
+       "image_url": "https://img.example/daily.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 413,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "A Quiet Tuesday",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily.jpg",
+      "senders": [],
+      "duration_ms": 2400000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:d4e5f6",
+       "guid": "daily-0922",
+       "name": "A Quiet Tuesday",
+       "description": "",
+       "date_published": 1758441600,
+       "duration": 0,
+       "audio_url": "https://cdn.example/daily-0922.mp3",
+       "image_url": "https://img.example/daily.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 413,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 33000,
+      "at": 1790270003.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "A Quiet Tuesday",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily.jpg",
+     "senders": [],
+     "duration_ms": 2400000,
+     "position": {
+      "ms": 33000,
+      "at": 1790270003.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "seek",
+     "set_speed"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:d4e5f6",
+      "guid": "daily-0922",
+      "name": "A Quiet Tuesday",
+      "description": "",
+      "date_published": 1758441600,
+      "duration": 0,
+      "audio_url": "https://cdn.example/daily-0922.mp3",
+      "image_url": "https://img.example/daily.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 413,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "episode_plays_to_the_end": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 1795000,
+      "at": 1790270001.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "eof"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "set_speed"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "mpv_pause_auto_stops_then_resume_reloads": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 42000,
+      "at": 1790270001.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 42000,
+       "at": 1790270001.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "idle_timeout"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume",
+      "set_speed"
+     ],
+     "resume": {
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "duration_ms": 1800000,
+      "position_ms": 43000
+     },
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 43000,
+       "at": 1790270002.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 43000,
+       "at": 1790270002.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-2",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume",
+     "set_speed"
+    ],
+    "resume": {
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "duration_ms": 1800000,
+     "position_ms": 43000
+    },
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-2",
+     "phase": "playing",
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "senders": [],
+     "duration_ms": 1800000,
+     "position": {
+      "ms": 43000,
+      "at": 1790270002.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "seek",
+     "set_speed"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "mpv_dies_mid_play_and_return": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 95000,
+      "at": 1790270001.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "daemon_died"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume",
+      "set_speed"
+     ],
+     "resume": {
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "duration_ms": 1800000,
+      "position_ms": 95000
+     },
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "reason": "stream_disconnected"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume",
+      "set_speed"
+     ],
+     "resume": {
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "duration_ms": 1800000,
+      "position_ms": 95000
+     },
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume",
+     "set_speed"
+    ],
+    "resume": {
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "duration_ms": 1800000,
+     "position_ms": 95000
+    },
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume",
+     "set_speed"
+    ],
+    "resume": {
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "duration_ms": 1800000,
+     "position_ms": 95000
+    },
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "leave_mid_play_and_play_again": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "set_speed"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "position": {
+      "ms": 300000,
+      "at": 1790270001.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume",
+      "set_speed"
+     ],
+     "resume": {
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "duration_ms": 1800000,
+      "position_ms": 301000
+     },
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 301000,
+       "at": 1790270001.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "playing",
+      "title": "The Sunday Read",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily-0921.jpg",
+      "senders": [],
+      "duration_ms": 1800000,
+      "position": {
+       "ms": 301000,
+       "at": 1790270001.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:a1b2c3",
+       "guid": "daily-0921",
+       "name": "The Sunday Read",
+       "description": "A long story, read aloud.",
+       "date_published": 1758441600,
+       "duration": 1800,
+       "audio_url": "https://cdn.example/daily-0921.mp3",
+       "image_url": "https://img.example/daily-0921.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 412,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-2",
+     "reason": "user_stop"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-3",
+      "phase": "loading",
+      "title": "A Quiet Tuesday",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": {
+       "ms": 0,
+       "at": 1790270002.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:d4e5f6",
+       "guid": "daily-0922",
+       "name": "A Quiet Tuesday",
+       "description": "",
+       "date_published": 1758441600,
+       "duration": 0,
+       "audio_url": "https://cdn.example/daily-0922.mp3",
+       "image_url": "https://img.example/daily.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 413,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-3",
+      "phase": "playing",
+      "title": "A Quiet Tuesday",
+      "artist": "The Daily",
+      "album": "The Daily",
+      "artwork": "https://img.example/daily.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": {
+       "ms": 0,
+       "at": 1790270002.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "seek",
+      "set_speed"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "podcast",
+      "episode": {
+       "uuid": "1200361736:d4e5f6",
+       "guid": "daily-0922",
+       "name": "A Quiet Tuesday",
+       "description": "",
+       "date_published": 1758441600,
+       "duration": 0,
+       "audio_url": "https://cdn.example/daily-0922.mp3",
+       "image_url": "https://img.example/daily.jpg",
+       "episode_type": "full",
+       "season_number": null,
+       "episode_number": 413,
+       "is_explicit": false,
+       "website_url": "https://daily.example/0921",
+       "file_length": 28800000,
+       "file_type": "audio/mpeg",
+       "podcast": {
+        "uuid": "1200361736",
+        "name": "The Daily",
+        "image_url": "https://img.example/daily.jpg"
+       }
+      },
+      "speed": 1.0
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "podcast",
+    "data": {
+     "source": "podcast",
+     "session_id": "session-3",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume",
+     "set_speed"
+    ],
+    "resume": {
+     "title": "The Sunday Read",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily-0921.jpg",
+     "duration_ms": 1800000,
+     "position_ms": 301000
+    },
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:a1b2c3",
+      "guid": "daily-0921",
+      "name": "The Sunday Read",
+      "description": "A long story, read aloud.",
+      "date_published": 1758441600,
+      "duration": 1800,
+      "audio_url": "https://cdn.example/daily-0921.mp3",
+      "image_url": "https://img.example/daily-0921.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 412,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "podcast",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-3",
+     "phase": "playing",
+     "title": "A Quiet Tuesday",
+     "artist": "The Daily",
+     "album": "The Daily",
+     "artwork": "https://img.example/daily.jpg",
+     "senders": [],
+     "duration_ms": null,
+     "position": {
+      "ms": 0,
+      "at": 1790270002.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "seek",
+     "set_speed"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "podcast",
+     "episode": {
+      "uuid": "1200361736:d4e5f6",
+      "guid": "daily-0922",
+      "name": "A Quiet Tuesday",
+      "description": "",
+      "date_published": 1758441600,
+      "duration": 0,
+      "audio_url": "https://cdn.example/daily-0922.mp3",
+      "image_url": "https://img.example/daily.jpg",
+      "episode_type": "full",
+      "season_number": null,
+      "episode_number": 413,
+      "is_explicit": false,
+      "website_url": "https://daily.example/0921",
+      "file_length": 28800000,
+      "file_type": "audio/mpeg",
+      "podcast": {
+       "uuid": "1200361736",
+       "name": "The Daily",
+       "image_url": "https://img.example/daily.jpg"
+      }
+     },
+     "speed": 1.0
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ }
+}

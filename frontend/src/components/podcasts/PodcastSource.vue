@@ -50,7 +50,7 @@
     <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
         @after-hide="onAfterHide"
-        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" swipe-enabled
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :swipe-enabled="canSeek"
         @swipe-next="seekForward" @swipe-prev="seekBackward">
         <!-- Track info: podcast name kicker + episode title, in the shared
              PlayerInfoText's vertical layout (desktop sidebar and, since nothing
@@ -68,11 +68,12 @@
           </template>
         </template>
 
-        <!-- Progress bar (seekable) -->
+        <!-- Progress bar: once the episode has a duration and a playhead;
+             seekable while the source takes `seek` -->
         <template #progress>
-          <div @click.stop>
+          <div v-if="showProgress" @click.stop>
             <ProgressBar :currentPosition="positionMs" :duration="durationMs"
-              :progressPercentage="livePercent" variant="dark" @seek="seekTo" />
+              :progressPercentage="livePercent" :interactive="canSeek" variant="dark" @seek="seekTo" />
           </div>
         </template>
 
@@ -89,17 +90,17 @@
                bar but not in the expanded sheet, which is where a phone
                actually sees it. -->
           <div class="playback-controls" @click.stop>
-            <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only transport-secondary-round"
-              @click="seekBackward" />
+            <IconButton v-if="canSeek" icon="rewind15" variant="ghost" size="small"
+              class="desktop-only transport-secondary-round" @click="seekBackward" />
 
-            <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+            <IconButton :icon="pausesOnPress ? 'pause' : 'play'" variant="ghost" size="medium"
               class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only transport-secondary-round"
-              @click="seekForward" />
+            <IconButton v-if="canSeek" icon="forward30" variant="ghost" size="small"
+              class="desktop-only transport-secondary-round" @click="seekForward" />
           </div>
 
-          <div class="speed-selector desktop-only" @click.stop>
+          <div v-if="controls.includes('set_speed')" class="speed-selector desktop-only" @click.stop>
             <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
           </div>
         </template>
@@ -159,15 +160,26 @@ const {
   content: () => podcastStore.currentEpisode
 })
 
-// Live position with 100ms local interpolation between backend syncs.
-// Reads position/duration (in ms) from unifiedStore.systemState.metadata —
-// kept current by state_changed events and source.position_update.
+// The playhead (ms), from the session's position anchor — or the resume point
+// while no session runs.
 const {
   currentPosition: positionMs,
   duration: durationMs,
   progressPercentage: livePercent,
   seekTo,
+  isPositionInitialized,
 } = useSourceProgress('podcast')
+
+// What the source takes right now, and the phase it answers from.
+const controls = computed(() =>
+  unifiedStore.systemState.source === 'podcast' ? unifiedStore.systemState.controls : []
+)
+const phase = computed(() =>
+  unifiedStore.systemState.source === 'podcast' ? unifiedStore.systemState.session?.phase : null
+)
+const canSeek = computed(() => controls.value.includes('seek'))
+const pausesOnPress = computed(() => phase.value === 'playing' || phase.value === 'loading')
+const showProgress = computed(() => durationMs.value > 0 && isPositionInitialized.value)
 
 // Navigation params (stored separately since composable handles view state)
 const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
@@ -315,21 +327,22 @@ const selectedSpeed = computed({
 })
 
 async function togglePlayPause() {
-  if (isCurrentlyPlaying.value) {
-    await podcastStore.pause()
-  } else {
+  if (pausesOnPress.value) {
+    if (controls.value.includes('pause')) await podcastStore.pause()
+  } else if (controls.value.includes('resume')) {
     await podcastStore.resume()
   }
 }
 
-// All seeks go through useSourceProgress.seekTo (ms): it sets localPosition
-// optimistically and suppresses the next WS sync, so the bar jumps instantly
-// instead of waiting for the backend round-trip.
+// All seeks go through useSourceProgress.seekTo (ms): it shows the target at
+// once and holds it until the anchor the seek causes arrives.
 async function seekBackward() {
+  if (!canSeek.value) return
   await seekTo(Math.max(0, positionMs.value - 15000))
 }
 
 async function seekForward() {
+  if (!canSeek.value) return
   await seekTo(Math.min(durationMs.value, positionMs.value + 30000))
 }
 

@@ -11,6 +11,7 @@ from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT
 from backend.core.multiroom.snapcast import NETWORK_PRESETS
 from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
+from backend.core.state import SystemAudioState
 
 
 class TestSnapcastRoutes:
@@ -414,7 +415,7 @@ class TestMultiroomToggle:
         routing = Mock()
         routing.set_multiroom_enabled = AsyncMock(return_value=True)
         state_machine = Mock()
-        state_machine.get_current_state = Mock(return_value={"active_source": "radio"})
+        state_machine.system_state = SystemAudioState(active_source=AudioSource.RADIO)
         return routing, state_machine
 
     @pytest.fixture
@@ -426,29 +427,13 @@ class TestMultiroomToggle:
 
     def test_an_idle_appliance_switches_with_no_source_to_carry(self, client, services):
         routing, state_machine = services
-        state_machine.get_current_state.return_value = {"active_source": "none"}
+        state_machine.system_state.active_source = AudioSource.NONE
 
         response = client.put("/api/routing/multiroom", json={"enabled": False})
 
         assert response.status_code == 200
-        assert response.json()["active_source"] == "none"
+        assert response.json()["source"] == "none"
         routing.set_multiroom_enabled.assert_awaited_once_with(False)
-
-    def test_a_source_name_the_enum_does_not_know_is_reported_as_none(
-        self, client, services
-    ):
-        """`coerce_audio_source_or_none` is the defensive read of a stored
-        value, and this is the other half of it: the answer must never echo a
-        name back. Milo-Mac decodes `active_source` into its own enum, so an
-        unknown string there is a decode failure at the far end rather than a
-        source that is simply off.
-        """
-        _, state_machine = services
-        state_machine.get_current_state.return_value = {"active_source": "librespot"}
-
-        body = client.put("/api/routing/multiroom", json={"enabled": True}).json()
-
-        assert body["active_source"] == "none"
 
     def test_the_answer_reports_the_mode_that_was_asked_for(self, client):
         """Milo-Mac reads `multiroom_enabled` off this body to settle its own
@@ -457,7 +442,7 @@ class TestMultiroomToggle:
         """
         body = client.put("/api/routing/multiroom", json={"enabled": True}).json()
 
-        assert body == {"status": "success", "multiroom_enabled": True, "active_source": "radio"}
+        assert body == {"status": "success", "multiroom_enabled": True, "source": "radio"}
 
     def test_a_refused_transition_is_not_a_200(self, client, services):
         """The ALSA re-route can fail half-way — snapserver refusing the
@@ -490,7 +475,8 @@ class TestAToggleRacingASourceSwitch:
         import asyncio
         from unittest.mock import patch
         from backend.core.multiroom.routing import AudioRoutingService
-        from backend.core.models.audio_state import SourceState
+        from backend.core.models.audio_state import NetworkRequirement
+        from backend.core.models.audio_wire import SourceView
         from backend.core.state import AudioStateMachine
         from backend.tests.conftest import free_mailbox
 
@@ -517,12 +503,12 @@ class TestAToggleRacingASourceSwitch:
             source.release_for_reroute = AsyncMock(return_value=True)
             source.acquire_after_reroute = AsyncMock(return_value=True)
             source.hold_mailbox = free_mailbox()
-            source.state = SourceState.ACTIVE
-            source.metadata = {}
+            source.view = SourceView()
+            source.availability = Mock(return_value=None)
+            source.NETWORK_REQUIREMENT = NetworkRequirement.NONE
             state_machine.register_source(name, source)
             sources[name] = source
         state_machine.system_state.active_source = AudioSource.RADIO
-        state_machine.system_state.source_state = SourceState.ACTIVE
 
         # The toggle's first outward act is the "multiroom_disabling" broadcast.
         # Holding it there is holding the request between its start and the lock.
@@ -564,4 +550,4 @@ class TestAToggleRacingASourceSwitch:
         radio.release_for_reroute.assert_not_called()
         podcast.release_for_reroute.assert_awaited_once()
         podcast.acquire_after_reroute.assert_awaited_once()
-        assert response.json()["active_source"] == "podcast"
+        assert response.json()["source"] == "podcast"

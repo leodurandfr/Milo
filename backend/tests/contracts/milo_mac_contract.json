@@ -1,10 +1,11 @@
 {
-  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Re-synced 2026-08-30 from the vendored snapshot under vendor/milo-mac/ (MiloAPIService.swift = REST, WebSocketService.swift = WS). test_milo_mac_contract.py enforces TWO things offline on every pytest run: the backend still serves every route/event here, AND this manifest matches the vendored snapshot's surface EXACTLY (so it can't silently drift from the app it protects). The non-blocking CI job check_milo_mac_freshness.py re-clones the real Milo-Mac and warns when the vendored snapshot has fallen behind upstream. Update this file + refresh vendor/milo-mac/ together, CONSCIOUSLY, in one commit when Milo-Mac evolves.",
+  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Re-synced 2026-09-24 from the vendored snapshot under vendor/milo-mac/ (MiloAPIService.swift = REST, WebSocketService.swift = WS, MiloAudioState.swift = the decoder of the audio state both events and REST carry). test_milo_mac_contract.py enforces TWO things offline on every pytest run: the backend still serves every route/event here, AND this manifest matches the vendored snapshot's surface EXACTLY (so it can't silently drift from the app it protects). The non-blocking CI job check_milo_mac_freshness.py re-clones the real Milo-Mac and warns when the vendored snapshot has fallen behind upstream. Update this file + refresh vendor/milo-mac/ together, CONSCIOUSLY, in one commit when Milo-Mac evolves.",
 
   "_snapshot": {
-    "upstream_commit": "1f708a292641bc9c40f031c7724b9ec360ff766d",
-    "captured": "2026-09-20",
-    "files": ["MiloAPIService.swift", "WebSocketService.swift"],
+    "upstream_commit": "abb4902caa909ec7979cd12179b10e6daf447fc7",
+    "captured": "2026-09-24",
+    "files": ["MiloAPIService.swift", "WebSocketService.swift", "MiloAudioState.swift"],
+    "what_abb4902_changed": "Phase 5a of the source architecture: the app reads the new audio-state wire (docs: « Développeurs : le fil », frozen 2026-09-24). WS: the four full_state carriers (system/state_changed, system/transition_start, system/transition_complete, source/state_changed) are gone, replaced by source/state, whose data IS the state; multiroom_changed is gone too — the multiroom spinner resolves on the first state where `switching` is false again with the expected `multiroom_enabled`, and routing/multiroom_error stays the failure path. REST: unchanged surface — GET /api/audio/state now decodes through MiloAudioState.swift, and the control route is sent `resume_playback` for radio. MiloAudioState.swift is vendored from this refresh on: it is byte-identical to Milo-iOS' Shared/MiloAudioState.swift (same sha256, 17bf6270…), and it is where every key the source/state invariant pins is read. Also carried: the 15 commits of Milo-Mac main since 1f708a2, among them 7f5457dc8f, which moved the eleven mutations onto sendCommand() — the extractor now reads it (backend issue #2: before, every freshness run reported eleven false GET errors).",
     "why_this_key_exists": "It did not, until 2026-09-20 — and that is exactly how the snapshot went six routes stale. The manifest recorded WHAT Milo-Mac consumes and never WHICH VERSION of Milo-Mac it was read from, so `manifest == snapshot` stayed green while both described an app four music-library routes out of date. The iOS manifest already carried this key and its lesson: a snapshot left stale makes the equality true trivially and the contract decorative. Bump it in the same commit as the .swift files, always.",
     "what_1f708a2_added": "NINE routes, all gained, none lost — six the extractor could see and three it could not: GET /api/music-library/{search,albums,artist/{},album/{}} plus the two spellings of POST /api/audio/control. The other three — GET /api/music-library/cover/{}, /api/radio/favicon and /api/radio/images/{} — are built with URLComponents or matched with hasPrefix rather than passed to send()/fetchJSON(), so the one-shape extractor reported a surface missing them and the freshness job could not have flagged them however often it ran. Found only by reading the refreshed snapshot line by line. extract_rest now reads every /api/ literal on a line of code, which is the check_milo_ios_freshness.py::unvendored_surface lesson arriving on the Mac side. Milo-Mac grew an in-app music-library browser (4808d69, 1f708a2, 2026-09-13) and the manifest was not touched. Six routes the backend was free to delete believing nobody called them — which is the whole hazard this file exists for, arrived on the Mac side after the same thing had just been caught on the iOS side.",
     "the_job_caught_it_and_nobody_read_it": "check_milo_mac_freshness.py did its whole job. It ran, it detected the drift, and on 2026-09-15 it opened issue #1, 'Milo-Mac contract drift: refresh the vendored snapshot', which then sat open for five days while the six routes stayed unprotected. So the failure here is NOT a missing signal and the remedy is not more automation: the job is deliberately non-blocking (it prints ::error:: annotations and still exits 0) because a scheduled clone of a third-party repo must never be able to block a merge, and that call stands. What the episode measures is the human half — an annotation and an issue are only worth what someone does with them. Worth knowing before adding a louder alarm: the alarm rang.",
@@ -38,9 +39,9 @@
     { "method": "GET",  "path": "/api/music-library/album/{album_id}", "consumer": "MiloAPIService.fetchMusicLibraryAlbumSongs",
       "note": "Reads `album.song[]` — singular again. The album_id may be a synthetic `mdisc:…`. TWO call profiles: one fetch to open an album page, and a PARALLEL FAN-OUT (withTaskGroup, one request per album) when a whole artist is played — a 20-album artist means 20 concurrent requests on this route. Individual failures are swallowed (`try?`) and the album is skipped, so a partial outage here is an incomplete queue with no error anywhere." },
     { "method": "POST", "path": "/api/audio/control/{source_name}",  "consumer": "MiloAPIService.sendPlaybackCommand",
-      "note": "ONE backend route, TWO spellings in the Swift — see the music_library entry below; both are listed because the manifest tracks what the client DECLARES and the snapshot produces both shapes. Body {command, data}: pause | resume | next, param-less, with `data` an explicitly EMPTY object rather than absent. Decodes NOTHING — not the body, not even a `status`: send() is @discardableResult and both callers drop the Data, so only statusCode == 200 is read. That is a real asymmetry with POST /api/audio/source/{source}, which DOES read `status` in the body and treats status != 'success' as a failure despite the 200. On /audio/control a failure announced as 200 + {'status':'error'} is invisible to Milo-Mac. Recorded as measured, not fixed — the fix belongs in Milo-Mac, never in a backend shim." },
+      "note": "ONE backend route, TWO spellings in the Swift — see the music_library entry below; both are listed because the manifest tracks what the client DECLARES and the snapshot produces both shapes. Body {command, data}: the command names the state's `controls` lists (pause | resume | next | prev, and resume_playback for radio), param-less, with `data` an explicitly EMPTY object rather than absent. Since 7f5457dc8f every mutation goes through sendCommand(), which reads the body's `status` and treats anything but 'success' as a failure — the asymmetry this note used to record with POST /api/audio/source/{source} is gone." },
     { "method": "POST", "path": "/api/audio/control/music_library",  "consumer": "MiloAPIService.playMusicLibraryContext",
-      "note": "The SAME route as the entry above, with `source` frozen to the literal `music_library`; the canonical spelling is /api/audio/control/{source}. Two entries because the extractor reads two literals and manifest == snapshot is a plain equality — NOT because there are two routes. They even converge at runtime: music_library is in NowPlayingControls.pauseResumeSources/nextSources, so sendPlaybackCommand interpolates to this very URL when the library is the active source. What separates them is the BODY, not the path: {command: 'play_context', data: {tracks: [...], start_index: Int, shuffle: false}} — shuffle is always false, Milo-Mac exposes no shuffle. `tracks` carries MusicLibrarySong.raw VERBATIM, the whole song dict as the backend served it: a ROUND-TRIP CONTRACT, not a projection. Dropping or renaming a song field Milo-Mac never reads would still break playback, which is why the four fields named in /search are not the whole dependency." },
+      "note": "The SAME route as the entry above, with `source` frozen to the literal `music_library`; the canonical spelling is /api/audio/control/{source}. Two entries because the extractor reads two literals and manifest == snapshot is a plain equality — NOT because there are two routes. They even converge at runtime: when the library is the active source and its `controls` allow the command, sendPlaybackCommand interpolates to this very URL. What separates them is the BODY, not the path: {command: 'play_context', data: {tracks: [...], start_index: Int, shuffle: false}} — shuffle is always false, Milo-Mac exposes no shuffle. `tracks` carries MusicLibrarySong.raw VERBATIM, the whole song dict as the backend served it: a ROUND-TRIP CONTRACT, not a projection. Dropping or renaming a song field Milo-Mac never reads would still break playback, which is why the four fields named in /search are not the whole dependency." },
     { "method": "GET",  "path": "/api/radio/stations",              "consumer": "MiloAPIService.getRadioFavorites",
       "note": "Called with ?favorites_only=true (query string is not part of the path contract). Decodes stations[].{id, name, favicon} — `favicon` is NEW in this refresh and is the station logo: empty or absent for many favorites, otherwise either a Pi-hosted path (/api/radio/images/…, used as-is) or an external URL sent through /api/radio/favicon. Milo-iOS pins the same route for its widget artwork priming, and reads none of these fields." },
     { "method": "POST", "path": "/api/radio/play",                  "consumer": "MiloAPIService.playRadioStation" },
@@ -56,10 +57,8 @@
   "ws": {
     "_about": "Each (category, type) below MUST have at least one backend emission site: a typed WsEvent subclass (core/models/ws_events.py) referenced outside its defining module. payload_invariants are STATICALLY VERIFIED against those typed models by test_milo_mac_contract.py (test_invariant_* + test_all_payload_invariants_are_verified) — adding/changing an invariant here requires the matching test.",
     "events": [
-      { "category": "system",    "type": "state_changed",        "consumer": "WebSocketService.decodeState", "store_delegate": "didReceiveStateUpdate" },
-      { "category": "system",    "type": "transition_start",     "consumer": "WebSocketService.decodeState", "store_delegate": "didReceiveStateUpdate" },
-      { "category": "system",    "type": "transition_complete",  "consumer": "WebSocketService.decodeState", "store_delegate": "didReceiveStateUpdate" },
-      { "category": "source",    "type": "state_changed",        "consumer": "WebSocketService.decodeState", "store_delegate": "didReceiveStateUpdate" },
+      { "category": "source",    "type": "state",                "consumer": "WebSocketService.decodeState", "store_delegate": "didReceiveStateUpdate",
+        "note": "`data` IS the audio state (the same object GET /api/audio/state returns), decoded by MiloAudioState.decode; a state it cannot decode is logged and ignored. Pinned by the source/state payload invariant below." },
       { "category": "volume",    "type": "volume_changed",       "consumer": "WebSocketService.decodeVolume", "store_delegate": "didReceiveVolumeUpdate + didReceiveMultiroomVolumeUpdate" },
       { "category": "routing",   "type": "multiroom_error",      "consumer": "WebSocketService.parseMessage", "store_delegate": "didReceiveMultiroomTransitionComplete(success: false)" },
       { "category": "settings",  "type": "volume_limits_changed", "consumer": "WebSocketService.decodeVolumeLimits", "store_delegate": "didReceiveVolumeLimitsUpdate",
@@ -70,15 +69,26 @@
     ],
 
     "payload_invariants": {
-      "full_state_envelope": {
-        "carried_by": ["system/state_changed", "system/transition_start", "system/transition_complete", "source/state_changed"],
-        "data_key": "full_state",
-        "required_subkeys": ["active_source", "source_state", "transitioning", "multiroom_enabled", "equalizer_effects_enabled", "metadata"]
-      },
-      "multiroom_changed_discriminator": {
-        "carried_by": ["any full_state-bearing event"],
-        "data_key": "multiroom_changed",
-        "meaning": "boolean sibling of full_state; true marks the authoritative end of a routing transition (multiroom loading spinner completion)."
+      "source/state": {
+        "decoder": "MiloAudioState.swift",
+        "data_keys": [
+          "source", "switching", "service", "service_error.reason", "service_error.message",
+          "session.id", "session.phase", "session.title", "session.artist", "session.album",
+          "session.artwork", "session.senders", "session.duration_ms",
+          "session.position.ms", "session.position.at", "session.position.rate",
+          "controls", "resume.title", "resume.artist", "resume.album", "resume.artwork",
+          "resume.duration_ms", "resume.position_ms", "details.kind",
+          "multiroom_enabled", "equalizer_effects_enabled"
+        ],
+        "details_keys": {
+          "radio": ["station.id", "station.name", "station.favicon", "track.title", "track.artist", "track.artwork"],
+          "music_library": ["track_id"]
+        },
+        "frozen_enums": {
+          "service": ["stopped", "starting", "running", "failed"],
+          "session.phase": ["loading", "playing", "paused", "connected"]
+        },
+        "note": "Every key the decoder reads, dotted; checked against the backend's typed AudioState (core/models/audio_wire.py) AND against the vendored decoder, so neither side can drop one alone. `source`, `switching`, `service`, `controls`, the two flags, and inside a session `id`, `phase`, `senders` are decoded as REQUIRED: a missing one fails the whole state. `service` and `session.phase` are frozen enums — an unknown value fails the decode on purpose — so their values are pinned both ways. `details` is decoded leniently (try?): only the radio station and track and the library's track_id are read; `availability` is not decoded."
       },
       "volume_changed": {
         "data_keys": ["state.global_volume_db", "state.mode", "state.clients", "state.zones", "multiroom_enabled"],
@@ -98,8 +108,6 @@
         "note": "PRESENCE ONLY — same collapse as client_state_changed above, same commit. Worth recording what this removed, because the old entry documented a REAL backend trap and it must not read as still-open: Milo-Mac used to derive member-removed from `zone == nil && mac_id != nil`, which MultiroomZoneChanged's own docstring calls wrong (a `deleted` action carries the zone dict too, so zone-presence says nothing about what happened). Milo-Mac no longer reads any of it, so the trap can no longer bite THIS client — but the discriminator is still misleading for anyone who does branch on it, and the fix would still belong in the consumer, never in a backend shim."
       }
     },
-
-    "metadata_is_opaque": "Milo-Mac reads full_state.metadata as an opaque [String: Any] dict. NO metadata SUB-field is coupled (uri, client_count, album_art_height, track_position/duration, etc.). An over-emitted metadata sub-field with no frontend/src/ consumer is therefore safe to drop without touching this manifest.",
 
     "consumer_side_only_NOT_enforced": [
       { "category": "system", "type": "ping",

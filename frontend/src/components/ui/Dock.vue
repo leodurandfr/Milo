@@ -46,7 +46,7 @@
         <button v-for="({ id, icon }, index) in dockApps" :key="`mobile-${id}`"
           :ref="el => { if (el) mobileDockItems[index] = el }" @click="() => handleAppClick(id, index)"
           @pointerdown="(e) => appHold.onAppHoldStart(id, e)"
-          :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
+          :disabled="unifiedStore.systemState.switching" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle mobile-only">
           <AppIcon :name="icon" size="tile-lg" class="dock-item-icon" />
         </button>
@@ -55,7 +55,7 @@
         <button v-for="({ id, icon }, index) in enabledAudioSources" :key="`desktop-audio-${id}`"
           :ref="el => { if (el) desktopDockItems[index] = el }" @click="() => handleAppClick(id, index)"
           @pointerdown="(e) => appHold.onAppHoldStart(id, e)"
-          :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
+          :disabled="unifiedStore.systemState.switching" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle desktop-only">
           <AppIcon :name="icon" size="tile-lg" class="dock-item-icon" />
         </button>
@@ -211,7 +211,7 @@ const updateDockMetrics = () => {
 // === DOCK SHOW/HIDE ===
 const startHideTimer = () => {
   timer.clear(hideTimeout);
-  if (unifiedStore.systemState.active_source === 'none') return;
+  if (unifiedStore.systemState.source === 'none') return;
   hideTimeout = timer.setTimeout(hideDock, 10000);
 };
 
@@ -290,7 +290,7 @@ const { onVolumeHoldStart, onVolumeHoldEnd } = volumeHold;
 
 // === APP HOLD COMPOSABLE (hold active source's icon → close it) ===
 const appHold = useDockAppHold({
-  isActiveSource: (id) => id === unifiedStore.systemState.active_source,
+  isActiveSource: (id) => id === unifiedStore.systemState.source,
   onCloseActive: () => {
     indicatorStyle.value.opacity = '0';
     unifiedStore.changeSource('none');
@@ -309,9 +309,9 @@ const indicatorStyle = ref({
 
 const activeSourceIndex = computed(() => {
   if (isDesktop()) {
-    return enabledAudioSources.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
+    return enabledAudioSources.value.findIndex(app => app.id === unifiedStore.systemState.source);
   } else {
-    const currentSource = unifiedStore.systemState.active_source;
+    const currentSource = unifiedStore.systemState.source;
     if (!ALL_AUDIO_SOURCES.includes(currentSource)) return -1;
     return dockApps.value.findIndex(app => app.id === currentSource);
   }
@@ -467,7 +467,7 @@ const handleToggleClick = (event) => {
 };
 
 // === LIFECYCLE ===
-watch(() => unifiedStore.systemState.active_source, (newSource) => {
+watch(() => unifiedStore.systemState.source, (newSource) => {
   if (newSource === 'none') {
     indicatorStyle.value.opacity = '0';
     timer.clear(hideTimeout);

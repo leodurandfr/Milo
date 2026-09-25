@@ -379,6 +379,7 @@ class TestZonePropagationBypass:
         # Set up state_machine mock
         mock_sm = Mock()
         mock_sm.broadcast = AsyncMock()
+        mock_sm.publish_state = AsyncMock()
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service — owns effects_enabled cache + setter
@@ -559,6 +560,7 @@ class TestStateSyncOnReconnect:
 
         mock_sm = Mock()
         mock_sm.broadcast = AsyncMock()
+        mock_sm.publish_state = AsyncMock()
         routing.set_state_machine(mock_sm)
 
         mock_camilladsp = Mock()
@@ -605,6 +607,7 @@ class TestDspEnabledAPI:
         # Set up state_machine mock
         mock_sm = Mock()
         mock_sm.broadcast = AsyncMock()
+        mock_sm.publish_state = AsyncMock()
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service — owns effects_enabled cache + setter, currently enabled
@@ -622,3 +625,5 @@ class TestDspEnabledAPI:
         assert result is True
         mock_camilladsp.bypass_effects.assert_called_once()
         mock_settings.set_setting.assert_any_call('routing.equalizer_effects_enabled', False)
+        # The state carries equalizer_effects_enabled: the toggle republishes it.
+        mock_sm.publish_state.assert_awaited()

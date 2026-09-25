@@ -15,12 +15,13 @@
  * mounting the component, which this suite does not do.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useLyricsStore } from '@/stores/lyricsStore';
+import { useLyricsStore, getTrackIdentity } from '@/stores/lyricsStore';
 import { nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
+import { makeAudioState, makeSession, publishState } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -37,7 +38,7 @@ describe('lyricsStore — sync offset', () => {
     resetApiCallMock();
     store = useLyricsStore();
     unified = useUnifiedAudioStore();
-    unified.systemState.multiroom_enabled = true;
+    publishState(unified, { multiroom_enabled: true });
   });
 
   it('holds the highlight back by the configured snapcast buffer', async () => {
@@ -62,7 +63,7 @@ describe('lyricsStore — sync offset', () => {
     apiCall.get.mockResolvedValueOnce(serverConfig(700));
     await store.loadSyncOffset();
 
-    unified.systemState.multiroom_enabled = false;
+    publishState(unified, { multiroom_enabled: false });
     expect(store.syncOffsetMs).toBe(0);
 
     apiCall.get.mockClear();
@@ -71,14 +72,14 @@ describe('lyricsStore — sync offset', () => {
   });
 
   it('reads the buffer when multiroom appears under an already-open view', async () => {
-    // No metadata → loadLyrics() returns before any request, so the only call
+    // No session → loadLyrics() returns before any request, so the only call
     // this test can produce is the server-config one.
-    unified.systemState.multiroom_enabled = false;
+    publishState(unified, { multiroom_enabled: false });
     store.open();
     expect(store.syncOffsetMs).toBe(0);
 
     apiCall.get.mockResolvedValueOnce(serverConfig(700));
-    unified.systemState.multiroom_enabled = true;
+    publishState(unified, { multiroom_enabled: true });
     await nextTick();
     await vi.waitFor(() => expect(store.syncOffsetMs).toBe(-700));
   });
@@ -161,15 +162,18 @@ describe('lyricsStore — what loadLyrics asks for, and what it keeps', () => {
   let unified;
 
   const lyricsFor = (title, artist) => {
-    unified.systemState.active_source = 'spotify';
-    unified.systemState.metadata = { title, artist, album: 'Some Album', duration: 181000 };
+    publishState(unified, {
+      source: 'spotify',
+      service: 'running',
+      session: makeSession({ title, artist, album: 'Some Album', duration_ms: 181000 }),
+    });
   };
 
   beforeEach(() => {
     resetApiCallMock();
     store = useLyricsStore();
     unified = useUnifiedAudioStore();
-    unified.systemState.multiroom_enabled = false;
+    publishState(unified, { multiroom_enabled: false });
   });
 
   it('asks on artist, title and duration — never the album', async () => {
@@ -254,5 +258,22 @@ describe('lyricsStore — what loadLyrics asks for, and what it keeps', () => {
 
     expect(store.unavailable).toBe(false);
     expect(store.found).toBe(true);
+  });
+});
+
+
+/**
+ * Only a session names a track. A resume point still carries a title and an
+ * artist, but nothing is playing: looking it up would show lyrics scrolling
+ * against a playhead that does not move.
+ */
+describe('lyricsStore — the track identity a state names', () => {
+  it('names nothing without a session, even with a resume point', () => {
+    const state = makeAudioState({
+      source: 'music_library',
+      resume: { title: 'Laguna', artist: 'Moussa', album: null, artwork: null,
+        duration_ms: 181000, position_ms: 42000 },
+    });
+    expect(getTrackIdentity(state)).toEqual({ artist: '', title: '' });
   });
 });

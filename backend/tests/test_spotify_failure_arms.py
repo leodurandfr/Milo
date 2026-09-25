@@ -30,7 +30,9 @@ import pytest
 from aiohttp.client_reqrep import ConnectionKey
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+from backend.core.models.audio_state import AudioSource
 from backend.sources.spotify.source import SpotifySource
+from backend.tests.golden.harness import make_state_machine
 from backend.tests.spotify_world import PARAPLUIE, SpotifyWorld
 
 
@@ -354,8 +356,7 @@ class TestReadingTheDaemonsStatus:
 
             state = await world.get_state()
 
-            assert state["source_state"] == "ready"
-            assert "title" not in (state["metadata"] or {})
+            assert state["session"] is None
         finally:
             await world.source.shutdown()
 
@@ -491,15 +492,27 @@ class TestTheStartThatFails:
         await source.shutdown()
 
     async def test_a_service_that_will_not_start_stops_the_start(self, tmp_path):
+        """A unit systemd refuses fails the selection: the state says the
+        service failed to start, and nothing goes on to talk to a daemon that
+        is not there."""
         config = tmp_path / "config.yml"
         config.write_text("server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\n")
-        systemd = Mock(start=AsyncMock(return_value=False))
-        source = SpotifySource({"config_path": str(config)}, systemd_manager=systemd)
+        systemd = Mock(start=AsyncMock(return_value=False), stop=AsyncMock(return_value=True))
+        machine, _ = make_state_machine()
+        source = SpotifySource(
+            {"config_path": str(config)}, state_machine=machine, systemd_manager=systemd,
+        )
+        machine.register_source(AudioSource.SPOTIFY, source)
 
-        assert await source.start() is False
+        with patch("aiohttp.ClientSession") as http:
+            assert await machine.transition_to_source(AudioSource.SPOTIFY) is False
 
         systemd.start.assert_awaited_once_with("milo-spotify.service")
-        assert source.state.value == "error"
+        http.assert_not_called()
+        state = machine.get_current_state()
+        assert state["service"] == "failed"
+        assert state["service_error"]["reason"] == "start_failed"
+        assert state["session"] is None
         await source.shutdown()
 
     async def test_a_crash_mid_start_tears_down_what_was_built(self, source):

@@ -39,7 +39,7 @@ from backend.core.audio_source import Result
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ReroutePolicy, ResumePolicy,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.audio_wire import MusicLibraryDetails, ResumeView
 from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
@@ -120,8 +120,8 @@ class MusicLibrarySource(MpvAudioSource):
     and replace its browser with "no network"; on the mixed setup (a key and two
     shares, the common one) it would blank the whole thing to explain half of it.
     Over-blocking something that works is the worse error, so the flat answer
-    stays NONE. A dynamic one is not available either: `_network_unavailable`
-    reads this synchronously on every `full_state` broadcast, and everything
+    stays NONE. A dynamic one is not available either: the state machine reads
+    this synchronously every time it composes the state, and everything
     `NetworkShareService` knows is async.
 
     It costs nothing, because unavailability is already modelled one level down
@@ -189,6 +189,10 @@ class MusicLibrarySource(MpvAudioSource):
         # the source is inactive — and it borrows the same lazy accessor to turn
         # a cover id into an artist name.
         self._artist_images = ArtistImageService(self.get_navidrome_client)
+        # Why the library cannot play now (docs: "le fil", §3), as of the last
+        # storage picture broadcast_storages() saw: no mounted storage bearing a
+        # library, or no catalog (Navidrome not answering / not provisioned).
+        self._availability: Optional[str] = None
         # Merged (multi-disc) album catalog, cached for the alphabetical grid —
         # one entry per browse scope (the sorted library ids → (built_at,
         # albums)), so the merged view and the "everything mounted" view of the
@@ -503,19 +507,19 @@ class MusicLibrarySource(MpvAudioSource):
         poll of a running scan — the one thing that makes plugging a key in, or
         pulling it out, visible without a refetch. What a storage leaving does
         to playback is applied first, in the actor, so the state it leaves is
-        published before the storages event (which carries full_state).
+        published before the storages event; the availability it implies goes
+        into the state too.
         """
         entries = await self._shares.storages_with_stats()
-        await self._submit(Result(lambda: self._storage_changed(entries)))
+        scan = self._shares.scan_state()
+        await self._submit(Result(lambda: self._storage_changed(entries, scan)))
         if self.state_machine:
-            scan = self._shares.scan_state()
             await self.state_machine.broadcast(MusicLibraryStoragesChanged(
                 storages=entries,
                 scanning=bool(scan.get("scanning")),
-                catalog_ready=bool(scan.get("catalog_ready")),
             ))
 
-    async def _storage_changed(self, entries: List[Dict[str, Any]]) -> None:
+    async def _storage_changed(self, entries: List[Dict[str, Any]], scan: Dict[str, Any]) -> None:
         """A storage space that is no longer mounted takes with it the session
         playing from it — the session, never the source: mpv and the other
         storages stay playable (E01) — and a resume point that would reopen it
@@ -523,6 +527,9 @@ class MusicLibrarySource(MpvAudioSource):
 
         A queue built unscoped is attributed to no storage and left alone: an
         unasked-for stop is worse than a track that plays on out of page cache.
+
+        The availability they imply is decided here too, in the actor: no
+        mounted storage carrying a library, else a catalog that does not answer.
         """
         def gone(library_id: Optional[int]) -> bool:
             return library_id is not None and not any(
@@ -535,13 +542,25 @@ class MusicLibrarySource(MpvAudioSource):
                 "Storage space for library %s is gone — ending the session", session.library_id
             )
             await self._end_playback(EndReason.STORAGE_GONE)
-            return
-        point = self._resume_point
-        if point is not None and gone(point.content["queue_library_id"]):
-            self._logger.info("Storage space of the resume point is gone — forgetting it")
-            self._set_resume_point(None)
-            if self._session is None and self._published is not None:
-                self._update_connection_state()
+        else:
+            point = self._resume_point
+            if point is not None and gone(point.content["queue_library_id"]):
+                self._logger.info("Storage space of the resume point is gone — forgetting it")
+                self._set_resume_point(None)
+                if self._session is None and self._published is not None:
+                    self._publish()
+
+        # After the session's end, never before: published first, the new
+        # availability went out over the session that storage was playing.
+        if not any(entry["mounted"] and entry.get("library_id") is not None for entry in entries):
+            availability = "no_storage"
+        elif not scan.get("catalog_ready"):
+            availability = "catalog_unavailable"
+        else:
+            availability = None
+        if availability != self._availability:
+            self._availability = availability
+            self._availability_changed()
 
     # =========================================================================
     # LIFECYCLE
@@ -594,7 +613,7 @@ class MusicLibrarySource(MpvAudioSource):
                 return True
             if point is not None:
                 self._set_resume_point(None)
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -733,9 +752,9 @@ class MusicLibrarySource(MpvAudioSource):
             if not (await self._mpv.seek(0) and await self._set_mpv_pause(False)):
                 return self.mpv_refused("restart track")
             session.position = 0
+            self._anchor_position(0)
             self._reset_scrobble(session)
             self._scrobble_now_playing(session)
-            self._update_connection_state()
             return self.success_response("Restarted track")
         return await self._switch_to_index(session, session.index - 1)
 
@@ -746,7 +765,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._move_to_track(session, index)
         session.opened = False
         self._sync_phase(session, PhaseEvent.TRACK_CHANGE)
-        self._update_connection_state()
+        self._publish()
         return self.success_response(f"Playing track {index + 1}")
 
     async def _handle_pause(self) -> Dict[str, Any]:
@@ -777,7 +796,7 @@ class MusicLibrarySource(MpvAudioSource):
         if not await self._mpv.seek(position):
             return self.mpv_refused(f"seek to {position}s")
         session.position = position
-        self._update_connection_state()
+        self._anchor_position(position * 1000)
         return self.success_response(f"Seeked to {position}s")
 
     async def _handle_set_shuffle(self, params: SetShuffleParams) -> Dict[str, Any]:
@@ -833,7 +852,7 @@ class MusicLibrarySource(MpvAudioSource):
                 session.entries.append(entry)
                 session.queue.append(track)
             session.shuffle = target
-        self._update_connection_state()
+        self._publish()
         if refused:
             self._logger.error("mpv refused part of the reorder; the queue now ends where mpv's does")
             return self.error_response("Failed to reorder queue")
@@ -845,7 +864,7 @@ class MusicLibrarySource(MpvAudioSource):
             await self._mpv.stop()
             await self.end_session(EndReason.USER_STOP)
         self._set_resume_point(None)
-        self._update_connection_state()
+        self._publish()
         return self.success_response("Playback stopped")
 
     # =========================================================================
@@ -883,7 +902,8 @@ class MusicLibrarySource(MpvAudioSource):
             duration=int(tracks[index].get("duration") or 0),
         )
         self.open_session(session)
-        self._update_connection_state()
+        self._anchor_position(start_s * 1000)
+        self._publish()
 
         self._logger.info("Loading a queue of %s track(s) at track %s", len(tracks), index + 1)
         async def load() -> bool:
@@ -953,7 +973,7 @@ class MusicLibrarySource(MpvAudioSource):
             )
             return
         self._logger.info("Queue finished")
-        await self._end_playback(EndReason.EOF, stop_mpv=False, extras={"queue_ended": True})
+        await self._end_playback(EndReason.EOF, stop_mpv=False)
 
     def _failure_banner(self, reason: EndReason) -> Optional[str]:
         if reason is EndReason.LOAD_FAILED:
@@ -964,6 +984,7 @@ class MusicLibrarySource(MpvAudioSource):
         session.index = index
         session.position = 0
         session.duration = int(session.queue[index].get("duration") or 0)
+        self._anchor_position(0)
         self._reset_scrobble(session)
 
     async def _before_idle_end(self, session: "LibrarySession") -> None:
@@ -975,8 +996,7 @@ class MusicLibrarySource(MpvAudioSource):
             await self._read_playhead(session)
 
     async def _on_playing_tick(self, session: "LibrarySession") -> None:
-        position, just_known = await self._read_playhead(session)
-        self._sync_bar(session, just_known)
+        position = await self._read_playhead(session)
         # Listening time for the scrobble threshold: how far the playhead
         # actually moved since the last tick, capped at one tick. Neither half of
         # that cap is decoration — a seek forward jumps the position with nothing
@@ -990,13 +1010,12 @@ class MusicLibrarySource(MpvAudioSource):
             self._maybe_submit_scrobble(session)
 
     async def refresh_metadata(self) -> bool:
-        """Pull the live playhead from mpv so a (re)connecting client's
-        initial_state reflects the current position, not the last periodic sync."""
+        """Pull the live playhead from mpv so a (re)connecting client's state
+        carries the player's own second."""
         session = self._session
         if not isinstance(session, LibrarySession) or not self._mpv or not self._mpv.is_connected:
             return False
         await self._sync_position(session)
-        self._metadata = self._build_playback_metadata()
         return True
 
     # =========================================================================
@@ -1081,81 +1100,72 @@ class MusicLibrarySource(MpvAudioSource):
         cover_id = song.get("coverArt") or song.get("albumId")
         return f"/api/music-library/cover/{cover_id}" if cover_id else None
 
-    def _build_playback_metadata(self) -> Dict[str, Any]:
-        """Now-playing projection for the live queue entry.
+    # The view (docs: "le fil"). A live queue and a saved one read the same:
+    # only where the numbers come from differs.
 
-        position/duration are emitted in milliseconds to match the shared wire
-        convention (Spotify/AirPlay/CD/Podcast); internal state stays in seconds.
-        The whole queue rides along as extras so the frontend can render the
-        queue view without a round-trip.
-        """
-        session = self._session
-        if not isinstance(session, LibrarySession):
-            return {}
-        is_playing, is_buffering = self._flags(session.phase)
-        return self._project_queue(
-            session.queue, session.index, session.position, session.duration,
-            session.shuffle, is_playing, is_buffering,
-        )
+    def availability(self) -> Optional[str]:
+        return self._availability
 
-    def _idle_metadata(self) -> Dict[str, Any]:
-        """A stopped library still has the session a play press would reopen,
-        for as long as its resume point lives. An explicit Stop, a queue played
-        out and an expired point all leave nothing to resume, and fall back to
-        the pair every player reads."""
+    def _saved_queue(self) -> Optional[Tuple[List[Dict[str, Any]], int]]:
+        """The resume point's queue and index while it may still be reopened."""
         point = self._resume_point
         if point is None or not self._resume_fresh():
-            return super()._idle_metadata()
-        content = point.content
-        tracks = content["queue"]
-        index = min(content["queue_index"], len(tracks) - 1)
-        return self._project_queue(
-            tracks, index, point.position_ms // 1000,
-            int(tracks[index].get("duration") or 0),
-            content["shuffle"], False, False,
-        )
+            return None
+        tracks = point.content["queue"]
+        return tracks, min(point.content["queue_index"], len(tracks) - 1)
 
-    def _project_queue(
-        self, tracks: List[Dict[str, Any]], index: int, position: int,
-        duration: int, shuffle: bool, is_playing: bool, is_buffering: bool,
-    ) -> Dict[str, Any]:
-        """One projection, whether the queue is live or saved.
-
-        The two readings differ only in where the numbers come from — a live
-        queue, or the resume point a stop left — and the payload a client reads
-        must not be able to tell them apart by shape.
-        """
-        current = tracks[index]
+    def _session_fields(self, session: "LibrarySession") -> Dict[str, Any]:
+        current = session.queue[session.index]
         return {
             "title": current.get("title"),
             "artist": current.get("artist"),
             "album": current.get("album"),
-            "album_id": current.get("albumId"),
-            "artist_id": current.get("artistId"),
-            "album_art_url": self._cover_url(current),
-            "position": position * 1000,
-            "duration": duration * 1000,
-            "is_playing": is_playing,
-            "is_buffering": is_buffering,
-            "track_id": current.get("id"),
-            "queue": tracks,
-            "queue_index": index,
-            "shuffle": shuffle,
+            "artwork": self._cover_url(current),
+            "duration_ms": session.duration * 1000 or None,
         }
 
-    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
-        """Publish the current playback state — the source's only publish site.
+    def _resume_view(self) -> Optional[ResumeView]:
+        saved = self._saved_queue()
+        if saved is None:
+            return None
+        tracks, index = saved
+        current = tracks[index]
+        return ResumeView(
+            title=current.get("title"), artist=current.get("artist"),
+            album=current.get("album"), artwork=self._cover_url(current),
+            duration_ms=int(current.get("duration") or 0) * 1000 or None,
+            position_ms=self._resume_point.position_ms,
+        )
 
-        ACTIVE while a session is open (playing, paused or loading), READY once
-        it has ended. `extras` carries the fields that describe one particular
-        transition rather than the session (the queue-end flag).
-        """
-        connected, core, built = self._connection_state()
-        self.emit_connection_state(connected, core, {**built, **(extras or {})})
+    def _details(self) -> Optional[MusicLibraryDetails]:
+        """The whole queue, so the frontend renders it without a round-trip,
+        and the ids its navigation opens the current track's album/artist by."""
+        session = self._session
+        if isinstance(session, LibrarySession):
+            tracks, index, shuffle = session.queue, session.index, session.shuffle
+        else:
+            saved = self._saved_queue()
+            if saved is None:
+                return None
+            tracks, index = saved
+            shuffle = self._resume_point.content["shuffle"]
+        current = tracks[index]
+        return MusicLibraryDetails(
+            queue=tracks, queue_index=index, shuffle=shuffle,
+            track_id=current.get("id"), album_id=current.get("albumId"),
+            artist_id=current.get("artistId"),
+        )
 
-    def _connection_state(self):
-        core, built = PlaybackMetadata.split(self._build_playback_metadata())
-        return self._session is not None, core, built
+    def _controls(self) -> List[str]:
+        session = self._session
+        if not isinstance(session, LibrarySession):
+            return ["resume", "play_index", "stop"] if self._saved_queue() is not None else []
+        last = session.index >= len(session.queue) - 1
+        controls = ["resume" if session.phase is Phase.PAUSED else "pause"]
+        if session.phase is not Phase.LOADING:
+            controls.append("seek")
+        controls += [c for c in ("next", "prev") if not (c == "next" and last)]
+        return controls + ["set_shuffle", "play_index", "stop"]
 
     # =========================================================================
     # NETWORK SHARES (SMB/NFS)

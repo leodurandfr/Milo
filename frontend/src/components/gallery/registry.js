@@ -104,10 +104,10 @@ import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
 import SourceStage from './SourceStage.vue';
-import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
+import { SOURCE_PAGES, audioState, session, anchor, replayedState } from './sources';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 
@@ -123,94 +123,101 @@ const SELECT_OPTIONS = [
 ];
 
 /**
- * Simulated now-playing records for AudioPlayerFull, which reads the store
+ * Simulated now-playing states for AudioPlayerFull, which reads the store
  * rather than props.
  *
  * Simulating state is what a documentation page does — the catalogue's caution
  * is about *scale* (ninety-odd per-source screens would be a second frontend),
  * not about fabrication itself. What matters is that a fabrication cannot rot
- * quietly: each key below is checked against the files that read it, so
- * renaming `album_art_url` in the component turns the guardrail red instead of
- * leaving a beautiful player rendering from a record nothing consumes.
+ * quietly: each is published through the store's own handler, whose strict
+ * schema refuses a state that drifted from the wire, and each session field it
+ * sets is checked against the files that read it — so renaming `artwork` in the
+ * component turns the guardrail red instead of leaving a beautiful player
+ * rendering from a field nothing consumes.
  *
  * A record exists for a *component* behaviour — the transport, a pause, the
- * buffering spinner, the receiver's source bar, the snapshot rule with no artist
- * to store — never for a source. What a given source reaches, in the states it
+ * loading spinner, the receiver's source bar, the snapshot rule with no artist
+ * to name — never for a source. What a given source reaches, in the states it
  * actually reaches, is the source pages' subject (sources.js), and they hold the
  * fixtures and the guardrails for it. Adding a record here to document a source
  * is how the two surfaces start drifting, one of them wrong.
  *
  * `source` travels with the record and is applied to the `source` **prop** as
- * well, because three of the player's rules are per-source and read the prop,
- * not the store: the snapshot relaxation for CD, the buffering window, and the
- * progress gate. Left to disagree, a CD record rendered under Spotify's rules —
- * the disc's glyph replaced by Spotify's, and no spinner where the point of the
- * record was the spinner.
+ * well, because the player reads its slice of the state only while the two
+ * agree: left to disagree, the session and the controls belong to another
+ * source and the player draws nothing it was handed.
  */
 const NOW_PLAYING = {
   'Spotify — playing': {
     source: 'spotify',
-    metadata: {
+    session: {
+      phase: 'playing',
       title: 'Says',
       artist: 'Nils Frahm',
-      album_art_url: musicPlaceholder,
-      is_playing: true,
-      position: 192000,
-      duration: 511000
-    }
+      artwork: musicPlaceholder,
+      duration_ms: 511000,
+      position: anchor(192000)
+    },
+    controls: ['pause', 'seek', 'next', 'prev']
   },
   'CD — paused': {
     source: 'cd',
-    metadata: {
+    session: {
+      phase: 'paused',
       title: 'Ambre',
       artist: 'Nils Frahm',
-      album_art_url: musicPlaceholder,
-      is_playing: false,
-      position: 64000,
-      duration: 264000
-    }
+      artwork: musicPlaceholder,
+      duration_ms: 264000,
+      position: anchor(64000)
+    },
+    controls: ['resume', 'seek', 'next', 'prev', 'play_track', 'eject']
   },
-  'CD — drive spinning up': {
+  'CD — loading a track': {
     source: 'cd',
-    metadata: { title: 'Ambre', artist: 'Nils Frahm', is_playing: false, disc_present: true }
+    session: {
+      phase: 'loading',
+      title: 'Ambre',
+      artist: 'Nils Frahm',
+      duration_ms: 264000,
+      position: anchor(0)
+    },
+    controls: ['pause', 'next', 'prev', 'play_track', 'eject']
   },
   'AirPlay — receiver, sender named': {
     source: 'airplay',
-    metadata: {
+    session: {
+      phase: 'playing',
       title: 'Ainsi parlait Zarathoustra',
       artist: 'Alain Bashung',
-      album_art_url: musicPlaceholder,
-      is_playing: true,
-      client_name: 'Leo’s iPhone',
-      position: 41000,
-      duration: 297000
-    }
+      artwork: musicPlaceholder,
+      senders: ['Leo’s iPhone'],
+      duration_ms: 297000,
+      position: anchor(41000)
+    },
+    controls: [],
+    details: { kind: 'airplay', artwork_width: 600 }
   },
-  // The one shape that reaches this player with no artist: useRichDisplay admits
-  // CD on disc_present + cache_ready alone, and an unidentified disc comes back
-  // from `_build_fallback_disc_info` with a real "Track N" title and nothing
-  // else. Spotify cannot be here without a title AND an artist, so the empty
-  // record this replaces documented a state the app cannot produce.
+  // The one shape that reaches this player with no artist: a disc no lookup
+  // identified comes back with a real "Track N" title and nothing else, and a
+  // title is the whole of what the player needs to name it.
   'CD — unidentified disc': {
     source: 'cd',
-    metadata: {
+    session: {
+      phase: 'playing',
       title: 'Track 3',
-      album_art_url: '',
-      is_playing: true,
-      position: 64000,
-      duration: 264000,
-      disc_present: true,
-      cache_ready: true
-    }
+      duration_ms: 264000,
+      position: anchor(64000)
+    },
+    controls: ['pause', 'seek', 'next', 'prev', 'play_track', 'eject']
   }
 };
 
-/** The files that read what NOW_PLAYING writes. Checked by the guardrail. */
+/** The files that read the session fields NOW_PLAYING sets. Checked by the guardrail. */
 const NOW_PLAYING_READERS = [
   'components/audio/AudioPlayerFull.vue',
   'composables/useSourceProgress.js',
-  'utils/playbackBuffering.js',
-  'utils/nowPlayingMetadata.js'
+  'utils/nowPlayingMetadata.js',
+  'utils/nowPlayingArtwork.js'
 ];
 
 export const REGISTRY = {
@@ -457,21 +464,21 @@ export const REGISTRY = {
   Dock: {
     component: Dock,
     notes: {
-      activeSource: 'Drawn by the indicator under the dock, which is only positioned while the dock is revealed \u2014 run the Reveal action first.'
+      source: 'Drawn by the indicator under the dock, which is only positioned while the dock is revealed \u2014 run the Reveal action first.'
     },
     state: {
-      activeSource: {
+      source: {
         kind: 'enum',
         // The dock hides itself on `none`, and refuses to reveal — so the useful
         // starting point is a source that is playing.
         options: ['none', ...ALL_AUDIO_SOURCES],
         default: 'spotify',
-        apply: (value, stores) => { stores.unified.systemState.active_source = value; }
+        apply: (value, stores) => { stores.unified.systemState.source = value; }
       },
-      transitioning: {
+      switching: {
         kind: 'boolean',
         default: false,
-        apply: (value, stores) => { stores.unified.systemState.transitioning = value; }
+        apply: (value, stores) => { stores.unified.systemState.switching = value; }
       },
       lyricsOpen: {
         kind: 'boolean',
@@ -662,10 +669,8 @@ export const REGISTRY = {
 
   AudioPlayerFull: {
     component: AudioPlayerFull,
-    args: { source: 'spotify', showControls: true, class: 'canvas-fill' },
+    args: { source: 'spotify', class: 'canvas-fill' },
     notes: {
-      showProgress: 'Read only while showControls is off \u2014 the transport already draws a bar above its buttons.',
-      seekable: 'Read only while showControls is on \u2014 the bar the receiver sources draw is never interactive.',
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
       'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.'
     },
@@ -676,15 +681,25 @@ export const REGISTRY = {
         default: 'Spotify — playing',
         apply: (value, stores) => {
           const record = NOW_PLAYING[value] ?? NOW_PLAYING['Spotify — playing'];
-          stores.unified.systemState.active_source = record.source;
-          stores.unified.systemState.metadata = { ...record.metadata };
+          // Published through the app's own handler, whole — the schema is
+          // strict, so a partial state would be refused and the last one kept.
+          const state = audioState(record.source, {
+            session: session(record.session),
+            controls: record.controls,
+            details: record.details ?? null
+          });
+          stores.unified.updateState({
+            category: 'source',
+            type: 'state',
+            data: replayedState(state, Date.now() / 1000)
+          });
           // Applied to the props too — see NOW_PLAYING. Only on the change, so
           // pointing the prop elsewhere by hand still holds.
           return { source: record.source };
         },
         // What the writer above invents, and where it is read. Declared so the
         // guardrail can check the two still agree — see gallery.test.js.
-        records: Object.values(NOW_PLAYING).map(record => record.metadata),
+        records: Object.values(NOW_PLAYING).map(record => record.session),
         readBy: NOW_PLAYING_READERS
       }
     },
@@ -752,7 +767,7 @@ export const REGISTRY = {
 
   AudioSourceStatus: {
     component: AudioSourceStatus,
-    args: { sourceType: 'bluetooth', displayState: 'active' },
+    args: { sourceType: 'bluetooth', displayState: 'playing' },
     overrides: {
       // The validator is `value === 'none' || ALL_AUDIO_SOURCES.includes(value)`
       // — not a literal-array test, so there is nothing for the parser to read.
@@ -765,8 +780,9 @@ export const REGISTRY = {
       // work" looks like, so the select must be able to go back to it.
       unavailableReason: { kind: 'enum', options: [null, ...UNAVAILABLE_REASONS] }
     },
-    // Only read in the `active` branch, and the array is the ROC case: several
-    // Macs streaming at once, which formatDeviceNames joins across two lines.
+    // Only read while a session is live (loading, playing, paused, connected),
+    // and the array is the ROC case: several Macs streaming at once, which
+    // formatDeviceNames joins across two lines.
     presets: {
       deviceName: {
         'One sender': 'Leo’s iPhone',

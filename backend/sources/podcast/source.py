@@ -14,15 +14,15 @@ Features:
 """
 from backend.core.models.ws_events import SourceErrorReason
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 from pydantic import BaseModel
 
 from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.audio_wire import PodcastDetails, ResumeView
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
@@ -120,16 +120,6 @@ class PodcastSource(MpvAudioSource):
         await self._podcast_data.initialize()
         return await super().initialize()
 
-    def _idle_metadata(self) -> Dict[str, Any]:
-        """A stopped podcast still has an episode to resume, so publish the
-        full projection (same reason the CD keeps a loaded disc visible).
-
-        An episode that ended leaves no resume point, and nothing played at
-        all never made one; both fall back to the pair every player reads.
-        """
-        projection = self._build_playback_metadata()
-        return projection if projection else super()._idle_metadata()
-
     def _resume_content(self, session: PodcastSession):
         return (
             session.episode.get('uuid') or "",
@@ -159,7 +149,7 @@ class PodcastSource(MpvAudioSource):
                 # A multiroom toggle comes back playing, at the same second.
                 await self._play(point.content["episode"], point.position_ms // 1000)
                 return True
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -189,13 +179,12 @@ class PodcastSource(MpvAudioSource):
         await self.end_session(reason)
 
     async def refresh_metadata(self) -> bool:
-        """Pull the live playhead from mpv so the initial_state a (re)connecting
-        client gets carries the current second, not the last 30 s sync."""
+        """Pull the live playhead from mpv so the state a (re)connecting client
+        gets carries the player's own second."""
         session = self._session
         if not isinstance(session, PodcastSession) or not self._mpv or not self._mpv.is_connected:
             return False
         await self._sync_position(session)
-        self._metadata = self._build_playback_metadata()
         return True
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
@@ -278,7 +267,8 @@ class PodcastSource(MpvAudioSource):
             position=int(start_position), duration=int(episode.get('duration') or 0),
         )
         self.open_session(session)
-        self._update_connection_state()
+        self._anchor_position(int(start_position) * 1000)
+        self._publish()
 
         async def load():
             if await self._mpv_ready() and await self._set_mpv_pause(False):
@@ -332,8 +322,8 @@ class PodcastSource(MpvAudioSource):
         if not await self._mpv.seek(position):
             return self.mpv_refused(f"seek to {position}s")
         session.position = position
+        self._anchor_position(position * 1000)
         await self._save_progress(session)
-        self._update_connection_state()
         return self.success_response(f"Seeked to {params.seconds}s")
 
     async def _handle_set_speed(self, params: SetSpeedParams) -> Dict[str, Any]:
@@ -344,76 +334,71 @@ class PodcastSource(MpvAudioSource):
             self._logger.info(f"Invalid speed {speed}, using nearest valid")
             speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
 
-        if self._session is not None:
+        session = self._session
+        if session is not None:
             if not await self._mpv.set_property("speed", speed):
                 return self.mpv_refused(f"speed {speed}x")
+            # The playhead moves at the new rate from here on.
+            now = self._position_now(session)
+            if now is not None:
+                self._anchor_position(now, rate=speed)
         self._playback_speed = speed
         await self._podcast_data.set_setting("playback_speed", speed)
-        self._update_connection_state()
 
         self._logger.info(f"Playback speed set to {speed}x")
         return self.success_response(f"Speed set to {speed}x", speed=speed)
 
     # === Helpers ===
 
-    def _build_playback_metadata(self) -> Dict[str, Any]:
-        """Build metadata dict for the live episode, or the one kept to resume.
+    # === The view (docs: "le fil") ===
 
-        position/duration are emitted in milliseconds to match the wire
-        convention used by the other audio sources (Spotify, AirPlay, CD) and
-        by broadcast_position_update. Internal state stays in seconds.
-        """
-        session = self._session
-        if isinstance(session, PodcastSession):
-            episode, position, duration = session.episode, session.position, session.duration
-        elif self._resume_point is not None:
-            point = self._resume_point
-            episode = point.content["episode"]
-            position, duration = point.position_ms // 1000, point.content["duration"]
-        else:
-            return {}
+    def _playback_rate(self) -> float:
+        return self._playback_speed
 
-        is_playing, is_buffering = self._flags(session.phase if session else None)
-        podcast_name = episode.get('podcast', {}).get('name')
-
-        metadata = {
-            "episode_uuid": episode.get('uuid'),
-            "episode_name": episode.get('name'),
-            "description": episode.get('description'),
-            "image_url": episode.get('image_url'),
-            "position": position * 1000,
-            "duration": duration * 1000,
-            "is_playing": is_playing,
-            "is_buffering": is_buffering,
-            "playback_speed": self._playback_speed,
-            "current_episode": episode,
-            # The cross-source floor every generic consumer reads (lock screen,
-            # widget, shared player). Computed here so no client has to
-            # re-derive it; see core/push/payloads.py.
+    def _session_fields(self, session: PodcastSession) -> Dict[str, Any]:
+        episode = session.episode
+        podcast_name = (episode.get('podcast') or {}).get('name')
+        return {
             "title": episode.get('name'),
             "artist": podcast_name,
             "album": podcast_name,
-            "album_art_url": episode.get('image_url'),
+            "artwork": episode.get('image_url'),
+            "duration_ms": session.duration * 1000 or None,
         }
 
-        if 'podcast' in episode:
-            metadata['podcast_name'] = podcast_name
-            metadata['podcast_uuid'] = episode['podcast'].get('uuid')
+    def _resume_view(self) -> Optional[ResumeView]:
+        point = self._resume_point
+        if point is None:
+            return None
+        episode = point.content["episode"]
+        podcast_name = (episode.get('podcast') or {}).get('name')
+        return ResumeView(
+            title=episode.get('name'), artist=podcast_name, album=podcast_name,
+            artwork=episode.get('image_url'),
+            duration_ms=point.content["duration"] * 1000 or None,
+            position_ms=point.position_ms,
+        )
 
-        return metadata
+    def _details(self) -> Optional[PodcastDetails]:
+        """The episode — live, or the one kept to resume — and the speed."""
+        session = self._session
+        if isinstance(session, PodcastSession):
+            episode = session.episode
+        elif self._resume_point is not None:
+            episode = self._resume_point.content["episode"]
+        else:
+            return None
+        return PodcastDetails(episode=episode, speed=self._playback_speed)
 
-    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
-        """Update state based on playback — the source's only publish site.
-
-        `extras` carries the fields that describe one particular transition
-        rather than the session (the episode-end trio).
-        """
-        connected, core, built = self._connection_state()
-        self.emit_connection_state(connected, core, {**built, **(extras or {})})
-
-    def _connection_state(self):
-        core, built = PlaybackMetadata.split(self._build_playback_metadata())
-        return self._session is not None, core, built
+    def _controls(self) -> List[str]:
+        session = self._session
+        if session is None:
+            return ["resume", "set_speed"] if self._resume_point is not None else ["set_speed"]
+        if session.phase is Phase.LOADING:
+            return ["pause", "set_speed"]
+        if session.phase is Phase.PAUSED:
+            return ["resume", "seek", "set_speed"]
+        return ["pause", "seek", "set_speed"]
 
     async def _sync_position(self, session: Optional[PodcastSession]) -> None:
         """Read the live playhead into the session (while its file is open)."""
@@ -469,17 +454,12 @@ class PodcastSource(MpvAudioSource):
             await self._podcast_data.mark_episode_completed(finished_uuid)
         except Exception as e:
             self._logger.error(f"Failed to persist episode completion: {e}")
-        # episode_uuid + completed let the frontend flip the just-finished card
-        # to "already listened" without a re-fetch.
-        await self._end_playback(EndReason.EOF, stop_mpv=False, extras={
-            "episode_ended": True,
-            "episode_uuid": finished_uuid,
-            "completed": True,
-        })
+        # `source/session_ended` with reason `eof` is what lets the frontend
+        # flip the just-finished card to "already listened" without a re-fetch.
+        await self._end_playback(EndReason.EOF, stop_mpv=False)
 
     async def _on_playing_tick(self, session: PodcastSession) -> None:
-        _, just_known = await self._read_playhead(session)
-        self._sync_bar(session, just_known)
+        await self._read_playhead(session)
         if session.ticks % PROGRESS_SAVE_TICKS == 0:
             try:
                 await self._save_progress(session)

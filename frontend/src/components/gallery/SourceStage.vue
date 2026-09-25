@@ -3,11 +3,11 @@
   One audio source, in one of its states — the component behind every page in
   the gallery's Sources section.
 
-  It does two things and delegates everything else. It writes the scenario's
-  snapshot into the canvas's own `unifiedAudioStore`, and then it gets out of
-  the way: for 7 of the 10 sources it mounts the real `AudioSourceView`,
-  the app's own dispatcher, and whatever appears is whatever `useRichDisplay()`,
-  `useSourceStatusDisplay()` and `currentDeviceName` decide from that record.
+  It does two things and delegates everything else. It publishes the
+  scenario's state into the canvas's own `unifiedAudioStore`, and then it gets
+  out of the way: for 7 of the 10 sources it mounts the real `AudioSourceView`,
+  the app's own dispatcher, and whatever appears is whatever `richSourceFor()`,
+  `displayStateFor()` and the session's `senders` decide from that state.
   Nothing here chooses a player or draws a card, which is why a scenario cannot
   disagree with the app — see sources.js.
 
@@ -21,9 +21,10 @@
   code path — so "radio with no favourites" is the empty state the app draws,
   not a picture of one.
 
-  Two of their scenarios still go through the dispatcher: `starting` and
-  `error`, both of which `useRichDisplay()` short-circuits before it can reach a
-  `*Source.vue`, so the status card is reached honestly there too.
+  Three of their scenarios still go through the dispatcher: switching, a failed
+  service and a missing link, all of which `richSourceFor()` answers with the
+  card before it can reach a `*Source.vue`, so the status card is reached
+  honestly there too.
 -->
 <template>
   <div class="source-stage">
@@ -270,7 +271,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { usePodcastStore } from '@/stores/podcastStore';
-import { sourcePageById } from './sources';
+import { sourcePageById, replayedState } from './sources';
 import { setApiFixtures } from './canvasHttp';
 import FavoritesView from '@/components/radio/FavoritesView.vue';
 import LibraryHome from '@/components/music-library/views/LibraryHome.vue';
@@ -385,9 +386,9 @@ const speedOptions = computed(() =>
 const speedValue = computed(() => String(stores.podcast.playbackSpeed || 1));
 
 /**
- * Where a scenario's events go — the same rows App.vue's RAW_EVENTS declares
- * for these pairs, and the reason the page can claim the app decided what it
- * shows: the payload is validated and applied by the app's own handler, not
+ * Where a scenario's events go — the same row App.vue declares for the pair,
+ * and the reason the page can claim the app decided what it shows: the state is
+ * validated by the strict schema and applied by the app's own handler, not
  * written into the store from the side.
  *
  * A map rather than one blind call, so a scenario that grows a pair nothing
@@ -395,29 +396,28 @@ const speedValue = computed(() => String(stores.podcast.playbackSpeed || 1));
  * against each other) instead of being swallowed.
  */
 const DISPATCH = {
-  'system.transition_start': unifiedStore.updateState,
-  'system.transition_complete': unifiedStore.updateState,
-  'system.state_changed': unifiedStore.updateState,
-  'source.state_changed': unifiedStore.updateState
+  'source.state': unifiedStore.updateState
 };
 
 /**
  * The whole write, and the only one. Runs during setup — before
- * AudioSourceView mounts — so the dispatcher never sees a stale record and
+ * AudioSourceView mounts — so the dispatcher never sees a stale state and
  * animates a transition nobody asked for.
  *
  * No socket is involved: the envelopes are built in sources.js and handed
  * straight to the handler, so this replays a broadcast without there being one
- * to listen to. `updateState` replaces the record wholesale, which is what
- * keeps the previous scenario's `client_name` or `disc_id` from surviving into
- * the next — the drift this page exists to make visible.
+ * to listen to — published now, which is the one thing a replay changes (the
+ * anchor's instant, see replayedState). `updateState` replaces the state
+ * wholesale, which is what keeps the previous scenario's sender or disc from
+ * surviving into the next — the drift this page exists to make visible.
  */
 watchEffect(() => {
   const scenario = current.value;
   if (!scenario) return;
 
+  const now = Date.now() / 1000;
   for (const event of scenario.events) {
-    DISPATCH[`${event.category}.${event.type}`]?.(event);
+    DISPATCH[`${event.category}.${event.type}`]?.({ ...event, data: replayedState(event.data, now) });
   }
 
   // Ordered: the fixtures have to be in place before the view mounts and

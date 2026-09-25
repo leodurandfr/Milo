@@ -35,8 +35,7 @@ from backend.sources.cd import source as cd_module
 from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.sources.cd.source import CdSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, instant_short_sleep, make_settings, make_state_machine,
-    make_systemd, settle,
+    AsyncioProxy, VirtualClock, WireReader, instant_short_sleep, make_settings, make_state_machine, make_systemd, settle, use_virtual_wall,
 )
 from backend.tests.mpv_sim import MpvSim
 
@@ -55,12 +54,13 @@ DURATIONS = [200, 150, 120, 100, 80, 50, 60, 40]
 TITLES = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"]
 
 
-class CdWorld:
+class CdWorld(WireReader):
     """The CD source on a real state machine, in a world the scenario drives."""
 
     def __init__(self, monkeypatch, settings: Optional[Dict[str, Any]] = None):
         world = self
         self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         self.mpv = MpvSim()
 
         # --- the drive ---
@@ -385,26 +385,26 @@ class CdWorld:
 
     # === What the wire says ===
 
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"] or {}
-
-    def playing(self) -> bool:
-        return self.state()["source_state"] == "active" and bool(self.meta().get("is_playing"))
-
     def track(self) -> Optional[int]:
-        return self.meta().get("current_track")
+        details = self.state()["details"]
+        return details["current_track"] if details else None
 
     def position_s(self) -> float:
-        return (self.meta().get("position") or 0) / 1000
+        return (self.position_ms() or 0) / 1000
 
-    def errors(self) -> List[str]:
-        return [
-            e["data"]["reason"] for e in self.recorder.envelopes
-            if e["category"] == "source" and e["type"] == "error"
-        ]
+    def availability(self) -> Optional[str]:
+        """The drive's state as the wire says it (null: a disc ready to play)."""
+        return self.state()["availability"]["cd"]
+
+    def disc(self) -> Optional[Dict[str, Any]]:
+        """The disc the CD's details carry, or None."""
+        details = self.state()["details"]
+        return details["disc"] if details else None
+
+    def resume_ms(self) -> Optional[int]:
+        """Where play would start in the track, with no session running."""
+        resume = self.state()["resume"]
+        return resume["position_ms"] if resume else None
 
     def loads(self) -> List[tuple]:
         return [c for c in self.mpv.sent if c[0] in ("loadfile",)]

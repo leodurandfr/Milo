@@ -13,7 +13,7 @@
  *   import { logger } from '@/services/logger';
  *   logger.info('store', 'State updated', { source: 'spotify' });
  *   logger.api('GET', '/api/status', { duration: 45 });
- *   logger.ws('received', 'source.state_changed', data);
+ *   logger.ws('received', 'source.state', data);
  */
 
 const LOG_LEVELS = {
@@ -187,7 +187,7 @@ class Logger {
   /**
    * Log WebSocket events
    * @param {'sent'|'received'|'error'} direction
-   * @param {string} eventType - e.g., 'source.state_changed'
+   * @param {string} eventType - e.g., 'source.state'
    * @param {object} data
    */
   ws(direction, eventType, data = null) {

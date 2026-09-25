@@ -83,52 +83,91 @@ every state change is pushed.
 **Categories:** `source`, `system`, `routing`, `equalizer`, `multiroom`, `volume`, `settings`,
 `programs`, `network`.
 
-On connect the client receives a `full_state` snapshot, then incremental deltas.
+On connect the client receives `system/initial_state`, whose `state` key is the whole audio state
+(below), then every change as it happens.
 
-### Source states, and the two kinds of error
+### The audio state
 
-`full_state.source_state` carries one of **four** members of `SourceState`, all reachable:
+The audio wire is **one object**, `AudioState`
+([audio_wire.py](../backend/core/models/audio_wire.py)), and it is the same everywhere:
+`GET /api/audio/state` returns it, the `data` of `source/state` *is* it, and `system/initial_state`
+carries it under `state` (next to `setup_completed` and `hotspot_active`; `GET /api/initial-state`
+is the HTTP fallback). Every field is always present — an absent value is `null`, never a missing
+key. Durations and positions are integer milliseconds; instants are UTC seconds (float).
 
-| State | Meaning |
-|---|---|
-| `starting` | The transition to this source is under way |
-| `ready` | No live session — but the payload may still carry what a play press would resume |
-| `active` | A session or content exists — a *paused* CD is still `active` |
-| `error` | The source is not operational |
+| Field | Values | Meaning |
+|---|---|---|
+| `source` | `none` or one of the ten sources | The selected source |
+| `switching` | bool | A source transition is in flight, or a whole multiroom switch (up to the end of its volume sync) |
+| `service` | `stopped`, `starting`, `running`, `failed` | `stopped` under `none`; `starting` during a start or a switch; `failed` after a failed start, until a start succeeds |
+| `service_error` | `null` or `{reason, message}` | Set iff `service` is `failed`. `reason` is `start_timeout` (the 15 s budget) or `start_failed`; `message` is for the journal, never displayed |
+| `availability` | all ten sources, always | Why each source cannot work right now, or `null` when it can ([below](#availability)) |
+| `session` | `null` or object | The selected source's live session: `id`, `phase` (`loading`, `playing`, `paused`, `connected`), `title`, `artist`, `album`, `artwork`, `senders` (display names, `[]` when none), `duration_ms`, `position` |
+| `controls` | command names | What `POST /api/audio/control/{source}` accepts *now* and would act on. `[]` under `none`, while `switching`, and whenever `service` is not `running` |
+| `resume` | `null` or object | What a play press would bring back; set only while `session` is `null` |
+| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (episode, speed), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width) |
+| `multiroom_enabled`, `equalizer_effects_enabled` | bool | The two global flags |
 
-`ready` rather than `connected`: nothing connects to Radio, CD or the Music Library. The split
-between `ready` and `active` is "is there a session", not "is audio coming out" — `is_playing`
-answers the second.
+An empty string is never published: it is `null`.
 
-**`ready` does not mean "nothing to show".** A source that stops with something to resume
-publishes it under the same keys it uses while playing: the station `resume_playback` would
-re-tune, the episode and second an auto-stop left, the loaded disc, the saved queue. Only when
-there is genuinely nothing to come back to — an episode played to the end, an explicit Stop, a
-source that never played — is the payload the inert `{is_playing, is_buffering}` pair. That is
-what lets a consumer tell "stopped, here is what resumes" from "nothing ever played"; both used
-to be the same empty payload.
+**The playhead is an anchor, not a tick.** `session.position` is `{ms, at, rate}`: the playhead
+stood at `ms` at the instant `at`, and moves at `rate` (a podcast's speed, 1.0 elsewhere) only while
+the phase is `playing`. Every client applies the same formula —
+`ms + (phase == "playing" ? (now − at) × 1000 × rate : 0)`, bounded to `[0, duration_ms]` — and
+nothing sends a position on a timer. It is `null` for a session with no playhead (radio, Mac).
+
+| Event | `data` | When |
+|---|---|---|
+| `source/state` | the whole state | whenever any field but the playhead changes, and only then |
+| `source/position` | `{source, session_id, position}` | on a discontinuity only: a seek, a speed change, or a reading more than 2 s from the anchor. A client ignores a `session_id` that is not its state's |
+| `source/session_ended` | `{source, session_id, reason}` | at every end of a session, before the state that follows; `reason` is an `EndReason` (`eof`, `user_stop`, `idle_timeout`, `source_switch`, `reroute`, `sender_left`, `daemon_died`, `load_failed`, `stream_lost`, `storage_gone`) |
+| `source/error`, `source/error_cleared` | `{source, reason}`, `{source}` | an operation failed, or no longer is ([below](#two-kinds-of-error)) |
+
+An end is never a flag on the next state: an episode played to its end is a `source/session_ended`
+with `reason: "eof"`. The frontend validates the state with a **strict** Zod schema
+(`AudioStateSchema`): a state that does not parse is refused whole and the last good one kept.
+
+### Session, resume point, or nothing
+
+`session` is `null` whenever nothing is live, which is not the same as "nothing to show". A source
+that stopped with something to come back to publishes it in `resume` — the station
+`resume_playback` would re-tune, the episode and second an auto-stop left, the saved queue, the
+track a loaded disc would play — with its content in `details`. Only when there is genuinely nothing
+to come back to (an episode played to its end, a source that never played) are both `null`. Four
+sources keep a resume point, Radio, Podcast, Music Library and CD; for the six a daemon holds,
+`resume` is always `null`.
+
+The phase is what the player or the sender announced, never what a command guessed. `connected` is
+a sender Milō cannot call playing or paused — an AirPlay Realtime stream, a Bluetooth device with no
+AVRCP player, every Mac — and the card reads "Connected to X" from `senders`, unless the session
+names a cover, a title and an artist, which the full player draws instead (D14).
+
+### Two kinds of error
 
 The word "error" covers two different facts, and they travel on two different mechanisms — never
 both, so neither can be mistaken for the other:
 
 | Kind | Example | Mechanism | UI |
 |---|---|---|---|
-| The **source** is not operational | go-librespot won't start, transition timeout | `source_state: "error"` in `full_state` + `full_state.error` | Status card `[source, "Error"]` + a retry CTA that re-posts `POST /api/audio/source/{source}` |
+| The **source** will not start | go-librespot won't start, transition timeout | `service: "failed"` + `service_error` | Status card error + a retry CTA that re-posts `POST /api/audio/source/{source}` |
 | An **operation** failed, the source survives | a radio station won't tune, a command failed | `source/error` (+ `source/error_cleared`) | Notification banner only; the source's own screen is untouched |
 
-A failed transition leaves the source **selected** in `error` rather than resetting to `none`, which
-is what makes re-selecting it the retry.
+A failed start leaves the source **selected** with `service: "failed"` rather than resetting to
+`none`, which is what makes re-selecting it the retry. And `failed` is sticky: no publish of the
+source lifts it, only a start that succeeds.
 
-### `full_state.network_unavailable`
+### Availability
 
-A fifth thing the snapshot carries, and *not* a state: `no_network`, `no_internet`, or `null` when
-the active source can work. The backend crosses NetworkManager's connectivity level with the active
-source's own `NETWORK_REQUIREMENT` (`none` / `lan` / `internet`), so a router with no route out
-reports `no_internet` under Spotify and `null` under AirPlay, which only needs the LAN — and `null`
-under Bluetooth or CD, which need nothing. `system/connectivity_changed` carries the level itself
-(`unknown | none | portal | limited | full`) **and** the recomputed snapshot, since losing internet
-blocks a source without anything about the source changing. See
-[Architecture](architecture.md#unavailable-which-is-not-a-state) for the reason table and the CTAs.
+`availability` answers for every source, selected or not: `null` when it can work now, else the first
+reason that applies. Connectivity comes first. The backend crosses NetworkManager's connectivity
+level with the source's own `NETWORK_REQUIREMENT` (`none` / `lan` / `internet`), so a router with no
+route out gives `no_internet` to Spotify and `null` to AirPlay, which only needs the LAN — and `null`
+to Bluetooth or CD, which need nothing. Then the source's own reason: `no_account` (Qobuz);
+`no_drive`, `no_disc`, `reading_disc`, `unreadable_disc`, `ejecting` (CD); `no_storage`,
+`catalog_unavailable` (Music Library). `system/connectivity_changed` carries the level alone
+(`unknown | none | portal | limited | full`); what it does to the sources arrives as a new
+`source/state`. See [Architecture](architecture.md#unavailable-which-is-not-a-state) for where each
+reason comes from and the CTAs.
 
 The subset Milo-Mac relies on — `(category, type)` pairs across `system`, `source`, `volume`,
 `routing` and `settings`, plus `payload_invariants` naming the exact fields it reads — is pinned in

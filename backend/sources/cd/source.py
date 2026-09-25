@@ -44,8 +44,8 @@ from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ResumePoint, ReroutePolicy,
     ResumePolicy,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
-from backend.core.models.ws_events import SourceErrorReason, SystemCdDriveStatus
+from backend.core.models.audio_wire import CdDetails, CdDisc, CdTrack, ResumeView
+from backend.core.models.ws_events import SourceErrorReason
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
@@ -198,8 +198,6 @@ class CdSource(MpvAudioSource):
         # the player veils its placeholder instead of swapping it for the cover
         # a second later.
         self._covers_in_flight: Set[str] = set()
-        # What the drive and disc flags last said, for the drive-status event.
-        self._announced: Optional[tuple] = None
 
     @property
     def _is_active_source(self) -> bool:
@@ -251,7 +249,7 @@ class CdSource(MpvAudioSource):
             elif self._disc_state is DiscState.IDENTIFYING:
                 self._identify()
             self._probe_for_insertion()
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -530,14 +528,14 @@ class CdSource(MpvAudioSource):
             self._disarm_timer("probe")
 
     async def _publish_device(self) -> None:
-        """Publish a device change: the source's state when CD is on screen,
-        and the drive-status event when the drive or disc flags moved."""
+        """Publish a device change: the drive's state is the CD's
+        `availability`, read whether CD is on screen or not; the disc it holds
+        is the source's view when it is (E58: one state, never an event
+        announcing the one before)."""
         if self._is_active_source:
-            self._update_connection_state()
-        flags = (self._disc_state is not DiscState.NO_DRIVE, self._disc_state in _HOLDS_A_DISC)
-        if flags != self._announced and self.state_machine:
-            self._announced = flags
-            await self.state_machine.broadcast(SystemCdDriveStatus())
+            self._publish()
+        else:
+            self._availability_changed()
 
     async def _on_timer(self, name: str, token: object) -> None:
         if name == "reading":
@@ -620,7 +618,7 @@ class CdSource(MpvAudioSource):
         if url:
             self._disc = disc.model_copy(update={"cover_url": url})
         if self._is_active_source:
-            self._update_connection_state()
+            self._publish()
 
     # =========================================================================
     # PLAYBACK
@@ -640,7 +638,8 @@ class CdSource(MpvAudioSource):
             session.advance(PhaseEvent.TRACK_CHANGE if before is Phase.PLAYING else PhaseEvent.STALLED)
             self._on_phase_changed(session, before)
         session.track, session.track_position = track, float(position)
-        self._update_connection_state()
+        self._anchor_position(int(position * 1000))
+        self._publish()
 
         start_lba = self._lba_for(track, position)
 
@@ -787,7 +786,7 @@ class CdSource(MpvAudioSource):
                 reason=EndReason.IDLE_TIMEOUT, **moved,
             )
         )
-        self._update_connection_state()
+        self._publish()
         return self.success_response(f"Seeked to {position}s")
 
     async def _handle_eject(self) -> Dict[str, Any]:
@@ -872,19 +871,9 @@ class CdSource(MpvAudioSource):
 
     async def _on_playing_tick(self, session: CdSession) -> None:
         """One second of sound: map mpv's playhead onto the disc. A track
-        boundary crossed is published; otherwise the position is, every tick
-        — a track change or a seek restarts at 0, and a fresh position is what
-        lets the player tell the jump from a stall."""
-        before = session.track
-        if not await self._sync_position(session):
-            return
-        if session.track != before:
-            self._update_connection_state()
-        else:
-            self.broadcast_position_update(
-                int(session.track_position * 1000),
-                int(self._track_duration(session.track) * 1000),
-            )
+        boundary crossed moves the title (a state); the playhead within the
+        track goes to the position axis, which publishes only a jump."""
+        await self._sync_position(session)
 
     async def _sync_position(self, session: Optional[CdSession]) -> bool:
         """Read mpv's playhead into the session's track and position."""
@@ -899,6 +888,7 @@ class CdSource(MpvAudioSource):
         if track is not None and track != session.track:
             session.track = track
         session.track_position = max(0.0, (lba - self._toc.lbas[session.track - 1]) / SECTORS_PER_SECOND)
+        self._observe_position(int(session.track_position * 1000))
         return True
 
     # =========================================================================
@@ -920,82 +910,95 @@ class CdSource(MpvAudioSource):
                 return i + 1
         return None
 
-    def _track_duration(self, track: int) -> float:
+    # =========================================================================
+    # PUBLICATION (docs: "le fil")
+    # =========================================================================
+
+    _AVAILABILITY = {
+        DiscState.NO_DRIVE: "no_drive",
+        DiscState.EMPTY: "no_disc",
+        DiscState.READING: "reading_disc",
+        DiscState.IDENTIFYING: "reading_disc",
+        DiscState.UNREADABLE: "unreadable_disc",
+        DiscState.EJECTING: "ejecting",
+        DiscState.READY: None,
+    }
+
+    def availability(self) -> Optional[str]:
+        return self._AVAILABILITY[self._disc_state]
+
+    def _track_of(self, track: int) -> Optional[TrackInfo]:
         tracks = self._disc.tracks if self._disc else []
-        return tracks[track - 1].duration if 0 < track <= len(tracks) else 0
+        if 0 < track <= len(tracks):
+            return tracks[track - 1]
+        return tracks[0] if tracks else None
 
-    # =========================================================================
-    # PUBLICATION
-    # =========================================================================
-
-    def _build_metadata(self) -> Dict[str, Any]:
-        """The old wire's CD payload, from the device state and the session
-        (or, without one, the resume point)."""
-        state = self._disc_state
-        session = self._session
-        is_playing, is_buffering = self._flags(session.phase if session else None)
-        metadata: Dict[str, Any] = {
-            "drive_connected": state is not DiscState.NO_DRIVE,
-            "disc_present": state in _HOLDS_A_DISC,
-            "is_playing": is_playing,
-            "is_buffering": is_buffering,
-            "ejecting": state is DiscState.EJECTING,
-            "cache_ready": self._toc is not None and state is not DiscState.READING,
+    def _track_fields(self, track: int) -> Dict[str, Any]:
+        disc = self._disc
+        info = self._track_of(track)
+        return {
+            "title": info.title if info else disc.album,
+            "artist": disc.artist,
+            "album": disc.album,
+            "artwork": disc.cover_url,
+            "duration_ms": info.duration * 1000 if info else None,
         }
 
+    def _session_fields(self, session: CdSession) -> Dict[str, Any]:
+        if self._disc is None:
+            return {}
+        return self._track_fields(session.track)
+
+    def _resume_view(self) -> Optional[ResumeView]:
+        """What play brings back: the resume point for this disc, or track 1
+        at 0:00 — a READY disc always has one (D8)."""
+        if self._disc_state is not DiscState.READY or self._disc is None:
+            return None
+        track, position = self._resume_track()
+        fields = self._track_fields(track)
+        return ResumeView(**fields, position_ms=int(position * 1000))
+
+    def _details(self) -> Optional[CdDetails]:
+        """The disc, from the moment it is read (or found unreadable)."""
+        state = self._disc_state
         disc = self._disc
+        if state is DiscState.UNREADABLE:
+            return CdDetails(disc=None, current_track=None, artwork_pending=False)
         if state is not DiscState.READY or disc is None:
-            return metadata
-        track, position = self._current_track()
-        tracks = disc.tracks
-        playing_track = tracks[track - 1] if 0 < track <= len(tracks) else (tracks[0] if tracks else None)
+            return None
+        return CdDetails(
+            disc=CdDisc(
+                id=disc.disc_id, album=disc.album, artist=disc.artist, year=disc.year,
+                cover_url=disc.cover_url,
+                tracks=[
+                    CdTrack(number=t.number, title=t.title, duration_ms=t.duration * 1000)
+                    for t in disc.tracks
+                ],
+            ),
+            current_track=self._current_track()[0],
+            artwork_pending=disc.disc_id in self._covers_in_flight,
+        )
 
-        # Disc identity: a hardware fact, kept while idle and across a WS
-        # reconnect.
-        metadata.update({
-            "disc_id": disc.disc_id,
-            "disc_album": disc.album,
-            "disc_artist": disc.artist,
-            "disc_year": disc.year,
-            "disc_cover_url": disc.cover_url,
-            "track_count": disc.track_count,
-            "tracks": [t.model_dump() for t in tracks],
-            "current_track": track,
-        })
-        # Now playing — in READY too: the resume point is what a press on play
-        # brings back. Nothing animates it there (the player runs its timer on
-        # is_playing), so the bar sits still and says where.
-        metadata.update({
-            "album": disc.album,
-            "artist": disc.artist,
-            "album_art_url": disc.cover_url,
-            "artwork_pending": disc.disc_id in self._covers_in_flight,
-            "title": playing_track.title if playing_track else disc.album,
-            "position": int(position * 1000),
-            "duration": int((playing_track.duration if playing_track else 0) * 1000),
-        })
-        return metadata
-
-    def _idle_metadata(self) -> Dict[str, Any]:
-        """A stopped CD still has a disc to show, and the point to resume."""
-        return self._build_metadata()
-
-    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
-        # ACTIVE iff a session is open; a disc merely in the drive, auto-stopped
-        # or played out is READY so the screen can sleep, and its projection
-        # survives READY through `_idle_metadata()`.
-        connected, core, built = self._connection_state()
-        self.emit_connection_state(connected, core, {**built, **(extras or {})})
-
-    def _connection_state(self):
-        core, extras = PlaybackMetadata.split(self._build_metadata())
-        return self._session is not None, core, extras
+    def _controls(self) -> List[str]:
+        state = self._disc_state
+        if not self._playable():
+            # A disc the drive holds but Milō cannot play still comes out (E67).
+            return ["eject"] if state in (
+                DiscState.READING, DiscState.IDENTIFYING, DiscState.UNREADABLE,
+            ) else []
+        track, _ = self._current_track()
+        steps = ["next", "prev"] if track < len(self._toc.lbas) else ["prev"]
+        session = self._session
+        if session is not None and session.phase is Phase.LOADING:
+            return ["pause", *steps, "play_track", "eject"]
+        if session is not None and session.phase is Phase.PLAYING:
+            return ["pause", "seek", *steps, "play_track", "eject"]
+        return ["resume", "seek", *steps, "play_track", "eject"]
 
     async def refresh_metadata(self) -> bool:
-        """Refresh metadata so WebSocket initial_state carries the live position."""
+        """Re-read the playhead so a (re)connecting client's state carries it."""
         if isinstance(self._session, CdSession):
             await self._sync_position(self._session)
-        self._metadata = self._build_metadata()
         return True
 
     @property

@@ -1,25 +1,58 @@
 // frontend/tests/stores/podcastStore.test.js
 /**
- * podcastStore owns the episode progress cache (including its LRU bound and the
- * ms→s wire conversion), the subscriptions Map, and the optimistic "pending
- * episode" state. Those are the parts a regression can actually break.
+ * podcastStore owns the episode progress cache (including its LRU bound, the
+ * ms→s wire conversion and the "listened" mark an end of file leaves), the
+ * subscriptions Map, and the optimistic "pending episode" state. Those are the
+ * parts a regression can actually break.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
+import { makeAudioState, makeSession, publishState } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
 const EPISODE = (uuid, extra = {}) => ({ uuid, title: `Episode ${uuid}`, ...extra });
 
-/** A source.state_changed event as App.vue forwards it. */
-const sourceEvent = (metadata, origin = 'podcast') => ({
-  origin,
-  type: 'state_changed',
-  data: { metadata },
-});
+const T0 = 1_790_270_000; // epoch seconds
+
+/** Podcast selected with `episode` live in a session. */
+function podcastSession(episode, { phase = 'playing', id = 'session-1', ms = null, at = T0, durationMs = null, speed = 1.0 } = {}) {
+  return {
+    source: 'podcast',
+    service: 'running',
+    session: makeSession({
+      id,
+      phase,
+      title: episode.title,
+      duration_ms: durationMs,
+      position: ms === null ? null : { ms, at, rate: speed },
+    }),
+    controls: phase === 'paused' ? ['resume', 'seek', 'set_speed'] : ['pause', 'seek', 'set_speed'],
+    details: { kind: 'podcast', episode, speed },
+  };
+}
+
+/** Podcast selected, no session, `episode` kept to resume at `positionMs`. */
+function podcastResume(episode, { positionMs = null, durationMs = null } = {}) {
+  return {
+    source: 'podcast',
+    service: 'running',
+    controls: ['resume', 'set_speed'],
+    resume: {
+      title: episode.title, artist: null, album: null, artwork: null,
+      duration_ms: durationMs, position_ms: positionMs,
+    },
+    details: { kind: 'podcast', episode, speed: 1.0 },
+  };
+}
+
+/** Podcast selected with nothing loaded and nothing to resume. */
+const podcastIdle = () => ({ source: 'podcast', service: 'running', controls: ['set_speed'] });
+
+const publish = (overrides) => publishState(useUnifiedAudioStore(), overrides);
 
 describe('podcastStore', () => {
   let store;
@@ -29,40 +62,53 @@ describe('podcastStore', () => {
     store = usePodcastStore();
   });
 
-  describe('metadata ingestion', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('state ingestion', () => {
     it('adopts the current episode and clears the pending flag for it', () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
       store.play('ep1');
       expect(store.pendingEpisodeUuid).toBe('ep1');
 
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+      publish(podcastSession(EPISODE('ep1'), { phase: 'loading' }));
 
       expect(store.currentEpisode.uuid).toBe('ep1');
       expect(store.pendingEpisodeUuid).toBeNull();
     });
 
     it('keeps the pending flag when a different episode confirms', () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
       store.play('ep1');
 
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep2') }));
+      publish(podcastSession(EPISODE('ep2')));
 
       expect(store.pendingEpisodeUuid).toBe('ep1');
     });
 
-    it('ignores events originating from another source', () => {
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }, 'radio'));
+    it('clears the pending flag when the episode asked for was already the one kept', () => {
+      // Replaying the resume episode changes no episode, only the session: the
+      // spinner must still end with the state that answers the press.
+      publish(podcastResume(EPISODE('ep1'), { positionMs: 5_000, durationMs: 60_000 }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
+      store.play('ep1');
 
+      publish(podcastSession(EPISODE('ep1'), { phase: 'loading' }));
+
+      expect(store.pendingEpisodeUuid).toBeNull();
+    });
+
+    it('ignores podcast details while another source is selected', () => {
+      publish({ ...podcastSession(EPISODE('ep1')), source: 'radio' });
+
+      expect(useUnifiedAudioStore().systemState.source).toBe('radio');
       expect(store.currentEpisode).toBeNull();
     });
 
     it('converts the millisecond wire position into seconds for the cache', () => {
-      // Backend emits ms (shared wire convention); EpisodeCard reads seconds.
-      store.handleSourceEvent(sourceEvent({
-        episode_uuid: 'ep1',
-        position: 65_400,
-        duration: 1_800_000,
-      }));
+      // The wire is ms (shared convention); EpisodeCard reads seconds.
+      publish(podcastSession(EPISODE('ep1'), { phase: 'paused', ms: 65_400, durationMs: 1_800_000 }));
 
       expect(store.getEpisodeProgress('ep1')).toMatchObject({
         position: 65,
@@ -70,39 +116,49 @@ describe('podcastStore', () => {
       });
     });
 
-    it('keeps the episode across a state-only change (multiroom reroute)', () => {
-      // The reroute publishes STARTING with metadata=null: a state change that
-      // says nothing about the episode. Read as "no episode", it blanked the
-      // player for the whole reroute (E02).
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+    it('records the episode being left where it stood when it was left', () => {
+      // The anchor is republished only on a discontinuity, so the cache entry
+      // written with it is minutes old by the time another episode starts. The
+      // episode being left is recorded as of that moment instead.
+      vi.useFakeTimers();
+      vi.setSystemTime(T0 * 1000);
+      publish(podcastSession(EPISODE('ep1'), { ms: 60_000, durationMs: 1_800_000 }));
 
-      store.handleSourceEvent(sourceEvent(null));
+      vi.setSystemTime((T0 + 30) * 1000);
+      publish(podcastSession(EPISODE('ep2'), { id: 'session-2', phase: 'loading' }));
 
-      expect(store.currentEpisode.uuid).toBe('ep1');
+      expect(store.getEpisodeProgress('ep1')).toMatchObject({ position: 90, duration: 1800 });
     });
 
-    it('drops the current episode when the source goes idle without one', () => {
-      // Every stop that is not a natural end — auto-stop after pause, explicit
-      // stop, mpv gone — publishes {is_playing, is_buffering} and nothing else.
-      // Only episode_ended carries a uuid, so an absent one means "no episode
-      // loaded"; without this, useEpisodePlaybackStatus keeps flagging the
-      // stopped episode as current for the rest of the session.
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+    it('reads the resume point for an episode that stopped', () => {
+      publish(podcastResume(EPISODE('ep1'), { positionMs: 42_000, durationMs: 600_000 }));
+
       expect(store.currentEpisode.uuid).toBe('ep1');
+      expect(store.currentEpisodeProgress).toEqual({ positionMs: 42_000, durationMs: 600_000 });
+    });
 
-      store.handleSourceEvent(sourceEvent({ is_playing: false, is_buffering: false }));
+    it('drops the current episode when the source has nothing to show', () => {
+      publish(podcastSession(EPISODE('ep1')));
 
-      // The inert pair alone: nothing loaded AND nothing to resume. A stop
-      // that can be resumed republishes `current_episode`, and takes the
-      // branch above — which is what keeps the player on screen without this
-      // store holding a copy of what it just lost.
+      publish(podcastIdle());
+
       expect(store.currentEpisode).toBeNull();
+      expect(store.currentEpisodeProgress).toBeNull();
     });
 
-    it('applies a playback speed change pushed by the backend', () => {
-      store.handleSourceEvent(sourceEvent({ playback_speed: 1.5 }));
+    it('applies the speed the state publishes', () => {
+      publish(podcastSession(EPISODE('ep1'), { speed: 1.5 }));
 
       expect(store.playbackSpeed).toBe(1.5);
+    });
+
+    it('falls back to the saved speed while no episode carries one', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ settings: { playback_speed: 1.25 } }));
+      await store.loadSettings();
+
+      publish(podcastIdle());
+
+      expect(store.playbackSpeed).toBe(1.25);
     });
 
     it('returns null progress for an episode never played', () => {
@@ -110,52 +166,37 @@ describe('podcastStore', () => {
     });
   });
 
-  describe('episode end', () => {
-    it('marks the finished episode completed and clears currentEpisode', () => {
-      store.handleSourceEvent(sourceEvent({
-        episode_uuid: 'ep1',
-        position: 10_000,
-        duration: 60_000,
-      }));
+  describe('session end', () => {
+    it('marks an episode played to its end as listened', () => {
+      publish(podcastSession(EPISODE('ep1'), { phase: 'paused', ms: 10_000, durationMs: 60_000 }));
 
-      store.handleSourceEvent(sourceEvent({
-        episode_ended: true,
-        completed: true,
-        episode_uuid: 'ep1',
-      }));
+      store.handleSessionEnded({ source: 'podcast', session_id: 'session-1', reason: 'eof' });
+      // The state that follows the end: nothing left to resume.
+      publish(podcastIdle());
 
       expect(store.currentEpisode).toBeNull();
       const progress = store.getEpisodeProgress('ep1');
+      // Not overwritten by the ended session's last playhead.
       expect(progress.completed).toBe(true);
       // Merged, not replaced: the card still shows a duration.
       expect(progress.duration).toBe(60);
     });
 
-    it('drops the episode the moment it ends', () => {
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+    it('does not mark an episode that was only stopped', () => {
+      publish(podcastSession(EPISODE('ep1'), { phase: 'paused', ms: 10_000, durationMs: 60_000 }));
 
-      store.handleSourceEvent(sourceEvent({ episode_ended: true, episode_uuid: 'ep1' }));
+      store.handleSessionEnded({ source: 'podcast', session_id: 'session-1', reason: 'user_stop' });
 
-      // An ending is not a stop. The backend publishes no resume identity
-      // beside episode_ended, and the player goes with it — where an auto-stop
-      // keeps both. This store used to hold the episode past the ending, for
-      // the length of a fade the component had to time itself.
-      expect(store.currentEpisode).toBeNull();
+      expect(store.getEpisodeProgress('ep1').completed).toBeUndefined();
     });
 
-    it('ignores every other field carried by the episode_ended event', () => {
-      // The handler returns early: a trailing position from the ended episode
-      // must not land in the cache as fresh progress.
-      store.handleSourceEvent(sourceEvent({
-        episode_ended: true,
-        episode_uuid: 'ep1',
-        position: 999_000,
-        duration: 1_000_000,
-        playback_speed: 2.0,
-      }));
+    it('ignores the end of another source or of a session it does not show', () => {
+      publish(podcastSession(EPISODE('ep1'), { phase: 'paused', ms: 10_000, durationMs: 60_000 }));
 
-      expect(store.getEpisodeProgress('ep1')).toBeNull();
-      expect(store.playbackSpeed).toBe(1.0);
+      store.handleSessionEnded({ source: 'music_library', session_id: 'session-1', reason: 'eof' });
+      store.handleSessionEnded({ source: 'podcast', session_id: 'session-0', reason: 'eof' });
+
+      expect(store.getEpisodeProgress('ep1').completed).toBeUndefined();
     });
   });
 
@@ -173,7 +214,7 @@ describe('podcastStore', () => {
     });
 
     it('never evicts the episode currently playing', () => {
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep0') }));
+      publish(podcastSession(EPISODE('ep0')));
       const episodes = Array.from({ length: 201 }, (_, i) => EPISODE(`ep${i}`, {
         // ep0 is the oldest, so it would be the first victim.
         playback_progress: { position: 10, duration: 100, last_played: 1000 + i },
@@ -316,70 +357,21 @@ describe('podcastStore', () => {
     });
   });
 
-  describe('resync heals the now-playing slice', () => {
-    // _applyMetadata is the only writer of currentEpisode/displayEpisode/
-    // playbackSpeed, and source/state_changed its only trigger. A tab
-    // backgrounded across an episode change misses that delta for good, so
-    // resync() must re-apply the snapshot App.vue has just healed the mirror
-    // with — otherwise the player paints episode A over episode B's progress.
-    const healMirror = (metadata, activeSource = 'podcast') => {
-      useUnifiedAudioStore().updateState({
-        data: {
-          full_state: {
-            active_source: activeSource,
-            source_state: 'active',
-            transitioning: false,
-            multiroom_enabled: false,
-            equalizer_effects_enabled: true,
-            metadata,
-          },
-        },
+  describe('resync', () => {
+    it('follows the healed mirror, with no copy of its own to re-apply', async () => {
+      // A tab backgrounded across an episode change misses that state for
+      // good; App.vue heals unifiedStore first, and the episode is read from it.
+      publish(podcastSession(EPISODE('ep1')));
+      apiCall.get.mockImplementation(async (url) => {
+        if (url === '/api/audio/state') return ok(makeAudioState(podcastSession(EPISODE('ep2'), { speed: 1.5 })));
+        return ok({ subscriptions: [] });
       });
-    };
 
-    beforeEach(() => {
-      apiCall.get.mockResolvedValue(ok({ subscriptions: [] }));
-    });
-
-    it('adopts the episode the missed delta carried', async () => {
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
-      healMirror({ current_episode: EPISODE('ep2'), playback_speed: 1.5 });
-
+      await useUnifiedAudioStore().resync();
       await store.resync();
 
       expect(store.currentEpisode.uuid).toBe('ep2');
       expect(store.playbackSpeed).toBe(1.5);
-    });
-
-    it('drops an episode that ended while the tab was backgrounded', async () => {
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
-      healMirror({ is_playing: false });
-
-      await store.resync();
-
-      expect(store.currentEpisode).toBeNull();
-    });
-
-    it('keeps an episode that only stopped while the tab was backgrounded', async () => {
-      // The two used to be indistinguishable here: every stop published the
-      // inert pair, so a tab returning from an auto-stop saw exactly what it
-      // saw after an ending. An auto-stop now republishes the episode it would
-      // reopen, so the player comes back on the thing a press resumes.
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
-      healMirror({ current_episode: EPISODE('ep1'), is_playing: false });
-
-      await store.resync();
-
-      expect(store.currentEpisode.uuid).toBe('ep1');
-    });
-
-    it('leaves the slice alone when podcast is not the active source', async () => {
-      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
-      healMirror({ title: 'Some track' }, 'spotify');
-
-      await store.resync();
-
-      expect(store.currentEpisode.uuid).toBe('ep1');
     });
   });
 
@@ -405,8 +397,8 @@ describe('podcastStore', () => {
   });
 
   // setSpeed has no test: it delegates to sendCommand and the applied value
-  // arrives on the metadata broadcast, already covered by 'applies a playback
-  // speed change pushed by the backend' above.
+  // arrives in the state, already covered by 'applies the speed the state
+  // publishes' above.
 
   describe('search state', () => {
     it('records results, pagination and the term that produced them', () => {

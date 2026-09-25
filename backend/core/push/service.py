@@ -18,9 +18,9 @@ WebSocket. Apple throttles frequent pushes and an abused budget degrades
 delivery for the whole app, durably — which is a state no code change here can
 undo. Three rules keep it bounded:
 
-  * `SourcePositionUpdate` triggers nothing. Position is sent as a value plus
-    a timestamp inside a push that was going to happen anyway, and iOS
-    extrapolates. Streaming it would be several pushes a second.
+  * `source/position` triggers nothing. Position is sent as the session's
+    anchor (a value plus its instant) inside a push that was going to happen
+    anyway, and iOS extrapolates. Streaming it would be several pushes a second.
   * The Now Playing push is capped at one per second, last-state-wins: a turn
     of the volume knob emits a burst of `volume_changed`, and the burst
     collapses into one push carrying the level it ended on.
@@ -39,9 +39,8 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.core.models.ws_events import (
-    SourceStateChanged,
-    SystemStateChanged,
-    SystemTransitionComplete,
+    AudioStateChanged,
+    SourcePosition,
     VolumeChanged,
     WsEvent,
 )
@@ -50,6 +49,7 @@ from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
     now_playing_payload,
+    shown_track,
     widget_payload,
 )
 from backend.shared.background import BackgroundTaskSet
@@ -61,25 +61,16 @@ logger = logging.getLogger("core.push.service")
 # Apple publishes, because Apple publishes none.
 MIN_PUSH_INTERVAL_S = 1.0
 
-# The events worth a push. Everything else on the bus — position ticks,
-# favourites, settings — either changes nothing a lock screen shows or changes
-# it too often to be worth a push.
-TRIGGERS: Tuple[type, ...] = (
-    VolumeChanged, SourceStateChanged, SystemStateChanged, SystemTransitionComplete,
-)
-# `SystemTransitionComplete` is here because nothing else announces the end of a
-# source change to this loop, and that is the one moment the active source is
-# different. `transition_to_source` holds `transitioning` across the whole
-# switch, which suppresses the per-source broadcasts inside it, and the two
-# events it does emit — Start and Complete — were in neither this tuple nor any
-# other path here. Measured on the appliance 2026-09-22: source left from the
-# UI, `Transition completed: none` in the journal, and the session still open a
-# minute later; a volume nudge woke the loop and it ended on the spot, which is
-# what proved the logic was right and the wake-up missing.
-#
-# This is not the widening `_signature` warns against. That warning is about
-# events which change nothing a widget draws; a completed transition changes the
-# active source, which is the whole of what the Now Playing card draws.
+# The events worth a push. Everything else on the bus — favourites, settings —
+# changes nothing a lock screen shows.
+TRIGGERS: Tuple[type, ...] = (VolumeChanged, AudioStateChanged, SourcePosition)
+# `source/state` is sent for every change of the state and only then — a source
+# change included, whose end once reached this loop by no event at all
+# (measured 2026-09-22: source left, the session still open a minute later,
+# until a volume nudge woke the loop). `source/position` is the playhead's one
+# move iOS cannot extrapolate — a seek — and the backend sends it only on a
+# discontinuity past 2 s, never per tick; without it the lock screen ran on from
+# the old anchor until the next track (measured 2026-09-25).
 
 # How long a session Milō just started is trusted before the device has
 # registered its token. Generous on purpose: the round trip is an HTTP call the
@@ -215,7 +206,7 @@ class PushService:
         the `end`. That is what keeps a route the app calls every couple of
         seconds off the APNs budget the module docstring is about.
 
-        Nothing during `transitioning` — that is the beat of a source change,
+        Nothing during `switching` — that is the beat of a source change,
         and closing on it would drop the card and raise it again at every
         switch.
 
@@ -224,7 +215,7 @@ class PushService:
             return
 
         state = self._state_machine.get_current_state()
-        if state.get("transitioning"):
+        if state.get("switching"):
             return
 
         async with self._session_lock:
@@ -322,11 +313,11 @@ class PushService:
                 # check `_end_session` ran on every publish with no session to
                 # end — `Now Playing session None ended` in the journal, and
                 # `_session_cleared_at` pushed forward each time — and without
-                # `transitioning` a source change reads as nothing playing
-                # while it is in flight, which empties the Lock Screen on every
+                # `switching` a source change reads as nothing playing while
+                # it is in flight, which empties the Lock Screen on every
                 # switch.
                 if (self._session_id is not None
-                        and not state.get("transitioning")
+                        and not state.get("switching")
                         and not self._a_source_is_selected(state)):
                     await self._end_session()
                 else:
@@ -352,7 +343,7 @@ class PushService:
         the app had never asked to be primary, which the system therefore did
         not show. Nothing came back until the app was relaunched.
 
-        `transitioning` says so precisely but says it too briefly: the coalescer
+        `switching` says so precisely but says it too briefly: the coalescer
         sleeps a second before publishing, and by then the transition is over.
         It is kept because when it IS visible it is certain, and the delay
         covers the rest.
@@ -368,7 +359,7 @@ class PushService:
         """
         if self._session_id is None:
             return
-        if state.get("transitioning"):
+        if state.get("switching"):
             return
 
         now = time.time()
@@ -402,7 +393,7 @@ class PushService:
         that had nothing to play, for the whole grace).
 
         **The copy survives for the sources whose state cannot answer.** Only
-        the four mpv sources override `_idle_metadata()`; the receivers —
+        the four mpv sources keep a resume point; the receivers —
         AirPlay, Qobuz, Bluetooth — and Spotify/Tidal publish the inert
         pair alone when their sender goes, so rebuilding from that state gives
         a card with every field null, which on the phone is a media card with
@@ -441,7 +432,7 @@ class PushService:
         holds_over = (
             self._last_attributes is not None
             and not self._displays_something(state)
-            and str(state.get("active_source") or "none") == self._last_source
+            and str(state.get("source") or "none") == self._last_source
         )
         if holds_over:
             attributes = {**self._last_attributes, "isPlaying": False}
@@ -649,12 +640,11 @@ class PushService:
         Keeps a copy, for the one case the state cannot answer — see
         `_publish_paused`.
         """
-        self._last_source = str(state.get("active_source") or "none")
+        self._last_source = str(state.get("source") or "none")
         self._last_attributes = build_attributes(
             session_id=session_id,
-            metadata=state.get("metadata"),
+            state=state,
             devices=await self._devices(),
-            active_source=self._last_source,
         )
         return self._last_attributes
 
@@ -812,15 +802,12 @@ class PushService:
     def _displays_something(state: Dict[str, Any]) -> bool:
         """Would the card drawn from this state name anything at all?
 
-        Read off `title`, because that is the field the card leads with and the
-        one `build_attributes` projects — asking a second question of a second
-        field is how "the lock screen shows a session" and "the state says there
-        is one" come to disagree. Every source fills it whenever it has
-        something to show, playing or stopped-and-resumable; the inert
-        {is_playing, is_buffering} pair is what an ending publishes.
+        The rule `build_attributes` projects the card by (`shown_track`): the
+        session's title, else the resume point's — asking a second question of
+        a second field is how "the lock screen shows a session" and "the state
+        says there is one" come to disagree.
         """
-        metadata = state.get("metadata") or {}
-        return bool(metadata.get("title"))
+        return shown_track(state) is not None
 
     @staticmethod
     def _a_source_is_selected(state: Dict[str, Any]) -> bool:
@@ -835,22 +822,18 @@ class PushService:
         This is what lets a session end the moment the source is LEFT while a
         source merely going quiet keeps its grace. The distinction is safe
         because `transition_to_source` assigns the target in the same locked
-        block that raises `transitioning`, so a change from one source to
+        block that raises `switching`, so a change from one source to
         another never passes through `none` — measured 2026-09-22, sampling
         /api/audio/state across radio -> spotify: `spotify/starting` then
         `spotify/ready`, and `none` in no sample. Were that ever to change,
         leaving a source and changing source would become indistinguishable
         here and the card would blink on every switch.
         """
-        source = state.get("active_source")
+        source = state.get("source")
         return bool(source) and str(source) != "none"
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:
-        """Something is playing when a real source is active.
-
-        Read off the same two fields the UI reads, so "the lock screen shows a
-        session" and "the screen shows a player" cannot disagree.
-        """
-        source = state.get("active_source")
-        return bool(source) and str(source) != "none" and state.get("source_state") == "active"
+        """Something is playing when the selected source holds a session."""
+        source = state.get("source")
+        return bool(source) and str(source) != "none" and state.get("session") is not None

@@ -190,11 +190,6 @@ function processInitialState(event) {
     settingsStore.updateHotspotActive(event.data.hotspot_active);
   }
 
-  const fullState = event.data?.full_state;
-  if (fullState?.active_source === 'podcast' && fullState?.metadata) {
-    podcastStore.handleInitialMetadata(fullState.metadata);
-  }
-
   isReady.value = true;
 }
 
@@ -209,11 +204,8 @@ const deltaStores = [
 
 async function resyncStores() {
   // The central mirror first and ALONE. Every source store's now-playing slice
-  // is a view of unifiedStore.systemState — radio and music_library compute
-  // theirs from it, podcast copies it into its own refs on each delta and
-  // re-applies the snapshot in its resync(). Healed in the same batch, that
-  // re-application would read the pre-resync mirror and put back exactly the
-  // stale episode the heal exists to replace.
+  // is a view of unifiedStore.systemState, so it heals with the mirror; no
+  // store's own resync() may run against the pre-resync one.
   await unifiedStore.resync();
   await Promise.allSettled([
     ...deltaStores.filter((store) => store !== unifiedStore).map((store) => store.resync()),
@@ -421,7 +413,7 @@ watch(isReady, (ready) => {
 
       // Auto-show dock after boot complete, only if no audio source is active
       timer.setTimeout(() => {
-        if (showDockFn && unifiedStore.systemState.active_source === 'none') {
+        if (showDockFn && unifiedStore.systemState.source === 'none') {
           showDockFn();
         }
       }, DOCK_AUTO_SHOW_DELAY);
@@ -501,28 +493,23 @@ provide('dismissScreensaver', dismissScreensaverSignal);
 // discriminator, drive the notification banner, or touch app-level UI state.
 
 /**
- * Connectivity feeds two stores from one event: the raw NM level (Settings ›
- * Network reads it), and the injected full_state, which carries the recomputed
- * `network_unavailable` for the active source. Losing internet blocks a source
- * without anything about the source itself changing, so this is the only event
- * that can move the status card to "no internet".
+ * A session ended, for a named reason, before the state that follows it: the
+ * podcast store marks an episode played to its end as listened.
  */
-function handleConnectivityChanged(event) {
-  systemStore.handleConnectivityEvent(event);
-  unifiedStore.updateState(event);
+function handleSessionEnded(event) {
+  podcastStore.handleSessionEnded(event.data);
 }
 
 /** Store handlers taking the whole event: [category, type, handler]. */
 const RAW_EVENTS = [
   ['volume', 'volume_changed', unifiedStore.handleVolumeEvent],
-  ['system', 'state_changed', unifiedStore.updateState],
-  ['system', 'transition_start', unifiedStore.updateState],
-  ['system', 'transition_complete', unifiedStore.updateState],
-  // Drive-status changes carry full_state; apply it so the central mirror
-  // (and thus the derived cdStore) reflects drive_connected/disc presence.
-  ['system', 'cd_drive_status', unifiedStore.updateState],
+  // The whole audio state, sent whenever anything but the playhead moves.
+  ['source', 'state', unifiedStore.updateState],
+  ['source', 'session_ended', handleSessionEnded],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
-  ['system', 'connectivity_changed', handleConnectivityChanged],
+  // The raw NM level (Settings › Network reads it). What it does to each source
+  // arrives on its own, as the state's `availability`.
+  ['system', 'connectivity_changed', systemStore.handleConnectivityEvent],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed
   // whenever the NM dispatcher signals a physical link change.
   ['network', 'status_changed', handleNetworkStatusChanged],
@@ -550,7 +537,7 @@ const RAW_EVENTS = [
  * validated against another event's schema.
  */
 const PARSED_EVENTS = [
-  ['source', 'position_update', unifiedStore.updatePosition],
+  ['source', 'position', unifiedStore.updatePosition],
   ['multiroom', 'equalizer_changed', equalizerStore.handleEqualizerChanged],
   ['settings', 'fan_config_changed', fanStore.applyConfig],
   ['settings', 'fan_status_changed', fanStore.applyTelemetry],
@@ -609,14 +596,10 @@ onMounted(async () => {
     // No isReady guard: the backend re-sends initial_state on every reconnect
     // (ready handshake) and that snapshot heals state missed while offline
     on('system', 'initial_state', (event) => processInitialState(event)),
-    on('source', 'state_changed', (event) => {
-      unifiedStore.updateState(event);
-      podcastStore.handleSourceEvent(event);
-    }),
     // An operation failed on a source that survives it (a station that won't
-    // tune, a command the daemon refused) — banner only. A source that is
-    // *down* arrives as source_state 'error' in full_state and is drawn by the
-    // status card instead, so neither is inferred from the other.
+    // tune, a command the daemon refused) — banner only. A source whose start
+    // failed is `service: failed` in the state and is drawn by the status card
+    // instead, so neither is inferred from the other.
     on('source', 'error', (event) => {
       const source = event.data?.source || 'source';
       currentError.value = {
@@ -631,14 +614,6 @@ onMounted(async () => {
       if (currentError.value?.source === event.data?.source) {
         currentError.value = null;
       }
-    }),
-    on('system', 'error', (event) => {
-      const source = event.data?.source || 'system';
-      const message = event.data?.message || 'Unknown error';
-      currentError.value = {
-        title: t('notification.sourceErrorTitle', { source: sourceLabel(source) }),
-        detail: message,
-      };
     }),
     on('system', 'backend_error', (event) => {
       const message = event.data?.message || 'Backend error';

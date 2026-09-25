@@ -18,7 +18,7 @@ audio routing.
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
 from backend.core.state import AudioStateMachine
 from backend.tests.conftest import events_of
@@ -83,12 +83,12 @@ class TestAudioRoutingService:
         # Skip async detection in tests
         service._initial_detection_done = True
         # The real state machine: the reroute's source side is its
-        # reroute_active_source(). Its broadcasts are recorded rather than sent,
-        # and update_source_state stays real but observable.
+        # reroute_active_source(), and the state it composes reads the mode
+        # back from this service. Its broadcasts are recorded rather than sent.
         state_machine = AudioStateMachine()
         state_machine.ALSA_RELEASE_SETTLE_S = 0
         state_machine.broadcast = AsyncMock()
-        state_machine.update_source_state = AsyncMock(wraps=state_machine.update_source_state)
+        state_machine.routing_service = service
         service.state_machine = state_machine
         # Wire a camilladsp stub so equalizer_effects_enabled property works
         service.camilladsp_service = _CamillaStub()
@@ -136,14 +136,14 @@ class TestAudioRoutingService:
     async def test_a_reroute_with_no_source_selected_only_moves_the_output(
         self, routing_service, mock_systemd_manager
     ):
-        """Nothing to carry: snapcast still moves, and no STARTING is published
-        for a source that is not there."""
+        """Nothing to carry: snapcast still moves, and nothing is published on
+        behalf of a source that is not there."""
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate') as regen:
             await routing_service._apply_transition(True)
 
         assert mock_systemd_manager.start.call_count == 2
         regen.assert_called_once_with(True)
-        routing_service.state_machine.update_source_state.assert_not_called()
+        assert not events_of(routing_service.state_machine.broadcast, "source", "state")
 
     def test_set_snapcast_websocket_service(self, routing_service):
         """Snapcast WebSocket service definition test"""
@@ -255,10 +255,19 @@ class TestAudioRoutingService:
         # and the two failure tests below assert only its absence.
         assert len(events_of(routing_service.state_machine.broadcast,
                              "routing", "multiroom_ready")) == 1
-        # Final state broadcast carries the multiroom_changed discriminator
-        broadcast_calls = events_of(routing_service.state_machine.broadcast,
-                                    "system", "state_changed")
-        assert any(e.multiroom_changed is True for e in broadcast_calls)
+        # `switching` spans the whole toggle: the first state of it says so,
+        # and the first one saying it is over carries the new mode — what
+        # Milo-Mac and the frontend wait for. The volume sync (multiroom_ready)
+        # lands inside the span, never after its end.
+        calls = [c.args[0] for c in routing_service.state_machine.broadcast.call_args_list]
+        states = [(i, e) for i, e in enumerate(calls) if (e.CATEGORY, e.TYPE) == ("source", "state")]
+        assert states[0][1].switching is True
+        end_index, end = states[-1]
+        assert (end.switching, end.multiroom_enabled) == (False, True)
+        assert all(e.switching for _, e in states[:-1])
+        ready_index = next(i for i, e in enumerate(calls)
+                           if (e.CATEGORY, e.TYPE) == ("routing", "multiroom_ready"))
+        assert ready_index < end_index
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_apply_failure_does_not_persist_settings(
@@ -332,8 +341,8 @@ class TestAudioRoutingService:
     ):
         """A post-transition WS/volume hiccup when enabling is self-healing: it
         is logged but must NOT fail the transition — the mode is committed, so
-        the call returns True and still broadcasts system/state_changed (so the
-        UI toggle and full_state reflect reality). No multiroom_error."""
+        the call returns True and the state that ends the switch still carries
+        the new mode (so the UI toggle reflects reality). No multiroom_error."""
         _seed_multiroom(mock_settings_service, False)
 
         # Wire a WS service that raises on start_connection (worst-case followup).
@@ -350,11 +359,10 @@ class TestAudioRoutingService:
         assert result is True
         assert routing_service.multiroom_enabled is True
         mock_settings_service.set_setting_strict.assert_called_once_with('routing.multiroom_enabled', True)
-        # state_changed broadcast so the UI toggle / full_state are truthful.
-        state_changed = events_of(routing_service.state_machine.broadcast,
-                                  "system", "state_changed")
-        assert len(state_changed) == 1
-        assert state_changed[0].multiroom_changed is True
+        # The switch ends on a state carrying the new mode, so the UI toggle
+        # is truthful.
+        final = events_of(routing_service.state_machine.broadcast, "source", "state")[-1]
+        assert (final.switching, final.multiroom_enabled) == (False, True)
         # A self-healing followup hiccup does not raise a user-facing error.
         error_events = events_of(routing_service.state_machine.broadcast,
                                  "routing", "multiroom_error")
@@ -629,42 +637,44 @@ class TestAudioRoutingService:
         mock_source.stop.assert_not_called()
         mock_source.start.assert_not_called()
 
+    def _switch_ended(self, routing_service):
+        """The last state broadcast, which must end the switch."""
+        return events_of(routing_service.state_machine.broadcast, "source", "state")[-1]
+
     @pytest.mark.asyncio
-    async def test_apply_transition_releases_the_starting_state_on_failure(
+    async def test_a_failed_toggle_does_not_leave_the_card_starting(
         self, routing_service, mock_systemd_manager, mock_source
     ):
         """A failed reroute must not leave the card on "Starting" forever.
 
-        Step 1 publishes STARTING and the caller only broadcasts multiroom_error
-        afterwards, so nothing else republishes on this path — and STARTING is
-        not in IDLE_STATES, so the 12 h inactivity sweep never clears it either.
+        The toggle raises `switching` first and only broadcasts
+        multiroom_error afterwards, so nothing else republishes on this path —
+        and the 12 h inactivity sweep skips a switching state, so it never
+        clears it either.
         """
         mock_systemd_manager.start = AsyncMock(return_value=False)
         routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            with pytest.raises(RuntimeError):
-                await routing_service._apply_transition(True)
+            assert await routing_service.set_multiroom_enabled(True) is False
 
-        published = [
-            entry.kwargs["new_state"]
-            for entry in routing_service.state_machine.update_source_state.await_args_list
-        ]
-        assert published[0] == SourceState.STARTING
-        assert published[-1] == mock_source.state
+        states = events_of(routing_service.state_machine.broadcast, "source", "state")
+        assert states[0].switching is True
+        final = self._switch_ended(routing_service)
+        assert (final.switching, final.service.value) == (False, "running")
+        assert routing_service.state_machine.state().switching is False
 
     @pytest.mark.asyncio
-    async def test_apply_transition_republishes_when_acquire_returns_false(
+    async def test_a_toggle_whose_reacquire_returns_false_still_ends_the_switch(
         self, routing_service, mock_systemd_manager, mock_source
     ):
-        """A best-effort step-5 failure must still replace the STARTING of step 1.
+        """A best-effort reacquire failure must still end the switch.
 
-        The success path relies on the source's own start broadcast to clear it.
-        A source that merely returns False never emits one, and the outer except
-        does not fire because step 5 is non-fatal — so the card spun for the rest
-        of the session, and re-tapping the source was a no-op because the state
-        machine already believed it was starting.
+        A source that merely returns False publishes nothing, and the toggle
+        does not fail because the reacquire is non-fatal — so the card spun for
+        the rest of the session, and re-tapping the source was a no-op because
+        the state machine believed it was starting.
         """
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
@@ -672,38 +682,27 @@ class TestAudioRoutingService:
         mock_source.acquire_after_reroute = AsyncMock(return_value=False)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            await routing_service._apply_transition(True)
+            assert await routing_service.set_multiroom_enabled(True) is True
 
-        published = [
-            entry.kwargs["new_state"]
-            for entry in routing_service.state_machine.update_source_state.await_args_list
-        ]
-        assert published[0] == SourceState.STARTING
-        assert published[-1] == mock_source.state
+        final = self._switch_ended(routing_service)
+        assert (final.switching, final.service.value) == (False, "running")
 
     @pytest.mark.asyncio
-    async def test_apply_transition_republishes_when_acquire_raises(
+    async def test_a_toggle_whose_reacquire_raises_still_ends_the_switch(
         self, routing_service, mock_systemd_manager, mock_source
     ):
-        """The second step-5 branch owes the same republish as the first.
-
-        Step 5 catches its own exception, so a raising source leaves the outer
-        handler untouched and lands on exactly the stuck STARTING above.
-        """
+        """The raising reacquire owes the same end as the one above: it is
+        caught where it happens, so the toggle goes on to its end."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
         mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            await routing_service._apply_transition(True)
+            assert await routing_service.set_multiroom_enabled(True) is True
 
-        published = [
-            entry.kwargs["new_state"]
-            for entry in routing_service.state_machine.update_source_state.await_args_list
-        ]
-        assert published[0] == SourceState.STARTING
-        assert published[-1] == mock_source.state
+        final = self._switch_ended(routing_service)
+        assert (final.switching, final.service.value) == (False, "running")
 
     @pytest.mark.asyncio
     async def test_apply_transition_source_acquire_failure_is_non_fatal(

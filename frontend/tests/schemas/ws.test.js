@@ -149,11 +149,13 @@ describe('WS payload semantics', () => {
     expect(parsed.data.equalizer_settings.filters[0]).toEqual({ id: 'eq_band_00' });
   });
 
-  it('source.position_update only accepts a known audio source', () => {
-    const schema = wsEventRegistry['source.position_update'];
+  it('source.position only accepts a known source and a whole anchor', () => {
+    const schema = wsEventRegistry['source.position'];
+    const position = { ms: 1000, at: 1_750_000_000.25, rate: 1 };
 
-    expect(schema.safeParse({ source: 'spotify', position: 1000, duration: 2000 }).success).toBe(true);
-    expect(schema.safeParse({ source: 'gramophone', position: 1000, duration: 2000 }).success).toBe(false);
+    expect(schema.safeParse({ source: 'spotify', session_id: 's1', position }).success).toBe(true);
+    expect(schema.safeParse({ source: 'gramophone', session_id: 's1', position }).success).toBe(false);
+    expect(schema.safeParse({ source: 'spotify', session_id: 's1', position: { ms: 1000 } }).success).toBe(false);
   });
 
   it('settings.fan_*_changed only accepts the three fan modes', () => {

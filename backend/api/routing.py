@@ -17,9 +17,8 @@ from pydantic import BaseModel
 
 from backend.api.models import SnapcastCalibrationRequest, SnapcastServerConfigRequest
 from backend.api.responses import MultiroomSetResponse
-from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
+from backend.api.route_helpers import api_error_handler
 from backend.config.constants import CLIENT_API_PORT
-from backend.core.models.ws_events import SystemStateChanged
 from backend.core.multiroom.routing import (
     SNAPCLIENT_LIMITS,
     SnapclientEnv,
@@ -89,23 +88,13 @@ def create_routing_router(
 
             # Read after the transition: the source it carried is the one active
             # when it took the lock, not the one active when this request arrived.
-            active_source = coerce_audio_source_or_none(
-                state_machine.get_current_state()["active_source"]
-            )
             return {
                 "status": "success",
                 "multiroom_enabled": multiroom_enabled,
-                "active_source": active_source.value if active_source else "none"
+                "source": state_machine.system_state.active_source.value,
             }
 
     # === WebSocket utility functions ===
-
-    async def _publish_snapcast_update():
-        """Publish Snapcast update notification via WebSocket."""
-        try:
-            await state_machine.broadcast(SystemStateChanged(source="snapcast"))
-        except Exception as e:
-            logger.error("Error publishing Snapcast update: %s", e)
 
     # === Remote client propagation ===
 
@@ -275,7 +264,6 @@ def create_routing_router(
                         )
                     logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
 
-            await _publish_snapcast_update()
             return {
                 "status": "success",
                 "message": "Configuration updated and services restarted"

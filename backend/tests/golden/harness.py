@@ -1,40 +1,31 @@
-"""Old-wire golden harness: what each source puts on the wire, recorded once.
+"""Golden harness: what each source puts on the wire, recorded and reviewed.
 
-The source refactor (docs: source architecture, phases 0b-4) rewrites every
-source's internals while the wire must stay byte-identical until the one step
-that changes it on purpose. These tests are the proof. Each scenario drives a
-source through the outside world only — lifecycle and commands through the
-public API, daemon/mpv/D-Bus stimuli through a per-source adapter — and
-compares every envelope a real AudioStateMachine broadcasts, full_state
-included, plus the REST answer at the end, with a recording.
+Each scenario drives a source through the outside world only — lifecycle and
+commands through the public API, daemon/mpv/D-Bus stimuli through a
+per-source adapter — and compares every envelope a real AudioStateMachine
+broadcasts, plus the REST answer at the end, with a recording.
+
+History: recorded on the old wire before the source refactor (docs: source
+architecture, phases 0b-4), which then rewrote every source's internals under
+it and re-recorded a source only where its phase changed that source's wire on
+purpose. Phase 5b switched the wire itself (docs: "Développeurs : le fil"):
+every recording was re-recorded then, each scenario reviewed against its old
+recording through a condensed side-by-side (the sequence of source state and
+playing flags before, of service, phase, controls and availability after).
 
 Rules that keep the recording meaningful:
-- The recordings were taken on the code *before* the refactor. A phase that
-  rewrites a source rewrites its adapter (how a stimulus reaches the source),
-  never a scenario and never a recording.
-- Re-recording (MILO_RECORD_OLD_WIRE=1) is for adding a scenario, on a tree
-  whose source code has not moved since the last green run. Re-recording to
-  make a red run green erases the only witness of the drift.
-- The one other re-recording: the phase that migrates a source changes its
-  wire on purpose (phase 1: Radio, Podcast, Music Library — the playing flag
-  now comes from mpv, not from Milō's command; phase 2: CD, which also hears
-  the drive from udev and names a disc in its own step; phase 3a: AirPlay,
-  whose phase follows what shairport-sync announces — a stream plays from its
-  first frame, `pfls` is no longer a pause, a session inherits nothing from
-  the previous one; phase 3b: Spotify and Tidal, whose sessions open at their
-  first track and follow the daemon's own state — no guessed spinner, no
-  duplicate READY, a seek on the position axis; phase 3c: Qobuz, whose phase
-  is the player's own state — a skip's load is loading, the app leaving is
-  READY at once, the playhead on the position axis instead of a full state
-  per poll; phase 3d: Mac, whose replay covers the running roc-recv only and
-  names a sender after the transition instead of inside it; phase 4:
-  Bluetooth, whose player counts only for the phone holding the link — no
-  READY carrying another's player — and is read when a link predating the
-  source is adopted). Then only that
-  source's file
-  is re-recorded, after every differing envelope was reviewed and listed in
-  the commit, with the MILO_DUMP_OLD_WIRE output of the run that was
-  reviewed byte-identical to what is recorded.
+- A change to a source's internals rewrites its adapter (how a stimulus
+  reaches the source), never a scenario and never a recording.
+- Re-recording (MILO_RECORD_WIRE=1) is for adding a scenario, on a tree whose
+  source code has not moved since the last green run, or for a change of the
+  wire made on purpose — then only the files it touches, after every differing
+  envelope was reviewed and listed in the commit, with the MILO_DUMP_WIRE output
+  of the reviewed run byte-identical to what is recorded. Re-recording to make
+  a red run green erases the only witness of the drift.
+- Session ids are random: the recorder renames them `session-N` in order of
+  appearance; anchors are stamped on the golden wall clock (conftest.py), which
+  moves one second per TickGate tick, unless a world puts it on its own
+  VirtualClock.
 """
 import asyncio
 import heapq
@@ -49,25 +40,124 @@ import pytest
 
 from backend.core.state import AudioStateMachine
 
-RECORDINGS = Path(__file__).parent / "old_wire"
-RECORD = os.environ.get("MILO_RECORD_OLD_WIRE") == "1"
+RECORDINGS = Path(__file__).parent / "wire"
+RECORD = os.environ.get("MILO_RECORD_WIRE") == "1"
 # A directory to write what each scenario produced now, for diffing a red run
 # against the recordings without touching them.
-DUMP = os.environ.get("MILO_DUMP_OLD_WIRE")
+DUMP = os.environ.get("MILO_DUMP_WIRE")
+
+
+# The wall clock position anchors are stamped with, in every scenario and world
+# (`audio_source.wall_time`): frozen here by the golden conftest, advanced with
+# a world's VirtualClock by `use_virtual_wall`.
+EPOCH = 1790270000.0
+
+# The golden wall clock (conftest.py reads it): it starts at EPOCH and moves one
+# second with each TickGate tick — a tick is one second of the mpv sources'
+# playhead loop, so an anchor ages exactly as the playhead the tick reads.
+# Frozen instead, every reading of a playing track was a "discontinuity" no
+# real clock would produce.
+GOLDEN_WALL = [EPOCH]
+
+
+def use_virtual_wall(monkeypatch, clock: "VirtualClock") -> None:
+    """Stamp anchors on `clock`, so an anchor ages as the scenario lets time pass."""
+    from backend.core import audio_source
+    monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH + clock.now)
 
 
 class WireRecorder:
-    """Stands in for WebSocketManager: keeps every envelope, minus its clock."""
+    """Stands in for WebSocketManager: keeps every envelope, minus its clock.
+
+    Session ids are random (uuid4): each one is renamed `session-N` in the
+    order it first appears, so a recording compares byte for byte and still
+    says which envelopes are about the same session.
+    """
 
     def __init__(self) -> None:
         self.envelopes: List[Dict[str, Any]] = []
+        self._session_names: Dict[str, str] = {}
+
+    def stable(self, payload: Any) -> Any:
+        """`payload` (an envelope's data, or a REST state) with its session ids renamed."""
+        payload = json.loads(json.dumps(payload))
+        if not isinstance(payload, dict):
+            return payload
+        session = payload.get("session")
+        if isinstance(session, dict) and "id" in session:
+            session["id"] = self._name(session["id"])
+        if "session_id" in payload:
+            payload["session_id"] = self._name(payload["session_id"])
+        return payload
+
+    def _name(self, session_id: str) -> str:
+        return self._session_names.setdefault(session_id, f"session-{len(self._session_names) + 1}")
 
     async def broadcast_dict(self, envelope: Dict[str, Any]) -> None:
-        kept = {k: v for k, v in envelope.items() if k != "timestamp"}
         # Serialized now: a payload is a live dict the state machine may
-        # mutate after broadcasting it (update_position_metadata writes into
-        # system_state.metadata in place).
+        # mutate after broadcasting it.
+        kept = {k: v for k, v in envelope.items() if k != "timestamp"}
+        kept["data"] = self.stable(kept.get("data"))
         self.envelopes.append(json.loads(json.dumps(kept)))
+
+
+class WireReader:
+    """What a world reads off the wire (mixin): `self.machine` and
+    `self.recorder` are the world's."""
+
+    def state(self) -> Dict[str, Any]:
+        return self.machine.get_current_state()
+
+    def session(self) -> Optional[Dict[str, Any]]:
+        return self.state()["session"]
+
+    def phase(self) -> Optional[str]:
+        session = self.session()
+        return session["phase"] if session else None
+
+    def active(self) -> bool:
+        return self.session() is not None
+
+    def playing(self) -> bool:
+        return self.phase() == "playing"
+
+    def buffering(self) -> bool:
+        return self.phase() == "loading"
+
+    def position_ms(self) -> Optional[int]:
+        """Where the session's anchor puts the playhead now — the one formula
+        every client uses (docs: "le fil", §2)."""
+        from backend.core import audio_source
+        session = self.session()
+        anchor = session["position"] if session else None
+        if anchor is None:
+            return None
+        ms = anchor["ms"]
+        if session["phase"] == "playing":
+            ms += (audio_source.wall_time() - anchor["at"]) * 1000 * anchor["rate"]
+        if session["duration_ms"] is not None:
+            ms = min(ms, session["duration_ms"])
+        return max(0, int(ms))
+
+    def envelopes(self, category: str, type_: str) -> List[Dict[str, Any]]:
+        return [
+            e for e in self.recorder.envelopes
+            if e["category"] == category and e["type"] == type_
+        ]
+
+    def published(self) -> List[Dict[str, Any]]:
+        """Every state broadcast, in order."""
+        return [e["data"] for e in self.envelopes("source", "state")]
+
+    def positions(self) -> List[Dict[str, Any]]:
+        """Every playhead discontinuity broadcast alone, in order."""
+        return [e["data"] for e in self.envelopes("source", "position")]
+
+    def session_ends(self) -> List[str]:
+        return [e["data"]["reason"] for e in self.envelopes("source", "session_ended")]
+
+    def errors(self) -> List[str]:
+        return [e["data"]["reason"] for e in self.envelopes("source", "error")]
 
 
 def make_state_machine() -> tuple[AudioStateMachine, WireRecorder]:
@@ -156,6 +246,8 @@ class TickGate:
 
     def __init__(self) -> None:
         self._event = asyncio.Event()
+        # What else one second moves (an mpv double's playhead: EventMpv.elapse).
+        self.clocks: List[Any] = []
 
     async def sleep(self, delay: float, *a: Any, **k: Any) -> None:
         await self._event.wait()
@@ -163,8 +255,14 @@ class TickGate:
 
     async def tick(self, times: int = 1) -> None:
         for _ in range(times):
+            # The second passes, the loop reads the playhead it ends on, and
+            # the playhead moves on for the next one: a reading a scenario
+            # sets is the one the next tick reads.
+            GOLDEN_WALL[0] += 1.0
             self._event.set()
             await settle()
+            for clock in self.clocks:
+                clock(1.0)
 
 
 class VirtualClock:
@@ -321,6 +419,18 @@ class EventMpv:
                 if self.current is not None and not self.opened:
                     await self.opens()
 
+            def elapse(self, seconds: float) -> None:
+                """Time passing: a file that plays moves its playhead with
+                it, up to its end (what comes after is the scenario's)."""
+                if (
+                    self.current is not None and self.opened and not self.paused
+                    and not self.stalled and self.position is not None
+                ):
+                    self.position += seconds * self.speed
+                    length = self._duration()
+                    if length:
+                        self.position = min(self.position, length)
+
         return _EventMpv()
 
 
@@ -358,9 +468,9 @@ class Wire:
 
     async def snapshot_rest(self) -> None:
         """What GET /api/audio/state answers right now."""
-        await self.machine.refresh_active_metadata()
+        await self.machine.refresh_active_view()
         await settle()
-        self.rest.append(json.loads(json.dumps(self.machine.get_current_state())))
+        self.rest.append(self.recorder.stable(self.machine.get_current_state()))
 
     def record(self) -> Dict[str, Any]:
         return {"ws": self.recorder.envelopes, "rest": self.rest}

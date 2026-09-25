@@ -439,8 +439,8 @@ class SettingsService:
           env-file artifacts from settings during boot (event loop not yet
           running) and during ``_detect_initial_state``.
         * ``AudioRoutingService.multiroom_enabled`` property — hot-path
-          sync read used by the state machine when aggregating ``full_state``
-          for source/system events.
+          sync read used by the state machine when composing the audio
+          state.
 
         Loaded data is run through ``_validate_and_merge`` before caching
         so missing keys (e.g. older installs without a ``routing`` block)

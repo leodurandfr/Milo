@@ -26,7 +26,6 @@ from backend.config.constants import (
     MUSIC_LIBRARY_MOUNT_ROOT,
     NAVIDROME_URL,
 )
-from backend.core.models.audio_state import AudioSource
 from backend.core.system.diagnostic import probes
 from backend.core.system.diagnostic.render import cap_line
 from backend.core.system.diagnostic.whitelist import (
@@ -412,33 +411,31 @@ async def _snapcast_lines(ctx) -> List[str]:
 # --------------------------------------------------------------------------- #
 
 async def sources(ctx) -> str:
-    """Every source's state and its unit — never its metadata.
+    """The selection, the service, the session's phase and every source's
+    availability — never the session's content.
 
-    Metadata is where the Music Library's file paths and every track title live,
-    and none of that says anything about a fault.
+    The content is where the Music Library's file paths and every track title
+    live, and none of that says anything about a fault.
     """
     lines = []
     if ctx.state_machine is not None:
         state = ctx.state_machine.get_current_state()
+        session = state.get("session") or {}
+        error = state.get("service_error") or {}
         lines += _kv({
-            "active source": state.get("active_source"),
-            "source state": state.get("source_state"),
-            "transitioning": state.get("transitioning"),
-            "error": state.get("error"),
+            "source": state.get("source"),
+            "switching": state.get("switching"),
+            "service": state.get("service"),
+            "service error": " — ".join(filter(None, (error.get("reason"), error.get("message")))) or None,
+            "session phase": session.get("phase"),
             "multiroom enabled": state.get("multiroom_enabled"),
             "equalizer effects": state.get("equalizer_effects_enabled"),
-            "network unavailable": state.get("network_unavailable"),
         })
         lines.append("")
-        per_source = {}
-        for source in AudioSource:
-            if source is AudioSource.NONE:
-                continue
-            instance = ctx.state_machine.get_source(source)
-            if instance is None:
-                continue
-            per_source[source.value] = getattr(instance.state, "value", instance.state)
-        lines += _kv(per_source)
+        lines += _kv({
+            source: reason or "available"
+            for source, reason in (state.get("availability") or {}).items()
+        })
     else:
         lines.append("(state machine not wired in this process)")
 

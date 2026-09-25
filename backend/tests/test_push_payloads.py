@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend.core.push.payloads import (
+    MAC_ARTWORK,
     NowPlayingDevice,
     build_attributes,
     now_playing_payload,
@@ -20,6 +21,7 @@ from backend.core.push.payloads import (
 )
 
 FIXED = datetime(2026, 9, 19, 12, 0, 0, tzinfo=timezone.utc)
+NOW = FIXED.timestamp()
 
 
 class TestWidgetPayload:
@@ -31,59 +33,140 @@ class TestWidgetPayload:
 
 
 class TestNowPlayingAttributes:
-    """The mutable state, re-sent whole on every event."""
+    """The mutable state, re-sent whole on every event, built from the audio
+    state the way Milo-iOS builds its own card."""
 
     @pytest.fixture
-    def metadata(self):
+    def state(self):
         return {
-            "title": "Un parmi des millions", "artist": "Koma, Roce, Kohndo",
-            "album": "Le réveil", "album_art_url": "https://example/art.jpg",
-            "duration": 334906, "position": 54654, "is_playing": True,
+            "source": "spotify",
+            "session": {
+                "id": "s-1", "phase": "playing",
+                "title": "Un parmi des millions", "artist": "Koma, Roce, Kohndo",
+                "album": "Le réveil", "artwork": "https://i.scdn.co/image/art",
+                "senders": [], "duration_ms": 334906,
+                "position": {"ms": 54654, "at": FIXED.timestamp() + 0.123, "rate": 1.0},
+            },
+            "resume": None,
         }
 
-    def test_milliseconds_become_seconds(self, metadata):
-        """/api/audio/state serves milliseconds; the iOS Codable declares
-        seconds. Sent unconverted, a 5-minute track reads as 93 hours and the
-        scrubber is unusable."""
-        attrs = build_attributes("sess", metadata, [], "spotify", now=FIXED)
+    def test_milliseconds_become_seconds(self, state):
+        """The state carries milliseconds; the iOS Codable declares seconds.
+        Sent unconverted, a 5-minute track reads as 93 hours and the scrubber
+        is unusable."""
+        attrs = build_attributes("sess", state, [], now=NOW)
 
         assert attrs["currentTrack"]["duration"] == 334.91
         assert attrs["elapsedTime"] == 54.65
 
-    def test_a_missing_position_is_zero_not_null(self, metadata):
+    def test_the_playhead_is_the_anchor_not_the_build_time(self, state):
+        """iOS extrapolates the playhead from `elapsedTime` at `timestamp`: the
+        pair must be the anchor's own, or the lock screen runs ahead of the
+        sound by however long the push waited to be built."""
+        attrs = build_attributes("sess", state, [], now=NOW + 42)
+
+        assert attrs["elapsedTime"] == 54.65
+        assert attrs["timestamp"] == "2026-09-19T12:00:00.123Z"
+
+    def test_without_an_anchor_the_playhead_is_zero_at_build_time(self, state):
         """The iOS type declares elapsedTime non-optional, so a null fails the
         decode — and a failed decode is silent on the device."""
-        attrs = build_attributes("sess", {**metadata, "position": None}, [], "radio", now=FIXED)
+        state["session"]["position"] = None
+
+        attrs = build_attributes("sess", state, [], now=NOW)
 
         assert attrs["elapsedTime"] == 0.0
+        assert attrs["timestamp"] == "2026-09-19T12:00:00.000Z"
 
-    def test_no_metadata_at_all_still_builds(self):
-        """A source can go active before its first metadata arrives. The push
-        must still describe a session rather than raise inside the loop."""
-        attrs = build_attributes("sess", None, [], "bluetooth", now=FIXED)
+    @pytest.mark.parametrize("phase,playing", [
+        ("playing", True), ("paused", False), ("loading", False), ("connected", False),
+    ])
+    def test_is_playing_is_the_session_phase(self, state, phase, playing):
+        """The lock screen's play/pause glyph: a loading or connected session
+        is not playing, and showing it as playing extrapolates a playhead
+        that does not move."""
+        state["session"]["phase"] = phase
+
+        assert build_attributes("sess", state, [], now=NOW)["isPlaying"] is playing
+
+    def test_no_session_and_no_resume_still_builds(self):
+        """A source can be selected before anything plays. The push must still
+        describe a session rather than raise inside the loop."""
+        attrs = build_attributes("sess", {"source": "bluetooth", "session": None,
+                                          "resume": None}, [], now=NOW)
 
         assert attrs["id"] == "sess"
         assert attrs["isPlaying"] is False
         assert attrs["currentTrack"]["title"] is None
 
-    def test_each_speaker_is_its_own_device(self, metadata):
+    def test_the_resume_point_is_shown_when_the_session_names_nothing(self, state):
+        """The card's own rule (MiloAudioState.shown): a session with no title
+        yet shows what "play" would bring back, so the lock screen and the
+        app agree on what is on the card."""
+        state["session"]["title"] = None
+        state["resume"] = {"title": "Episode 12", "artist": "Host", "album": None,
+                           "artwork": None, "duration_ms": 1800000, "position_ms": 60000}
+
+        track = build_attributes("sess", state, [], now=NOW)["currentTrack"]
+
+        assert (track["title"], track["artist"], track["duration"]) == ("Episode 12", "Host", 1800.0)
+
+    def test_a_titled_session_wins_over_the_resume_point(self, state):
+        state["resume"] = {"title": "Older", "artist": None, "album": None,
+                           "artwork": None, "duration_ms": None, "position_ms": None}
+
+        track = build_attributes("sess", state, [], now=NOW)["currentTrack"]
+
+        assert track["title"] == "Un parmi des millions"
+        assert track["artworkURL"] == "https://i.scdn.co/image/art"
+
+    def test_the_track_id_moves_with_what_is_shown(self, state):
+        """Without a new id the system keeps the previous title and artwork."""
+        before = build_attributes("sess", state, [], now=NOW)["currentTrack"]["id"]
+        state["session"]["title"] = "Another"
+        after = build_attributes("sess", state, [], now=NOW)["currentTrack"]["id"]
+
+        assert before != after
+
+    def test_it_carries_the_commands_the_source_takes(self, state):
+        """The extension enables a lock-screen button only for a listed
+        command: Qobuz and a Mac take none, Tidal no seek, and a button that
+        does nothing was a 400 on the network (measured 2026-09-25)."""
+        state["controls"] = ["pause", "next", "prev"]
+
+        assert build_attributes("sess", state, [], now=NOW)["controls"] == ["pause", "next", "prev"]
+
+    def test_a_mac_names_its_senders_under_the_macos_icon(self):
+        """A Mac sends a stream with no track: the card names who is sending,
+        under the dock's macOS icon, and draws no bar."""
+        state = {
+            "source": "mac", "controls": [], "resume": None,
+            "session": {
+                "id": "m-1", "phase": "connected", "title": None, "artist": None,
+                "album": None, "artwork": None, "senders": ["Mac mini", "MacBook Air"],
+                "duration_ms": None, "position": None,
+            },
+        }
+
+        track = build_attributes("sess", state, [], now=NOW)["currentTrack"]
+
+        assert (track["title"], track["artworkURL"], track["duration"]) == (
+            "Mac mini, MacBook Air", MAC_ARTWORK, 0.0,
+        )
+
+    def test_each_speaker_is_its_own_device(self, state):
         """One slider per room in Control Center. Collapsing them to a global
         level is what the per-client volume exists not to do."""
         devices = [
             NowPlayingDevice(id="2c:cf:67:b9:46:6f", name="Milō", volume=0.36),
             NowPlayingDevice(id="dc:a6:32:7e:d3:43", name="Canapé", volume=0.38),
         ]
-        attrs = build_attributes("sess", metadata, devices, "spotify", now=FIXED)
+        attrs = build_attributes("sess", state, devices, now=NOW)
 
         assert [d["name"] for d in attrs["devices"]] == ["Milō", "Canapé"]
         assert attrs["devices"][0] == {
             "id": "2c:cf:67:b9:46:6f", "name": "Milō", "type": "speaker", "volume": 0.36
         }
-
-    def test_the_timestamp_is_iso_8601_zulu(self, metadata):
-        attrs = build_attributes("sess", metadata, [], "spotify", now=FIXED)
-
-        assert attrs["timestamp"] == "2026-09-19T12:00:00Z"
 
 
 class TestNowPlayingEnvelope:
@@ -113,3 +196,4 @@ class TestNowPlayingEnvelope:
         that describes nothing."""
         with pytest.raises(ValueError):
             now_playing_payload("start", "sess")
+

@@ -41,14 +41,12 @@ import { REGISTRY, SOURCE_REGISTRY, entryFor, overridesFor, AUDIO_SOURCES_ID } f
 import { describeProps, describeEvents } from '../../src/components/gallery/controls.js';
 import {
   SOURCE_PAGES,
-  METADATA_READERS,
   DECIDERS,
   BEHAVIOURAL_FIELDS,
   SOURCE_PAGE_PREFIX,
   MEDIA_APP_COVER_PX,
   FAVICON_COVER_PX,
   allEvents,
-  allMetadata,
   settledState,
   scenarioId,
   sourcePageById
@@ -64,7 +62,9 @@ import {
 } from '../../src/components/gallery/foundations.js';
 import { ALL_AUDIO_SOURCES } from '../../src/constants/audioSources.js';
 import { PODCAST_GENRE_IDS } from '../../src/constants/podcastGenres.js';
-import { DISPLAY_STATES } from '../../src/composables/useSourceStatusDisplay.js';
+import { DISPLAY_STATES, displayStateFor } from '../../src/composables/useSourceStatusDisplay.js';
+import { richSourceFor } from '../../src/composables/useRichDisplay.js';
+import { AudioStateSchema } from '../../src/schemas/api.js';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '../../src/constants/imageQuality.js';
 import { useRadioStore } from '../../src/stores/radioStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
@@ -81,13 +81,72 @@ const SRC_DIR = resolve(HERE, '../../src');
  */
 const BACKEND_DIR = resolve(HERE, '../../../backend');
 const WS_EVENTS_PY = readFileSync(join(BACKEND_DIR, 'core/models/ws_events.py'), 'utf8');
-const AUDIO_STATE_PY = readFileSync(join(BACKEND_DIR, 'core/models/audio_state.py'), 'utf8');
+const AUDIO_WIRE_PY = readFileSync(join(BACKEND_DIR, 'core/models/audio_wire.py'), 'utf8');
+const SESSION_PY = readFileSync(join(BACKEND_DIR, 'core/models/session.py'), 'utf8');
 
-/** `SourceState`'s own members — the only state names a scenario may settle on. */
-const SOURCE_STATES = [
-  ...(AUDIO_STATE_PY.split('class SourceState')[1] ?? '').split('\nclass ')[0]
-    .matchAll(/^\s+[A-Z_]+\s*=\s*"([a-z_]+)"/gm)
+/** A Python file's classes: name, bases, and the annotated fields of its own body. */
+function classesOf(python) {
+  return python.split(/\nclass /).slice(1).map(block => ({
+    name: block.match(/^(\w+)/)[1],
+    bases: (block.match(/^\w+\(([^)]*)\)/)?.[1] ?? '').split(',').map(base => base.trim()),
+    block,
+    // Annotated attributes only: `name: type`, skipping the ClassVars.
+    fields: [...block.matchAll(/^ {4}([a-z_]+):\s*(?!ClassVar)/gm)].map(match => match[1])
+  }));
+}
+
+/** audio_wire.py's models by name — the state and every object inside it. */
+const WIRE = Object.fromEntries(classesOf(AUDIO_WIRE_PY).map(model => [model.name, model]));
+
+/** One enum's values, from a `class Name(str, Enum)` body. */
+function enumValues(python, name) {
+  return [
+    ...(python.split(`class ${name}(`)[1] ?? '').split('\nclass ')[0]
+      .matchAll(/^\s+[A-Z_]+\s*=\s*"([a-z_]+)"/gm)
+  ].map(match => match[1]);
+}
+
+const PHASES = enumValues(SESSION_PY, 'Phase');
+const SERVICE_STATES = enumValues(SESSION_PY, 'ServiceState');
+const AVAILABILITY_REASONS = [
+  ...(AUDIO_WIRE_PY.match(/AvailabilityReason = Literal\[([\s\S]*?)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)
 ].map(match => match[1]);
+
+/** The `details` model for each `kind`, read off its `kind: Literal[...]`. */
+const DETAILS_BY_KIND = Object.fromEntries(
+  Object.values(WIRE)
+    .map(model => [model.block.match(/^ {4}kind: Literal\["([a-z_]+)"\]/m)?.[1], model])
+    .filter(([kind]) => kind)
+);
+
+/** A source's own `.py` files — where its COMMANDS and the phases it reaches live. */
+function sourcePython(source) {
+  const dir = join(BACKEND_DIR, `sources/${source}`);
+  return existsSync(dir)
+    ? readdirSync(dir).filter(name => name.endsWith('.py')).map(name => readFileSync(join(dir, name), 'utf8')).join('\n')
+    : '';
+}
+
+/** Each source's `COMMANDS` keys: every name `controls` may list. */
+const COMMANDS = Object.fromEntries(
+  ALL_AUDIO_SOURCES.map(source => {
+    const body = sourcePython(source).match(/^ {4}COMMANDS = \{([\s\S]*?)^ {4}\}/m)?.[1] ?? '';
+    return [source, [...body.matchAll(/^\s+"([a-z_]+)":/gm)].map(match => match[1])];
+  })
+);
+
+/**
+ * The phases each source's own code names (`Phase.PLAYING`, …). For the seven
+ * dispatcher sources this is exactly the table of phases each one produces —
+ * the Connect and mpv sources three, AirPlay four, Bluetooth three without
+ * loading, the Mac connected alone — so the page can be held to it.
+ */
+const PHASES_NAMED = Object.fromEntries(
+  ALL_AUDIO_SOURCES.map(source => [
+    source,
+    [...new Set([...sourcePython(source).matchAll(/Phase\.([A-Z]+)/g)].map(match => match[1].toLowerCase()))]
+  ])
+);
 
 /**
  * Each source's `NETWORK_REQUIREMENT`, read from its own `source.py`. Declared
@@ -812,35 +871,44 @@ describe('component gallery playground', () => {
  * The second axis: ten source pages, each a list of WebSocket events the canvas
  * replays into the app's own handler before mounting its dispatcher.
  *
- * Three things can rot here and none of them shows on screen. A fabricated
- * metadata key can outlive the field it stands for — the player keeps rendering
- * beautifully from a record nothing consumes. An event can drift from the model
- * that produces it, at which point the page documents a payload the backend
- * never sends. And a scenario can quietly become *unsafe*: the three browser
- * sources dispatch to components that fetch on mount and POST outside
- * `sendCommand`, so the properties that keep this page from driving the
- * appliance are pinned here rather than left to the comments explaining them.
+ * Three things can rot here and none of them shows on screen. A state can drift
+ * from the model that produces it — a key renamed on one side, a command the
+ * source no longer declares — at which point the page documents a payload the
+ * backend never sends. A name can be spelled from a field nothing branches on
+ * any more, splitting one screen into two tabs. And a scenario can quietly
+ * become *unsafe*: the three browser sources dispatch to components that fetch
+ * on mount and POST outside `sendCommand`, so the properties that keep this
+ * page from driving the appliance are pinned here rather than left to the
+ * comments explaining them.
  *
- * The checks against `ws_events.py` and `audio_state.py` are the anti-invention
- * half, and they are the reason a scenario is named after what it *sends*:
- * every token of an id is a field the backend declares, so a name cannot
- * describe a state that does not exist. Reading the `.py` here — at test time,
- * in Node — is also the only place either file is touched: nothing about this
- * page depends on a running backend, or on a running unit.
+ * The checks against `ws_events.py`, `audio_wire.py`, `session.py` and each
+ * source's own `.py` are the anti-invention half: every key of every state is a
+ * field the backend declares, every command a state lists is one its source
+ * takes, and every phase a page shows is one its source reaches. Reading the
+ * `.py` here — at test time, in Node — is also the only place those files are
+ * touched: nothing about this page depends on a running backend, or on a
+ * running unit.
  */
 describe('component gallery source pages', () => {
   const EVENTS = allEvents();
-  const METADATA = allMetadata();
+  const STATES = EVENTS.map(event => event.data);
 
   it('read a plausible surface', () => {
     // A page list that collapsed to nothing would make every check below pass.
     expect(SOURCE_PAGES.length).toBe(ALL_AUDIO_SOURCES.length);
     expect(EVENTS.length).toBeGreaterThan(30);
     expect(Object.keys(SOURCE_REGISTRY)).toHaveLength(1);
-    // And the two models have to have been read, or every check derived from
-    // them passes against an empty string.
-    expect(WS_EVENTS_PY).toContain('class SourceStateChanged');
-    expect(AUDIO_STATE_PY).toContain('class SourceState');
+    // And the models have to have been read, or every check derived from them
+    // passes against an empty string.
+    expect(WS_EVENTS_PY).toContain('class AudioStateChanged');
+    expect(WIRE.AudioState?.fields).toContain('session');
+    expect(WIRE.SessionView?.fields).toContain('phase');
+    expect(PHASES).toContain('connected');
+    expect(SERVICE_STATES).toContain('failed');
+    expect(AVAILABILITY_REASONS).toContain('no_account');
+    expect(Object.keys(DETAILS_BY_KIND)).toContain('airplay');
+    expect(COMMANDS.spotify).toContain('seek');
+    expect(PHASES_NAMED.mac).toEqual(['connected']);
   });
 
   it('covers exactly the sources the app ships', () => {
@@ -903,12 +971,16 @@ describe('component gallery source pages', () => {
         if (scenario.id !== scenarioId(scenario.events, scenario.browser)) {
           problems.push(`${page.id}.${scenario.id} (id not derived from its events)`);
         }
+        // The select is a list of display states, so every name has to open on one.
+        if (!DISPLAY_STATES.includes(scenario.id.split(' ')[0])) {
+          problems.push(`${page.id}.${scenario.id} (opens on no display state)`);
+        }
 
-        // A record naming another source would render the wrong page's view and
+        // A state naming another source would render the wrong page's view and
         // look like a bug in the dispatcher.
         const settled = settledState(scenario);
-        if (settled.active_source !== page.source) {
-          problems.push(`${page.id}.${scenario.id} (record names ${settled.active_source})`);
+        if (settled.source !== page.source) {
+          problems.push(`${page.id}.${scenario.id} (state names ${settled.source})`);
         }
       }
     }
@@ -916,20 +988,19 @@ describe('component gallery source pages', () => {
     expect(problems).toEqual([]);
   });
 
-  it('emits only events the backend declares, with only the fields it declares', () => {
-    // The anti-invention check. A scenario's payload is compared against the
-    // model that produces it — the (CATEGORY, TYPE) pair has to exist, and every
-    // key in `data` has to be a field of that class or the injected `full_state`.
-    // Without this the page could document a payload no source ever sends, which
-    // is worse than documenting nothing: it reads as evidence.
+  it('emits only events the backend declares, with every field it declares', () => {
+    // The (CATEGORY, TYPE) pair has to exist, and `data` has to carry exactly
+    // the model's fields — its own and those of the wire models it extends
+    // (`source/state` declares none of its own: it *is* an AudioState). Without
+    // this the page could document a payload no source ever sends, which is
+    // worse than documenting nothing: it reads as evidence.
     const models = [];
-    for (const block of WS_EVENTS_PY.split(/\nclass /).slice(1)) {
-      const category = block.match(/^\s+CATEGORY\s*=\s*"([a-z_]+)"/m)?.[1];
-      const type = block.match(/^\s+TYPE\s*=\s*"([a-z_]+)"/m)?.[1];
+    for (const model of classesOf(WS_EVENTS_PY)) {
+      const category = model.block.match(/^\s+CATEGORY\s*=\s*"([a-z_]+)"/m)?.[1];
+      const type = model.block.match(/^\s+TYPE\s*=\s*"([a-z_]+)"/m)?.[1];
       if (!category || !type) continue;
-      // Annotated attributes only: `name: type`, skipping the ClassVars above.
-      const fields = [...block.matchAll(/^ {4}([a-z_]+):\s*(?!ClassVar)/gm)].map(match => match[1]);
-      models.push({ category, type, fields });
+      const inherited = model.bases.flatMap(base => WIRE[base]?.fields ?? []);
+      models.push({ category, type, fields: [...inherited, ...model.fields] });
     }
 
     // A parse that found nothing would let every envelope through.
@@ -937,24 +1008,21 @@ describe('component gallery source pages', () => {
 
     const problems = [];
     for (const event of EVENTS) {
-      const matches = models.filter(model => model.category === event.category && model.type === event.type);
-      if (!matches.length) {
+      const match = models.find(model => model.category === event.category && model.type === event.type);
+      if (!match) {
         problems.push(`${event.category}/${event.type} (no model declares this pair)`);
         continue;
       }
-      // `source/favorite_*` is a union discriminated by data.source, so a pair
-      // can have several models — a key declared by any of them is declared.
-      const declared = new Set(matches.flatMap(model => model.fields));
-      for (const key of Object.keys(event.data)) {
-        if (key === 'full_state') continue; // injected by broadcast(), not a field
-        if (!declared.has(key)) problems.push(`${event.category}/${event.type}.${key} (not a field of the model)`);
+      const keys = Object.keys(event.data).sort().join();
+      if (keys !== [...match.fields].sort().join()) {
+        problems.push(`${event.category}/${event.type} (data keys ${keys})`);
       }
       // And the envelope's own shape, which `to_envelope` fixes.
       if (Object.keys(event).sort().join() !== 'category,data,origin,timestamp,type') {
         problems.push(`${event.category}/${event.type} (envelope shape)`);
       }
-      // `origin` is the event's own `source`, falling back to the category.
-      if (event.origin !== (event.data.source ?? event.category)) {
+      // `origin` is the state's source.
+      if (event.origin !== event.data.source) {
         problems.push(`${event.category}/${event.type} (origin ${event.origin})`);
       }
     }
@@ -962,54 +1030,110 @@ describe('component gallery source pages', () => {
     expect(problems).toEqual([]);
   });
 
-  it('builds full_state the way the state machine does', () => {
-    // `unifiedAudioStore` mirrors this snapshot field for field, so a fabricated
-    // one that drifted from `SystemAudioState.to_dict()` would put the gallery a
-    // schema behind the app — visible only as a field that silently stops
-    // arriving. The two globals are appended by `get_current_state()` rather
-    // than the dataclass, hence the pair added by hand here.
-    const toDict = AUDIO_STATE_PY.split('def to_dict')[1] ?? '';
-    const declared = [...toDict.matchAll(/"([a-z_]+)":/g)].map(match => match[1]);
-    expect(declared).toContain('active_source');
-
-    const expected = [
-      ...declared, 'multiroom_enabled', 'equalizer_effects_enabled', 'network_unavailable'
-    ].sort();
-
+  it('builds every state the way audio_wire.py declares it', () => {
+    // The store's schema is strict, so a state it refuses is simply not applied
+    // and the scenario renders the one before it — the parse comes first. The
+    // schema cannot see inside `details`, typed per kind on the backend and
+    // passed through here, so every nested object is also held to the model
+    // that declares it, key for key: a CD track still carrying `duration`, a
+    // station with a field the backend dropped, would otherwise render a
+    // plausible screen from a record nothing publishes.
     const problems = [];
-    for (const event of EVENTS) {
-      const snapshot = event.data.full_state;
-      if (Object.keys(snapshot).sort().join() !== expected.join()) {
-        problems.push(`${event.origin}/${event.type} (full_state keys)`);
-      }
-      if (!SOURCE_STATES.includes(snapshot.source_state)) {
-        problems.push(`${event.origin}/${event.type} (source_state "${snapshot.source_state}" is not in the enum)`);
-      }
-    }
+    const expectKeys = (label, object, model) => {
+      const keys = Object.keys(object).sort().join();
+      if (keys !== [...(WIRE[model]?.fields ?? [])].sort().join()) problems.push(`${label} (${model} keys: ${keys})`);
+    };
 
-    // The enum has to have been read, or the state check above is vacuous.
-    expect(SOURCE_STATES).toContain('active');
+    STATES.forEach((state, index) => {
+      const label = `${state.source}#${index}`;
+      const parsed = AudioStateSchema.safeParse(state);
+      if (!parsed.success) problems.push(`${label} (refused by AudioStateSchema)`);
+
+      expectKeys(label, state.availability, 'Availability');
+      for (const reason of Object.values(state.availability)) {
+        if (reason !== null && !AVAILABILITY_REASONS.includes(reason)) problems.push(`${label} (availability ${reason})`);
+      }
+      if (!SERVICE_STATES.includes(state.service)) problems.push(`${label} (service ${state.service})`);
+      if (state.service_error) expectKeys(label, state.service_error, 'ServiceError');
+      if (state.session) {
+        expectKeys(label, state.session, 'SessionView');
+        if (!PHASES.includes(state.session.phase)) problems.push(`${label} (phase ${state.session.phase})`);
+        if (state.session.position) expectKeys(label, state.session.position, 'PositionAnchor');
+      }
+      if (state.resume) expectKeys(label, state.resume, 'ResumeView');
+
+      const details = state.details;
+      if (!details) return;
+      const model = DETAILS_BY_KIND[details.kind];
+      if (!model) {
+        problems.push(`${label} (details kind ${details.kind})`);
+        return;
+      }
+      expectKeys(label, details, model.name);
+      if (details.kind === 'radio') {
+        expectKeys(label, details.station, 'RadioStation');
+        if (details.track) expectKeys(label, details.track, 'RadioTrack');
+      }
+      if (details.kind === 'cd' && details.disc) {
+        expectKeys(label, details.disc, 'CdDisc');
+        details.disc.tracks.forEach(track => expectKeys(label, track, 'CdTrack'));
+      }
+    });
+
+    expect(STATES.length).toBeGreaterThan(30);
     expect(problems).toEqual([]);
   });
 
-  it('covers every state the backend can put a source in', () => {
-    // The completeness half: the page is a matrix, and a missing column is
-    // exactly what a reader cannot notice. `error` is the one this caught —
-    // reachable on any failed transition, and drawn by nothing at the time.
-    //
-    // Only the dispatcher pages are held to the *whole* enum. For radio,
-    // podcasts and music library the idle and playing states all render the
-    // same browser — their own layout handles empty and loading — so three
-    // more tabs of it would document nothing. What they are held to is the one
-    // state that does change their screen, below.
-    expect(SOURCE_STATES.length).toBeGreaterThan(3);
+  it('lists only the commands a source takes, and none it cannot take now', () => {
+    // `controls` is what draws every transport button, so a command the source
+    // does not declare is a button that answers 400 — and the page would teach
+    // it as a feature. The common rules of the wire ride along: nothing is
+    // listed while switching or outside a running service, and seek is never
+    // listed while a track loads.
+    const problems = [];
 
-    const gaps = [];
-    for (const page of SOURCE_PAGES.filter(entry => entry.via === 'dispatcher')) {
-      const reached = new Set(page.scenarios.map(scenario => settledState(scenario).source_state));
-      for (const state of SOURCE_STATES) {
-        if (!reached.has(state)) gaps.push(`${page.id} (never reaches "${state}")`);
+    for (const page of SOURCE_PAGES) {
+      for (const scenario of page.scenarios) {
+        const state = settledState(scenario);
+        for (const command of state.controls) {
+          if (!COMMANDS[page.source].includes(command)) problems.push(`${page.id}.${scenario.id} (${command} not in COMMANDS)`);
+        }
+        if ((state.switching || state.service !== 'running') && state.controls.length) {
+          problems.push(`${page.id}.${scenario.id} (controls while not running)`);
+        }
+        if (state.session?.phase === 'loading' && state.controls.includes('seek')) {
+          problems.push(`${page.id}.${scenario.id} (seek while loading)`);
+        }
       }
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('reaches every phase its source names, and the states around them', () => {
+    // The completeness half: the page is a matrix, and a missing column is
+    // exactly what a reader cannot notice. The phases are read off the source's
+    // own code, in both directions — a page showing AirPlay paused before
+    // AirPlay could pause would be as wrong as one that never shows it.
+    //
+    // Only the dispatcher pages are held to their phases. For radio, podcasts
+    // and music library every phase renders the same browser — their own layout
+    // handles loading — so more tabs of it would document nothing. Every page
+    // is held to the two states any source reaches: a switch, and a failed start.
+    const gaps = [];
+
+    for (const page of SOURCE_PAGES) {
+      const states = page.scenarios.map(settledState);
+      const shown = new Set(states.map(displayStateFor));
+      for (const display of ['starting', 'error']) {
+        if (!shown.has(display)) gaps.push(`${page.id} (never shows "${display}")`);
+      }
+      if (page.via !== 'dispatcher') continue;
+
+      if (!shown.has('ready')) gaps.push(`${page.id} (never shows "ready")`);
+      const reached = [...new Set(states.filter(state => state.session).map(state => state.session.phase))].sort();
+      const named = [...PHASES_NAMED[page.source]].sort();
+      if (reached.join() !== named.join()) gaps.push(`${page.id} (phases ${reached} against ${named})`);
     }
 
     expect(gaps).toEqual([]);
@@ -1030,24 +1154,9 @@ describe('component gallery source pages', () => {
     // And the samples have to be the widths the scenarios actually carry: a
     // scenario that inlined a literal would sit outside this check entirely.
     const widths = new Set(
-      METADATA.map(record => record.album_art_width).filter(width => width !== undefined)
+      STATES.map(state => state.details?.artwork_width).filter(width => width !== undefined && width !== null)
     );
     expect([...widths].sort((a, b) => a - b)).toEqual([FAVICON_COVER_PX, MEDIA_APP_COVER_PX]);
-  });
-
-  it('gives all ten sources their errored screen', () => {
-    // ERROR is the state every source can reach and the only one `hasRichDisplay`
-    // answers before looking at the source at all — so it is where the three
-    // browsers stop being special: the card, not their own layout. A page
-    // without it documents a source that cannot fail, which is how the state
-    // went undrawn in the first place.
-    expect(SOURCE_STATES).toContain('error');
-
-    const missing = SOURCE_PAGES
-      .filter(page => !page.scenarios.some(scenario => settledState(scenario).source_state === 'error'))
-      .map(page => page.id);
-
-    expect(missing).toEqual([]);
   });
 
   it('shows every network-dependent source what a broken link looks like', () => {
@@ -1061,12 +1170,13 @@ describe('component gallery source pages', () => {
     expect(Object.values(NETWORK_REQUIREMENTS)).toContain('lan');
 
     const EXPECTED = { internet: 'no_internet', lan: 'no_network' };
+    const LINK = ['no_network', 'no_internet'];
     const problems = [];
 
     for (const page of SOURCE_PAGES) {
       const expected = EXPECTED[NETWORK_REQUIREMENTS[page.source]];
       const reached = new Set(
-        page.scenarios.map(scenario => settledState(scenario).network_unavailable).filter(Boolean)
+        page.scenarios.map(scenario => settledState(scenario).availability[page.source]).filter(reason => LINK.includes(reason))
       );
       if (!expected) {
         // A source needing nothing must not claim to be blocked by the link:
@@ -1078,31 +1188,6 @@ describe('component gallery source pages', () => {
     }
 
     expect(problems).toEqual([]);
-  });
-
-  it('invents no metadata field the app does not read', () => {
-    // Same check the REGISTRY records get, applied to the half that actually
-    // drifts. Rename `album_art_width` in useRichDisplay and the AirPlay gate
-    // scenarios stop meaning anything — they would keep rendering a status
-    // card, for the wrong reason.
-    const missing = METADATA_READERS.filter(file => !existsSync(join(SRC_DIR, file)));
-    expect(missing).toEqual([]);
-
-    const consumers = METADATA_READERS.map(file => readFileSync(join(SRC_DIR, file), 'utf8')).join('\n');
-    const orphans = [];
-    let checked = 0;
-
-    for (const record of METADATA) {
-      for (const key of Object.keys(record)) {
-        checked += 1;
-        // Property access, not a bare word: a key named in a comment is not a
-        // key anything reads.
-        if (!new RegExp(`\\.${key}\\b`).test(consumers)) orphans.push(key);
-      }
-    }
-
-    expect(checked).toBeGreaterThan(0);
-    expect([...new Set(orphans)]).toEqual([]);
   });
 
   it('names a scenario only with fields the app branches on', () => {
@@ -1118,16 +1203,16 @@ describe('component gallery source pages', () => {
     expect(unread).toEqual([]);
 
     // And every fact a name spells has to come from that list — the ids are
-    // derived, so this fails only if `scenarioId` grew a *third* source of
-    // tokens, which is the drift that would let prose back in. The second is
-    // `network_unavailable`, admitted because it replaces the state on screen
-    // rather than describing the record; it is dropped here so what remains to
-    // check is metadata alone.
+    // derived, so this fails only if `scenarioId` grew another source of
+    // tokens, which is the drift that would let prose back in. The first token
+    // is the display state and the availability entry is admitted because it
+    // replaces the state on screen; both are dropped here, with the catalogue
+    // condition, so what remains to check is the state's own fields.
     const strays = [];
     for (const page of SOURCE_PAGES) {
       for (const scenario of page.scenarios) {
         const conditions = scenario.browser?.condition ?? [];
-        const reason = settledState(scenario).network_unavailable;
+        const reason = settledState(scenario).availability[page.source];
         const facts = scenario.id.split(' ').slice(1)
           .filter(token => token !== reason && !conditions.includes(token));
         for (const fact of facts) {
@@ -1209,20 +1294,17 @@ describe('component gallery source pages', () => {
     // The load-bearing safety rule. Radio, Podcasts and Music Library dispatch
     // to *Source.vue files that fetch on mount and whose play paths POST
     // straight through apiCall — outside the one call CanvasApp neuters. Two
-    // records reach AudioSourceView without mounting one: `transitioning` and
-    // `error`, both of which short-circuit useRichDisplay before it can name
-    // the source; every other one must carry its own stand-in.
+    // kinds of state reach AudioSourceView without mounting one — a switch or
+    // a failed service, and a missing link — which richSourceFor answers with
+    // the card before it names the source; every other one must carry its own
+    // stand-in.
     const unsafe = [];
 
     for (const page of SOURCE_PAGES.filter(entry => entry.via === 'browser')) {
       for (const scenario of page.scenarios) {
-        const settled = settledState(scenario);
-        // A third record now short-circuits useRichDisplay before it names the
-        // source: a missing prerequisite. Same reason as `error` — a browser
-        // that cannot reach anything is not the screen to draw.
-        const dropsToCard = settled.transitioning
-          || settled.source_state === 'error'
-          || !!settled.network_unavailable;
+        // The app's own rule decides which states reach the card without a
+        // `*Source.vue`: a switch, a failed service, a missing link.
+        const dropsToCard = richSourceFor(settledState(scenario)) === null;
         if (!scenario.browser && !dropsToCard) {
           unsafe.push(`${page.id}.${scenario.id} (would mount the real ${page.source} browser)`);
         }
@@ -1489,13 +1571,14 @@ describe('component gallery source pages', () => {
     // what they are — one line each, and deleting any of them is silent.
     const richDisplay = readFileSync(join(SRC_DIR, 'composables/useRichDisplay.js'), 'utf8');
 
-    // `transitioning` short-circuiting is what makes a browser source's
-    // `starting` scenario reach the status card instead of its own component.
-    expect(richDisplay).toMatch(/!transitioning\s*&&/);
+    // `switching` and a service that is not running short-circuit before the
+    // source is named — which is what makes a browser source's `starting` and
+    // `error` scenarios reach the status card instead of its own component.
+    expect(richDisplay).toMatch(/switching \|\| service !== 'running'\) return null/);
 
-    // And the ERROR check, which does the same for its `error` scenario —
-    // before the switch, so the three `return true` browsers are covered too.
-    expect(richDisplay).toMatch(/state === 'error'\) return false/);
+    // And a missing link does the same for the three browsers, the offline
+    // scenario's way to the card.
+    expect(richDisplay).toMatch(/LINK_REASONS\.includes\(reason\) && !playing \? null : source/);
 
     // And every action the seven dispatcher sources offer — the Bluetooth
     // disconnect, cdStore's eject and playTrack, AudioPlayerFull's transport —

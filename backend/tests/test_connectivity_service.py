@@ -46,6 +46,7 @@ def make_service() -> ConnectivityService:
     service = ConnectivityService()
     service._state_machine = MagicMock()
     service._state_machine.broadcast = AsyncMock()
+    service._state_machine.publish_state = AsyncMock()
     return service
 
 
@@ -165,6 +166,9 @@ async def test_recheck_fresh_corrects_stale_offline_and_broadcasts():
     service._state_machine.broadcast.assert_awaited_once()
     event = service._state_machine.broadcast.call_args.args[0]
     assert event.connectivity == "full"
+    # The state is republished too: the level decides every source's
+    # `availability`, which changed without any source changing.
+    service._state_machine.publish_state.assert_awaited_once()
 
 
 async def test_recheck_fresh_no_broadcast_when_unchanged():
@@ -327,7 +331,7 @@ async def test_a_signal_about_another_property_is_ignored():
 async def test_an_unchanged_level_is_not_re_broadcast():
     """NM re-emits its connectivity property on every interface state change,
     and a wifi card renegotiating emits several a second. Broadcast each time,
-    `full_state` is re-aggregated and re-sent to every client for nothing."""
+    the state is recomposed and every client woken for nothing."""
     service = make_service()
     service._level = ConnectivityLevel.FULL
 
@@ -338,6 +342,7 @@ async def test_an_unchanged_level_is_not_re_broadcast():
     await service._bg.cancel_all()
 
     service._state_machine.broadcast.assert_not_awaited()
+    service._state_machine.publish_state.assert_not_awaited()
 
 
 async def test_an_unknown_nm_value_arriving_by_signal_fails_open():

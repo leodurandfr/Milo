@@ -11,7 +11,8 @@ import asyncio
 from unittest.mock import Mock, AsyncMock
 from typing import Dict, List, Any
 
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource, NetworkRequirement
+from backend.core.models.audio_wire import SourceView
 from backend.core.state import AudioStateMachine
 
 
@@ -64,16 +65,11 @@ def create_mock_source(source: AudioSource, start_success: bool = True) -> Mock:
     mock.initialize = AsyncMock(return_value=True)
     mock.start = AsyncMock(return_value=start_success)
     mock.stop = AsyncMock(return_value=True)
-    mock.restart = AsyncMock(return_value=True)
-    mock.status = AsyncMock(return_value={
-        "state": "ready",
-        "source_id": source.value,
-        "service_running": True,
-        "metadata": {}
-    })
     mock.command = AsyncMock(return_value={"success": True})
-    mock.state = SourceState.READY
-    mock.metadata = {}
+    # What the state machine composes the state from: no session, available.
+    mock.view = SourceView()
+    mock.availability = Mock(return_value=None)
+    mock.NETWORK_REQUIREMENT = NetworkRequirement.NONE
 
     return mock
 
@@ -109,6 +105,7 @@ def mock_routing_service() -> Mock:
     Mock routing service to avoid systemd/ALSA calls.
     """
     service = Mock()
+    service.multiroom_enabled = False
     service.get_state = Mock(return_value={
         "multiroom_enabled": False,
         "equalizer_effects_enabled": True

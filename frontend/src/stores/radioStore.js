@@ -28,7 +28,7 @@ export const useRadioStore = defineStore('radio', () => {
   // itself being unreachable. Either way the *search* is what stops working —
   // favourites are local and a tuned stream comes from the station's own host,
   // so neither is affected. A dead link is a different fact again, reported at
-  // the source level by full_state.network_unavailable.
+  // the source level by the state's `availability.radio`.
   const searchUnavailable = ref(false);
   const favoritesInitialized = ref(false);
 
@@ -61,55 +61,41 @@ export const useRadioStore = defineStore('radio', () => {
 
   // === COMPUTED PROPERTIES ===
 
-  // Currently playing station (from unified store metadata, with property normalization)
-  // Enriched with local favoriteStations data for immediate updates after metadata modifications
+  // The radio's content, while radio is the selected source: the station
+  // (tuned, or the one `resume_playback` would re-tune) and the song
+  // recognized in its stream.
+  const radioDetails = computed(() => {
+    const state = useUnifiedAudioStore().systemState;
+    if (state.source !== 'radio' || state.details?.kind !== 'radio') return null;
+    return state.details;
+  });
+
+  // The station on the wire, enriched with the local favorite record — a rename
+  // done in the UI lands there at once, before the backend's next state.
   const currentStation = computed(() => {
-    const unifiedStore = useUnifiedAudioStore();
-
-    // Only return station when radio is the active source
-    if (unifiedStore.systemState.active_source !== 'radio') {
-      return null;
-    }
-
-    const metadata = unifiedStore.systemState.metadata;
-    if (!metadata?.station_id) {
-      return null;
-    }
-
-    // Check if we have local metadata (from favoriteStations) - this has the most up-to-date info after modifications
-    const localStation = favoriteStations.value.find(s => s.id === metadata.station_id);
-
-    // Use local metadata if available (more up-to-date after modifications), fallback to WebSocket metadata
+    const station = radioDetails.value?.station;
+    if (!station?.id) return null;
+    const local = favoriteStations.value.find(s => s.id === station.id);
     return {
-      id: metadata.station_id,
-      name: localStation?.name ?? metadata.station_name,
-      url: localStation?.url ?? metadata.station_url,
-      country: localStation?.country ?? metadata.country,
-      genre: localStation?.genre ?? metadata.genre,
-      favicon: localStation?.favicon ?? metadata.favicon,
-      bitrate: localStation?.bitrate ?? metadata.bitrate,
-      codec: localStation?.codec ?? metadata.codec,
-      is_favorite: isFavorite(metadata.station_id)
+      id: station.id,
+      name: local?.name ?? station.name,
+      url: local?.url ?? station.url,
+      country: local?.country ?? station.country,
+      genre: local?.genre ?? station.genre,
+      favicon: local?.favicon ?? station.favicon,
+      bitrate: local?.bitrate ?? station.bitrate,
+      codec: local?.codec ?? station.codec,
     };
   });
 
-  // Currently recognized track info from Shazam (from unified store metadata)
+  // The recognized song (in-band or Shazam). A stopped radio carries none.
   const trackInfo = computed(() => {
-    const unifiedStore = useUnifiedAudioStore();
-
-    if (unifiedStore.systemState.active_source !== 'radio') {
-      return null;
-    }
-
-    const metadata = unifiedStore.systemState.metadata;
-    if (!metadata?.track_title) {
-      return null;
-    }
-
+    const track = radioDetails.value?.track;
+    if (!track?.title) return null;
     return {
-      title: metadata.track_title,
-      artist: metadata.track_artist || '',
-      artwork: metadata.track_artwork || null
+      title: track.title,
+      artist: track.artist || '',
+      artwork: track.artwork || null,
     };
   });
 
@@ -179,7 +165,7 @@ export const useRadioStore = defineStore('radio', () => {
     retryTimer = setInterval(() => {
       if (loading.value) return; // Prevent concurrent requests
       const unifiedStore = useUnifiedAudioStore();
-      if (unifiedStore.systemState.active_source !== 'radio' || retryAttempts >= MAX_RETRY_ATTEMPTS) {
+      if (unifiedStore.systemState.source !== 'radio' || retryAttempts >= MAX_RETRY_ATTEMPTS) {
         stopRetry();
         return;
       }

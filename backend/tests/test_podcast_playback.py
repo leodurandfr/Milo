@@ -30,9 +30,9 @@ import pytest
 from backend.core import audio_source
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.podcast.source import PodcastSource
-from backend.tests.golden import test_old_wire_podcast as golden
+from backend.tests.golden import test_wire_podcast as golden
 from backend.tests.golden.harness import AsyncioProxy, VirtualClock, settle
-from backend.tests.golden.test_old_wire_podcast import EPISODE_A, EPISODE_B
+from backend.tests.golden.test_wire_podcast import EPISODE_A, EPISODE_B
 from backend.tests.test_mpv_sessions import PodcastRig
 
 
@@ -47,17 +47,6 @@ def slow_watchdog(monkeypatch, rig):
     that hold a session in LOADING on purpose. Takes `rig` so it lands after
     the rig's own (short) watchdog."""
     monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 60.0, raising=False)
-
-
-def meta(rig) -> dict:
-    return rig.state()["metadata"]
-
-
-def envelopes(rig, type_: str) -> list:
-    return [
-        e for e in rig.recorder.envelopes
-        if e["category"] == "source" and e["type"] == type_
-    ]
 
 
 def count_saves(rig) -> list:
@@ -105,7 +94,7 @@ class TestStartingAnEpisode:
         assert result["success"] is False
         assert "gone" in result["error"]
         assert rig.loads() == []
-        assert rig.state()["source_state"] == "ready"
+        assert not rig.active()
 
     async def test_an_episode_with_no_audio_url_is_a_refusal_not_a_crash(
         self, rig, monkeypatch
@@ -121,12 +110,12 @@ class TestStartingAnEpisode:
 
         assert result["success"] is False
         assert rig.loads() == []
-        assert rig.state()["source_state"] == "ready"
+        assert not rig.active()
 
     async def test_the_state_is_published_buffering_before_the_stream_loads(
         self, rig, slow_watchdog
     ):
-        """The spinner: the new episode is ACTIVE and buffering from the play,
+        """The spinner: the new episode has a loading session from the play,
         and playing only once mpv says sound started. Without the first publish
         the card (AudioPlayer.vue) stays on the previous episode for the whole
         buffering window; without the second it spins over audible sound."""
@@ -134,14 +123,13 @@ class TestStartingAnEpisode:
         await rig.select()
 
         await rig.play(EPISODE_A)
-        state = rig.state()
-        assert state["source_state"] == "active"
+        assert rig.phase() == "loading"
         assert rig.episode() == EPISODE_A["uuid"]
-        assert (state["metadata"]["is_buffering"], state["metadata"]["is_playing"]) == (True, False)
+        assert rig.session()["title"] == EPISODE_A["name"]
 
         await rig.mpv.opens()
         await settle()
-        assert (meta(rig)["is_buffering"], meta(rig)["is_playing"]) == (False, True)
+        assert rig.phase() == "playing"
 
     async def test_the_speed_set_while_idle_is_applied_to_the_next_episode(self, rig):
         """The speed is a preference: set with nothing playing (the speed menu,
@@ -171,7 +159,7 @@ class TestStartingAnEpisode:
         assert unpause in rig.mpv.sent
         assert rig.mpv.sent.index(unpause) < rig.mpv.sent.index(rig.loads()[-1])
         assert rig.mpv.paused is False
-        assert meta(rig)["is_playing"] is True
+        assert rig.playing()
         assert rig.episode() == EPISODE_B["uuid"]
 
     async def test_the_progress_is_saved_every_ten_seconds_of_sound(self, rig):
@@ -198,7 +186,7 @@ class TestStartingAnEpisode:
 
         await rig.play(EPISODE_B)
 
-        assert len(envelopes(rig, "error_cleared")) == 1
+        assert len(rig.envelopes("source", "error_cleared")) == 1
 
 
 class TestTheOutgoingEpisode:
@@ -227,9 +215,7 @@ class TestTheOutgoingEpisode:
 
         assert ("stop",) not in rig.mpv.sent
         assert [load[2] for load in rig.loads()] == ["replace", "replace"]
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_playing"] is True
+        assert rig.playing()
         assert rig.episode() == EPISODE_B["uuid"]
 
 
@@ -275,8 +261,8 @@ class TestResumingWhereTheOwnerLeftOff:
 
         await rig.play(EPISODE_A)
 
-        assert meta(rig)["is_buffering"] is True
-        assert meta(rig)["position"] == 640_000
+        assert rig.buffering()
+        assert rig.position_ms() == 640_000
 
 
 class TestAStreamThatWillNotLoad:
@@ -298,7 +284,7 @@ class TestAStreamThatWillNotLoad:
         await rig.play(EPISODE_A)
 
         assert rig.errors() == ["stream_load_failed"]
-        assert envelopes(rig, "error_cleared") == []
+        assert rig.envelopes("source", "error_cleared") == []
 
     async def test_a_refused_load_leaves_nothing_loading(self, rig):
         """A session left LOADING is a spinner over an episode that is not
@@ -310,15 +296,14 @@ class TestAStreamThatWillNotLoad:
         await rig.play(EPISODE_A)
 
         state = rig.state()
-        assert state["source_state"] == "ready"
-        assert state["metadata"]["is_buffering"] is False
-        assert state["metadata"]["is_playing"] is False
+        assert state["session"] is None
+        assert state["resume"]["title"] == EPISODE_A["name"]
         assert rig.episode() == EPISODE_A["uuid"]
         assert rig.data.completed == []
 
         rig.mpv.accept = True
         assert (await rig.play(EPISODE_A))["success"] is True
-        assert meta(rig)["is_playing"] is True
+        assert rig.playing()
 
     async def test_a_catalogue_that_raises_is_reported_and_starts_nothing(
         self, rig, monkeypatch
@@ -340,15 +325,16 @@ class TestAStreamThatWillNotLoad:
         assert "feed unreachable" in result["error"]
         assert rig.errors() == ["playback_failed"]
         assert rig.loads() == []
-        assert rig.state()["source_state"] == "ready"
+        assert not rig.active()
 
 
 class TestTheHandshakePlayhead:
     """What a (re)connecting client is told the playhead is.
 
     GET /api/audio/state and the WebSocket handshake go through
-    `state.refresh_active_metadata()`. Without the re-read the client gets the
-    last periodic broadcast, up to POSITION_SYNC_INTERVAL seconds stale.
+    `state.refresh_active_view()`, which re-reads mpv's playhead. Without the
+    re-read the client opens on the last anchor, however far mpv has moved
+    from it since.
     """
 
     async def test_the_live_playhead_replaces_the_cached_one(self, rig):
@@ -356,9 +342,9 @@ class TestTheHandshakePlayhead:
         await rig.play(EPISODE_A)
         rig.mpv.playhead(642)
 
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
 
-        assert meta(rig)["position"] == 642_000
+        assert rig.position_ms() == 642_000
 
     async def test_a_pause_mpv_announces_on_its_own_is_published(self, rig):
         """mpv paused from outside Milō's commands: the phase follows mpv's
@@ -370,7 +356,7 @@ class TestTheHandshakePlayhead:
         await rig.mpv.set_property("pause", True)
         await settle()
 
-        assert meta(rig)["is_playing"] is False
+        assert rig.phase() == "paused"
 
     async def test_a_buffering_stream_keeps_its_play_state(self, rig, slow_watchdog):
         """mpv answers `pause=False` before the stream is ready, so trusting it
@@ -379,9 +365,9 @@ class TestTheHandshakePlayhead:
         await rig.select()
         await rig.play(EPISODE_A)
 
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
 
-        assert (meta(rig)["is_playing"], meta(rig)["is_buffering"]) == (False, True)
+        assert rig.phase() == "loading"
 
     async def test_a_property_mpv_will_not_answer_leaves_the_value_alone(self, rig):
         """mpv reads None for the playhead and the length while it cannot say;
@@ -394,9 +380,9 @@ class TestTheHandshakePlayhead:
         rig.mpv.playhead(None)
         rig.mpv.default_duration = None
 
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
 
-        assert (meta(rig)["position"], meta(rig)["duration"]) == (642_000, 1_800_000)
+        assert (rig.position_ms(), rig.session()["duration_ms"]) == (642_000, 1_800_000)
 
     async def test_nothing_is_refreshed_with_no_episode(self, rig):
         await rig.select()
@@ -430,10 +416,9 @@ class TestMpvGoingAwayUnderPlayback:
 
         assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 640
         state = rig.state()
-        assert state["source_state"] == "ready"
-        assert state["metadata"]["is_playing"] is False
+        assert state["session"] is None
         assert rig.episode() == EPISODE_A["uuid"]
-        assert state["metadata"]["position"] == 640_000
+        assert state["resume"]["position_ms"] == 640_000
         assert rig.errors() == ["stream_disconnected"]
         assert rig.data.completed == []
 
@@ -470,7 +455,7 @@ class TestThePeriodicProgressSave:
         rig.mpv.playhead(100)
         await rig.tick(10)
         assert failures == [100]
-        assert meta(rig)["is_playing"] is True
+        assert rig.playing()
 
         rig.mpv.playhead(200)
         await rig.tick(10)
@@ -505,7 +490,7 @@ class TestThePeriodicProgressSave:
 
 
 class TestBootFailureArms:
-    """A start that fails settles the source in ERROR (the selector's error
+    """A start that fails settles the service as failed (the selector's error
     card, retried by selecting it again), and leaves no mpv link behind."""
 
     async def test_a_service_that_will_not_start_stops_the_boot(self, rig):
@@ -514,7 +499,7 @@ class TestBootFailureArms:
 
         await rig.select()
 
-        assert rig.state()["source_state"] == "error"
+        assert rig.state()["service"] == "failed"
         assert rig.mpv.connected_once is False
 
     async def test_an_mpv_that_will_not_answer_stops_the_boot(self, rig):
@@ -524,7 +509,7 @@ class TestBootFailureArms:
 
         await rig.select()
 
-        assert rig.state()["source_state"] == "error"
+        assert rig.state()["service"] == "failed"
 
     async def test_the_stored_speed_is_restored_at_boot(self, rig):
         """The speed control is a setting, not a per-session choice: the value
@@ -536,7 +521,7 @@ class TestBootFailureArms:
         await rig.play(EPISODE_A)
 
         assert rig.mpv.speed == 1.5
-        assert meta(rig)["playback_speed"] == 1.5
+        assert rig.details()["speed"] == 1.5
 
     async def test_a_crash_during_boot_leaves_no_link_behind(self, rig):
         """Half a start is worse than none: an mpv link outliving the failure
@@ -548,7 +533,7 @@ class TestBootFailureArms:
 
         await rig.select()
 
-        assert rig.state()["source_state"] == "error"
+        assert rig.state()["service"] == "failed"
         assert rig.mpv.connected_once is True
         assert rig.mpv.is_connected is False
 
@@ -611,9 +596,7 @@ class TestAPausedEpisodeReplacedByAnother:
 
         assert result["success"] is True
         assert ("stop",) not in rig.mpv.sent
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_playing"] is True
+        assert rig.playing()
         assert rig.episode() == EPISODE_B["uuid"]
         assert rig.data.completed == []
 
@@ -639,9 +622,9 @@ class TestTheEndOfAnEpisode:
     async def test_a_persistence_failure_does_not_strand_the_source_as_playing(
         self, rig
     ):
-        """If marking completion throws, the episode still ends: READY through
-        the source's one publisher, carrying what lets the frontend
-        (podcastStore) flip the card to "already listened" without a re-fetch.
+        """If marking completion throws, the episode still ends: its session
+        ends for `eof` — what lets the frontend (podcastStore) flip the card to
+        "already listened" without a re-fetch — and nothing is left to resume.
         Otherwise the card never comes down."""
         async def disk_full(episode_uuid):
             raise OSError("disk full")
@@ -651,60 +634,66 @@ class TestTheEndOfAnEpisode:
         await rig.play(EPISODE_A)
         rig.mpv.playhead(1790)
         await rig.tick()
+        playing = rig.recorder.stable(rig.state())["session"]["id"]
 
         await rig.mpv.ends("eof")
         await settle()
 
         state = rig.state()
-        assert state["source_state"] == "ready"
-        metadata = state["metadata"]
-        assert metadata["is_playing"] is False
-        assert metadata["episode_ended"] is True
-        assert metadata["episode_uuid"] == EPISODE_A["uuid"]
-        assert metadata["completed"] is True
+        assert state["session"] is None
+        assert state["resume"] is None
+        ended = rig.envelopes("source", "session_ended")
+        assert [e["data"]["reason"] for e in ended] == ["eof"]
+        assert ended[0]["data"]["session_id"] == playing
 
     async def test_the_duration_becoming_known_is_broadcast_at_once(self, rig):
         """A feed omits `itunes:duration` often enough (EPISODE_B) that the
-        progress bar (useSourceProgress) would otherwise be missing for up to a
-        whole sync interval: the first second mpv knows the length, it goes
-        out."""
+        progress bar would otherwise be missing until something else moved:
+        the first second mpv knows the length, the state carries it — with the
+        playhead read on that same second, in one envelope."""
         await rig.select()
         await rig.play(EPISODE_B)
+        assert rig.session()["duration_ms"] is None
+        before = len(rig.recorder.envelopes)
         rig.mpv.playhead(12)
 
         await rig.tick()
 
-        updates = envelopes(rig, "position_update")
-        assert [(u["data"]["position"], u["data"]["duration"]) for u in updates] == [
-            (12_000, 1_800_000)
-        ]
+        after = rig.recorder.envelopes[before:]
+        assert [(e["category"], e["type"]) for e in after] == [("source", "state")]
+        session = after[0]["data"]["session"]
+        assert (session["position"]["ms"], session["duration_ms"]) == (12_000, 1_800_000)
 
-    async def test_a_known_duration_is_corrected_every_thirty_seconds_only(self, rig):
-        """The frontend interpolates the playhead; a position event every
-        second would be a WebSocket message per second per client for nothing."""
+    async def test_a_playhead_the_anchor_predicts_publishes_nothing(self, rig):
+        """The clients extrapolate the playhead from the anchor; a position
+        event every second would be a WebSocket message per second per client
+        for nothing. A reading within the tolerance (2 s) moves nothing."""
         await rig.select()
         await rig.play(EPISODE_A)
-
-        await rig.tick(29)
-        assert envelopes(rig, "position_update") == []
-
+        rig.mpv.playhead(0)
         await rig.tick()
-        assert len(envelopes(rig, "position_update")) == 1
+        before = len(rig.recorder.envelopes)
 
-    async def test_the_eager_duration_push_is_not_paired_with_a_periodic_one(
-        self, rig
-    ):
-        """The one tick where both broadcasts want to fire: the duration became
-        known *and* the periodic sync is due. Counting, not presence — two
-        identical position events on the same tick is exactly what a membership
-        assertion cannot see (12th blind spot)."""
-        rig.mpv.default_duration = None
-        await rig.select()
-        await rig.play(EPISODE_B)
+        rig.mpv.playhead(1)
         await rig.tick(29)
-        assert envelopes(rig, "position_update") == []
 
-        rig.mpv.default_duration = 1800.0
-        await rig.tick()                                # the 30th second
+        assert rig.recorder.envelopes[before:] == []
 
-        assert len(envelopes(rig, "position_update")) == 1
+    async def test_a_playhead_off_the_anchor_is_one_position_event(self, rig):
+        """Past the tolerance the reading is a discontinuity: exactly one
+        `source/position`, and no state beside it (nothing else moved).
+        Counting, not presence — two events for one jump is what a membership
+        assertion cannot see."""
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(0)
+        await rig.tick()
+        before = len(rig.recorder.envelopes)
+
+        rig.mpv.playhead(300)
+        await rig.tick(3)
+
+        after = rig.recorder.envelopes[before:]
+        assert [(e["category"], e["type"]) for e in after] == [("source", "position")]
+        assert after[0]["data"]["position"]["ms"] == 300_000
+        assert rig.position_ms() == 300_000

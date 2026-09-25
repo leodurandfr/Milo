@@ -104,8 +104,8 @@ class MpvController:
         WebSocketLogHandler forwards to the UI banner wholesale (main.py) -- the
         source's own logger is rooted at `source` and raises nothing. So an
         ERROR here is a *second* user-facing report of a failure the state
-        machine already broadcasts as a typed SystemErrorEvent, and being a raw
-        log line it races that event for App.vue's single banner slot. The same
+        machine already reports as `service: failed` in the state, and being a
+        raw log line it would reach App.vue's banner on top of it. The same
         reasoning, and the same conclusion, as AudioStateMachine's own
         "Transition failed" warning. What is genuinely broken still shouts: the
         unexpected-exception arm below stays an error.

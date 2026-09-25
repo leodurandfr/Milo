@@ -13,9 +13,9 @@ from backend.core import audio_source
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.radio import source as radio_module
 from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, instant_short_sleep, settle,
+    AsyncioProxy, VirtualClock, instant_short_sleep, settle, use_virtual_wall,
 )
-from backend.tests.golden.test_old_wire_radio import FakeShazam
+from backend.tests.golden.test_wire_radio import FakeShazam
 from backend.tests.test_mpv_sessions import RadioRig
 
 # Read at import, before any rig shortens it.
@@ -55,6 +55,7 @@ class RadioWorld(RadioRig):
         self.clock: Optional[VirtualClock] = None
         if clock:
             self.clock = VirtualClock()
+            use_virtual_wall(monkeypatch, self.clock)
             monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", STALL_TIMEOUT_S)
 
             async def sleep(delay: float, *a: Any, **k: Any) -> Any:
@@ -95,8 +96,9 @@ class RadioWorld(RadioRig):
         await self.mpv.set_property("pause", value)
         await settle()
 
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"]
+    def track_title(self) -> Optional[str]:
+        """The song recognized in the stream, as `details.track` carries it."""
+        return (self.details().get("track") or {}).get("title")
 
     def shazam_running(self) -> bool:
         return bool(self.shazams) and self.shazams[-1].is_running

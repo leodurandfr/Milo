@@ -87,7 +87,6 @@ class TestStoragesListing:
         assert response.json() == {
             "storages": shares.storages_with_stats.return_value,
             "scanning": False,
-            "catalog_ready": True,
         }
 
     def test_a_scan_in_flight_is_reported(self, api, shares):

@@ -15,6 +15,7 @@ What the source publishes from that snapshot (the broadcast policy, the cover)
 is driven through the measured world in test_bluetooth_behavior.py.
 """
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -435,6 +436,9 @@ class TestPlayerTracking:
         playhead there would restart the bar at 0:00 in the middle of a song for
         a Duration that merely caught up."""
         monkeypatch.setattr(avrcp_module, "TRACK_SETTLE_TIMEOUT_S", 0.05)
+        # Frozen: a playing reading ages with the clock, and what is asserted
+        # here is a restart to 0:00, not the milliseconds the settle takes.
+        monkeypatch.setattr(avrcp_module, "time", SimpleNamespace(monotonic=lambda: 1000.0))
         avrcp = AvrcpController()
         avrcp._on_dbus_message(player_added(
             Track=track_variant(Title="Revenants", Duration=215533),

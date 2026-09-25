@@ -158,7 +158,7 @@ class CamillaDSPService:
 
         # Owned state: equalizer effects on/off. Loaded from
         # routing.equalizer_effects_enabled in settings.json. Read by
-        # AudioStateMachine.broadcast() when aggregating full_state, and by
+        # AudioStateMachine.state() when composing the audio state, and by
         # AudioRoutingService via property.
         self._effects_enabled: bool = False
 

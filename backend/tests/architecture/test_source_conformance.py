@@ -279,7 +279,13 @@ def test_source_constructor_signature(source_id):
 
 
 def _source_ast(source_id):
-    """The `{Name}Source` class body, with the names its own package exports."""
+    """The `{Name}Source` class body, with the classes its own package exports.
+
+    Classes only, resolved by importing them: a collaborator is a service the
+    source builds. Qobuz's `self._account_cached = is_connected(...)` stores
+    the bool a package *function* returns, and counting it made the account
+    flag read as a service no property exposed.
+    """
     tree = ast.parse((SOURCES_ROOT / source_id / "source.py").read_text())
     package_names = {
         alias.asname or alias.name.split(".")[-1]
@@ -287,6 +293,7 @@ def _source_ast(source_id):
         if isinstance(node, ast.ImportFrom)
         and (node.module or "").startswith(f"backend.sources.{source_id}")
         for alias in node.names
+        if inspect.isclass(getattr(importlib.import_module(node.module), alias.name, None))
     }
     # By name, not by position: a module on the session model declares its
     # Session subclass first.
@@ -353,9 +360,13 @@ NO_COLLABORATOR_SOURCES = {"mac"}
 # (api/settings.py::set_radio_settings) wants the *source* to react to a global
 # toggle, and the method re-arms `_shazam_candidate` against the in-band feed —
 # state nobody holding `source.shazam` could reason about. Exposing the service
-# to satisfy the rule would add a property no caller reads.
+# to satisfy the rule would add a property no caller reads. `availability` is
+# base contract too: the state machine asks it of every registered source, and
+# Qobuz answers from its running monitor — the source describing itself, not a
+# service handed to routes.py.
 COLLABORATOR_OWNER_METHODS = (
     "initialize", "shutdown", "refresh_metadata", "on_shazam_setting_changed",
+    "availability",
 )
 
 
@@ -497,143 +508,328 @@ def test_mpv_sources_attach_through_the_base_class(source_id):
     assert not connects, f"{source_id}: opens the IPC link itself"
 
 
-# === State publication ===========================================================
+
+
+# === Publication (docs: "le fil") ================================================
 #
-# The audit that produced this section found that `is_playing`/`is_buffering`
-# live in a free-form dict nothing typed and nothing checked, and that four
-# sources published at least one state around the shared primitive — each with
-# a different payload shape. Two READYs went out with no transport key in them
-# at all. The rules below make the shape a property of the source list rather
-# than of whoever wrote the last stop path.
+# A source publishes one thing, its view — the live session, the resume point,
+# its own details and the commands it takes now — and the base composes that
+# view from four hooks (`_session_fields`, `_resume_view`, `_details`,
+# `_controls`). The state machine adds everything else and decides what goes
+# out. The rules below pin that a source reaches the wire only through those
+# hooks and the base's one publish site; the old wire drifted exactly where a
+# source hand-built a payload beside the shared primitive.
+
+# Where source code lives: every source package, plus the base the four mpv
+# sources share (it publishes on their behalf).
+SOURCE_MODULES = sorted(SOURCES_ROOT.rglob("*.py")) + [
+    SOURCES_ROOT.parent / "shared" / "mpv_audio_source.py"
+]
+
+# The base's publish primitives, and what lies behind them. A source calling
+# the state machine or broadcasting the state itself would bypass the view the
+# base composes, and with it the empty-string → null rule and the anchor rebase.
+PUBLISH_PRIMITIVES = ("_publish", "_publish_changes")
+STATE_MACHINE_SINKS = ("update_source_view",)
+STATE_EVENTS = ("AudioStateChanged", "SourcePosition")
 
 
-def _publish_sites(source_id):
-    """Methods of the `{Name}Source` class that publish a connection state.
+def _parsed_source_modules():
+    parsed = [(path, ast.parse(path.read_text())) for path in SOURCE_MODULES]
+    assert len(parsed) >= 40, (
+        f"only {len(parsed)} source modules parsed — the glob is broken"
+    )
+    return parsed
 
-    Returns {method name: {primitives it calls}}.
+
+def _publish_calls(source_id):
+    """`self._publish()` / `self._publish_changes()` calls in a source.py."""
+    tree = ast.parse((SOURCES_ROOT / source_id / "source.py").read_text())
+    return [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in PUBLISH_PRIMITIVES
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "self"
+    ]
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_every_source_publishes_through_the_base(source_id):
+    """Non-triviality first: a source that never calls `_publish()` or
+    `_publish_changes()` either stopped announcing itself or found another way
+    out — and the rule below would pass on it either way."""
+    assert _publish_calls(source_id), (
+        f"{source_id}/source.py never calls self._publish() or "
+        f"self._publish_changes() — the extractor is broken, or the source "
+        f"reaches the wire some other way"
+    )
+
+
+def test_a_source_reaches_the_state_machine_only_through_publish():
+    """One publisher: the base's `_publish()`.
+
+    No source module defines `_publish`/`_publish_changes` (an override is a
+    second publish site with the base's name), calls
+    `state_machine.update_source_view` itself, or broadcasts
+    `AudioStateChanged`/`SourcePosition` — the state machine alone decides
+    whether a change goes out as a state or as a playhead. A source that
+    bypassed it would send a view the base never composed: an empty title
+    published as `""`, an anchor not re-stamped across a pause, a
+    `source/state` for a tick the wire is supposed to stay silent on.
+    """
+    found = []
+    for path, tree in _parsed_source_modules():
+        where = path.relative_to(SOURCES_ROOT.parent)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in PUBLISH_PRIMITIVES
+            ):
+                found.append(f"{where}:{node.lineno} defines {node.name}()")
+            elif isinstance(node, ast.Attribute) and node.attr in STATE_MACHINE_SINKS:
+                found.append(f"{where}:{node.lineno} reaches .{node.attr}")
+            elif isinstance(node, ast.Name) and node.id in STATE_EVENTS:
+                found.append(f"{where}:{node.lineno} uses {node.id}")
+            elif isinstance(node, ast.alias) and node.name in STATE_EVENTS:
+                found.append(f"{where} imports {node.name}")
+    assert not found, (
+        "a source publishes around the base's _publish():\n  " + "\n  ".join(found)
+    )
+
+
+def _captures_resume(cls):
+    policy = cls.RESUME_POLICY
+    return policy is not None and bool(policy.capture_on)
+
+
+def _overrides(cls, name):
+    """Whether something below BaseAudioSource defines `name`."""
+    return any(name in base.__dict__ for base in cls.__mro__ if base is not BaseAudioSource)
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_every_source_says_what_its_session_shows(source_id):
+    """`_session_fields` is overridden by every source.
+
+    The base's answer is `{}`: a session with no title, no artwork, no sender
+    and no duration — the player would draw an empty card over a source that
+    plays, and the bar could never be bounded.
+    """
+    cls = source_class(source_id)
+    assert _overrides(cls, "_session_fields"), (
+        f"{cls.__name__} does not override _session_fields() — its session "
+        f"would publish nothing but a phase"
+    )
+
+
+def test_some_sources_keep_a_resume_point():
+    """Otherwise the rule below checks nothing: the RESUME_POLICY reading is
+    what decides which sources it applies to."""
+    capturing = [s for s in SOURCE_IDS if _captures_resume(source_class(s))]
+    assert capturing, (
+        "no source's RESUME_POLICY captures anything — the policy reading is "
+        "broken, or every resume point is gone"
+    )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_a_source_that_keeps_a_resume_point_shows_it(source_id):
+    """A RESUME_POLICY that captures on some end ⇔ a `_resume_view` override.
+
+    A resume point captured and never viewed is one "play" would bring back
+    while the idle screen shows nothing to bring back (the base answers None);
+    a view on a source that never captures is dead code reading a point that
+    cannot exist.
+    """
+    cls = source_class(source_id)
+    captures = _captures_resume(cls)
+    assert _overrides(cls, "_resume_view") is captures, (
+        f"{cls.__name__}: RESUME_POLICY captures on "
+        f"{sorted(r.value for r in cls.RESUME_POLICY.capture_on) if cls.RESUME_POLICY else []} "
+        f"but _resume_view is {'not ' if captures else ''}overridden"
+    )
+
+
+# The commands that start content: each names *what* to play, so a `controls`
+# entry for it would be a button with no argument. `playpause` is a remote's
+# convenience the wire never offers — `controls` says which of pause/resume is
+# the one that does something now (docs: "le fil", §4).
+NEVER_A_CONTROL = frozenset({"play_station", "play_episode", "play_context", "playpause"})
+
+
+def _control_literals(source_id):
+    """Every string literal a list/tuple/set display in `_controls()` holds.
+
+    Displays only: `station.get("id")` or `c == "next"` are not controls.
+    Returns None when the source does not define `_controls`.
     """
     cls, _ = _source_ast(source_id)
-    sites = {}
-    for method in cls.body:
-        if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for node in ast.walk(method):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in ("set_state", "emit_connection_state")
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "self"
-            ):
-                sites.setdefault(method.name, set()).add(node.func.attr)
-    return sites
-
-
-def bare_source(source_id):
-    """A source with no services wired — enough to ask it what "stopped" means.
-
-    The four-argument shape is the one `test_source_constructor_signature`
-    pins, so this cannot drift away from the real construction site.
-    """
-    return source_class(source_id)(
-        config={}, state_machine=None, settings_service=None, systemd_manager=None
+    method = next(
+        (
+            m for m in cls.body
+            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name == "_controls"
+        ),
+        None,
     )
-
-
-def test_every_source_publishes_its_own_state():
-    """Non-triviality first: the rules below all pass on an empty surface."""
-    silent = [s for s in SOURCE_IDS if not _publish_sites(s)]
-    assert not silent, (
-        f"no publish site found in {silent} — _publish_sites is broken, or a "
-        f"source stopped announcing itself entirely"
-    )
-
-
-@pytest.mark.parametrize("source_id", SOURCE_IDS)
-def test_a_source_publishes_its_state_from_one_method(source_id):
-    """One publisher per source.
-
-    Every divergence the audit found was a second publish site with a
-    hand-built payload sitting beside a first one that got it right: Music
-    Library sent a bare `{}` from two stop paths, Podcast sent three
-    source-specific keys and no transport from its episode end. One method is
-    what makes "the payload is right" a single thing to check — and it is where
-    a per-transition field belongs, as an `extras` argument.
-    """
-    sites = _publish_sites(source_id)
-    assert len(sites) == 1, (
-        f"{source_id} publishes state from {sorted(sites)} — funnel them through "
-        f"one method and pass per-transition fields as extras (CLAUDE.md § Audio "
-        f"sources)"
-    )
-
-
-@pytest.mark.parametrize("source_id", SOURCE_IDS)
-def test_only_the_mute_receiver_declares_itself_one(source_id):
-    """`MUTE_RECEIVER` and the family table say the same thing, or one is wrong.
-
-    A source that declares it publishes no transport at all, in either state —
-    which is right for Mac, where ROC hands over an IP and nothing else, and
-    wrong for everything a shared player draws.
-    """
-    family, _, _ = FAMILIES[source_id]
-    assert source_class(source_id).MUTE_RECEIVER is (family == "A"), (
-        f"{source_id} is family {family} but MUTE_RECEIVER is "
-        f"{source_class(source_id).MUTE_RECEIVER}"
-    )
-
-
-def test_the_idle_projections_are_not_all_the_base_default():
-    """Otherwise the rule below tests BaseAudioSource ten times over."""
-    overriding = [s for s in SOURCE_IDS if len(bare_source(s)._idle_metadata()) > 2]
-    assert overriding, (
-        "no source projects an idle view of its own — bare_source() or the "
-        "_idle_metadata() hook is broken"
-    )
-
-
-@pytest.mark.parametrize("source_id", SOURCE_IDS)
-def test_a_ready_payload_cannot_claim_playback(source_id):
-    """READY means not playing, whatever the source's idle view projects.
-
-    The projection is handed a lying one on purpose, because the honest ones
-    are only inert by accident: CD's reads the live `_is_playing` and answers
-    True here with nothing else set up, and radio's and podcast's would do the
-    same the moment a station or an episode is behind them — they fall back to
-    the base pair only while there is nothing to resume. So what is pinned is
-    that no source can route around the forcing in `_idle_payload()`, which is
-    what makes a stopped source inert by construction rather than by every
-    caller remembering to reset first. A READY carrying `is_playing: true`
-    leaves AudioPlayerFull drawing a pause button and useSourceProgress
-    advancing a playhead over a source that stopped.
-    """
-    source = bare_source(source_id)
-    source._idle_metadata = lambda: {
-        "is_playing": True, "is_buffering": True, "title": "Something stale"
+    if method is None:
+        return None
+    return {
+        elt.value
+        for node in ast.walk(method)
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set))
+        for elt in node.elts
+        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
     }
 
-    payload = source._idle_payload()
 
-    assert payload["is_playing"] is False
-    assert payload["is_buffering"] is False
-    # The rest of the projection is the source's business and passes through.
-    assert payload["title"] == "Something stale"
+def test_the_controls_extractor_reads_every_override():
+    """A `_controls` whose literals the parse cannot see would pass the rule
+    below on an empty set — so every override must yield some, and at least
+    one source must override it."""
+    extracted = {s: _control_literals(s) for s in SOURCE_IDS}
+    overriding = {s: lits for s, lits in extracted.items() if lits is not None}
+    assert overriding, "no source defines _controls() — the extractor is broken"
+    empty = sorted(s for s, lits in overriding.items() if not lits)
+    assert not empty, (
+        f"_controls() of {empty} yields no string literal — the extractor no "
+        f"longer reads its shape"
+    )
 
 
 @pytest.mark.parametrize("source_id", SOURCE_IDS)
-def test_a_source_publishes_through_emit_connection_state(source_id):
-    """`set_state` is the base class's own transport, not a source's API.
+def test_controls_name_commands_the_source_takes(source_id):
+    """`controls` is the command vocabulary, not a second one (docs: "le fil", §4).
 
-    A source calling it directly hand-builds the whole payload and never
-    reaches `_idle_payload()` — which is how one READY went out with no
-    transport key in it and another with three episode fields and nothing
-    generic. Anything the idle view must keep goes in `_idle_metadata()`, and
-    anything describing one transition goes in `extras`; neither needs a second
-    way out.
+    Every name `_controls()` can return is a key of the source's COMMANDS —
+    the UI sends it back verbatim to `/api/audio/control/{source}`, and a name
+    COMMANDS lacks is a button that answers 400. None of them starts content
+    (`play_station`, `play_episode`, `play_context`: they need an argument the
+    button does not have) or is `playpause` (the list already says which of
+    pause/resume applies).
     """
-    primitives = set().union(*_publish_sites(source_id).values())
-    assert primitives == {"emit_connection_state"}, (
-        f"{source_id} calls {sorted(primitives - {'emit_connection_state'})} "
-        f"directly — publish through emit_connection_state, and put anything the "
-        f"idle view must keep in `_idle_metadata()`"
+    literals = _control_literals(source_id)
+    if literals is None:
+        pytest.skip(f"{source_id} takes the base's controls (none)")
+    commands = set(source_class(source_id).COMMANDS)
+    unknown = sorted(literals - commands)
+    assert not unknown, (
+        f"{source_id}: _controls() can return {unknown}, which COMMANDS "
+        f"({sorted(commands)}) does not accept"
+    )
+    forbidden = sorted(literals & NEVER_A_CONTROL)
+    assert not forbidden, (
+        f"{source_id}: _controls() offers {forbidden} — a control never starts "
+        f"content and is never playpause"
+    )
+
+
+# === The playhead: one aging implementation =====================================
+#
+# The anchor ({ms, at, rate}) is aged by whoever reads it; the base alone
+# stamps it (`_anchor_position`, `_observe_position`, `_clear_position`). Before
+# it, AirPlay and Qobuz each aged their own playhead against the loop clock
+# (`_position_of`, `_sync_clock`) and four sources pushed it on a timer
+# (`broadcast_position_update`) — three implementations of one sum, which
+# disagreed on what a pause does to it.
+
+RETIRED_PLAYHEAD_NAMES = frozenset({
+    "_position_of", "_sync_clock", "broadcast_position_update", "position_at",
+})
+
+# Calls that read a clock.
+CLOCK_READS = frozenset({"monotonic", "time", "perf_counter", "_now", "wall_time"})
+
+# (module, name) pairs whose clock arithmetic is a playhead on purpose.
+CLOCKED_PLAYHEAD_ALLOWED = {
+    # AVRCP's self-counted playhead: a reading of a sender whose BlueZ anchor
+    # a Previous invalidated for good, handed to `_observe_position` like any
+    # other reading — not an aging of the wire's anchor.
+    ("sources/bluetooth/avrcp.py", "_own_playhead_from"),
+    # A read Position ages from when it was read while the track plays, as
+    # BlueZ's own extrapolation does: read as it was, a feed burst between two
+    # polls saw it seconds behind the anchor and pulled the bar back. Still a
+    # reading handed to `_observe_position`, which alone moves the anchor.
+    ("sources/bluetooth/avrcp.py", "_position_at"),
+}
+
+
+def _is_clock_read(node):
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+    return name in CLOCK_READS
+
+
+def _names_in(node):
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Name):
+            yield sub.id
+        elif isinstance(sub, ast.Attribute):
+            yield sub.attr
+
+
+def _clocked_playheads(path, tree):
+    """Arithmetic on a clock reading that names a position or a playhead."""
+    where = path.relative_to(SOURCES_ROOT.parent).as_posix()
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BinOp):
+            continue
+        if not any(_is_clock_read(sub) for sub in ast.walk(node)):
+            continue
+        for name in set(_names_in(node)):
+            if "position" not in name and "playhead" not in name:
+                continue
+            if (where, name) in CLOCKED_PLAYHEAD_ALLOWED:
+                continue
+            found.append(f"{where}:{node.lineno} ages {name} against a clock")
+    return found
+
+
+def test_the_clocked_playhead_scan_sees_the_allowed_one():
+    """Non-triviality: the scan must still find the one clocked playhead it
+    allows, or it has stopped reading the shape it is meant to catch."""
+    avrcp = SOURCES_ROOT / "bluetooth" / "avrcp.py"
+    tree = ast.parse(avrcp.read_text())
+    seen = {
+        name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.BinOp) and any(_is_clock_read(s) for s in ast.walk(node))
+        for name in _names_in(node)
+    }
+    assert "_own_playhead_from" in seen, (
+        "the clock-arithmetic scan no longer sees avrcp.py's own playhead — "
+        "_is_clock_read or the BinOp walk is broken"
+    )
+
+
+def test_no_source_ages_its_own_playhead():
+    """Positions reach the wire only through the base's anchor.
+
+    No source module names a retired aging helper (`_position_of`,
+    `_sync_clock`, `broadcast_position_update`, `position_at`), and none does
+    arithmetic on a clock reading over a position or playhead: a source that
+    ages a position itself publishes a playhead that drifts from the one every
+    client computes from the anchor, and a timer that pushes it is the tick
+    the wire is designed never to carry.
+    """
+    found = []
+    for path, tree in _parsed_source_modules():
+        where = path.relative_to(SOURCES_ROOT.parent).as_posix()
+        for node in ast.walk(tree):
+            name = (
+                node.name if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else node.attr if isinstance(node, ast.Attribute)
+                else node.id if isinstance(node, ast.Name)
+                else node.arg if isinstance(node, ast.keyword)
+                else None
+            )
+            if name in RETIRED_PLAYHEAD_NAMES:
+                found.append(f"{where}:{node.lineno} names {name}")
+        found += _clocked_playheads(path, tree)
+    assert not found, (
+        "a source ages a playhead outside the base's anchor:\n  " + "\n  ".join(found)
     )

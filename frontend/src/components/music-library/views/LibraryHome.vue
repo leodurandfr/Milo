@@ -176,16 +176,18 @@ const buildingSubtitle = computed(() =>
     : t('musicLibrary.buildingHint')
 );
 
-// A tab with nothing in it has three possible reasons, and they are NOT
-// interchangeable — the middle one used to be rendered as the last one, which
+// A tab with nothing in it has five possible reasons, and they are NOT
+// interchangeable — the third one used to be rendered as the last one, which
 // told a user whose NAS was mounted and full to go connect a NAS:
-//   1. the catalog isn't answering → it is starting, wait
-//   2. a scan is filling it        → wait, here is the progress
-//   3. the index lost its files    → the music is there, re-index it
-//   4. there is genuinely nothing  → connect some storage
-// Only (3) is actionable, and it is the only one a person can't diagnose alone.
-// (1) has to come first: while Navidrome is down every count reads zero and
-// every list is empty, so all four look alike and the last one wins by default.
+//   1. no storage carries a library → connect some storage
+//   2. the catalog isn't answering  → it is starting, wait
+//   3. a scan is filling it         → wait, here is the progress
+//   4. the index lost its files     → the music is there, re-index it
+//   5. there is genuinely nothing   → this tab's own empty message
+// (1) and (2) are the source's availability, which this view draws itself
+// rather than the status card, so the library stays at hand (D13). (2) has to
+// come before the rest: while Navidrome is down every count reads zero and
+// every list is empty, so they all look alike and the last one wins by default.
 const rescanning = ref(false);
 
 async function handleRescan() {
@@ -196,7 +198,13 @@ async function handleRescan() {
 }
 
 function emptyState(titleKey, subtitleKey) {
-  if (!store.catalogReady) {
+  if (store.availability === 'no_storage') {
+    return {
+      title: t('musicLibrary.emptyLibrary'),
+      subtitle: t('musicLibrary.emptyLibraryHint'),
+    };
+  }
+  if (store.availability === 'catalog_unavailable') {
     return {
       loading: true,
       title: t('musicLibrary.catalogStarting'),
@@ -324,9 +332,9 @@ onMounted(async () => {
   // the scan flag drops, so it must not delay the first paint.
   //
   // Not while the catalog is still starting: there is nothing to refresh yet,
-  // and asking is a request answered 503 for no one's benefit. The storages call
-  // above is awaited, so the flag is known by here. The opportunity is not lost
-  // — the backend asks for the scan it owed the moment Navidrome answers again.
+  // and asking is a request answered 503 for no one's benefit (the audio state
+  // says so before this view mounts). The opportunity is not lost — the backend
+  // asks for the scan it owed the moment Navidrome answers again.
   if (store.catalogReady) store.rescan();
 });
 </script>

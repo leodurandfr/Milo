@@ -1,0 +1,2645 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "phone_with_no_player_connects_and_leaves": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "connected",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "player_before_pcm_publishes_a_track": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 511000,
+      "position": {
+       "ms": 0,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 511000,
+      "position": {
+       "ms": 0,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Says",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 511000,
+     "position": {
+      "ms": 0,
+      "at": 1790271000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Says",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 511000,
+     "position": {
+      "ms": 0,
+      "at": 1790271000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "pause_and_resume_from_the_phone_and_from_milo": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 30000,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 30000,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 35120,
+       "at": 1790271005.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 35120,
+       "at": 1790271013.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 40250,
+       "at": 1790271018.125,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 40250,
+       "at": 1790271024.25,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "Feeling Good",
+     "artist": "Nina Simone",
+     "album": "I Put a Spell on You",
+     "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 177000,
+     "position": {
+      "ms": 35120,
+      "at": 1790271005.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "resume",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "Feeling Good",
+     "artist": "Nina Simone",
+     "album": "I Put a Spell on You",
+     "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 177000,
+     "position": {
+      "ms": 40250,
+      "at": 1790271018.125,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "resume",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "track_changes": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 511000,
+      "position": {
+       "ms": 0,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 511000,
+      "position": {
+       "ms": 0,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Hammers",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 381000,
+      "position": {
+       "ms": 875,
+       "at": 1790271005.875,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Hammers",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 381000,
+      "position": {
+       "ms": 875,
+       "at": 1790271005.875,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "position": {
+      "ms": 0,
+      "at": 1790271011.875,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 0,
+       "at": 1790271028.5,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "I Put a Spell on You",
+      "artwork": "https://is1.example/nina/spell/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 177000,
+      "position": {
+       "ms": 0,
+       "at": 1790271028.5,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Demo 3 (voice memo)",
+      "artist": "Léo",
+      "album": "Garage",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 95000,
+      "position": {
+       "ms": 0,
+       "at": 1790271033.5,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Hammers",
+     "artist": "Nils Frahm",
+     "album": "Spaces",
+     "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 381000,
+     "position": {
+      "ms": 0,
+      "at": 1790271011.875,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Demo 3 (voice memo)",
+     "artist": "Léo",
+     "album": "Garage",
+     "artwork": null,
+     "senders": [
+      "iPhone de Léo"
+     ],
+     "duration_ms": 95000,
+     "position": {
+      "ms": 0,
+      "at": 1790271033.5,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "disconnect_command_and_a_second_phone": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 511000,
+      "position": {
+       "ms": 0,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Says",
+      "artist": "Nils Frahm",
+      "album": "Spaces",
+      "artwork": "https://is1.example/nils/spaces/600x600bb.jpg",
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 511000,
+      "position": {
+       "ms": 0,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "reason": "user_stop"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "sender_already_connected_at_select": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": {
+       "ms": 9874000,
+       "at": 1790271000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": {
+       "ms": 9879000,
+       "at": 1790271005.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "connected",
+      "title": null,
+      "artist": null,
+      "album": null,
+      "artwork": null,
+      "senders": [
+       "Mac mini de Léo"
+      ],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "disconnect"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": null,
+     "artist": null,
+     "album": null,
+     "artwork": null,
+     "senders": [
+      "Mac mini de Léo"
+     ],
+     "duration_ms": null,
+     "position": {
+      "ms": 9874000,
+      "at": 1790271000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev",
+     "disconnect"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "bluetooth",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ }
+}

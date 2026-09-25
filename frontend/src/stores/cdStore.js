@@ -7,37 +7,26 @@ export const useCdStore = defineStore('cd', () => {
   const unifiedStore = useUnifiedAudioStore();
 
   // All disc + playback state is derived from the central audio mirror
-  // (unifiedAudioStore.systemState.metadata), the single source of truth. The
-  // CD source publishes disc identity as persistent extras (disc_*) that survive
-  // READY and a WS reconnect, so deriving here — rather than maintaining
-  // delta-fed refs — keeps the store in sync across source transitions with no
-  // resync plumbing (a webradio→CD switch carries the disc extras in the
-  // transition_complete full_state).
-  const cdMeta = computed(() =>
-    unifiedStore.systemState.active_source === 'cd'
-      ? (unifiedStore.systemState.metadata || {})
-      : {}
-  );
-
-  // === DRIVE / DISC STATE ===
-  const discInfo = computed(() => {
-    const m = cdMeta.value;
-    if (!m.disc_id) return null;
-    return {
-      disc_id: m.disc_id,
-      album: m.disc_album,
-      artist: m.disc_artist,
-      year: m.disc_year,
-      album_art_url: m.disc_cover_url,
-      track_count: m.track_count,
-    };
+  // (unifiedAudioStore.systemState), the single source of truth. The disc
+  // lives in `details` from the moment it is read, session or not, so deriving
+  // here — rather than maintaining delta-fed refs — keeps the store in sync
+  // across source switches and reconnects with no resync plumbing.
+  const cdDetails = computed(() => {
+    const state = unifiedStore.systemState;
+    return state.source === 'cd' && state.details?.kind === 'cd' ? state.details : null;
   });
 
-  const tracks = computed(() => cdMeta.value.tracks || []);
-  const currentTrack = computed(() => cdMeta.value.current_track ?? null);
+  // === DRIVE / DISC STATE ===
+  // {id, album, artist, year, cover_url, tracks: [{number, title, duration_ms}]}
+  const discInfo = computed(() => cdDetails.value?.disc ?? null);
+
+  const tracks = computed(() => discInfo.value?.tracks ?? []);
+  const currentTrack = computed(() => cdDetails.value?.current_track ?? null);
 
   // === PLAYBACK STATE ===
-  const isPlaying = computed(() => !!cdMeta.value.is_playing);
+  const isPlaying = computed(() =>
+    !!cdDetails.value && unifiedStore.systemState.session?.phase === 'playing'
+  );
 
   // === UI STATE ===
   const showTracklist = ref(false);

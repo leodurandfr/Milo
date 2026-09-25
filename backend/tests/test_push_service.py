@@ -15,14 +15,15 @@ import pytest
 
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import ClientVolume, VolumeState
+from backend.core.models.audio_wire import PositionAnchor
 from backend.core.models.ws_events import (
-    SourcePositionUpdate,
-    SourceStateChanged,
-    SystemTransitionComplete,
+    AudioStateChanged,
+    SourcePosition,
     VolumeChanged,
 )
 from backend.core.push.apns_client import ApnsResult
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
+from backend.core.state import AudioStateMachine
 from backend.core.push.service import (
     MIN_PUSH_INTERVAL_S,
     SESSION_IDLE_GRACE_S,
@@ -30,27 +31,59 @@ from backend.core.push.service import (
     PushService,
 )
 
-PLAYING = {
-    "active_source": "spotify", "source_state": "active",
-    "metadata": {"title": "T", "artist": "A", "duration": 200000,
-                 "position": 1000, "is_playing": True},
-}
-STOPPED = {"active_source": "none", "source_state": "inactive", "metadata": {}}
-# A gap INSIDE the playing source: still selected, nothing coming out of it,
-# and nothing it would resume. What a source with no idle identity looks like.
-READY = {"active_source": "spotify", "source_state": "ready", "metadata": {}}
+
+def session_of(title=None, phase="playing", **fields):
+    """A live session as the state carries it."""
+    return {"id": "s-1", "phase": phase, "title": title, "artist": None, "album": None,
+            "artwork": None, "senders": [], "duration_ms": None, "position": None,
+            **fields}
+
+
+def resume_of(title, **fields):
+    """A resume point as the state carries it."""
+    return {"title": title, "artist": None, "album": None, "artwork": None,
+            "duration_ms": None, "position_ms": None, **fields}
+
+
+def state_of(source, session=None, resume=None, switching=False):
+    """The audio state (GET /api/audio/state), the keys this service reads."""
+    return {
+        "source": source, "switching": switching,
+        "service": "stopped" if source == "none" else "running",
+        "service_error": None, "session": session, "controls": [],
+        "resume": None if session else resume, "details": None,
+    }
+
+
+PLAYING = state_of("spotify", session_of(
+    "T", artist="A", duration_ms=200000,
+    position={"ms": 1000, "at": 1700000000.0, "rate": 1.0},
+))
+STOPPED = state_of("none")
+# A gap INSIDE the playing source: still selected, no session, and nothing it
+# would resume. What a source with no resume point looks like.
+READY = state_of("spotify")
 # A stop that left something behind: the mpv sources publish what a play press
 # would bring back, so the card can hold the truth instead of a private copy
 # of the last thing it was told.
-RESUMABLE = {
-    "active_source": "radio", "source_state": "ready",
-    "metadata": {"is_playing": False, "title": "FIP Jazz", "album": "FIP Jazz",
-                 "album_art_url": "/api/radio/images/7ff7.webp",
-                 "station_id": "s1", "station_name": "FIP Jazz"},
-}
-# What a source change leaves behind: ANOTHER source selected, nothing playing
-# under it, no metadata. The card sat on the previous source's track, paused.
-SWITCHED = {"active_source": "radio", "source_state": "ready", "metadata": {}}
+RESUMABLE = state_of("radio", resume=resume_of(
+    "FIP Jazz", album="FIP Jazz", artwork="/api/radio/images/7ff7.webp",
+))
+# What a source change leaves behind: ANOTHER source selected, no session
+# under it, nothing to resume. The card sat on the previous source's track, paused.
+SWITCHED = state_of("radio")
+# A switch in flight.
+SWITCHING = state_of("none", switching=True)
+
+
+def playing_with(**fields):
+    """PLAYING with its session's fields replaced."""
+    return {**PLAYING, "session": {**PLAYING["session"], **fields}}
+
+
+def a_state_event():
+    """A `source/state` event, as the state machine builds it."""
+    return AudioStateChanged(**AudioStateMachine().state().model_dump())
 
 
 def past_the_grace(service):
@@ -191,17 +224,26 @@ async def _settled(apns, deadline=3.0, settle=0.1):
 class TestTriggers:
     """Which events on the bus are worth a push."""
 
-    def test_a_position_tick_triggers_nothing(self, service):
-        """The whole throughput argument. Position streams continuously during
-        playback; pushing on it would be several per second, which is how an
-        app's delivery gets throttled for everything it sends."""
-        service.on_event(SourcePositionUpdate(source="spotify", position=1000, duration=2000))
+    def test_a_seek_marks_the_service_dirty(self, service):
+        """A seek is the one move of the playhead iOS cannot compute.
 
-        assert service._dirty.is_set() is False
+        Between two pushes the lock screen extrapolates from the last anchor,
+        so steady playback costs nothing. A seek made anywhere else — the
+        Spotify app, Milō's screen — only reaches the wire as `source/position`,
+        and without a push the lock screen went on from the old anchor until
+        the next track (measured 2026-09-25). The event is cheap to honour:
+        the backend sends it only on a discontinuity past 2 s, never per tick.
+        """
+        service.on_event(SourcePosition(
+            source="spotify", session_id="s-1",
+            position=PositionAnchor(ms=1000, at=1700000000.0, rate=1.0),
+        ))
+
+        assert service._dirty.is_set() is True
 
     @pytest.mark.parametrize("event", [
         VolumeChanged(show_bar=True, step_mobile_db=2.0, multiroom_enabled=True, state={}),
-        SourceStateChanged(source="spotify", new_state="active", metadata={}),
+        a_state_event(),
     ])
     def test_a_state_change_marks_the_service_dirty(self, service, event):
         service.on_event(event)
@@ -246,14 +288,12 @@ class TestSessionLifecycle:
 
     async def test_a_pause_does_not_end_the_session(self, service, registry, apns):
         """Ending on pause deletes the play button at the moment someone
-        reaches for it. `is_playing` rides inside the attributes instead."""
+        reaches for it. The phase rides inside the attributes instead."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         session_id = service._session_id
         registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
-        service.machine.get_current_state.return_value = {
-            **PLAYING, "metadata": {**PLAYING["metadata"], "is_playing": False}
-        }
+        service.machine.get_current_state.return_value = playing_with(phase="paused")
         apns.send.reset_mock()
 
         await service._publish()
@@ -268,7 +308,7 @@ class TestSessionLifecycle:
         await service._publish()
         session_id = service._session_id
         registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
-        service.machine.get_current_state.return_value = {**PLAYING, "active_source": "radio"}
+        service.machine.get_current_state.return_value = {**PLAYING, "source": "radio"}
 
         await service._publish()
 
@@ -380,8 +420,7 @@ class TestSessionAdoption:
 class TestSourceTransitions:
     """Changing source on the appliance must not take the card off the screen."""
 
-    TRANSITION = {"active_source": "none", "source_state": "inactive",
-                  "transitioning": True, "metadata": {}}
+    TRANSITION = SWITCHING
 
     async def test_a_source_change_does_not_end_the_session(
         self, service, registry, apns
@@ -446,7 +485,7 @@ class TestSourceTransitions:
         assert sent_events(apns) == ["update"]
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
         assert attributes["isPlaying"] is False
-        assert attributes["currentTrack"]["title"] == RESUMABLE["metadata"]["title"]
+        assert attributes["currentTrack"]["title"] == RESUMABLE["resume"]["title"]
 
     async def test_a_gap_under_a_source_that_says_nothing_keeps_its_track(
         self, service, registry, apns
@@ -471,7 +510,7 @@ class TestSourceTransitions:
 
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
         assert attributes["isPlaying"] is False
-        assert attributes["currentTrack"]["title"] == PLAYING["metadata"]["title"]
+        assert attributes["currentTrack"]["title"] == PLAYING["session"]["title"]
 
     async def test_a_gap_under_ANOTHER_source_does_not_keep_the_track(
         self, service, registry, apns
@@ -520,7 +559,7 @@ class TestSourceTransitions:
     async def test_selecting_no_source_takes_the_card_away(
         self, service, registry, apns
     ):
-        """`active_source: none` removes the card rather than emptying it.
+        """`source: none` removes the card rather than emptying it.
 
         Emptying was the old answer, and it left a Milō card with every field
         null sitting in Control Center for five minutes — which reads as the
@@ -545,17 +584,15 @@ class TestSourceTransitions:
     async def test_the_paused_snapshot_never_says_playing(
         self, service, registry, apns
     ):
-        """This push has one thing to say. A source that is not active can still
-        carry `is_playing` — AVRCP publishes a transport whether or not BlueALSA
-        calls the source active — and rebuilding straight from the state would
-        put a card the music has left back into playing, with a position iOS
-        extrapolates from."""
+        """This push has one thing to say. A card rebuilt from what the new
+        source would resume must still say paused: a playing card the music
+        has left is one iOS extrapolates a position from."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
         service.machine.get_current_state.return_value = {
-            **SWITCHED, "metadata": {"title": "X", "is_playing": True}
+            **SWITCHED, "resume": resume_of("X", position_ms=5000)
         }
         apns.send.reset_mock()
 
@@ -567,15 +604,13 @@ class TestSourceTransitions:
     def test_a_finished_transition_wakes_the_loop(self, service):
         """Leaving the source must reach this loop without help.
 
-        `transition_to_source` holds `transitioning` across the switch, which
-        suppresses the per-source broadcasts inside it, so Start and Complete
-        are the only events it emits. Neither was a trigger, and the card
-        therefore outlived the source it described until something unrelated —
-        a volume nudge, another source event — happened to wake the loop.
-        Measured on the appliance 2026-09-22.
+        The end of a switch reaches the bus as one more `source/state`
+        (switching false). When no event of the switch was a trigger, the card
+        outlived the source it described until something unrelated — a volume
+        nudge — happened to wake the loop. Measured on the appliance 2026-09-22.
         """
         service._dirty.clear()
-        service.on_event(SystemTransitionComplete())
+        service.on_event(a_state_event())
         assert service._dirty.is_set()
 
     async def test_no_session_means_nothing_to_end(self, service, registry, apns):
@@ -676,8 +711,7 @@ class TestDeviceReport:
     nothing to play.
     """
 
-    TRANSITION = {"active_source": "none", "source_state": "inactive",
-                  "transitioning": True, "metadata": {}}
+    TRANSITION = SWITCHING
 
     async def _held(self, service, registry):
         """A session this service opened and the device has reported back."""
@@ -690,8 +724,7 @@ class TestDeviceReport:
     async def test_a_source_with_nothing_to_play_closes_the_card(
         self, service, registry, apns
     ):
-        """The reported failure. `source_state` leaves `active` on a source
-        change and the card has nothing behind it, but only Milō can say so —
+        """The reported failure. The session goes on a source change and the card has nothing behind it, but only Milō can say so —
         and from the bus alone it must first wait out `SESSION_IDLE_GRACE_S`,
         because a gap looks the same. A device report is the evidence that
         licenses closing at once, and it stays that way for a card naming
@@ -709,7 +742,7 @@ class TestDeviceReport:
         assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
 
     async def test_no_source_at_all_closes_the_card(self, service, registry, apns):
-        """`active_source: none` is the other spelling of the same emptiness —
+        """`source: none` is the other spelling of the same emptiness —
         selecting no source, rather than selecting another one."""
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(STOPPED)
@@ -753,7 +786,7 @@ class TestDeviceReport:
         assert service._session_id is not None
         assert sent_events(apns) == ["update"]
         track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
-        assert track["title"] == RESUMABLE["metadata"]["title"]
+        assert track["title"] == RESUMABLE["resume"]["title"]
 
         # Held, not kept: the grace still ends it.
         past_the_grace(service)
@@ -764,7 +797,7 @@ class TestDeviceReport:
         assert sent_events(apns) == ["end"]
 
     async def test_nothing_closes_during_a_transition(self, service, registry, apns):
-        """`transitioning` is the beat of a source change. Closing on it would
+        """`switching` is the beat of a source change. Closing on it would
         drop the card and raise it again at every switch — and the session that
         came back was one no app had asked to be primary."""
         session_id = await self._held(service, registry)
@@ -816,7 +849,7 @@ class TestDeviceReport:
         """A source on its way up is not a source that is playing, and the card
         opened there would carry the metadata of neither side."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
-        service.machine.get_current_state.return_value = {**PLAYING, "transitioning": True}
+        service.machine.get_current_state.return_value = {**PLAYING, "switching": True}
 
         await service.align_session_to_playback("phone-1")
 
@@ -1007,14 +1040,10 @@ class TestRadioMetadata:
     source neither copy of the cascade covered.
     """
 
-    RADIO = {
-        "active_source": "radio", "source_state": "active",
-        "metadata": {"is_playing": True, "title": "Snibor",
-                     "artist": "Gil Evans", "album": "FIP Jazz",
-                     "album_art_url": "/api/radio/images/7ff7.webp",
-                     "station_name": "FIP Jazz", "track_title": "Snibor",
-                     "track_artist": "Gil Evans"},
-    }
+    RADIO = state_of("radio", session_of(
+        "Snibor", artist="Gil Evans", album="FIP Jazz",
+        artwork="/api/radio/images/7ff7.webp",
+    ))
 
     async def test_a_station_change_reaches_the_card_and_not_the_widget(
         self, service, registry, apns
@@ -1035,9 +1064,7 @@ class TestRadioMetadata:
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
         apns.send.reset_mock()
         service.machine.get_current_state.return_value = {
-            **self.RADIO,
-            "metadata": {**self.RADIO["metadata"],
-                         "title": "Blues For Pablo", "track_title": "Blues For Pablo"},
+            **self.RADIO, "session": {**self.RADIO["session"], "title": "Blues For Pablo"},
         }
 
         await service._publish()
@@ -1062,8 +1089,8 @@ class TestRadioMetadata:
         await service._publish()
 
         track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
-        assert track["title"] == RESUMABLE["metadata"]["title"]
-        assert track["artworkURL"] == RESUMABLE["metadata"]["album_art_url"]
+        assert track["title"] == RESUMABLE["resume"]["title"]
+        assert track["artworkURL"] == RESUMABLE["resume"]["artwork"]
 
 
 class TestWidgetCadence:
@@ -1104,9 +1131,7 @@ class TestWidgetCadence:
         service = with_volume()
         registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
         await service._publish()
-        service.machine.get_current_state.return_value = {
-            **PLAYING, "metadata": {**PLAYING["metadata"], "title": "Another"}
-        }
+        service.machine.get_current_state.return_value = playing_with(title="Another")
         apns.send.reset_mock()
 
         await service._publish()
@@ -1255,9 +1280,7 @@ class TestCoalescing:
         await service.initialize()
 
         for i in range(20):
-            service.machine.get_current_state.return_value = {
-                **PLAYING, "metadata": {**PLAYING["metadata"], "title": f"T{i}"}
-            }
+            service.machine.get_current_state.return_value = playing_with(title=f"T{i}")
             service.on_event(VolumeChanged(show_bar=True, step_mobile_db=2.0,
                                            multiroom_enabled=True, state={}))
 
@@ -1268,6 +1291,34 @@ class TestCoalescing:
                    if c.args[2] == "nowplaying"]
         assert len(updates) == 1
         assert updates[0]["aps"]["attributes"]["currentTrack"]["title"] == "T19"
+
+    async def test_a_seek_reaches_the_lock_screen_with_its_new_anchor(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The seek's push carries the playhead it moved to, stamped when it
+        moved: that is the anchor iOS extrapolates from next."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", 0.02)
+        await service._publish()                       # open the session
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        apns.send.reset_mock()
+        await service.initialize()
+
+        moved = {"ms": 90000, "at": 1700000030.0, "rate": 1.0}
+        service.machine.get_current_state.return_value = playing_with(position=moved)
+        service.on_event(SourcePosition(
+            source="spotify", session_id="s-1", position=PositionAnchor(**moved),
+        ))
+
+        await _settled(apns)
+        await service.cleanup()
+
+        updates = [c.args[1]["aps"]["attributes"] for c in apns.send.await_args_list
+                   if c.args[2] == "nowplaying"]
+        assert [(u["elapsedTime"], u["timestamp"]) for u in updates] == [
+            (90.0, "2023-11-14T22:13:50.000Z"),
+        ]
 
     async def test_events_spread_over_the_window_still_produce_one_push(
         self, service, registry, apns, monkeypatch
@@ -1287,9 +1338,7 @@ class TestCoalescing:
         await service.initialize()
 
         for i in range(10):
-            service.machine.get_current_state.return_value = {
-                **PLAYING, "metadata": {**PLAYING["metadata"], "title": f"T{i}"}
-            }
+            service.machine.get_current_state.return_value = playing_with(title=f"T{i}")
             service.on_event(VolumeChanged(show_bar=True, step_mobile_db=2.0,
                                            multiroom_enabled=True, state={}))
             await asyncio.sleep(0.01)      # 0.1s of burst inside a 0.4s window

@@ -66,7 +66,7 @@ def service(mock_settings_service, mock_systemd_manager):
     state_machine = AudioStateMachine()
     state_machine.ALSA_RELEASE_SETTLE_S = 0
     state_machine.broadcast = AsyncMock()
-    state_machine.update_source_state = AsyncMock(wraps=state_machine.update_source_state)
+    state_machine.routing_service = svc
     svc.state_machine = state_machine
     mock_settings_service._storage["routing.multiroom_enabled"] = False
     return svc

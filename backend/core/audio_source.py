@@ -13,17 +13,19 @@ import time
 
 from pydantic import BaseModel, ValidationError
 
-from backend.core.models.audio_state import AudioSource, NetworkRequirement, SourceState
-from backend.core.models.session import (
-    CommandScope, DaemonSnapshot, EndReason, IdlePolicy, IllegalTransition, Phase,
-    ResumePoint, ResumePolicy, Session, check_end, event_towards,
+from backend.core.models.audio_state import AudioSource, NetworkRequirement
+from backend.core.models.audio_wire import (
+    PositionAnchor, ResumeView, SessionView, SourceView,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.session import (
+    Anchor, CommandScope, DaemonSnapshot, EndReason, IdlePolicy, IllegalTransition,
+    Phase, ResumePoint, ResumePolicy, Session, check_end, event_towards,
+)
 from backend.core.models.ws_events import (
     SourceError,
     SourceErrorCleared,
     SourceErrorReason,
-    SourcePositionUpdate,
+    SourceSessionEnded,
 )
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.pidfd import ProcessWatch
@@ -171,10 +173,18 @@ _handling: ContextVar[Optional[Tuple["BaseAudioSource", object, asyncio.Task]]] 
 # follows the reply at once.
 END_REQUEST_TIMEOUT_S = 10.0
 
-# Fields that travel on the position axis (broadcast_position_update), left out
-# of the projection compare so a playhead moving between two publishes is not
-# a state change.
-_POSITION_FIELDS = ("position", "duration")
+# How far a playhead reading may stray from where the anchor puts it before it
+# is a discontinuity worth a `source/position` (docs: "le fil", §7) — the
+# tolerance AirPlay, Spotify, Tidal and Qobuz each kept before the anchor was
+# one implementation.
+POSITION_TOLERANCE_MS = 2000
+
+
+def wall_time() -> float:
+    """The clock position anchors are stamped with (UTC seconds): what a
+    client's own clock is compared against. Module-level so a test world can
+    put it on its virtual clock."""
+    return time.time()
 
 
 class BaseAudioSource(ABC):
@@ -232,10 +242,9 @@ class BaseAudioSource(ABC):
     COMMANDS: Dict[str, Optional[Type[BaseModel]]] = {}
 
     # What this source needs from the network to work at all. The state machine
-    # crosses it with NetworkManager's connectivity level to decide whether the
-    # active source is blocked (full_state.network_unavailable), so a link
-    # problem is reported to the user only when it actually breaks what they
-    # selected. NONE is the safe default: it reports nothing.
+    # crosses it with NetworkManager's connectivity level into the source's
+    # `availability` entry, so a link problem is reported only for the sources
+    # it actually breaks. NONE is the safe default: it reports nothing.
     NETWORK_REQUIREMENT: NetworkRequirement = NetworkRequirement.NONE
 
     # Whether the global auto-stop delay applies to this source at all. False
@@ -246,16 +255,6 @@ class BaseAudioSource(ABC):
     # behind the comment saying it is off. Nothing was armed by it — neither
     # calls _start_pause_timer — which is why it could stay wrong.
     AUTO_STOP_SUPPORTED: bool = True
-
-    # A receiver with no playback concept at all: it carries `extras` and
-    # nothing else — no transport, no media fields, nothing a shared player
-    # could draw (Mac; see core/models/source_metadata.py). Declared on the
-    # class rather than inferred from a `playback=None` argument at a call site:
-    # inferred, a media source that forgot the typed half silently published a
-    # bare {} with no is_playing key in it, which is what two of Music
-    # Library's stop paths did. Declared, that same call publishes the source's
-    # own idle projection instead.
-    MUTE_RECEIVER: bool = False
 
     # The session model (docs: source architecture). A source on it declares
     # these four and opens/ends its sessions through open_session() and
@@ -292,10 +291,6 @@ class BaseAudioSource(ABC):
         self.service_name = service_name
         self.state_machine = state_machine
 
-        self._state = SourceState.READY
-        self._metadata: Dict[str, Any] = {}
-        self._is_playing = False
-        self._error: Optional[str] = None
         self._error_active = False
         self._initialized = False
 
@@ -328,18 +323,14 @@ class BaseAudioSource(ABC):
         self._actor_current: Optional[object] = None
         self._actor_handler: Optional[asyncio.Task] = None
         self._actor_closed = False
-        # The projection at the last publish, for the net after a command.
-        self._published: Optional[Tuple[SourceState, Dict[str, Any]]] = None
+        # The view at the last publish, for the net after a message; None
+        # until the source first published.
+        self._published: Optional[SourceView] = None
 
     @property
-    def state(self) -> SourceState:
-        """Current state of the source."""
-        return self._state
-
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        """Current metadata."""
-        return self._metadata.copy()
+    def view(self) -> SourceView:
+        """What this source contributes to the state now (see `_view()`)."""
+        return self._view()
 
     @property
     def is_playing(self) -> bool:
@@ -347,11 +338,8 @@ class BaseAudioSource(ABC):
 
         A session that is loading counts: the press means "stop that" (E42 —
         the knob used to resume an older station over one still buffering).
-        Sources not on the session model yet answer from their own flag.
         """
-        if self._session is not None:
-            return self._session.phase in (Phase.PLAYING, Phase.LOADING)
-        return self._is_playing
+        return self._session is not None and self._session.phase in (Phase.PLAYING, Phase.LOADING)
 
     @property
     def source(self) -> AudioSource:
@@ -430,11 +418,11 @@ class BaseAudioSource(ABC):
         never waits behind a handler — Milo-iOS gives up after 3 s, a podcast
         resume can hold its handler for ten — and never runs inside one either,
         so it cannot overwrite what a command in flight is changing. Busy, the
-        caller keeps the record already published, which is what that handler
+        caller keeps the view already published, which is what that handler
         will replace when it is done.
 
         Returns:
-            True if self._metadata was refreshed.
+            True if the source re-read its player (see refresh_metadata()).
         """
         if self._actor_closed or self._actor_current is not None or self._actor_urgent or self._actor_inbox:
             return False
@@ -611,7 +599,7 @@ class BaseAudioSource(ABC):
                 result = self._interrupted_result(message, str(exc))
             else:
                 result = handler.result()
-                if isinstance(message, (Command, Timer, Feed, Result)):
+                if isinstance(message, (Command, Timer, Query, Feed, Result)):
                     # Per message, like any loop body: a projection that raises
                     # costs this republish, never the mailbox.
                     try:
@@ -679,46 +667,27 @@ class BaseAudioSource(ABC):
 
     async def _run_start(self) -> bool:
         self._logger.info(f"Starting {self.source_id}")
-        self._state = SourceState.STARTING
-        self._error = None
-
         try:
             success = await self._do_start()
-
-            if success:
-                # State should be set by _do_start (READY or ACTIVE)
-                if self._state == SourceState.STARTING:
-                    self._state = SourceState.READY
-
-                self._logger.info(f"{self.source_id} started successfully")
-            else:
-                self._state = SourceState.ERROR
-                self._error = "Start failed"
-
-            return success
-
         except Exception as e:
             self._logger.error(f"Error starting {self.source_id}: {e}")
-            self._state = SourceState.ERROR
-            self._error = str(e)
             return False
+        if success:
+            self._logger.info(f"{self.source_id} started successfully")
+        return success
 
     async def _run_stop(self) -> bool:
         self._logger.info(f"Stopping {self.source_id}")
         self._cancel_pause_timer()
         # Drain any stale in-flight broadcasts from the previous state.
-        # Done before _do_stop so the broadcasts it emits (e.g. set_state(READY))
-        # run to completion after stop() returns.
+        # Done before _do_stop so the broadcasts it emits (its last publish,
+        # the session's end) run to completion after stop() returns.
         await self._bg.cancel_all()
 
         try:
             success = await self._do_stop()
 
             if success:
-                self._state = SourceState.READY
-                self._metadata = {}
-                self._error = None
-
                 self._logger.info(f"{self.source_id} stopped successfully")
             else:
                 self._logger.warning(f"Failed to stop {self.source_id}")
@@ -811,51 +780,180 @@ class BaseAudioSource(ABC):
         """Apply `apply` in the actor, unless `token` (a session) ended since."""
         self._post(Result(apply, token))
 
-    # === Publication net ===
+    # === Publication (docs: "le fil") ===
+    #
+    # A source publishes one thing, its view: the live session (with its
+    # position anchor), the resume point, its own content and the commands it
+    # takes now. `_publish()` is the one site that sends it; the state machine
+    # adds the selection, the service and the availability, and decides what
+    # goes out — a `source/state` when anything but the playhead moved, a
+    # `source/position` when only the playhead did.
 
-    def _connection_state(
-        self,
-    ) -> Optional[Tuple[bool, Optional[PlaybackMetadata], Optional[Dict[str, Any]]]]:
-        """(connected, playback, extras) as the source would publish them now.
+    def _view(self) -> SourceView:
+        """The view for the source's current fields — pure, nothing sent."""
+        session = self._session
+        if session is None:
+            return SourceView(
+                resume=self._clean_resume(self._resume_view()),
+                details=self._details(), controls=tuple(self._controls()),
+            )
+        fields = self._session_fields(session)
+        anchor = session.anchor
+        return SourceView(
+            session=SessionView(
+                id=session.id,
+                phase=session.phase,
+                title=fields.get("title") or None,
+                artist=fields.get("artist") or None,
+                album=fields.get("album") or None,
+                artwork=fields.get("artwork") or None,
+                senders=list(fields.get("senders") or []),
+                duration_ms=fields.get("duration_ms"),
+                position=(
+                    PositionAnchor(ms=anchor.ms, at=anchor.at, rate=anchor.rate)
+                    if anchor is not None else None
+                ),
+            ),
+            details=self._details(),
+            controls=tuple(self._controls()),
+        )
 
-        Pure: no side effect, nothing sent. Every source's
-        `_update_connection_state()` publishes exactly this (plus the fields of
-        one transition), which is what lets the actor tell, after a command,
-        whether the source changed without saying so. None: no projection
-        (the net is off for this source).
-        """
+    @staticmethod
+    def _clean_resume(resume: Optional[ResumeView]) -> Optional[ResumeView]:
+        """An empty string is never published: it is null (§2, §5)."""
+        if resume is None:
+            return None
+        return resume.model_copy(update={
+            key: getattr(resume, key) or None for key in ("title", "artist", "album", "artwork")
+        })
+
+    def _session_fields(self, session: Session) -> Dict[str, Any]:
+        """The session's content as the wire shows it: title, artist, album,
+        artwork, senders, duration_ms. Overridden by every source."""
+        return {}
+
+    def _resume_view(self) -> Optional[ResumeView]:
+        """What "play" would bring back while no session runs (the four
+        sources with a RESUME_POLICY)."""
         return None
 
-    def _project(self) -> Optional[Tuple[SourceState, Dict[str, Any]]]:
-        """The old wire's (state, metadata) for the source's current fields,
-        minus the position axis."""
-        args = self._connection_state()
-        if args is None:
-            return None
-        state, meta = self._compose(*args)
-        for key in _POSITION_FIELDS:
-            meta.pop(key, None)
-        return state, meta
+    def _details(self):
+        """The source's own content (one of the Details models), or None."""
+        return None
 
-    def _republish_if_moved(self) -> None:
-        """The net after a command or an auto-stop: a handler that changed the
-        source and published nothing (mpv refusing a load — E41) is published
-        anyway. Compared, not repeated: a handler that did publish costs no
-        second envelope."""
-        if self._published is not None and self._publish_changes():
-            self._logger.debug("State changed without a publish — published it")
+    def _controls(self) -> List[str]:
+        """The commands this source takes now and that would do something
+        (docs: "le fil", §4). The state machine empties the list while the
+        source cannot take any (switching, service not running)."""
+        return []
+
+    def availability(self) -> Optional[str]:
+        """Why this source cannot work now, on its own account (a missing disc,
+        no account) — connectivity is the state machine's to cross in. Read for
+        every registered source, selected or not; a source whose answer moves
+        calls `_availability_changed()`."""
+        return None
+
+    def _availability_changed(self) -> None:
+        """Tell the state machine this source's availability may have moved."""
+        if self.state_machine:
+            self._bg.spawn(self.state_machine.publish_state(), label="availability")
+
+    def _publish(self) -> None:
+        """The source's one publish site: its view, to the state machine."""
+        self._rebase_anchor()
+        view = self._view()
+        self._published = view
+        if self.state_machine:
+            self._bg.spawn(
+                self.state_machine.update_source_view(self.source, view),
+                label="publish",
+            )
 
     def _publish_changes(self) -> bool:
-        """Publish the source when its projection differs from the last one
-        published, the position axis aside. True when it did."""
-        projection = self._project()
-        if projection is None or projection == self._published:
+        """Publish the view if it differs from the last one published. True
+        when it did."""
+        self._rebase_anchor()
+        if self._view() == self._published:
             return False
-        self._update_connection_state()
+        self._publish()
         return True
 
-    def _update_connection_state(self) -> None:
-        """The source's one publish site (overridden by every source)."""
+    def _republish_if_moved(self) -> None:
+        """The net after a message: a handler that changed the source and
+        published nothing (mpv refusing a load — E41, a seek that moved only
+        the anchor) is published anyway. Compared, not repeated: a handler
+        that did publish costs no second envelope."""
+        if self._published is not None:
+            self._publish_changes()
+
+    # === The position axis ===
+
+    def _playback_rate(self) -> float:
+        """How fast the playhead moves while playing (Podcast: its speed)."""
+        return 1.0
+
+    def _position_now(self, session: Session) -> Optional[int]:
+        """Where the anchor puts the playhead now, or None without one."""
+        if session.anchor is None:
+            return None
+        return session.anchor.now(wall_time(), self._session_fields(session).get("duration_ms"))
+
+    def _anchor_position(self, ms: int, *, rate: Optional[float] = None) -> None:
+        """A discontinuity: the playhead is at `ms` now (a seek, a new track,
+        a speed change). Published by the next publish or the net after the
+        message — on the state if something else moved, else as a
+        `source/position`."""
+        session = self._session
+        if session is None:
+            return
+        duration = self._session_fields(session).get("duration_ms")
+        ms = max(0, int(ms))
+        if duration is not None:
+            ms = min(ms, duration)
+        session.anchor = Anchor(
+            ms=ms, at=wall_time(),
+            rate=rate if rate is not None else self._playback_rate(),
+            moving=session.phase is Phase.PLAYING,
+        )
+
+    def _observe_position(self, ms: Optional[int]) -> None:
+        """A playhead reading (mpv's time-pos, a daemon's report). One more
+        than POSITION_TOLERANCE_MS from the anchor moves it; so does any read
+        taken as the phase changes (a pause reports where it stopped), which
+        the state carrying the phase change publishes anyway."""
+        session = self._session
+        if session is None or ms is None:
+            return
+        anchor = session.anchor
+        if (
+            anchor is None
+            or anchor.moving is not (session.phase is Phase.PLAYING)
+            or abs(self._position_now(session) - int(ms)) > POSITION_TOLERANCE_MS
+        ):
+            self._anchor_position(ms)
+
+    def _clear_position(self) -> None:
+        """The session has no playhead any more."""
+        session = self._session
+        if session is not None:
+            session.anchor = None
+
+    def _rebase_anchor(self) -> None:
+        """Keep the anchor true across a phase change: it moves only while the
+        session plays, so leaving or entering PLAYING re-stamps it where the
+        playhead stands. Not a discontinuity: it rides the state that carries
+        the phase change."""
+        session = self._session
+        anchor = session.anchor if session is not None else None
+        if anchor is None:
+            return
+        moving = session.phase is Phase.PLAYING
+        if anchor.moving is moving:
+            return
+        session.anchor = Anchor(
+            ms=self._position_now(session), at=wall_time(), rate=anchor.rate, moving=moving,
+        )
 
     # === Sessions (docs: source architecture, "the session") ===
     #
@@ -875,8 +973,9 @@ class BaseAudioSource(ABC):
     async def end_session(self, reason: EndReason) -> Optional[Session]:
         """End the live session for `reason`; None when there was none.
 
-        Publishes nothing: the caller knows what the screen shows next (a new
-        session, READY, READY with the episode-end flag).
+        Announces the end (`source/session_ended`) and publishes nothing else:
+        the caller knows what the screen shows next (a new session, the resume
+        point) and publishes it after, so the end always comes first.
         """
         session = self._session
         if session is None:
@@ -904,6 +1003,11 @@ class BaseAudioSource(ABC):
         elif policy is not None and reason in policy.forget_on:
             self._set_resume_point(None)
         self._logger.info(f"Session ended ({reason.value})")
+        if self.state_machine:
+            # Out with the next publish, ahead of the state it leads to.
+            self.state_machine.session_ended(SourceSessionEnded(
+                source=self.source.value, session_id=session.id, reason=reason,
+            ))
         await self._session_ended(session, reason)
         return session
 
@@ -948,7 +1052,7 @@ class BaseAudioSource(ABC):
         self._logger.info("Resume point expired")
         self._set_resume_point(None)
         if self._session is None and self._published is not None:
-            self._update_connection_state()
+            self._publish()
 
     # === Sessions a daemon holds (docs: source architecture, "reconcile") ===
     #
@@ -1067,7 +1171,7 @@ class BaseAudioSource(ABC):
                 "the sender has to reconnect"
             )
         await self.end_session(reason)
-        self._update_connection_state()
+        self._publish()
         if reason is EndReason.DAEMON_DIED:
             self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
 
@@ -1136,7 +1240,7 @@ class BaseAudioSource(ABC):
             return
         if self._daemon_watch is None and self._session is session:
             await self.end_session(session.end_requested or EndReason.IDLE_TIMEOUT)
-            self._update_connection_state()
+            self._publish()
 
     async def _request_end(self, session: Session) -> bool:
         """Ask the daemon to end `session`. True when it took the request."""
@@ -1152,8 +1256,7 @@ class BaseAudioSource(ABC):
         Should:
         - Start systemd service if needed
         - Establish connections
-        - Set self._state to READY or ACTIVE
-        - Update self._metadata with initial data
+        - Publish the source's view (`_publish()`)
 
         Returns:
             True if startup successful
@@ -1169,41 +1272,6 @@ class BaseAudioSource(ABC):
         on failure. The outer stop() method handles exceptions.
         """
         pass
-
-    def _reset_playback_state(self) -> None:
-        """Reset playback state to idle defaults.
-
-        Subclasses should call super()._reset_playback_state() then clear
-        their own fields (e.g. _is_buffering, _device_connected, _current_station).
-        """
-        self._is_playing = False
-        self._metadata = {}
-
-    def _idle_metadata(self) -> Dict[str, Any]:
-        """The metadata that describes this source stopped, for `_idle_payload()`.
-
-        Default is the pair every player reads. A source whose idle view still
-        has something to show overrides it (CD keeps the loaded disc visible).
-        """
-        return {"is_playing": False, "is_buffering": False}
-
-    def _idle_payload(self) -> Dict[str, Any]:
-        """`_idle_metadata()` as it goes on the wire — the one definition.
-
-        Two things happen here and nowhere else. Nones are dropped, the same
-        rule `exclude_none` applies to the typed half (a key present-and-null
-        says what an absent key says, at the cost of a line on the wire) — two
-        idle routes once disagreed on exactly this, so one state had two shapes
-        depending on which path published it. And the inert pair is forced:
-        READY *means* not playing, while three of the four overrides project
-        from live fields (radio's station, podcast's episode, CD's disc), so a
-        stale True has a path onto a payload that denies it. Forcing it is the
-        definition of the state, not a guard against a caller.
-        """
-        payload = {k: v for k, v in self._idle_metadata().items() if v is not None}
-        payload["is_playing"] = False
-        payload["is_buffering"] = False
-        return payload
 
     async def _do_stop(self) -> bool:
         """
@@ -1255,15 +1323,16 @@ class BaseAudioSource(ABC):
         return self.error_response(f"Unhandled command: {cmd}")
 
     async def refresh_metadata(self) -> bool:
-        """Re-read metadata from the underlying player into self._metadata.
+        """Re-read the underlying player: its playhead goes through
+        `_observe_position()`, anything else through the source's own state.
 
-        Run by refresh_when_idle() for AudioStateMachine.refresh_active_metadata()
-        on the active source (GET /api/audio/state, WS reconnect), as a message
-        to the actor. Default: no-op for sources
-        whose metadata is pushed by an event feed rather than polled.
+        Run by refresh_when_idle() for AudioStateMachine.refresh_active_view()
+        on the active source (GET /api/audio/state, WS handshake), as a message
+        to the actor. Default: no-op for sources whose player pushes
+        everything through an event feed.
 
         Returns:
-            True if self._metadata was refreshed.
+            True if the player was re-read.
         """
         return False
 
@@ -1468,121 +1537,6 @@ class BaseAudioSource(ABC):
         self._initialized = True
         return True
 
-    def set_state(self, state: SourceState, metadata: Optional[Dict[str, Any]] = None) -> None:
-        """
-        Set state and optionally replace metadata.
-
-        Syncs with state_machine if available (active sources only).
-
-        Args:
-            state: New state (SourceState enum)
-            metadata: Authoritative metadata for the new state, or None for a
-                state-only change (leaves the current metadata untouched).
-        """
-        self._state = state
-        # Replace, don't merge — same rule as update_source_state(), so the
-        # source's copy and the machine's cannot diverge. A source that wants
-        # a field kept re-emits it (the four accumulator sources hand their own
-        # dict back through emit_connection_state, which round-trips it).
-        if metadata is not None:
-            self._metadata = dict(metadata)
-
-        if self.state_machine:
-            self._bg.spawn(
-                self.state_machine.update_source_state(
-                    self.source, state, metadata
-                ),
-                label="set_state",
-            )
-
-    def emit_connection_state(
-        self,
-        connected: bool,
-        playback: Optional[PlaybackMetadata] = None,
-        extras: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Publish the source's connection/playback state — the single path
-        that replaces per-source active/idle metadata dicts.
-
-        - ``connected`` selects ACTIVE vs READY.
-        - ``playback`` is the typed projection consumed by the shared player.
-          Its is_playing/is_buffering always emit; on READY the payload is
-          ``_idle_payload()`` instead, so the media fields
-          (title/artist/album/album_art_url/position/duration) are dropped by
-          default and a stale track can't linger. A source whose idle view
-          still has something to show overrides ``_idle_metadata()`` and
-          publishes its resume projection there — the one definition of
-          "stopped" (``_idle_payload()``). Omitting it is not
-          how a source says it has no transport: that is ``MUTE_RECEIVER``, on
-          the class. Here it only means this call had nothing to project, and
-          the inert pair goes out regardless.
-        - ``extras`` are source-specific fields (station/episode/disc/device);
-          they pass through in both states, so a source that wants device or
-          disc status visible while idle includes it (e.g. CD drive state).
-          ``None`` values are dropped, the same rule ``exclude_none`` applies to
-          the typed half — one record, one convention. Nothing can read the
-          difference anyway: every consumer tests the field for truthiness, so a
-          key present-and-null says exactly what an absent key says while
-          costing a line on the wire. Dropping it here rather than per source is
-          what stops the next `extras["x"] = self._maybe_none` from putting one
-          back. Safe because metadata is *replaced* on every state update
-          (`update_source_state`), never merged — an absent key cannot leave a
-          stale value behind.
-        """
-        state, meta = self._compose(connected, playback, extras)
-        self._published = self._project()
-        self.set_state(state, meta)
-
-    def _compose(
-        self,
-        connected: bool,
-        playback: Optional[PlaybackMetadata] = None,
-        extras: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[SourceState, Dict[str, Any]]:
-        """The (state, metadata) `emit_connection_state` puts on the wire — pure."""
-        if self.MUTE_RECEIVER:
-            # Carries extras and nothing else — there is no transport to state.
-            meta: Dict[str, Any] = {}
-        elif connected:
-            meta = (playback or PlaybackMetadata()).model_dump(exclude_none=True)
-        else:
-            meta = self._idle_payload()
-        if extras:
-            meta.update({k: v for k, v in extras.items() if v is not None})
-        return SourceState.ACTIVE if connected else SourceState.READY, meta
-
-    def broadcast_position_update(self, position: int, duration: int) -> None:
-        """Broadcast a lightweight position update without full_state.
-
-        Used during steady playback where the frontend interpolates
-        locally and only needs periodic drift correction.
-
-        Also keeps system_state.metadata in sync so that initial_state
-        sent on new WebSocket connections contains the live position.
-
-        Args:
-            position: Current position in milliseconds.
-            duration: Total duration in milliseconds.
-        """
-        if not self.state_machine:
-            return
-
-        self._bg.spawn(
-            self._push_position(position, duration),
-            label="broadcast_position_update",
-        )
-
-    async def _push_position(self, position: int, duration: int) -> None:
-        """Sync then broadcast the position. Both steps are awaited here so the
-        system_state write goes through the state machine's lock like every
-        other state mutation (it cannot be taken from the sync caller above)."""
-        await self.state_machine.update_position_metadata(self.source, position, duration)
-        await self.state_machine.broadcast(SourcePositionUpdate(
-            source=self.source.value,
-            position=position,
-            duration=duration,
-        ))
-
     def broadcast_error(self, reason: str) -> None:
         """
         Broadcast a failed *operation* to the UI notification banner.
@@ -1591,9 +1545,9 @@ class BaseAudioSource(ABC):
         regardless of which source is currently active.
 
         The source itself stays operational — a station that will not tune
-        leaves the browser perfectly usable. A source that is genuinely down
-        publishes SourceState.ERROR instead (the state machine does it for a
-        failed transition); the two never ride on the same event.
+        leaves the browser perfectly usable. A source whose start failed is
+        `service: failed` in the state instead (the state machine settles it);
+        the two never ride on the same event.
         """
         if not self.state_machine:
             return

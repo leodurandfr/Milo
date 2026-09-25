@@ -5,7 +5,9 @@ MpvAudioSource - Intermediate base class for mpv-based audio sources.
 Radio, Podcast, Music Library and CD listen to mpv's events
 (`_listen_to_mpv`): the phase of their session is what mpv announces —
 playback-restart, pause, paused-for-cache, end-file with its reason and entry
-id — and the one-second loop only reads the playhead while sound plays.
+id — and the one-second loop only reads the playhead while sound plays,
+handing each reading to the position axis (BaseAudioSource._observe_position),
+which publishes only a discontinuity.
 """
 import asyncio
 from dataclasses import dataclass
@@ -42,10 +44,6 @@ class MpvAudioSource(BaseAudioSource):
     events drive: phase, entry ends, the loading watchdog, the idle timeout
     and a one-second playhead tick while sound plays.
     """
-
-    # Interval (in ticks) between position-only broadcasts.
-    # Frontend interpolates locally, so this is just drift correction.
-    POSITION_SYNC_INTERVAL = 30
 
     # Seconds between two playhead ticks. Declared here because it is the loop
     # below that sets it, and a subclass counting elapsed playback in ticks
@@ -114,9 +112,8 @@ class MpvAudioSource(BaseAudioSource):
     async def _on_auto_stop(self) -> None:
         """The idle timeout ends the paused session (IDLE_TIMEOUT).
 
-        Keeps active_source unchanged (source_state → READY): the source's tab
-        stays open, and the 12 h INACTIVITY_TIMEOUT in AudioStateMachine
-        handles the final close. A user who switched away between the timer
+        Keeps the source selected with no session: its tab stays open, and the
+        12 h INACTIVITY_TIMEOUT in AudioStateMachine handles the final close. A user who switched away between the timer
         firing and this running is not stopped a second time.
         """
         if (
@@ -311,19 +308,19 @@ class MpvAudioSource(BaseAudioSource):
 
     async def _end_playback(
         self, reason: EndReason, *, detail: Optional[str] = None, stop_mpv: bool = True,
-        extras: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """End the session for `reason` and publish READY — the one ending for
-        every cause that is not a lifecycle step (those tear mpv down too).
+        """End the session for `reason` and publish what is left (the resume
+        point) — the one ending for every cause that is not a lifecycle step
+        (those tear mpv down too).
 
-        A failure is reported once, as a banner after the state it leaves
-        (SourceError carries full_state). A stop of mpv is best effort: a
-        session ends even when mpv cannot be told.
+        A failure is reported once, as a banner after the state it leaves.
+        A stop of mpv is best effort: a session ends even when mpv cannot be
+        told.
         """
         if stop_mpv and self._mpv is not None:
             await self._mpv.stop()
         await self.end_session(reason)
-        self._update_connection_state(extras)
+        self._publish()
         banner = self._failure_banner(reason)
         if banner is not None:
             self._logger.error(f"Playback ended: {reason.value}" + (f" ({detail})" if detail else ""))
@@ -374,28 +371,19 @@ class MpvAudioSource(BaseAudioSource):
     async def _on_playing_tick(self, session: MpvSession) -> None:
         """Hook: one second of sound (read the playhead, push it)."""
 
-    async def _read_playhead(self, session: MpvSession) -> Tuple[Optional[float], bool]:
-        """Read time-pos and duration into the session. Returns (the raw
-        position, whether the duration just became known)."""
+    async def _read_playhead(self, session: MpvSession) -> Optional[float]:
+        """Read time-pos and duration into the session, and hand the playhead
+        to the position axis. Returns the raw position (seconds)."""
         position = await self._mpv.get_property("time-pos")
         duration = await self._mpv.get_property("duration")
+        if duration is not None:
+            # A length becoming known is a state change: the bar appears.
+            session.duration = int(duration)
         if position is not None:
             session.position = int(position)
-        just_known = False
-        if duration is not None:
-            just_known = session.duration == 0 and int(duration) > 0
-            session.duration = int(duration)
-        return position, just_known
+            self._observe_position(self._playhead_ms(session, position))
+        return position
 
-    def _sync_bar(self, session: MpvSession, just_known: bool) -> None:
-        """The periodic drift correction, and at once when the length becomes
-        known (a feed that publishes none leaves the bar hidden until then)."""
-        if just_known:
-            self.broadcast_position_update(session.position * 1000, session.duration * 1000)
-        elif session.ticks % self.POSITION_SYNC_INTERVAL == 0:
-            self.broadcast_position_update(session.position * 1000, session.duration * 1000)
-
-    @staticmethod
-    def _flags(phase: Optional[Phase]) -> Tuple[bool, bool]:
-        """The old wire's (is_playing, is_buffering) for a phase."""
-        return phase is Phase.PLAYING, phase is Phase.LOADING
+    def _playhead_ms(self, session: MpvSession, position: float) -> int:
+        """mpv's time-pos as the session's playhead (CD: within the track)."""
+        return int(position * 1000)

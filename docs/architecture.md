@@ -70,72 +70,112 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 
 ## Audio sources
 
-### Source states
+### A source's state on the wire
 
-`SourceState` has **four** members and all four are reachable — the enum is the
-whole vocabulary, and nothing derives a fifth:
+No single word says how a source is doing. The one `AudioState`
+([audio_wire.py](../backend/core/models/audio_wire.py), field by field in the
+[API overview](api-overview.md#the-audio-state)) publishes separate axes, each
+with one owner:
 
-| State | Meaning |
-|---|---|
-| `starting` | The transition to this source is under way |
-| `ready` | Engine up, nothing in session |
-| `active` | A session or content exists |
-| `error` | The source is not operational |
+| Axis | Fields | Owner |
+|---|---|---|
+| Selection | `source`, `switching` | the state machine: `transition_to_source()`, `multiroom_switch()` |
+| Service | `service` (`ServiceState`: `stopped` / `starting` / `running` / `failed`), `service_error` | the state machine |
+| Availability | `availability`, all ten sources | the state machine's connectivity check, then each source's `availability()` |
+| Session | `session`: its `phase` (`Phase`: `loading` / `playing` / `paused` / `connected`), its content, its position anchor | the source, through the session model |
+| Resume | `resume` | the source, through its `RESUME_POLICY` |
+| Content and commands | `details`, `controls` | the source |
 
-Two things are worth spelling out because both were once ambiguous:
+A source contributes the last three as its **view** (`SourceView`) and the
+state machine composes the rest (`AudioStateMachine.state()`); the rule is
+CLAUDE.md's *One publisher per source*.
 
-- **`active` is about a session, not about audio coming out.** A paused radio
-  stays `active`: a station is still tuned. `ready` is "nothing in session".
-- **`ready`, not `connected`.** Nothing connects to Radio, CD or the Music
-  Library; they are simply ready to play.
+Three things are worth spelling out:
 
-`STARTING` and the machine's `transitioning` flag encode the same fact twice,
-deliberately: `reroute_active_source()` publishes `STARTING` *without* the flag
-so a multiroom reroute keeps broadcasting live, and Milo-Mac pins
-`transitioning` in `full_state`. Neither is redundant — the frontend follows the
-flag.
+- **The service is not the session.** `running` says the source's program is
+  up; whether sound comes out is the session's `phase`. A paused CD is
+  `running` with a `paused` session, a radio with nothing tuned is `running` with
+  no session. "Ready" is not on the wire: it is the frontend's display state for
+  a running source with no session.
+- **`switching` is a source transition or a multiroom switch.** The machine
+  keeps two records — `transitioning` for a transition, and a count of the
+  multiroom toggles in flight, held by `multiroom_switch()` from the start of
+  a toggle to the end of its volume sync — and `switching` is either. `service`
+  reads `starting` meanwhile and `controls` is empty. So the end of a multiroom
+  toggle is the first state where `switching` is false again; no separate event
+  announces it. Only a transition drops the source's publishes (the post-start
+  resync re-reads `source.view`); a reroute's publish reaches the wire live.
+- **`connected` is a phase, not a service state.** It is a sender Milō cannot
+  call playing or paused: an AirPlay Realtime stream, a Bluetooth device with no
+  AVRCP player (or one saying `playing` over a stream that stopped), every Mac.
 
 **Two kinds of error, two mechanisms, no overlap.** A source that will not start
-is a *state*: the failed transition leaves the source **selected** in `ERROR`
-with the message in `full_state.error` (re-selecting it is therefore the retry).
-An *operation* that fails while the source keeps working — a station that will
-not tune, a rejected command — rides the typed `source/error` event and raises
-the notification banner only. Putting the second into the state would be the
-mirror of the bug it replaced: a Radio whose browser is perfectly usable would
-claim to be down.
+is the service axis: the failed transition leaves the source **selected** with
+`service: failed` and `service_error.reason` `start_timeout` or `start_failed`
+(re-selecting it is therefore the retry). It is sticky: `update_source_view()`
+drops every publish while it holds, and only the resync after a start that
+succeeded (a transition, or a reroute's reacquire) lifts it — a source whose
+feed outlives its start (the CD's disc watcher) otherwise published over it,
+and the card lost its retry (E07). An *operation* that fails while the source
+keeps working — a station that will not tune, a rejected command — rides the
+typed `source/error` event (`broadcast_error()`) and raises the notification
+banner only, never touching the state. Putting the second into the state would
+be the mirror of the bug it replaced: a Radio whose browser is perfectly usable
+would claim to be down.
 
-Today the state machine's failed-transition path is the only writer of `ERROR`;
-`broadcast_error()` carries the other kind and never touches the state. The
-frontend adds no fifth member: `useSourceStatusDisplay` derives a *display*
-state — the four above plus CD's two transient drive operations (`loading_disc`,
-`ejecting`, both `READY` records) — and that list, `DISPLAY_STATES`, is what
-`AudioSourceStatus` validates against.
+The frontend reads the axes in two places, each the only one of its kind.
+`useSourceStatusDisplay` derives the card's *display* state: `starting`
+(switching, or `service: starting`), `error` (`failed`), CD's two drive
+operations read off its availability (`reading_disc` → `loading_disc`,
+`ejecting`), else the session's phase, else `ready` — and that list,
+`DISPLAY_STATES`, is what `AudioSourceStatus` validates against.
+`useRichDisplay` decides between the card and the source's full view: the card
+while switching or not `running`, when the session is `connected` without a
+cover, a title and an artist (with all three, an iPhone's AirPlay stream that
+stays `connected` throughout keeps its player — D14), and when neither the
+session nor the resume point has a title (and for an AirPlay cover too small
+to trust); the three sources played
+from Milō's own browser (Radio, Podcast, Music Library) keep their view with
+nothing playing, since it is where the first station, episode or album is
+chosen.
 
 ### Unavailable, which is not a state
 
 A source can be perfectly operational and still unable to do anything, because a
-prerequisite outside it is missing. That is a second axis, not a fifth state,
-and it has **one** name on both sides: `unavailableReason`, with four values.
-When it is set the card renders it in place of the state's own phrase, and
-`useRichDisplay` drops to the card — a Radio favourites grid whose every tap
-fails is a worse screen than one saying why.
+prerequisite outside it is missing. That is its own axis, `availability`: one
+entry per source, always all ten, selected or not — the reason, or `null` when
+the source can work. `AudioStateMachine.availability_of()` resolves it in one
+order: the link first (`_connectivity_reason()`), then the source's own
+`availability()`. A source whose answer moves calls `_availability_changed()`,
+which republishes the state. On the card the reason replaces the state's own
+phrase, and `useRichDisplay` drops to the card — a Radio favourites grid whose
+every tap fails is a worse screen than one saying why. Two exceptions: a session
+still `playing` keeps its player (a buffered track plays on after the link drops,
+and the card would take away the only control that stops it), and the three
+browser sources give their view up for a missing link only.
 
-| Reason | Source of truth | CTA |
-|---|---|---|
-| `no_network` | `full_state.network_unavailable` | Network settings |
-| `no_internet` | `full_state.network_unavailable` | Network settings |
-| `no_account` | metadata `account_authenticated === false` (Qobuz) | Qobuz login |
-| `no_drive` | metadata `drive_connected === false` (CD) | none — the UI cannot plug a drive in |
+| Reason | Source | Source of truth | CTA |
+|---|---|---|---|
+| `no_network` | every source that needs a network | connectivity × `NETWORK_REQUIREMENT` | Network settings |
+| `no_internet` | Radio, Podcast, Spotify, Tidal, Qobuz | connectivity × `NETWORK_REQUIREMENT` | Network settings |
+| `no_account` | Qobuz | the relay's account while it runs (two unauthenticated polls in a row), the credentials cache otherwise — the predicate `GET /api/qobuz/account` uses | Qobuz login |
+| `no_drive`, `no_disc` | CD | the drive's `DiscState` (`NO_DRIVE`, `EMPTY`) | none — the UI cannot plug a drive in or insert a disc |
+| `reading_disc`, `ejecting` | CD | `DiscState` `READING`/`IDENTIFYING`, `EJECTING` | none — drawn as an operation under way, with a spinner |
+| `unreadable_disc` | CD | `DiscState.UNREADABLE` | Eject |
+| `no_storage`, `catalog_unavailable` | Music Library | no mounted storage carrying a library; Navidrome not answering or not provisioned | none on the card — the library's own view draws both, with the storage wizard at hand |
+
+Bluetooth has no reason: nothing measured makes it unavailable from the screen,
+and its failures go through `source/error`.
 
 The two network values are computed by the **backend**, in
-`AudioStateMachine._network_unavailable()`, by crossing two axes:
+`AudioStateMachine._connectivity_reason()`, by crossing two axes:
 
 - **NetworkManager's `Connectivity` property**, kept whole as `ConnectivityLevel`
   (`unknown` / `none` / `portal` / `limited` / `full`). `limited` is literally
   "LAN reachable, no internet"; `portal` is a captive portal, folded into the
   same answer because Milō has no browser to accept one with. `unknown` is the
   fail-open value and reads as `full`.
-- **The active source's `NETWORK_REQUIREMENT`** (`none` / `lan` / `internet`),
+- **Each source's `NETWORK_REQUIREMENT`** (`none` / `lan` / `internet`),
   a class attribute on `BaseAudioSource`: `internet` for Spotify, Qobuz, Tidal,
   Radio and Podcast; `lan` for AirPlay and Mac (ROC); `none` for
   Bluetooth, CD and the Music Library.
@@ -227,7 +267,7 @@ charts down, since its episodes come from the publisher.
   left the bar 14.3 s adrift, and a pause snapped it back in one step. Accepted,
   not worked around — it recovers on the next pause, skip, or track end
 - **No seek** — AVRCP has only hold-style FastForward/Rewind, so the progress
-  bar is read-only (`:seekable="false"`)
+  bar is read-only (`seek` is never in its `controls`)
 - **No cover art over the link** — AVRCP 1.6 puts images behind a separate OBEX
   BIP connection that BlueZ exposes only as the experimental `ImgHandle`, and a
   live iPhone's Track dict was measured to carry no image field at all. The
@@ -558,7 +598,8 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   restart**) and `grantResources` in reply to `requestResources` (without it the
   session opens and stalls before a sample is decoded)
 - **No seek**: the controller protocol exposes none, so the progress bar is
-  read-only (`:seekable="false"`) in both the full player and the Lyrics bar
+  read-only (`seek` is never in its `controls`) in both the full player and the
+  Lyrics bar
 - **No status query**: the daemon pushes and never answers, so a controller
   reconnect resets the session rather than re-affirming a track that may be gone
 - Artwork is a plain Tidal CDN URL loaded directly by the kiosk — no binary
@@ -583,10 +624,13 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - A **transverse** feature: `core/lyrics/LyricsService` is keyed off the
   now-playing `(artist, title, duration)` of whichever source is active,
   so it works for any rich-metadata source. Mac, Podcasts and Bluetooth are
-  excluded client-side — the first two have no `(artist, title)` to key off, and
+  excluded client-side — a Mac has no `(artist, title)` to key off, a podcast is
+  spoken word rather than a song, and
   Bluetooth has one but no playhead worth syncing to: AVRCP position updates are
-  a notification the sender may send coarsely or not at all. Radio reads its
-  Shazam-recognized `track_artist`/`track_title` instead of the station name
+  a notification the sender may send coarsely or not at all. The key is the
+  session's `artist` and `title`, which for Radio name the recognized song
+  (in-band or Shazam) and otherwise the station with no artist, so a bare
+  station never reads as a track
 - One route, `GET /api/lyrics?artist=&title=&duration=`; the frontend
   fetches on modal open (and on track change while open), never over WebSocket
 - LRCLIB needs no API key and returns both an LRC (synced) and a plain body.
@@ -890,10 +934,16 @@ docstring names its consumers (frontend store/handler, Milo-Mac where
 applicable). There is no dict-based emission path — a new event means a new
 subclass.
 
-`AudioStateMachine.broadcast(event)` serializes the model, injects the
-aggregated `full_state` for `source`/`system` categories (lightweight events
-opt out via `INCLUDE_FULL_STATE = False`), and wraps it in the envelope via
-`WsEvent.to_envelope()`.
+`AudioStateMachine.broadcast(event)` serializes the model and wraps it in the
+envelope via `WsEvent.to_envelope()`. The audio state is an event of its own:
+`publish_state()`
+composes the whole `AudioState` and compares it with the last one sent. When
+anything but the playhead moved it sends `source/state`, whose `data` is the
+whole state; when only the playhead moved (a seek, a speed change, a reading
+more than 2 s from the anchor) it sends `source/position`; otherwise nothing.
+Every writer of something the state is composed of calls it — the transitions,
+a source's publish, a source's availability, the connectivity service, the
+multiroom and equalizer toggles.
 
 ### Message format
 
@@ -903,11 +953,21 @@ is the event's `source` field (falling back to `CATEGORY`).
 ```json
 {
   "category": "source",
-  "type": "state_changed",
+  "type": "state",
   "origin": "spotify",
   "data": {
     "source": "spotify",
-    "metadata": { ... }
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": { "radio": null, "cd": "no_disc", ... },
+    "session": { "id": "e5…", "phase": "playing", "title": "Hyperballad", ...,
+                 "position": { "ms": 45000, "at": 1790270000.25, "rate": 1.0 } },
+    "controls": ["pause", "seek", "next", "prev"],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": true
   },
   "timestamp": 1234567890
 }
@@ -940,15 +1000,16 @@ statically verified against the event models on every `pytest` run.
 `WebSocketManager.broadcast_dict()` sends to each connection under a timeout and
 **closes and drops any connection whose send fails**. A broadcast can therefore
 never be lost in silence: either it arrives, or the socket dies and the client
-reconnects into `initial_state`, which carries the aggregated state.
+reconnects into `initial_state`, which carries the whole audio state.
 
 **So "missed delta" is not a bug class on this transport.** Per-domain snapshots,
 sequence numbers, gap detection, epochs and watermarks all detect a failure it
 cannot produce — don't build them. The two classes that are real:
 
-1. **State changes and is never published** — the paths that clear playback
-   themselves and let some *other* event carry the stale `full_state`
-   (`BaseAudioSource._publish_idle()` exists for exactly those).
+1. **State changes and is never published** — a handler that moves the source
+   and calls no `_publish()` (mpv refusing a load, E41). The actor's net,
+   `_republish_if_moved()`, compares the view after every message and publishes
+   what moved, so a forgotten publish costs a message's delay, not the state.
 2. **State is published in a shape the consumer reads backwards** — why
    `multiroom/zone_changed` is discriminated by an explicit `action` field
    rather than by the presence of `zone`.

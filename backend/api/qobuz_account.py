@@ -11,26 +11,21 @@ directly (cross-origin): it hands out the OAuth login URL for the browser to
 open, and relays logout.
 
 Login status is read from qobuz-proxy's own token cache
-(`$QOBUZPROXY_DATA_DIR/credentials.json`), NOT from its HTTP API: the sidecar
-only runs while Qobuz is the active source, so an API read would report "not
-connected" from the settings screen every other time. The cache is the account's
-persistent state — the proxy re-authenticates from it on every start — so it
-answers the same whether the sidecar is up or down.
+(sources/qobuz/account.py), NOT from its HTTP API: the sidecar only runs while
+Qobuz is the active source, so an API read would report "not connected" from the
+settings screen every other time.
 
 No Milo-Mac coupling (Qobuz is Milō-only).
 """
 import asyncio
-import json
 import logging
-import os
 from urllib.parse import urlencode
 
-import aiofiles
 import aiohttp
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.config.constants import MILO_DATA_DIR
+from backend.sources.qobuz.account import clear_credentials, is_connected, read_credentials
 
 if TYPE_CHECKING:
     from backend.core.systemd import SystemdServiceManager
@@ -44,44 +39,12 @@ QOBUZ_PROXY_INTERNAL = "http://127.0.0.1:8689"
 QOBUZ_PROXY_PORT = 8689
 QOBUZ_SERVICE = "milo-qobuz.service"
 
-# qobuz-proxy's OAuth token cache, pinned under the D3 data dir by
-# milo-qobuz.service (QOBUZPROXY_DATA_DIR). Written by the sidecar on login,
-# read here for the account status. Keys: user_id, user_auth_token, email.
-QOBUZ_CREDENTIALS_FILE = MILO_DATA_DIR / "qobuz" / "credentials.json"
-_TOKEN_KEYS = ("user_id", "user_auth_token", "email")
-
-
-async def _read_credentials() -> dict:
-    """Return the cached token payload, or {} when absent/unreadable."""
-    try:
-        async with aiofiles.open(QOBUZ_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
-            return json.loads(await f.read())
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError) as e:
-        logger.warning("Qobuz credentials cache unreadable (%s)", e)
-        return {}
-
-
-async def _clear_credentials() -> None:
-    """Drop the token keys from the cache, preserving any other proxy state."""
-    creds = await _read_credentials()
-    if not any(key in creds for key in _TOKEN_KEYS):
-        return
-    for key in _TOKEN_KEYS:
-        creds.pop(key, None)
-    tmp = QOBUZ_CREDENTIALS_FILE.with_suffix(".tmp")
-    try:
-        async with aiofiles.open(tmp, "w", encoding="utf-8") as f:
-            await f.write(json.dumps(creds, indent=2))
-        os.replace(tmp, QOBUZ_CREDENTIALS_FILE)
-    except OSError as e:
-        logger.error("Could not clear the Qobuz credentials cache: %s", e)
-        raise HTTPException(status_code=500, detail="Could not clear the Qobuz token")
-
-
-def create_qobuz_account_router(systemd_manager: "SystemdServiceManager") -> APIRouter:
-    """Create the Qobuz account relay router."""
+def create_qobuz_account_router(
+    systemd_manager: "SystemdServiceManager",
+    on_account_changed: Callable[[], Awaitable[None]],
+) -> APIRouter:
+    """Create the Qobuz account relay router. `on_account_changed` is the
+    Qobuz source's: a logout moves its `no_account` availability."""
     router = APIRouter(prefix="/api/qobuz/account", tags=["qobuz"])
 
     @router.get("")
@@ -91,14 +54,14 @@ def create_qobuz_account_router(systemd_manager: "SystemdServiceManager") -> API
         A cached user_id + token is what the sidecar auto-authenticates from at
         start, so its presence is the account being connected — readable whether
         or not milo-qobuz.service is currently running. Live token validity is
-        reported separately by the source itself (account_authenticated in the
-        broadcast metadata) while Qobuz is the active source.
+        reported by the source itself (`availability.qobuz` in the state) while
+        Qobuz is the active source.
         """
-        creds = await _read_credentials()
+        creds = await read_credentials()
         return {
             "status": "success",
             "data": {
-                "authenticated": bool(creds.get("user_id") and creds.get("user_auth_token")),
+                "authenticated": is_connected(creds),
                 "email": creds.get("email") or None,
             },
         }
@@ -169,7 +132,12 @@ def create_qobuz_account_router(systemd_manager: "SystemdServiceManager") -> API
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning("Qobuz logout: proxy unreachable (%s)", e)
 
-        await _clear_credentials()
+        try:
+            await clear_credentials()
+        except OSError as e:
+            logger.error("Could not clear the Qobuz credentials cache: %s", e)
+            raise HTTPException(status_code=500, detail="Could not clear the Qobuz token")
+        await on_account_changed()
         return {"status": "success"}
 
     return router

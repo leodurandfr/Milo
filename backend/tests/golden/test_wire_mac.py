@@ -1,4 +1,4 @@
-"""Mac's old wire, scenario by scenario (see harness.py for the rules).
+"""Mac's wire, scenario by scenario (see harness.py for the rules).
 
 The outside world is two programs: roc-recv, whose journal is the only thing
 that says a sender connected or left, and Avahi, which names the sender from

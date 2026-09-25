@@ -37,8 +37,19 @@ async def test_a_transfer_lands_paused_then_plays(world):
     plays 1.6 s later. What the daemon says is what the screen shows."""
     await world.phone_transfers(PARAPLUIE, at_ms=81264)
     assert world.playing()
-    assert world.meta()["title"] == "Parapluie"
-    assert world.meta()["position"] >= 81264
+    assert world.session()["title"] == "Parapluie"
+    assert world.position_ms() == 81264
+
+
+async def test_a_playing_track_moves_on_the_wire_without_a_broadcast(world):
+    """The playhead is an anchor every client ages on its own clock: a track
+    that simply plays sends nothing (no tick, no drift correction), and still
+    reads where it is."""
+    await world.phone_transfers(PARAPLUIE, at_ms=81264)
+    sent = len(world.recorder.envelopes)
+    await world.advance(30)
+    assert world.recorder.envelopes[sent:] == []
+    assert world.position_ms() == 81264 + 30_000
 
 
 async def test_a_skip_is_loading_until_the_next_track_plays(world):
@@ -51,13 +62,18 @@ async def test_a_skip_is_loading_until_the_next_track_plays(world):
     d.track, d.buffering = dict(TROIS_NEUF_TROIS), False
     await world._says({"type": "metadata"}, {"type": "playing"})
     assert world.playing() and not world.buffering()
-    assert world.meta()["title"] == "Trois Neuf Trois"
+    assert world.session()["title"] == "Trois Neuf Trois"
 
 
 async def test_a_seek_moves_the_published_position(world):
+    """A seek done on the phone is a discontinuity: it goes out at once, as a
+    position alone (nothing else about the session moved)."""
     await world.phone_plays(PARAPLUIE)
+    states = len(world.published())
     await world.phone_seeks(151280)
-    assert world.meta()["position"] >= 151280
+    assert world.position_ms() == 151280
+    assert [p["position"]["ms"] for p in world.positions()] == [151280]
+    assert len(world.published()) == states
 
 
 async def test_a_track_that_did_not_announce_its_start_is_not_left_spinning(world):
@@ -103,7 +119,7 @@ async def test_a_pause_asks_the_daemon_to_end_the_session_once(world):
 
 async def test_a_phone_that_leaves_leaves_no_auto_stop_behind(world):
     """E69 (measured): `stopped` follows `inactive` and armed the pause timer
-    on a source already READY, which then posted /player/stop on nothing. (A
+    on a source with no session left, which then posted /player/stop on nothing. (A
     next session's first `paused`/`playing` replaced that timer, so it could
     not cut the next session.)"""
     await world.phone_plays(PARAPLUIE)
@@ -139,7 +155,7 @@ async def test_a_daemon_killed_mid_play_ends_the_session_at_once(world):
 
 async def test_an_unreadable_status_on_reconnect_keeps_the_session(world):
     """E10: when /events came back and /status could not be read, the source
-    published READY over music still playing. A failed read learns nothing: the
+    published "no session" over music still playing. A failed read learns nothing: the
     session stays as it was, and the read is tried again."""
     await world.phone_plays(PARAPLUIE)
     world.daemon.status_answers = False
@@ -148,15 +164,15 @@ async def test_an_unreadable_status_on_reconnect_keeps_the_session(world):
     world.daemon.status_answers = True
     await world.advance(2.1)                  # the retry reads it
     assert world.playing()
-    assert world.meta()["title"] == "Parapluie"
+    assert world.session()["title"] == "Parapluie"
 
 
 async def test_a_state_request_with_an_unreadable_status_changes_nothing(world):
     await world.phone_plays(PARAPLUIE)
     world.daemon.status_answers = False
     state = await world.get_state()
-    assert state["source_state"] == "active"
-    assert state["metadata"]["is_playing"] is True
+    assert state["session"]["phase"] == "playing"
+    assert state["session"]["title"] == "Parapluie"
 
 
 async def test_a_settings_restart_ends_the_session_without_a_banner(world):
@@ -178,7 +194,7 @@ async def test_a_reroute_keeps_the_session_and_publishes_no_pause(world):
     before = len(world.published())
     await world.reroute()
     during = world.published()[before:]
-    assert all(p["is_playing"] for p in during if p["state"] == "active"), during
+    assert all(p["session"]["phase"] != "paused" for p in during if p["session"]), during
     assert world.playing()
     assert world.daemon.output.startswith("milo_spotify_")
     await world.advance(DELAY + 1)
@@ -236,11 +252,11 @@ async def test_another_account_taking_over_shows_nothing_until_its_track(world):
     d = world.daemon
     d.account, d.track, d.paused, d.buffering = "someone-else", None, False, True
     await world._says({"type": "active"}, {"type": "will_play", "uri": LE_CHEMIN["uri"]})
-    assert not (world.active() and "title" not in world.meta())
+    assert not (world.active() and world.session()["title"] is None)
     await world.advance(0.07)
     d.track, d.buffering = dict(LE_CHEMIN), False
     await world._says({"type": "metadata"}, {"type": "playing"})
-    assert world.playing() and world.meta()["title"] == "Le Chemin"
+    assert world.playing() and world.session()["title"] == "Le Chemin"
 
 
 async def test_a_reroute_whose_resume_lags_publishes_no_pause(world):
@@ -252,5 +268,5 @@ async def test_a_reroute_whose_resume_lags_publishes_no_pause(world):
     before = len(world.published())
     await world.reroute()
     during = world.published()[before:]
-    assert all(p["is_playing"] for p in during if p["state"] == "active"), during
+    assert all(p["session"]["phase"] != "paused" for p in during if p["session"]), during
     assert world.playing()

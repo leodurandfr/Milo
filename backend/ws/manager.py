@@ -62,7 +62,7 @@ class WebSocketManager:
         3 × the library default: measured at 30.00s on this stack, against
         1.00s for the send it follows. Awaiting it inside the gather made
         SEND_TIMEOUT decorative and turned every broadcast into a half-minute
-        stall — including `SystemTransitionStart`, which `transition_to_source`
+        stall — including the `source/state` that `transition_to_source`
         emits inside its own 10s budget, so one abandoned browser tab could
         spend that budget three times over and settle the source the user had
         just selected in ERROR. Closing still earns its place (a slow but live
@@ -174,8 +174,8 @@ class WebSocketServer:
         volume_task = None
 
         try:
-            # Pre-refresh metadata while client sets up event listeners
-            await self.state_machine.refresh_active_metadata()
+            # Re-read the active player while the client sets up its listeners
+            await self.state_machine.refresh_active_view()
 
             # Wait for client ready signal
             message = await websocket.receive_text()
@@ -197,7 +197,7 @@ class WebSocketServer:
                 current_state = self.state_machine.get_current_state()
 
                 event = SystemInitialState(
-                    full_state=current_state,
+                    state=current_state,
                     setup_completed=setup_completed,
                     hotspot_active=hotspot_active,
                 )

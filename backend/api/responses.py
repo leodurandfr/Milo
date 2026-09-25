@@ -42,6 +42,7 @@ from backend.core.models.settings_config import (
     VolumeStartupConfig,
     VolumeStepsConfig,
 )
+from backend.core.models.audio_wire import AudioState
 from backend.core.network.models import NetworkStatus, SavedNetwork, WifiNetwork
 
 
@@ -50,32 +51,20 @@ class StatusResponse(BaseModel):
     status: str
 
 
-class AudioStateResponse(BaseModel):
+class AudioStateResponse(AudioState):
     """GET /api/audio/state — AudioStateMachine.get_current_state().
 
-    Every key that snapshot carries, because this response *is* that snapshot:
-    the frontend feeds it through the same `updateSystemState` as a WS
-    full_state, so a field declared there and missing here is silently dropped
-    by FastAPI's response_model and read as absent by the store. That is what
-    happened to `network_unavailable` — present in every broadcast, filtered out
-    of the HTTP read, which would have blanked the offline card on every
-    resync.
+    The model *is* the state (core/models/audio_wire.py): the same object
+    `source/state` carries, so the REST read and the WebSocket cannot disagree
+    on a field (E59), and its OpenAPI schema is what Milo-iOS' contract walks.
     """
-    active_source: str
-    source_state: str
-    transitioning: bool
-    metadata: Dict[str, Any]
-    error: Optional[str] = None
-    multiroom_enabled: bool
-    equalizer_effects_enabled: bool
-    network_unavailable: Optional[str] = None
 
 
 class MultiroomSetResponse(BaseModel):
-    """PUT /api/routing/multiroom."""
+    """PUT /api/routing/multiroom. `source` is the one the toggle carried."""
     status: str
     multiroom_enabled: bool
-    active_source: str
+    source: str
 
 
 # --- volume/state (GET /api/volume/state) ----------------------------------
@@ -167,7 +156,7 @@ class RadioStationsResponse(BaseModel):
     `api_error` says the *directory* (radio-browser.info) did not answer, not
     that the unit is offline: favourites are local and the streams come from
     the stations' own hosts, so both keep working while it is set. The link
-    itself is reported by full_state.network_unavailable instead.
+    itself is reported by the state's `availability.radio` instead.
     """
     stations: List[Dict[str, Any]]
     total: int

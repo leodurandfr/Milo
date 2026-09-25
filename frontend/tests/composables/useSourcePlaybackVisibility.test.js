@@ -25,23 +25,14 @@ vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
+import { makeSession, publishState } from '../helpers/audioState';
 
-function publish(store, fullState) {
-  store.updateState({
-    data: {
-      full_state: {
-        active_source: 'podcast',
-        source_state: 'active',
-        transitioning: false,
-        multiroom_enabled: false,
-        equalizer_effects_enabled: true,
-        network_unavailable: null,
-        metadata: {},
-        ...fullState,
-      },
-    },
-  });
+/** Podcast selected and running, in `overrides`' shape. */
+function publish(store, overrides) {
+  publishState(store, { source: 'podcast', service: 'running', ...overrides });
 }
+
+const PLAYING = { session: makeSession({ phase: 'playing', title: 'Episode 12' }) };
 
 const EPISODE = { uuid: 'ep1', name: 'Episode 12' };
 
@@ -65,7 +56,7 @@ describe('useSourcePlaybackVisibility', () => {
   });
 
   it('shows the pane once the source has something to draw', async () => {
-    publish(store, { metadata: { is_playing: true } });
+    publish(store, PLAYING);
     content.value = EPISODE;
     await settle();
 
@@ -74,13 +65,18 @@ describe('useSourcePlaybackVisibility', () => {
   });
 
   it('keeps the pane through a stop that leaves something to resume', async () => {
-    publish(store, { metadata: { is_playing: true } });
+    publish(store, PLAYING);
     content.value = EPISODE;
     await settle();
 
     // An auto-stop: no session left, but the episode a play press reopens is
     // still published, so the store still names it.
-    publish(store, { source_state: 'ready', metadata: { is_playing: false } });
+    publish(store, {
+      resume: {
+        title: 'Episode 12', artist: null, album: null, artwork: null,
+        duration_ms: 2400000, position_ms: 192000,
+      },
+    });
     await settle();
 
     expect(api.shouldShowPlayer.value).toBe(true);
@@ -88,7 +84,7 @@ describe('useSourcePlaybackVisibility', () => {
   });
 
   it('holds what it was drawing until the pane has finished leaving', async () => {
-    publish(store, { metadata: { is_playing: true } });
+    publish(store, PLAYING);
     content.value = EPISODE;
     await settle();
 
@@ -105,7 +101,7 @@ describe('useSourcePlaybackVisibility', () => {
   });
 
   it('does not blank a pane that came back inside its own leave', async () => {
-    publish(store, { metadata: { is_playing: true } });
+    publish(store, PLAYING);
     content.value = EPISODE;
     await settle();
     content.value = null;
@@ -121,12 +117,26 @@ describe('useSourcePlaybackVisibility', () => {
     expect(api.displayed.value).toStrictEqual(next);
   });
 
+  it('reads the transport glyph from its own session\'s phase only', async () => {
+    // The pane's play button spins while loading; another source's session is
+    // not this pane's, playing or not.
+    publish(store, { session: makeSession({ phase: 'loading' }) });
+    expect(api.isBuffering.value).toBe(true);
+    expect(api.isPlaying.value).toBe(false);
+
+    publish(store, PLAYING);
+    expect(api.isPlaying.value).toBe(true);
+
+    publishState(store, { source: 'spotify', service: 'running', session: makeSession({ phase: 'playing' }) });
+    expect(api.isPlaying.value).toBe(false);
+  });
+
   it('hides the pane when another source takes the air', async () => {
-    publish(store, { metadata: { is_playing: true } });
+    publish(store, PLAYING);
     content.value = EPISODE;
     await settle();
 
-    publish(store, { active_source: 'spotify' });
+    publish(store, { source: 'spotify' });
     await settle();
 
     expect(api.shouldShowPlayer.value).toBe(false);

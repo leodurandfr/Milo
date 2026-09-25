@@ -39,7 +39,7 @@ from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify import websocket as websocket_module
 from backend.sources.spotify.source import SpotifySource
 from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, make_settings, make_state_machine, settle,
+    AsyncioProxy, VirtualClock, WireReader, make_settings, make_state_machine, settle, use_virtual_wall,
 )
 
 ACCOUNT = "p6puyc6we1egphk4nt2l5vaxy"
@@ -231,17 +231,6 @@ class _AiohttpProxy:
         return getattr(aiohttp, name)
 
 
-class _LoopView:
-    def __init__(self, clock: VirtualClock) -> None:
-        self._clock = clock
-
-    def time(self) -> float:
-        return self._clock.now
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(asyncio.get_running_loop(), name)
-
-
 def _silent_journal(unit: str, **_: Any):
     async def stream():
         await asyncio.Event().wait()
@@ -250,12 +239,13 @@ def _silent_journal(unit: str, **_: Any):
     return stream()
 
 
-class SpotifyWorld:
+class SpotifyWorld(WireReader):
     """The Spotify source on a real state machine, in a world the scenario drives."""
 
     def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None):
         world = self
         self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         self.daemon = Librespot()
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
@@ -293,13 +283,9 @@ class SpotifyWorld:
                 return await asyncio.sleep(0)
             return await self.clock.sleep(delay)
 
-        class SourceAsyncio(AsyncioProxy):
-            def get_running_loop(self) -> _LoopView:
-                return _LoopView(world.clock)
-
         monkeypatch.setattr(spotify_module, "aiohttp", _AiohttpProxy(self.daemon))
         monkeypatch.setattr(spotify_module, "follow_unit", _silent_journal)
-        monkeypatch.setattr(spotify_module, "asyncio", SourceAsyncio(sleep))
+        monkeypatch.setattr(spotify_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(websocket_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
@@ -456,40 +442,11 @@ class SpotifyWorld:
 
     async def get_state(self) -> Dict[str, Any]:
         """GET /api/audio/state, as the route does it."""
-        await self.machine.refresh_active_metadata()
+        await self.machine.refresh_active_view()
         await settle()
         return self.state()
 
     # === what the wire says ===
-
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"] or {}
-
-    def active(self) -> bool:
-        return self.state()["source_state"] == "active"
-
-    def playing(self) -> bool:
-        return self.active() and bool(self.meta().get("is_playing"))
-
-    def buffering(self) -> bool:
-        return self.active() and bool(self.meta().get("is_buffering"))
-
-    def errors(self) -> List[str]:
-        return [
-            e["data"]["reason"] for e in self.recorder.envelopes
-            if e["category"] == "source" and e["type"] == "error"
-        ]
-
-    def published(self) -> List[Dict[str, Any]]:
-        out = []
-        for e in self.recorder.envelopes:
-            full = (e.get("data") or {}).get("full_state")
-            if e["category"] == "source" and e["type"] == "state_changed" and full:
-                out.append({"state": full["source_state"], **(full.get("metadata") or {})})
-        return out
 
     def stops_sent(self) -> int:
         return sum(1 for command, _ in self.daemon.posted if command == "stop")

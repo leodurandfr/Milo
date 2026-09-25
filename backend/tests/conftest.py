@@ -16,7 +16,8 @@ import aiofiles.threadpool
 import pytest
 from unittest.mock import Mock, AsyncMock
 from backend.config.constants import ERROR_LOG_FILE, MILO_DATA_DIR
-from backend.core.models.audio_state import SourceState
+from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.audio_wire import SourceView
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -94,6 +95,24 @@ def keep_the_suite_out_of_the_live_store_folders(tmp_path_factory):
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(VolumeStateStore, "STORAGE_PATH", tmp / "last_volume.json")
         mp.setattr(ImageManager, "IMAGES_DIR", tmp / "radio_images")
+        yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def keep_the_suite_out_of_the_live_qobuz_account(tmp_path_factory):
+    """Repoint the Qobuz token cache at an absent file, for the whole run.
+
+    The Qobuz source reads it at boot and whenever its sidecar is down, to say
+    `no_account` — so a test holding a Qobuz source read the appliance's real
+    login here and nothing on CI: two availabilities for one test, decided by
+    the host. `clear_credentials()` writes it too. The files that repoint it
+    per-test keep winning -- function-scoped monkeypatch undoes first.
+    """
+    from backend.sources.qobuz import account
+
+    tmp = tmp_path_factory.mktemp("qobuz")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(account, "QOBUZ_CREDENTIALS_FILE", tmp / "credentials.json")
         yield
 
 
@@ -466,8 +485,9 @@ def mock_source():
     # and no test read it. The shared mock every reader opens first should not
     # teach the opposite of the contract.
     source.is_initialized = True
-    source.state = SourceState.READY
-    source.metadata = {}
+    source.view = SourceView()
+    source.availability = Mock(return_value=None)
+    source.NETWORK_REQUIREMENT = NetworkRequirement.NONE
     return source
 
 

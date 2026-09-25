@@ -13,11 +13,12 @@ import { logger } from '@/services/logger';
  * payloads against the Zod registry in @/schemas/ws.js before dispatching.
  *
  * Categories currently emitted by the backend:
- *   system    → unifiedAudioStore / systemStore (initial_state, state_changed,
- *               transition_*, hostname_conflict_changed, connectivity_changed;
+ *   system    → unifiedAudioStore / systemStore (initial_state,
+ *               hostname_conflict_changed, connectivity_changed, backend_error;
  *               ping is consumed internally as the keepalive)
- *   source    → unifiedAudioStore + per-source stores (state_changed,
- *               position_update, favorite_* with data.source discriminator)
+ *   source    → unifiedAudioStore + per-source stores (state, position,
+ *               session_ended, error, error_cleared, storages_changed,
+ *               favorite_* with data.source discriminator)
  *   volume    → unifiedAudioStore (volume_changed)
  *   routing   → multiroomStore (multiroom_* transition events)
  *   multiroom → multiroomStore / equalizerStore (client_state_changed,

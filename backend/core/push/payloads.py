@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+
 # Two conversions Milō owns, so no client re-implements them:
 #   * positions and durations are MILLISECONDS on the wire and SECONDS here;
 #   * a device volume is dB internally and 0..1 here.
@@ -25,6 +26,11 @@ from typing import Any, Dict, List, Optional
 # and to the limits it spans: the incoming direction is read by the API layer
 # too, and a conversion with one home cannot drift from itself.
 MS_PER_S = 1000.0
+
+# The dock's macOS icon, for a Mac's stream, which names no track: a static
+# file nginx serves from dist/ (frontend/public/now-playing/), rendered once
+# from frontend/src/assets/app-icons/macos.svg, full bleed (iOS rounds it).
+MAC_ARTWORK = "/now-playing/macos.jpg"
 
 
 @dataclass
@@ -49,41 +55,62 @@ def widget_payload() -> Dict[str, Any]:
     return {"aps": {"content-changed": True}}
 
 
+def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """What the card shows: the session if it names something, else the
+    resume point, else nothing (docs: "le fil", §9 — the rule Milo-iOS'
+    `MiloAudioState.shown` follows too)."""
+    for key in ("session", "resume"):
+        candidate = state.get(key)
+        if candidate and candidate.get("title"):
+            return candidate
+    return None
+
+
 def build_attributes(
     session_id: str,
-    metadata: Optional[Dict[str, Any]],
+    state: Dict[str, Any],
     devices: List[NowPlayingDevice],
-    active_source: str,
-    now: Optional[datetime] = None,
+    now: Optional[float] = None,
 ) -> Dict[str, Any]:
     """The whole mutable state, re-sent on every start and every update.
 
-    `elapsedTime` is sent once per push with its timestamp, and iOS
-    extrapolates from there — the position is never streamed. That is the
-    difference between one push per second at worst and one per position tick,
-    which would be several per second and would get the app's delivery
-    throttled for everything.
+    Built from the audio state the way Milo-iOS builds its own card
+    (`MiloNowPlayingBridge.buildAttributes`), so a push and the app agree:
+    `isPlaying` is the session's phase, `elapsedTime` and `timestamp` are its
+    position anchor — the playhead at an instant, which iOS extrapolates from,
+    so the position is never streamed. Without an anchor they are 0 and the
+    moment of building.
     """
-    metadata = metadata or {}
-    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    title = metadata.get("title")
+    session = state.get("session") or {}
+    anchor = session.get("position")
+    shown = shown_track(state) or {}
+    title = shown.get("title")
+    artwork = shown.get("artwork")
+    if state.get("source") == "mac" and session and not title:
+        # A Mac sends a stream, not tracks: the card names who is sending,
+        # under the dock's macOS icon.
+        title = ", ".join(session.get("senders") or []) or None
+        artwork = MAC_ARTWORK
 
     return {
         "id": session_id,
-        "isPlaying": bool(metadata.get("is_playing")),
-        "elapsedTime": _seconds(metadata.get("position")),
-        "timestamp": stamp,
+        "isPlaying": session.get("phase") == "playing",
+        "elapsedTime": _seconds(anchor["ms"] if anchor else 0),
+        "timestamp": _iso8601(anchor["at"] if anchor else (now if now is not None else time.time())),
         "currentTrack": {
             # Changes with what is displayed: without it the system keeps the
             # previous artwork and title, having no way to know the content moved.
-            "id": f"{active_source}:{title or ''}",
+            "id": f"{state.get('source') or 'none'}:{title or ''}",
             "title": title,
-            "artist": metadata.get("artist"),
-            "album": metadata.get("album"),
-            "duration": _seconds(metadata.get("duration")),
-            "artworkURL": metadata.get("album_art_url"),
+            "artist": shown.get("artist"),
+            "album": shown.get("album"),
+            "duration": _seconds(shown.get("duration_ms")),
+            "artworkURL": artwork,
         },
         "devices": [d.to_dict() for d in devices],
+        # What the lock screen may offer: the extension enables a button only
+        # for a command listed here (Qobuz and a Mac take none, Tidal no seek).
+        "controls": list(state.get("controls") or []),
     }
 
 
@@ -116,6 +143,14 @@ def _seconds(milliseconds: Optional[float]) -> float:
     """ms → s, rounded to the centisecond. A missing value is 0.0, not null:
     the iOS type declares these non-optional."""
     return round((milliseconds or 0) / MS_PER_S, 2)
+
+
+def _iso8601(at: float) -> str:
+    """UTC, with the fraction of a second: an anchor carries it, and dropping
+    it would shift the playhead by as much. The app's extension reads both
+    forms."""
+    stamp = datetime.fromtimestamp(at, tz=timezone.utc).isoformat(timespec="milliseconds")
+    return stamp.replace("+00:00", "Z")
 
 
 def _unix_now() -> int:

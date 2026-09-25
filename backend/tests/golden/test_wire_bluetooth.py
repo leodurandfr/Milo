@@ -1,4 +1,4 @@
-"""Bluetooth's old wire, scenario by scenario (see harness.py for the rules).
+"""Bluetooth's wire, scenario by scenario (see harness.py for the rules).
 
 The outside world is BlueZ and BlueALSA. Every stimulus is written as what one
 of them says: BlueALSA prints a PCMAdded/PCMRemoved line on `bluealsa-cli

@@ -32,6 +32,9 @@
     <GalleryVariant label=":has-next=&quot;false&quot; — last track, next is inert" stacked>
       <PlaybackControls :is-playing="true" :has-next="false" />
     </GalleryVariant>
+    <GalleryVariant label=":has-prev=&quot;false&quot; — prev not among the source's controls" stacked>
+      <PlaybackControls :is-playing="true" :has-prev="false" />
+    </GalleryVariant>
   </GalleryItem>
 
   <GalleryItem id="PlayerInfoText">

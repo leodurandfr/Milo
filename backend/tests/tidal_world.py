@@ -34,10 +34,9 @@ from unittest.mock import AsyncMock, Mock
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.sources.tidal import controller_socket as controller_module
-from backend.sources.tidal import source as tidal_module
 from backend.sources.tidal.source import TidalSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, make_settings, make_state_machine, settle,
+    AsyncioProxy, VirtualClock, WireReader, make_settings, make_state_machine, settle, use_virtual_wall,
 )
 
 FIRST_PID = 47039
@@ -144,23 +143,13 @@ class Tisoc:
             self.reader = None
 
 
-class _LoopView:
-    def __init__(self, clock: VirtualClock) -> None:
-        self._clock = clock
-
-    def time(self) -> float:
-        return self._clock.now
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(asyncio.get_running_loop(), name)
-
-
-class TidalWorld:
+class TidalWorld(WireReader):
     """The Tidal source on a real state machine, in a world the scenario drives."""
 
     def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None):
         world = self
         self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         self.daemon = Tisoc()
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
@@ -196,15 +185,10 @@ class TidalWorld:
                 return await asyncio.sleep(0)
             return await self.clock.sleep(delay)
 
-        class SourceAsyncio(AsyncioProxy):
-            def get_running_loop(self) -> _LoopView:
-                return _LoopView(world.clock)
-
         class ControllerAsyncio(AsyncioProxy):
             open_unix_connection = staticmethod(self.daemon.open_unix_connection)
 
         monkeypatch.setattr(controller_module, "asyncio", ControllerAsyncio(sleep))
-        monkeypatch.setattr(tidal_module, "asyncio", SourceAsyncio(sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
 
@@ -357,34 +341,3 @@ class TidalWorld:
             return None
         await self.machine.reroute_active_source(apply_mode)
         await self.advance(1.1)
-
-    # === what the wire says ===
-
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"] or {}
-
-    def active(self) -> bool:
-        return self.state()["source_state"] == "active"
-
-    def playing(self) -> bool:
-        return self.active() and bool(self.meta().get("is_playing"))
-
-    def buffering(self) -> bool:
-        return self.active() and bool(self.meta().get("is_buffering"))
-
-    def envelopes(self, category: str, kind: str) -> List[Dict[str, Any]]:
-        return [e for e in self.recorder.envelopes if e["category"] == category and e["type"] == kind]
-
-    def errors(self) -> List[str]:
-        return [e["data"]["reason"] for e in self.envelopes("source", "error")]
-
-    def published(self) -> List[Dict[str, Any]]:
-        out = []
-        for e in self.envelopes("source", "state_changed"):
-            full = (e.get("data") or {}).get("full_state")
-            if full:
-                out.append({"state": full["source_state"], **(full.get("metadata") or {})})
-        return out

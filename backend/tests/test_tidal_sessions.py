@@ -24,7 +24,7 @@ async def world(monkeypatch, tmp_path):
 # === A session opens at its first track ===
 
 async def test_a_session_with_no_track_yet_shows_nothing(world):
-    """E14 (measured: 260 ms): `notifySessionState` opened an ACTIVE session
+    """E14 (measured: 260 ms): `notifySessionState` opened a session
     with no title, drawn "playing" with nothing named. A session opens at its
     first displayable track."""
     await world.mac_picks_the_speaker()
@@ -48,7 +48,7 @@ async def test_a_sender_that_plays_is_loading_then_playing(world):
     await world.sends({"command": "notifyMediaChanged", "mediaInfo": {"metadata": {
         "title": STILL_DRE, "artists": ["Dr. Dre"], "albumTitle": "2001", "duration": 271000}}},
         status("BUFFERING", 0, 271000))
-    assert world.buffering() and world.meta()["title"] == STILL_DRE
+    assert world.buffering() and world.session()["title"] == STILL_DRE
     await world.advance(0.8)
     await world.sends(status("PLAYING", 0))
     assert world.playing() and not world.buffering()
@@ -57,7 +57,7 @@ async def test_a_sender_that_plays_is_loading_then_playing(world):
 async def test_a_repeated_media_frame_does_not_drop_the_spinner(world):
     """E70 (measured): the daemon sends each track's media twice, the second
     between two BUFFERING frames; a media frame replaced the whole record and
-    dropped is_buffering, so the spinner blinked off and on as a track opened."""
+    dropped the loading phase, so the spinner blinked off and on as a track opened."""
     await world.mac_picks_the_speaker()
     await world.advance(0.4)
     from backend.tests.tidal_world import media
@@ -71,7 +71,7 @@ async def test_a_repeated_media_frame_does_not_drop_the_spinner(world):
 async def test_the_track_duration_is_what_the_account_may_play(world):
     """A preview: the status says 30 s where the media says the whole track."""
     await world.mac_plays(STILL_DRE)
-    assert world.meta()["duration"] == 30066
+    assert world.session()["duration_ms"] == 30066
 
 
 async def test_a_skip_while_paused_stays_paused(world):
@@ -79,14 +79,14 @@ async def test_a_skip_while_paused_stays_paused(world):
     await world.mac_pauses()
     await world.mac_skips_to(KEEP_IT_THORO)
     assert world.active() and not world.playing() and not world.buffering()
-    assert world.meta()["title"] == KEEP_IT_THORO
+    assert world.session()["title"] == KEEP_IT_THORO
 
 
 async def test_a_track_running_into_the_next_keeps_playing(world):
     from backend.tests.tidal_world import media
     await world.mac_plays(STILL_DRE)
     await world.sends(media(HYPNOTIZE, custom=True))
-    assert world.playing() and world.meta()["title"] == HYPNOTIZE
+    assert world.playing() and world.session()["title"] == HYPNOTIZE
 
 
 async def test_a_new_track_carries_nothing_of_the_previous_ones_playhead(world):
@@ -96,11 +96,11 @@ async def test_a_new_track_carries_nothing_of_the_previous_ones_playhead(world):
     await world.mac_plays(STILL_DRE)
     await world.plays_on(3)
     await world.sends(media(HYPNOTIZE, duration=230000))
-    assert "position" not in world.meta()
-    assert world.meta()["duration"] == 230000
+    assert world.session()["position"] is None
+    assert world.session()["duration_ms"] == 230000
     await world.sends(media(HYPNOTIZE, duration=230000, custom=True), status("PLAYING", 500))
-    assert world.meta()["position"] == 500
-    assert world.meta()["duration"] == 30066
+    assert world.position_ms() == 500
+    assert world.session()["duration_ms"] == 30066
 
 
 async def test_repeated_idle_frames_publish_once(world):
@@ -191,7 +191,7 @@ async def test_a_reroute_ends_the_session_quietly(world):
     await world.reroute()
     assert not world.active()
     assert world.errors() == []
-    assert world.state()["source_state"] == "ready"
+    assert world.state()["service"] == "running"
 
 
 async def test_a_command_with_no_session_is_refused(world):
@@ -220,7 +220,7 @@ async def test_a_controller_reconnect_to_the_same_daemon_keeps_the_session(world
     world.daemon.reader = None
     await world.advance(1.1)
     assert world.daemon.connections == 2
-    assert world.playing() and world.meta()["title"] == STILL_DRE
+    assert world.playing() and world.session()["title"] == STILL_DRE
 
 
 async def test_a_playhead_seen_before_the_track_is_kept(world):
@@ -229,7 +229,7 @@ async def test_a_playhead_seen_before_the_track_is_kept(world):
     await world.sends(status("PLAYING", 5000))
     await world.sends(media(STILL_DRE))
     assert world.playing()
-    assert world.meta()["position"] == 5000 and world.meta()["duration"] == 30066
+    assert world.position_ms() == 5000 and world.session()["duration_ms"] == 30066
 
 
 async def test_a_status_left_by_the_previous_session_does_not_open_the_next(world):
@@ -244,27 +244,30 @@ async def test_a_status_left_by_the_previous_session_does_not_open_the_next(worl
 
 
 async def test_a_jump_of_the_playhead_goes_out_at_once(world):
-    """A seek on the sender, or a track repeating, moves only the position —
-    which the 10 s drift correction would otherwise carry late."""
+    """A seek on the sender, or a track repeating, moves only the position: a
+    client aging the anchor would never see it unless it goes out, alone."""
     await world.mac_plays(STILL_DRE)
     await world.plays_on(2)
+    states = len(world.published())
     await world.sends(status("PLAYING", 20000))
-    positions = [e["data"]["position"] for e in world.envelopes("source", "position_update")]
-    assert positions[-1] == 20000
+    assert [p["position"]["ms"] for p in world.positions()] == [20000]
+    assert len(world.published()) == states
+    assert world.position_ms() == 20000
 
 
 async def test_a_burst_without_a_status_does_not_move_the_playhead_back(world):
-    """The playhead ages from the last status frame; a burst that carried none
-    (a repeated media, setShuffle) must not re-anchor it at now."""
+    """The playhead ages from its anchor; a burst that carried no status (a
+    repeated media, setShuffle) must not re-anchor it, or pull it back to the
+    last reading."""
     await world.mac_plays(STILL_DRE)
-    await world.plays_on(12)                  # a drift correction went out
+    await world.plays_on(12)
     last = world.daemon.progress
     await world.advance(0.45)
     await world.sends({"command": "setShuffle", "shuffle": False})
     await world.advance(10)
     await world.sends({"command": "notifyAudioFormatUpdated"})
-    positions = [e["data"]["position"] for e in world.envelopes("source", "position_update")]
-    assert positions[-1] >= last + 10400
+    assert world.positions() == []
+    assert world.position_ms() == last + 10450
 
 
 async def test_a_daemon_restart_nothing_watched_is_still_reported(world):

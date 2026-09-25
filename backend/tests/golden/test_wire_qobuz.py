@@ -1,4 +1,4 @@
-"""Qobuz's old wire, scenario by scenario (see harness.py for the rules).
+"""Qobuz's wire, scenario by scenario (see harness.py for the rules).
 
 The outside world is qobuz-proxy's GET /api/status as milo-qobuz extends it,
 polled about once a second. FakeQobuzProxy answers it; the real QobuzMonitor runs over it with its poll
@@ -6,12 +6,14 @@ sleep gated, so one `tick()` is one poll and a stimulus is the payload the
 proxy answers from then on. Qobuz takes no command (Family B).
 """
 import copy
+import json
 
 import aiohttp
 import pytest
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
+from backend.sources.qobuz import account as account_module
 from backend.sources.qobuz import monitor as monitor_module
 from backend.sources.qobuz import source as qobuz_module
 from backend.sources.qobuz.source import QobuzSource
@@ -132,6 +134,11 @@ class Qobuz:
         # The volume-policy flag lives under /var/lib/milo on a unit.
         self.volume_flag = tmp_path / "allow_app_volume"
         monkeypatch.setattr(qobuz_module, "QOBUZ_VOLUME_FLAG", self.volume_flag)
+        # A unit whose account is logged in: the sidecar's token cache, which
+        # the source reads at boot (availability.qobuz).
+        credentials = tmp_path / "credentials.json"
+        credentials.write_text(json.dumps({"user_id": "1", "user_auth_token": "t"}))
+        monkeypatch.setattr(account_module, "QOBUZ_CREDENTIALS_FILE", credentials)
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         self.source = QobuzSource(
@@ -143,6 +150,9 @@ class Qobuz:
         self.machine.register_source(AudioSource.QOBUZ, self.source)
 
     async def select(self):
+        if not self.source.is_initialized:
+            # The backend's boot (initialize_services), long before a select.
+            await self.source.initialize()
         await self.machine.transition_to_source(AudioSource.QOBUZ)
         await settle()
 

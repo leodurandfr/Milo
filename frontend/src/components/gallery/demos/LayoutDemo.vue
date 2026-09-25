@@ -92,29 +92,34 @@
       <AudioSourceStatus source-type="bluetooth" display-state="ready" />
       <AudioSourceStatus source-type="cd" display-state="ready" />
     </GalleryVariant>
-    <GalleryVariant label=":display-state=&quot;active&quot; + :device-name — a string, or an array for ROC">
-      <AudioSourceStatus source-type="bluetooth" display-state="active" device-name="Leo’s iPhone" />
-      <AudioSourceStatus source-type="mac" display-state="active"
+    <GalleryVariant label=":display-state=&quot;connected&quot; + :device-name — a string, or an array for ROC">
+      <AudioSourceStatus source-type="bluetooth" display-state="connected" device-name="Leo’s iPhone" />
+      <AudioSourceStatus source-type="mac" display-state="connected"
         :device-name="['Leo’s MacBook', 'Studio iMac']" />
     </GalleryVariant>
-    <GalleryVariant label=":display-state=&quot;active&quot; with no sender to name — the generic playing line">
-      <AudioSourceStatus source-type="qobuz" display-state="active" />
+    <GalleryVariant label="a session with no sender to name — the phase is the line">
+      <AudioSourceStatus source-type="qobuz" display-state="loading" />
+      <AudioSourceStatus source-type="qobuz" display-state="playing" />
+      <AudioSourceStatus source-type="qobuz" display-state="paused" />
     </GalleryVariant>
-    <GalleryVariant label="the four CTAs — retry, Bluetooth disconnect, Qobuz connect, network settings">
+    <GalleryVariant label="the five CTAs — retry, Bluetooth disconnect, Qobuz connect, eject, network settings">
       <AudioSourceStatus source-type="spotify" display-state="error" @retry="log = 'retry'" />
-      <AudioSourceStatus source-type="bluetooth" display-state="active" device-name="Leo’s iPhone"
+      <AudioSourceStatus source-type="bluetooth" display-state="connected" device-name="Leo’s iPhone"
         @disconnect="log = 'disconnect'" />
       <AudioSourceStatus source-type="qobuz" display-state="ready" unavailable-reason="no_account"
         @connect="log = 'connect'" />
+      <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="unreadable_disc"
+        @eject="log = 'eject'" />
       <AudioSourceStatus source-type="radio" display-state="ready" unavailable-reason="no_internet"
         @open-network-settings="log = 'network-settings'" />
     </GalleryVariant>
     <GalleryVariant label=":unavailable-reason — the prerequisite outranks the state it replaces">
       <AudioSourceStatus source-type="airplay" display-state="ready" unavailable-reason="no_network"
         @open-network-settings="log = 'network-settings'" />
-      <AudioSourceStatus source-type="airplay" display-state="active" device-name="Leo’s iPhone"
+      <AudioSourceStatus source-type="airplay" display-state="connected" device-name="Leo’s iPhone"
         unavailable-reason="no_network" @open-network-settings="log = 'network-settings'" />
       <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="no_drive" />
+      <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="no_disc" />
     </GalleryVariant>
     <GalleryVariant label="the CD operations — loading_disc / ejecting">
       <AudioSourceStatus source-type="cd" display-state="loading_disc" />

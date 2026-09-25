@@ -1,23 +1,31 @@
-// frontend/src/stores/unifiedAudioStore.js - Cleaned version without UI states
+// frontend/src/stores/unifiedAudioStore.js
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { SystemStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
+import { AudioStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // === SINGLE SYSTEM STATE ===
+  // === THE AUDIO STATE ===
+  // The backend's AudioState, whole (docs: "Développeurs : le fil"): the
+  // selection, the service, every source's availability, the session with its
+  // position anchor, the commands the source takes now, the resume point and
+  // the source's own content. Replaced by every `source/state`, never merged;
+  // only `source/position` moves the anchor between two of them.
   const systemState = ref({
-    active_source: 'none',
-    source_state: 'ready',
-    transitioning: false,
-    metadata: {},
-    error: null,
+    source: 'none',
+    switching: false,
+    service: 'stopped',
+    service_error: null,
+    availability: {},
+    session: null,
+    controls: [],
+    resume: null,
+    details: null,
     multiroom_enabled: false,
     equalizer_effects_enabled: false,
-    network_unavailable: null
   });
 
   // === VOLUME STATE (unified structure) ===
@@ -35,17 +43,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // Volume bar visibility state (replaces component coupling)
   const showVolumeBar = ref(false);
   let volumeBarHideTimer = null;
-
-  // performance.now() timestamp of the last position *anchor* received. Lets a
-  // freshly-created position consumer (e.g. the Lyrics modal opened mid-song)
-  // compensate for how stale the last broadcast is — position events are periodic
-  // and source-dependent (10s on AirPlay and TIDAL, 30s on the four mpv sources,
-  // and Spotify publishes none between events), so the stored value can
-  // lag by seconds. Stamped on every anchor, including one that repeats the
-  // stored number: a Previous restarting a track re-sends the same 0 the last
-  // anchor already carried, and the consumers interpolate locally — the arrival
-  // is the only thing that distinguishes that jump from no news at all.
-  const positionTimestamp = ref(0);
 
   // Transient command error (set on sendCommand failure, consumed by App.vue)
   const commandError = ref(null);
@@ -155,47 +152,31 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return result.ok;
   }
 
-  // === WEBSOCKET STATE UPDATES ===
-  // State is now received exclusively via WebSocket (initial_state and state_changed events)
-  // The WebSocket handshake ensures initial state is sent when the client is ready
-
   // === STATE UPDATE ===
-  function updateSystemState(newState, source = 'unknown') {
-    // Validate with Zod — .catch() defaults handle invalid fields automatically
-    const result = validateSchema(SystemStateSchema, newState, `SystemState from ${source}`);
-
-    if (result.success) {
-      const newMetadata = result.data.metadata || {};
-      if (newMetadata.position !== undefined && newMetadata.position !== null) {
-        positionTimestamp.value = performance.now();
-      }
-      systemState.value = {
-        active_source: result.data.active_source,
-        source_state: result.data.source_state,
-        transitioning: result.data.transitioning,
-        metadata: newMetadata,
-        error: result.data.error || null,
-        multiroom_enabled: result.data.multiroom_enabled,
-        equalizer_effects_enabled: result.data.equalizer_effects_enabled,
-        network_unavailable: result.data.network_unavailable ?? null
-      };
+  // Strict: a state that does not parse is refused whole and the last good one
+  // stays, with a warning in the journal — never half-applied with defaults.
+  function updateSystemState(newState, origin = 'unknown') {
+    const result = validateSchema(AudioStateSchema, newState, `AudioState from ${origin}`);
+    if (!result.success) {
+      logger.warn('store', `Audio state from ${origin} refused: it does not match the wire`,
+        result.error?.issues);
+      return;
     }
+    systemState.value = result.data;
   }
 
+  /** `source/state` (its data IS the state) and `system/initial_state` (key `state`). */
   function updateState(event) {
-    if (event.data?.full_state) {
-      updateSystemState(event.data.full_state, 'websocket');
-    }
+    const state = event.type === 'initial_state' ? event.data?.state : event.data;
+    if (state) updateSystemState(state, event.type || 'websocket');
   }
 
+  /** `source/position`: the anchor alone moved (a seek, a speed change, a drift). */
   function updatePosition(payload) {
-    // Ignore stale events from a previous source during transitions
-    if (payload.source !== systemState.value.active_source) return;
-    if (systemState.value.metadata) {
-      positionTimestamp.value = performance.now();
-      systemState.value.metadata.position = payload.position;
-      systemState.value.metadata.duration = payload.duration;
-    }
+    const session = systemState.value.session;
+    // A playhead is a claim about one session: one for another is dropped.
+    if (!session || session.id !== payload.session_id) return;
+    systemState.value = { ...systemState.value, session: { ...session, position: payload.position } };
   }
 
   function handleVolumeEvent(event) {
@@ -395,7 +376,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // State
     systemState,
     volumeState,
-    positionTimestamp,
     showVolumeBar,
     commandError,
     transientNotice,

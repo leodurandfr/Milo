@@ -12,7 +12,7 @@
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': !showPowerMenu }" />
         </button>
         <Toggle v-if="showMultiroomToggle" :model-value="isMultiroomActive"
-          :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
+          :disabled="unifiedStore.systemState.switching || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
         <Toggle v-if="showBtRemoteToggle" :model-value="settingsStore.btRemote.enabled"
           @change="handleBtRemoteToggle" />
         <Toggle v-if="showIrRemoteToggle" :model-value="settingsStore.irRemote.enabled"

@@ -6,15 +6,15 @@ stream from a tick count. It now follows mpv's events (MpvAudioSource
 `_listen_to_mpv`): the sound starting, the cache running dry, a pause, the
 entry ending. Each scenario drives mpv (tests/mpv_sim.py, mpv 0.40 as
 measured) and the source's timers on a clock the test advances, and reads the
-result where the Pinia store reads it — the state machine's
-`source_state`/`metadata` and its `source/error` banners.
+result where the Pinia store reads it — the state machine's `session` and
+`details` and its `source/error` banners.
 
 Stalls ended by the watchdog, a URL that fails to open, the knob during
 buffering and Shazam dying with the session are in tests/test_mpv_sessions.py.
 """
 import pytest
 
-from backend.tests.golden.test_old_wire_radio import FIP, NOVA
+from backend.tests.golden.test_wire_radio import FIP, NOVA
 from backend.tests.radio_world import STALL_TIMEOUT_S, RadioWorld
 
 
@@ -36,15 +36,15 @@ class TestStreamThatNeverLoads:
 
         await radio.advance(STALL_TIMEOUT_S - 1)
         assert radio.errors() == []
-        assert radio.state()["source_state"] == "active"
-        assert radio.meta()["is_buffering"] is True
+        assert radio.active()
+        assert radio.buffering()
 
         await radio.advance(1)
         assert radio.errors() == ["stream_load_failed"]
-        assert radio.state()["source_state"] == "ready"
+        assert not radio.active()
 
     async def test_the_station_it_failed_on_stays_on_screen_to_retry(self, radio):
-        """READY carries the station the stream failed on, because that is
+        """No session, and the station the stream failed on kept, because that is
         what a press on Retry re-tunes — the banner and the card name the same
         station. Playback is off and the track it was showing is gone: the
         recognised track belongs to a stream that runs."""
@@ -53,18 +53,18 @@ class TestStreamThatNeverLoads:
         await radio.tune(FIP)
         await radio.opens()
         await radio.tick(4)
-        assert radio.meta()["track_title"] == "Snibor"
+        assert radio.track_title() == "Snibor"
 
         await radio.stalls()
         await radio.advance(STALL_TIMEOUT_S)
         assert radio.errors() == ["stream_disconnected"]
 
-        meta = radio.meta()
-        assert meta["station_id"] == "fip"
-        assert meta["title"] == meta["station_name"]
-        assert meta["is_playing"] is False
-        assert meta["is_buffering"] is False
-        assert "track_title" not in meta
+        state = radio.state()
+        assert state["session"] is None
+        assert radio.station() == "fip"
+        assert state["resume"]["title"] == FIP["name"]
+        assert state["details"]["track"] is None
+        assert "resume_playback" in state["controls"]
 
         await radio.command("resume_playback")
         assert radio.loads()[-1][1] == FIP["url"]
@@ -80,8 +80,8 @@ class TestStreamThatNeverLoads:
         await radio.advance(STALL_TIMEOUT_S * 3)
 
         assert radio.errors() == []
-        assert radio.state()["source_state"] == "active"
-        assert radio.meta()["is_playing"] is True
+        assert radio.active()
+        assert radio.playing()
 
 
 class TestPlaybackEdges:
@@ -92,12 +92,12 @@ class TestPlaybackEdges:
         and goes the moment mpv says sound started — not on a later poll."""
         await radio.select()
         await radio.tune(FIP)
-        assert radio.state()["source_state"] == "active"
-        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (False, True)
+        assert radio.active()
+        assert radio.phase() == "loading"
 
         await radio.opens()
 
-        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (True, False)
+        assert radio.phase() == "playing"
 
     async def test_a_stream_that_runs_dry_shows_the_spinner_until_it_recovers(self, radio):
         """mpv's cache running dry is the only sign a stream stalled; the card
@@ -108,17 +108,17 @@ class TestPlaybackEdges:
         await radio.opens()
 
         await radio.stalls()
-        assert radio.state()["source_state"] == "active"
-        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (False, True)
+        assert radio.active()
+        assert radio.phase() == "loading"
 
         await radio.recovers()
         await radio.advance(STALL_TIMEOUT_S * 2)
-        assert (radio.meta()["is_playing"], radio.meta()["is_buffering"]) == (True, False)
+        assert radio.phase() == "playing"
         assert radio.errors() == []
 
     async def test_a_stream_that_errors_out_after_its_sound_is_a_lost_stream(self, radio):
         """mpv losing the stream is not a command, so nothing else announces
-        it: the card drops to READY with the disconnected banner and keeps the
+        it: the session ends with the disconnected banner and the card keeps the
         station for a re-tune."""
         await radio.select()
         await radio.tune(FIP)
@@ -126,9 +126,9 @@ class TestPlaybackEdges:
 
         await radio.fails("network error")
 
-        assert radio.state()["source_state"] == "ready"
+        assert not radio.active()
         assert radio.errors() == ["stream_disconnected"]
-        assert radio.meta()["station_id"] == "fip"
+        assert radio.station() == "fip"
 
     async def test_a_steady_stream_publishes_nothing(self, radio):
         """No change, no event: the source hears from mpv every second while a
@@ -139,7 +139,7 @@ class TestPlaybackEdges:
         await radio.tune(FIP)
         await radio.opens()
         await radio.tick(4)                    # the title is read and shown
-        assert radio.meta()["track_title"] == "Snibor"
+        assert radio.track_title() == "Snibor"
         before = len(radio.recorder.envelopes)
 
         await radio.tick(12)
@@ -161,12 +161,12 @@ class TestPauseEdge:
 
         await radio.paused(True)
         await radio.advance(44)
-        assert radio.state()["source_state"] == "active"
-        assert radio.meta()["is_playing"] is False
+        assert radio.active()
+        assert radio.phase() == "paused"
 
         await radio.advance(1)
-        assert radio.state()["source_state"] == "ready"
-        assert radio.meta()["station_id"] == "fip"
+        assert not radio.active()
+        assert radio.station() == "fip"
         assert radio.errors() == []
 
     async def test_an_unpause_disarms_the_idle_timeout(self, radio):
@@ -181,8 +181,8 @@ class TestPauseEdge:
         await radio.paused(False)
         await radio.advance(120)
 
-        assert radio.state()["source_state"] == "active"
-        assert radio.meta()["is_playing"] is True
+        assert radio.active()
+        assert radio.playing()
 
 
 class TestInbandReadingGate:
@@ -198,9 +198,9 @@ class TestInbandReadingGate:
         await radio.tune(FIP)                       # loading
 
         await radio.tick(8)
-        assert "track_title" not in radio.meta()
+        assert radio.track_title() is None
 
         radio.stream_title("Miles Davis - So What")
         await radio.opens()
         await radio.tick(4)
-        assert radio.meta()["track_title"] == "So What"
+        assert radio.track_title() == "So What"

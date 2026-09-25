@@ -58,21 +58,22 @@ const { isScreensaverVisible, screensaverRevealNonce, screensaverData, screensav
 // Let revealed source views replay their entrance when the screensaver closes.
 provide(SCREENSAVER_REVEAL_NONCE, screensaverRevealNonce);
 
-// Whether the screensaver's progress bar should fly to AudioPlayerFull's bar
-// position on close: only when the revealed player actually shows a bar there —
-// Spotify always does, CD only when showing the player (not its tracklist).
-const cdStore = useCdStore();
-const progressConverges = computed(() => {
-  const source = unifiedStore.systemState.active_source;
-  return source === 'spotify' || (source === 'cd' && !cdStore.showTracklist);
-});
-
 // The screensaver artwork stays fixed only when the revealed view shows a cover
 // at the same spot (the AudioPlayerFull sources). For the AudioSourceLayout
 // sources there's no matching cover, so it rises + fades with the rest.
 const artworkRises = computed(() =>
-  ['radio', 'podcast', 'music_library'].includes(unifiedStore.systemState.active_source)
+  ['radio', 'podcast', 'music_library'].includes(unifiedStore.systemState.source)
 );
+
+// Whether the screensaver's progress bar should fly to AudioPlayerFull's bar
+// position on close: only when the revealed player actually shows a bar there —
+// an AudioPlayerFull source with a bar of its own, CD only when showing the
+// player (not its tracklist).
+const cdStore = useCdStore();
+const progressConverges = computed(() => {
+  if (!screensaverProgress.value || artworkRises.value) return false;
+  return !(unifiedStore.systemState.source === 'cd' && cdStore.showTracklist);
+});
 
 // Dismiss screensaver when App.vue signals (e.g., new pending client detected)
 const dismissScreensaverSignal = inject('dismissScreensaver', ref(0));
@@ -93,21 +94,21 @@ const lastVisiblePosition = ref('center');
 const { richSource } = useRichDisplay();
 // Also hidden while Lyrics is open: it now renders as a content-container slot
 // (see AudioSourceView), and the logo's fixed z-index would otherwise float
-// over it whenever no rich player is behind Lyrics (e.g. active_source 'none').
+// over it whenever no rich player is behind Lyrics (e.g. source 'none').
 const logoVisible = computed(() => richSource.value === null && !lyricsStore.isOpen);
 
-// Update cached position only when logo is visible or transitioning
+// Update cached position only when logo is visible or switching
 watch(
   () => ({
-    active_source: unifiedStore.systemState.active_source,
-    transitioning: unifiedStore.systemState.transitioning,
+    source: unifiedStore.systemState.source,
+    switching: unifiedStore.systemState.switching,
     visible: logoVisible.value
   }),
-  ({ active_source, transitioning, visible }) => {
-    if (transitioning) {
+  ({ source, switching, visible }) => {
+    if (switching) {
       lastVisiblePosition.value = 'top';
     } else if (visible) {
-      lastVisiblePosition.value = active_source === 'none' ? 'center' : 'top';
+      lastVisiblePosition.value = source === 'none' ? 'center' : 'top';
     }
   },
   { immediate: true }

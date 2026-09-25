@@ -1,0 +1,2760 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "tune_play_title_stop_resume": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": {
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "artwork": null
+      }
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "album": "FIP",
+      "artwork": "https://art.example/cover.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": {
+       "title": "Feeling Good",
+       "artist": "Nina Simone",
+       "artwork": "https://art.example/cover.jpg"
+      }
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-1",
+     "reason": "user_stop"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume_playback",
+      "next",
+      "prev"
+     ],
+     "resume": {
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "duration_ms": null,
+      "position_ms": null
+     },
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "playing",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-2",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "loading",
+     "title": "FIP",
+     "artist": null,
+     "album": "FIP",
+     "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+     "senders": [],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [
+     "stop",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Feeling Good",
+     "artist": "Nina Simone",
+     "album": "FIP",
+     "artwork": "https://art.example/cover.jpg",
+     "senders": [],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [
+     "stop",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": {
+      "title": "Feeling Good",
+      "artist": "Nina Simone",
+      "artwork": "https://art.example/cover.jpg"
+     }
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume_playback",
+     "next",
+     "prev"
+    ],
+    "resume": {
+     "title": "FIP",
+     "artist": null,
+     "album": "FIP",
+     "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+     "duration_ms": null,
+     "position_ms": null
+    },
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "shazam_names_a_silent_stream": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Radio Nova",
+      "artist": null,
+      "album": "Radio Nova",
+      "artwork": "/api/radio/images/nova.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "nova",
+       "name": "Radio Nova",
+       "url": "http://stream.example/nova.aac",
+       "country": "France",
+       "genre": null,
+       "favicon": "/api/radio/images/nova.jpg",
+       "bitrate": 64,
+       "codec": "AAC"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Radio Nova",
+      "artist": null,
+      "album": "Radio Nova",
+      "artwork": "/api/radio/images/nova.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "nova",
+       "name": "Radio Nova",
+       "url": "http://stream.example/nova.aac",
+       "country": "France",
+       "genre": null,
+       "favicon": "/api/radio/images/nova.jpg",
+       "bitrate": 64,
+       "codec": "AAC"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Sweet Jane",
+      "artist": "Cowboy Junkies",
+      "album": "Radio Nova",
+      "artwork": "https://art.example/jane.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "nova",
+       "name": "Radio Nova",
+       "url": "http://stream.example/nova.aac",
+       "country": "France",
+       "genre": null,
+       "favicon": "/api/radio/images/nova.jpg",
+       "bitrate": 64,
+       "codec": "AAC"
+      },
+      "track": {
+       "title": "Sweet Jane",
+       "artist": "Cowboy Junkies",
+       "artwork": "https://art.example/jane.jpg"
+      }
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Sweet Jane",
+     "artist": "Cowboy Junkies",
+     "album": "Radio Nova",
+     "artwork": "https://art.example/jane.jpg",
+     "senders": [],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [
+     "stop",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "nova",
+      "name": "Radio Nova",
+      "url": "http://stream.example/nova.aac",
+      "country": "France",
+      "genre": null,
+      "favicon": "/api/radio/images/nova.jpg",
+      "bitrate": 64,
+      "codec": "AAC"
+     },
+     "track": {
+      "title": "Sweet Jane",
+      "artist": "Cowboy Junkies",
+      "artwork": "https://art.example/jane.jpg"
+     }
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "stream_that_never_starts": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-1",
+     "reason": "load_failed"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume_playback",
+      "next",
+      "prev"
+     ],
+     "resume": {
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "duration_ms": null,
+      "position_ms": null
+     },
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "reason": "stream_load_failed"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume_playback",
+     "next",
+     "prev"
+    ],
+    "resume": {
+     "title": "FIP",
+     "artist": null,
+     "album": "FIP",
+     "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+     "duration_ms": null,
+     "position_ms": null
+    },
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "mpv_dies_mid_play": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-1",
+     "reason": "daemon_died"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume_playback",
+      "next",
+      "prev"
+     ],
+     "resume": {
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "duration_ms": null,
+      "position_ms": null
+     },
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "reason": "stream_disconnected"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume_playback",
+     "next",
+     "prev"
+    ],
+    "resume": {
+     "title": "FIP",
+     "artist": null,
+     "album": "FIP",
+     "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+     "duration_ms": null,
+     "position_ms": null
+    },
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "step_through_favorites": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-1",
+     "reason": "user_stop"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "Radio Nova",
+      "artist": null,
+      "album": "Radio Nova",
+      "artwork": "/api/radio/images/nova.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "nova",
+       "name": "Radio Nova",
+       "url": "http://stream.example/nova.aac",
+       "country": "France",
+       "genre": null,
+       "favicon": "/api/radio/images/nova.jpg",
+       "bitrate": 64,
+       "codec": "AAC"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "playing",
+      "title": "Radio Nova",
+      "artist": null,
+      "album": "Radio Nova",
+      "artwork": "/api/radio/images/nova.jpg",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "nova",
+       "name": "Radio Nova",
+       "url": "http://stream.example/nova.aac",
+       "country": "France",
+       "genre": null,
+       "favicon": "/api/radio/images/nova.jpg",
+       "bitrate": 64,
+       "codec": "AAC"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-2",
+     "reason": "user_stop"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-3",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-3",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-3",
+     "phase": "loading",
+     "title": "FIP",
+     "artist": null,
+     "album": "FIP",
+     "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+     "senders": [],
+     "duration_ms": null,
+     "position": null
+    },
+    "controls": [
+     "stop",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "mpv_pause_auto_stops": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "senders": [],
+      "duration_ms": null,
+      "position": null
+     },
+     "controls": [
+      "stop",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "session_id": "session-1",
+     "reason": "idle_timeout"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "radio",
+    "data": {
+     "source": "radio",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [
+      "resume_playback",
+      "next",
+      "prev"
+     ],
+     "resume": {
+      "title": "FIP",
+      "artist": null,
+      "album": "FIP",
+      "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+      "duration_ms": null,
+      "position_ms": null
+     },
+     "details": {
+      "kind": "radio",
+      "station": {
+       "id": "fip",
+       "name": "FIP",
+       "url": "http://stream.example/fip.mp3",
+       "country": "France",
+       "genre": "eclectic",
+       "favicon": "https://img.example/fip.png",
+       "bitrate": 128,
+       "codec": "MP3"
+      },
+      "track": null
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "radio",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [
+     "resume_playback",
+     "next",
+     "prev"
+    ],
+    "resume": {
+     "title": "FIP",
+     "artist": null,
+     "album": "FIP",
+     "artwork": "/api/radio/favicon?url=https%3A%2F%2Fimg.example%2Ffip.png",
+     "duration_ms": null,
+     "position_ms": null
+    },
+    "details": {
+     "kind": "radio",
+     "station": {
+      "id": "fip",
+      "name": "FIP",
+      "url": "http://stream.example/fip.mp3",
+      "country": "France",
+      "genre": "eclectic",
+      "favicon": "https://img.example/fip.png",
+      "bitrate": 128,
+      "codec": "MP3"
+     },
+     "track": null
+    },
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ }
+}

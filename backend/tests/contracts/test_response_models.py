@@ -14,6 +14,10 @@ dict through the model, then dump in JSON mode with the same `exclude_none`
 flag the route decorator uses.
 """
 from backend.api import responses as R
+from backend.core.models.audio_state import AudioSource
+from backend.core.models.audio_wire import (
+    PositionAnchor, RadioDetails, RadioStation, SessionView, SourceView,
+)
 from backend.core.state import AudioStateMachine
 
 
@@ -23,31 +27,42 @@ def emit(model, data, *, exclude_none=False):
 
 
 def test_audio_state_preserves_every_key_the_state_machine_emits():
-    """AudioStateResponse must carry the whole of get_current_state().
+    """AudioStateResponse must carry the whole of get_current_state(), nulls
+    and nested objects included.
 
     Derived from the state machine rather than from a dict written here, which
     is the difference between a guardrail and a copy of the thing it guards:
-    this test used to hand-type the seven keys it expected, so when
-    `network_unavailable` was added to get_current_state() the model, the test
-    and each other stayed in perfect agreement while the route quietly stopped
-    serving it. The frontend feeds this response through the same
-    `updateSystemState` as a WS full_state, so a filtered key is read as absent
-    — an offline status card reverting to a normal one on every resync.
+    this test used to hand-type the keys it expected, so when a key was added
+    to the state the model, the test and each other stayed in perfect
+    agreement while the route quietly stopped serving it. The REST read and
+    `source/state` are one object for every consumer (the store's strict
+    schema, Milo-Mac's and Milo-iOS' shared decoder), so a key filtered here
+    — or a null the response dropped — is a decode failure at the far end.
 
-    A bare machine is enough: with no services wired, get_current_state() still
-    emits every key, which is exactly the set the model has to declare.
+    A live session with a null field and typed details is composed in, so a
+    model that stripped a nested null or lost the details union fails too.
     """
-    produced = AudioStateMachine().get_current_state()
+    machine = AudioStateMachine()
+    machine.system_state.active_source = AudioSource.RADIO
+    machine.system_state.view = SourceView(
+        session=SessionView(
+            id="s-1", phase="playing", title="Snibor", artist=None, album=None,
+            artwork=None, senders=[], duration_ms=None,
+            position=PositionAnchor(ms=1000, at=1700000000.5, rate=1.0),
+        ),
+        details=RadioDetails(
+            station=RadioStation(id="st", name="FIP Jazz", url="http://x", country=None,
+                                 genre=None, favicon=None, bitrate=128, codec=None),
+            track=None,
+        ),
+        controls=("stop",),
+    )
+    produced = machine.get_current_state()
     # The producer has to have produced something, or the comparison is vacuous.
-    assert "active_source" in produced
-    assert "network_unavailable" in produced
+    assert produced["session"]["artist"] is None
+    assert produced["details"]["kind"] == "radio"
 
-    data = {**produced, "metadata": {"title": "x", "artist": None}}  # opaque; sub-null kept
-    out = emit(R.AudioStateResponse, data)
-    assert set(out) == set(produced)
-    # metadata stays opaque: response_model must not strip its null sub-keys.
-    assert out["metadata"] == {"title": "x", "artist": None}
-    assert out["error"] is None  # no exclude_none on this route
+    assert emit(R.AudioStateResponse, produced) == produced
 
 
 def test_audio_source_status_only():
@@ -55,7 +70,7 @@ def test_audio_source_status_only():
 
 
 def test_multiroom_set_keys():
-    data = {"status": "success", "multiroom_enabled": True, "active_source": "none"}
+    data = {"status": "success", "multiroom_enabled": True, "source": "none"}
     assert set(emit(R.MultiroomSetResponse, data)) == set(data)
 
 

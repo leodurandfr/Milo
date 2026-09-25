@@ -380,8 +380,9 @@ async def initialize_services() -> None:
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
     # Cycle: state_machine ↔ connectivity_service
-    #   state_machine reads the NM level to derive full_state.network_unavailable;
-    #   connectivity broadcasts its own event through the state machine.
+    #   state_machine reads the NM level to derive each source's availability;
+    #   connectivity broadcasts its own event through the state machine and
+    #   asks it to republish the state.
     connectivity_service.set_state_machine(state_machine)
     state_machine.connectivity_service = connectivity_service
     # network_service → connectivity_service, one direction only. NM emits a
@@ -406,7 +407,7 @@ async def initialize_services() -> None:
     # Cycle: routing_service ↔ state_machine
     #   routing carries the active source through state_machine.reroute_active_source()
     #   and broadcasts through it; state_machine reads back
-    #   routing.multiroom_enabled — for full_state aggregation only, never for a
+    #   routing.multiroom_enabled — for composing the state only, never for a
     #   transition decision.
     routing_service.set_state_machine(state_machine)
     state_machine.routing_service = routing_service
@@ -417,8 +418,8 @@ async def initialize_services() -> None:
     routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
 
     # Cycle: state_machine ↔ camilladsp_service
-    #   state_machine reads effects_enabled when aggregating full_state for
-    #   source/system broadcasts; camilladsp needs state_machine to broadcast.
+    #   state_machine reads effects_enabled when composing the state;
+    #   camilladsp needs state_machine to broadcast.
     state_machine.camilladsp_service = camilladsp_service
     camilladsp_service.set_state_machine(state_machine)
 
@@ -437,16 +438,16 @@ async def initialize_services() -> None:
     volume_service.set_routing_service(routing_service)
     routing_service.set_volume_service(volume_service)
 
-    # Fail loud on a missing full_state back-reference. get_current_state() reads
-    # multiroom_enabled / equalizer_effects_enabled / network_unavailable through
-    # these three and falls back to the benign value when one is unset —
+    # Fail loud on a missing state back-reference. state() reads
+    # multiroom_enabled / equalizer_effects_enabled / the connectivity level
+    # through these three and falls back to the benign value when one is unset —
     # indistinguishable on the wire from "multiroom off, effects off, network
     # fine", so a wiring regression would ship as a silent UI lie rather than a
     # crash.
     for attr in ("routing_service", "camilladsp_service", "connectivity_service"):
         if getattr(state_machine, attr) is None:
             raise RuntimeError(
-                f"state_machine.{attr} not wired — full_state would report its "
+                f"state_machine.{attr} not wired — the state would report its "
                 f"global flag as False for every client."
             )
 
@@ -503,6 +504,7 @@ async def initialize_services() -> None:
     cd_source = get_service("cd_source")
     podcast_source = get_service("podcast_source")
     music_library_source = get_service("music_library_source")
+    qobuz_source = get_service("qobuz_source")
 
     async def init_async():
         """Async initialization with error handling."""
@@ -538,6 +540,9 @@ async def initialize_services() -> None:
             # USB storage watcher (pyudev) — mounts a plugged-in key under
             # /media/milo + triggers a Navidrome rescan, independent of playback.
             ("music_library_source", music_library_source.initialize()),
+            # The account cache: `availability.qobuz` answers from it from boot,
+            # not from the first time Qobuz is selected.
+            ("qobuz_source", qobuz_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
             ("hostname_conflict_service", hostname_conflict_service.check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)

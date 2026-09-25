@@ -1,11 +1,10 @@
-<!-- AirPlaySource.vue - AirPlay 2 player.
-     No progress bar, unlike the other two receivers: an AirPlay sender that
-     pauses announces nothing shairport-sync can pass on, so is_playing stays
-     true and the bar ran on through a paused track. The sender's own screen
-     shows the position anyway. See the AirPlaySource docstring for the channels
-     measured before giving up on detecting it. -->
+<!-- AirPlaySource.vue - AirPlay 2 player (passive receiver: no transport on the
+     unit, so AudioPlayerFull draws the sender's name in its source bar). The
+     bar appears only while a Buffered sender (iPhone Music) reports a position;
+     a Realtime one (a Mac's system audio) reports none and publishes no pause,
+     so it has no bar to run on through a paused track. -->
 <template>
-  <AudioPlayerFull source="airplay" :showControls="false" :showProgress="false" />
+  <AudioPlayerFull source="airplay" />
 </template>
 
 <script setup>

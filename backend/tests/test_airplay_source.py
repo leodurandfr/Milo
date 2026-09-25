@@ -1,14 +1,14 @@
 # backend/tests/test_airplay_source.py
 """
-The AirPlay source's metadata pipe, the cover it pairs, the playhead it ages,
-and the reader that feeds it.
+The AirPlay source's metadata pipe, the cover it pairs, the playhead it
+anchors, and the reader that feeds it.
 
 Everything here drives the source through the world shairport-sync was measured
 to be (tests/airplay_world.py): the real `MetadataReader` parser, fed the items
 the daemon writes, behind the real `AirPlaySource` on a real state machine, on a
-virtual clock. What is asserted is what reaches the wire — `world.meta()`, every
-state published, the position pushes, the artwork route — never the source's
-own fields. The pure parser and the read loop are driven through the real
+virtual clock. What is asserted is what reaches the wire — the state (`_shown`),
+every state published, the `source/position` events, the artwork route — never
+the source's own fields. The pure parser and the read loop are driven through the real
 `MetadataReader` alone, with an `on_event` collector.
 
 What is being pinned first is the pairing rule. shairport-sync sends a track's
@@ -40,11 +40,8 @@ from PIL import Image
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent, _hex_to_str
-from backend.sources.airplay.source import (
-    ARTWORK_SETTLE_SECONDS,
-    POSITION_JUMP_TOLERANCE_MS,
-    POSITION_TICK_SECONDS,
-)
+from backend.core.audio_source import POSITION_TOLERANCE_MS
+from backend.sources.airplay.source import ARTWORK_SETTLE_SECONDS
 from backend.tests.airplay_world import MAC, PHONE, AirPlayWorld, Item, ssnc
 
 LIVE_PIPE = "/tmp/shairport-sync-metadata"
@@ -61,6 +58,10 @@ RTP_A_LATER = RTP_A + 1056
 RTP_A_EARLIER = RTP_A - 1408
 
 SAMPLE_RATE = 44100
+
+# The old source re-published the playhead every 10 s; the spans below still
+# cover several of those, so a ticker that came back would be heard.
+OLD_TICK_SECONDS = 10
 
 
 @pytest.fixture(autouse=True)
@@ -162,16 +163,33 @@ async def _after_the_hold(world: AirPlayWorld) -> None:
 
 
 def _pushes(world: AirPlayWorld, since: int = 0) -> List[dict]:
-    """The position updates broadcast since envelope `since`."""
+    """The `source/position` events broadcast since envelope `since`."""
     return [
         e["data"] for e in world.recorder.envelopes[since:]
-        if e["category"] == "source" and e["type"] == "position_update"
+        if e["category"] == "source" and e["type"] == "position"
     ]
 
 
-def _rich(m: dict) -> bool:
+def _shown(state: dict) -> dict:
+    """What a screen reads off one AirPlay state: the session's track and
+    sender, and the cover's width from `details`. Every key is None (or [])
+    without a session."""
+    session = state["session"] or {}
+    details = state["details"] or {}
+    return {
+        "title": session["title"],
+        "artist": session["artist"],
+        "album": session.get("album"),
+        "artwork": session.get("artwork"),
+        "artwork_width": details.get("artwork_width"),
+        "senders": session.get("senders", []),
+    }
+
+
+def _rich(state: dict) -> bool:
     """`useRichDisplay`'s airplay arm: title AND artist AND a cover over 300 px."""
-    return bool(m.get("title")) and bool(m.get("artist")) and (m.get("album_art_width") or 0) > 300
+    m = _shown(state)
+    return bool(m["title"]) and bool(m["artist"]) and (m["artwork_width"] or 0) > 300
 
 
 class _Collector:
@@ -198,10 +216,10 @@ class TestCoverPairing:
 
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-        meta = world.meta()
+        meta = _shown(world.state())
         assert meta["title"] == "Says"
-        assert meta["album_art_url"].startswith("/api/airplay/artwork?v=")
-        assert meta["album_art_width"] == 600
+        assert meta["artwork"].startswith("/api/airplay/artwork?v=")
+        assert meta["artwork_width"] == 600
         assert world.source.get_artwork() is not None
 
     async def test_a_cover_that_arrives_before_its_track_is_kept(self, world):
@@ -215,8 +233,8 @@ class TestCoverPairing:
         await world.send(*_bundle(RTP_A, "Says"))
         await _after_the_hold(world)
 
-        assert world.meta()["title"] == "Says"
-        assert "album_art_url" in world.meta()
+        assert _shown(world.state())["title"] == "Says"
+        assert _shown(world.state())["artwork"] is not None
 
     async def test_a_track_that_sends_no_cover_shows_none(self, world):
         """The defect this pairing exists for. Plenty of senders push a picture
@@ -233,10 +251,10 @@ class TestCoverPairing:
         await world.send(*_bundle(RTP_B, "Toilet Brush"))
         await _after_the_hold(world)
 
-        meta = world.meta()
+        meta = _shown(world.state())
         assert meta["title"] == "Toilet Brush"
-        assert "album_art_url" not in meta
-        assert "album_art_width" not in meta
+        assert meta["artwork"] is None
+        assert meta["artwork_width"] is None
 
     async def test_a_cover_stamped_for_the_previous_track_is_not_adopted(self, world):
         """The stamp is the whole rule: a picture in hand is not this track's
@@ -247,8 +265,8 @@ class TestCoverPairing:
         await world.send(*_bundle(RTP_B, "Toilet Brush"))
         await _after_the_hold(world)
 
-        assert world.meta()["title"] == "Toilet Brush"
-        assert "album_art_url" not in world.meta()
+        assert _shown(world.state())["title"] == "Toilet Brush"
+        assert _shown(world.state())["artwork"] is None
 
     async def test_a_cover_stamped_just_after_its_own_tags_is_not_dropped(self, world):
         """The stamp is a position, not an identity, and iOS proves it.
@@ -270,10 +288,10 @@ class TestCoverPairing:
 
         await _after_the_hold(world)
 
-        meta = world.meta()
+        meta = _shown(world.state())
         assert meta["title"] == "Says"
-        assert meta["album_art_url"], meta
-        assert meta["album_art_width"] == 600
+        assert meta["artwork"], meta
+        assert meta["artwork_width"] == 600
 
     async def test_a_cover_stamped_just_before_its_own_tags_is_not_dropped(self, world):
         """The drift runs both ways, and the second direction is a Mac's.
@@ -292,10 +310,10 @@ class TestCoverPairing:
 
         await _after_the_hold(world)
 
-        meta = world.meta()
+        meta = _shown(world.state())
         assert meta["title"] == "Says"
-        assert meta["album_art_url"], meta
-        assert meta["album_art_width"] == 600
+        assert meta["artwork"], meta
+        assert meta["artwork_width"] == 600
 
     async def test_a_drifting_sender_never_takes_the_player_off_the_screen(self, world):
         """The same shape over a run, judged the way the screen judges it.
@@ -322,7 +340,7 @@ class TestCoverPairing:
         # Only what changed is published, so the run's states are the starting
         # one plus every change; ending rich is what makes "no unmount" count.
         published = world.published()[before - 1:]
-        assert _rich(world.meta()), "the run ended without the player it started with"
+        assert _rich(world.state()), "the run ended without the player it started with"
         unmounts = [(a, b) for a, b in zip(published, published[1:]) if _rich(a) and not _rich(b)]
         assert not unmounts, unmounts
 
@@ -335,14 +353,14 @@ class TestCoverPairing:
         await _on_air(world)
         sleeve = _cover("navy")
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
-        first = world.meta()["album_art_url"]
+        first = _shown(world.state())["artwork"]
 
         await world.send(*_bundle(RTP_B, "Says (Live)"))
         await world.send(*_picture(RTP_B, sleeve))
         await _after_the_hold(world)
 
-        assert world.meta()["title"] == "Says (Live)"
-        assert world.meta()["album_art_url"] == first
+        assert _shown(world.state())["title"] == "Says (Live)"
+        assert _shown(world.state())["artwork"] == first
 
     async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, world):
         """A track change must not blank the cover for the millisecond before
@@ -350,9 +368,9 @@ class TestCoverPairing:
 
         The tags and the picture are two SET_PARAMETER requests in no
         guaranteed order, so the tags-first order leaves the new stamp
-        unpaired. Publishing that gap sends a state with no `album_art_url`,
+        unpaired. Publishing that gap sends a state with no `artwork`,
         and `useRichDisplay`'s untrusted-sender gate reads a missing
-        `album_art_width` as "no real cover from this sender": the frontend
+        `artwork_width` as "no real cover from this sender": the frontend
         swaps AudioPlayerFull for the AudioSourceStatus card and back within
         ~30 ms, which is visible as the player animating itself out and in.
         Measured on a macOS sender, on every track change *and* every transport
@@ -363,20 +381,20 @@ class TestCoverPairing:
         """
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        held = world.meta()["album_art_url"]
+        held = _shown(world.state())["artwork"]
 
         await world.send(*_bundle(RTP_B, "Toilet Brush"))
 
-        meta = world.meta()
+        meta = _shown(world.state())
         assert meta["title"] == "Toilet Brush"
-        assert meta["album_art_url"] == held
-        assert meta["album_art_width"] == 600
+        assert meta["artwork"] == held
+        assert meta["artwork_width"] == 600
 
         # And the track's own picture, when it lands, takes the hold's place.
         await world.send(*_picture(RTP_B, _cover("crimson", size=450)))
 
-        assert world.meta()["album_art_url"] != held
-        assert world.meta()["album_art_width"] == 450
+        assert _shown(world.state())["artwork"] != held
+        assert _shown(world.state())["artwork_width"] == 450
 
     async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, world):
         """The mirror of the test above, and the same flicker.
@@ -384,7 +402,7 @@ class TestCoverPairing:
         The order is the sender's, so the picture can be the one that arrives
         first — and then the new stamp is on the cover while the title on
         screen is still the previous track's. A publish judging on the stamps
-        alone found them unequal and dropped `album_art_url` from that state,
+        alone found them unequal and dropped `artwork` from that state,
         which `useRichDisplay`'s untrusted-sender gate reads as "this sender
         pushes no real cover": AudioPlayerFull swapped for the AudioSourceStatus
         card and back, the player animating itself out and in.
@@ -402,9 +420,9 @@ class TestCoverPairing:
 
         published = world.published()[before:]
         assert published, "the track change published nothing to judge"
-        assert all(m.get("album_art_width") for m in published), published
-        assert world.meta()["title"] == "Toilet Brush"
-        assert world.meta()["album_art_width"] == 450
+        assert all(_shown(m)["artwork_width"] for m in published), published
+        assert _shown(world.state())["title"] == "Toilet Brush"
+        assert _shown(world.state())["artwork_width"] == 450
 
     async def test_a_cover_arriving_first_off_one_album_does_not_blank_it_either(self, world):
         """Same order, through the dedupe: the identical image re-sent under a
@@ -420,8 +438,8 @@ class TestCoverPairing:
 
         published = world.published()[before:]
         assert published, "the track change published nothing to judge"
-        assert all(m.get("album_art_width") for m in published), published
-        assert world.meta()["title"] == "Says (Live)"
+        assert all(_shown(m)["artwork_width"] for m in published), published
+        assert _shown(world.state())["title"] == "Says (Live)"
 
     async def test_a_bundle_under_a_new_stamp_owns_every_tag(self, world):
         """Nothing belonging to the previous track is published as this one's.
@@ -439,8 +457,8 @@ class TestCoverPairing:
 
         await world.send(*_bundle(RTP_B, "Untitled recording", artist=None))
 
-        assert world.meta()["title"] == "Untitled recording"
-        assert not world.meta().get("artist")
+        assert _shown(world.state())["title"] == "Untitled recording"
+        assert not _shown(world.state())["artist"]
 
     async def test_a_bundle_under_the_stamp_on_screen_amends_it(self, world):
         """The other half of the same rule, and what stops it stripping a track
@@ -452,7 +470,7 @@ class TestCoverPairing:
 
         await world.send(*_bundle(RTP_A, "Says", artist=None))
 
-        assert world.meta()["artist"] == "Nils Frahm"
+        assert _shown(world.state())["artist"] == "Nils Frahm"
 
     async def test_a_sender_without_rtp_info_keeps_what_it_had(self, world):
         """shairport-sync tolerates a sender that sends no RTP-Info and sends
@@ -465,12 +483,12 @@ class TestCoverPairing:
         await world.send(*_bundle(None, "Toilet Brush"))
         await _after_the_hold(world)
 
-        assert world.meta()["title"] == "Toilet Brush"
-        assert "album_art_url" in world.meta()
+        assert _shown(world.state())["title"] == "Toilet Brush"
+        assert _shown(world.state())["artwork"] is not None
 
 
 class TestSessionControl:
-    """What moves is_playing: a Buffered stream's first frame, its `paus`/`pres`,
+    """What moves the phase: a Buffered stream's first frame, its `paus`/`pres`,
     and the stream ending. The session model's own scenarios — pauses timing
     out, skips, Realtime streams — live in test_airplay_sessions.py."""
 
@@ -481,43 +499,39 @@ class TestSessionControl:
         await world.connects()
         await world.send(ssnc("pbeg"), ssnc("pres"))
 
-        assert world.active() and not world.playing()
-        assert world.meta().get("is_buffering") is True
+        assert world.phase() == "loading"
 
         await world.send(ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
 
-        assert world.playing()
-        assert not world.meta().get("is_buffering")
+        assert world.phase() == "playing"
 
     async def test_a_flush_neither_pauses_nor_freezes_the_playhead(self, world):
         """E54, inverted from the test this file used to carry. `pfls` (a flush)
-        was read as a pause: it cleared is_playing and froze the position under a
-        sender that never paused, and armed the auto-stop behind it. It never
+        was read as a pause: it stopped the playback and froze the position under
+        a sender that never paused, and armed the auto-stop behind it. It never
         appeared in the 2026-09-23 measurements and is no longer read: the
-        session plays on, and the pushed position keeps ageing."""
+        session plays on, and its anchor keeps moving."""
         await _on_air(world)
         await world.send(_progress(0, 30, 300))
-        marker = len(world.recorder.envelopes)
 
         await world.send(ssnc("pfls", b"12345"))
-        await world.advance(POSITION_TICK_SECONDS)
+        await world.advance(OLD_TICK_SECONDS)
 
         assert world.playing()
-        pushed = _pushes(world, marker)
-        assert pushed, "the playhead stopped being pushed after a flush"
-        assert pushed[-1]["position"] > 30_000
+        assert world.position_ms() >= 30_000 + OLD_TICK_SECONDS * 1000 - 100, \
+            "the playhead froze after a flush"
 
     async def test_play_end_is_not_a_disconnection(self, world):
         """`pend` means the stream ended; the sender is still there until `disc`.
-        Treated as a disconnect, the source would drop to READY while the phone
-        still has it selected."""
+        Treated as a disconnect, the session would end while the phone still
+        has the output selected."""
         await _on_air(world)
 
         await world.tears_the_stream_down()
 
         assert world.active()
-        assert world.meta().get("client_name") == "iPhone de Léo"
-        assert world.meta().get("is_playing") is False
+        assert _shown(world.state())["senders"] == ["iPhone de Léo"]
+        assert world.phase() == "paused"
 
 
 class TestConnectionEvents:
@@ -527,8 +541,7 @@ class TestConnectionEvents:
     async def test_a_client_selecting_the_output_marks_it_connected(self, world):
         await world.send(ssnc("conn", PHONE.encode()))
 
-        assert world.active()
-        assert world.meta().get("is_playing") is False, "selecting an output is not playing"
+        assert world.phase() == "connected", "selecting an output is not playing"
 
     async def test_a_connection_event_with_no_address_still_counts(self, world):
         await world.send(ssnc("conn"))
@@ -540,15 +553,13 @@ class TestConnectionEvents:
         phone's track and cover on screen before it has sent its own."""
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        assert world.meta().get("title") == "Says"
+        assert _shown(world.state())["title"] == "Says"
         assert world.source.get_artwork() is not None
 
         await world.says_goodbye(PHONE)
 
-        assert not world.active()
-        meta = world.meta()
-        assert meta.get("is_playing") is False
-        assert not {"title", "artist", "album", "album_art_url", "client_name"} & set(meta)
+        assert world.session() is None
+        assert world.state()["resume"] is None and world.state()["details"] is None
         assert world.source.get_artwork() is None
 
     async def test_a_late_disconnect_does_not_tear_down_the_sender_on_air(self, world):
@@ -570,11 +581,11 @@ class TestConnectionEvents:
 
         await world.says_goodbye(PHONE)
 
-        meta = world.meta()
-        assert meta.get("client_name") == "Mac mini de Léo"
+        meta = _shown(world.state())
+        assert meta["senders"] == ["Mac mini de Léo"]
         assert world.playing()
-        assert meta.get("title") == "Says"
-        assert meta.get("album_art_url")
+        assert meta["title"] == "Says"
+        assert meta["artwork"]
         assert world.source.get_artwork() is not None
 
     async def test_a_disconnect_with_no_address_still_ends_the_session(self, world):
@@ -586,8 +597,8 @@ class TestConnectionEvents:
 
         await world.send(ssnc("disc"))
 
-        assert not world.active()
-        assert not {"title", "artist"} & set(world.meta())
+        assert world.session() is None
+        assert world.state()["resume"] is None
 
     async def test_the_client_name_is_published_as_the_source_label(self, world):
         """`snam` is X-Apple-Client-Name; it is what the source bar shows
@@ -595,7 +606,7 @@ class TestConnectionEvents:
         await world.send(ssnc("snam", "Mac mini de Léo".encode()))
 
         assert world.active()
-        assert world.meta().get("client_name") == "Mac mini de Léo"
+        assert _shown(world.state())["senders"] == ["Mac mini de Léo"]
 
 
 class TestTheDaemonDyingUnderTheSession:
@@ -604,7 +615,7 @@ class TestTheDaemonDyingUnderTheSession:
     a process that announces nothing about the session it never had.
 
     Measured on the unit 2026-09-22: SIGKILL at 17:20:51, restart at 17:20:57,
-    audio back — and the source sat ACTIVE on "Pavilion" with is_playing true
+    audio back — and the source sat ACTIVE on "Pavilion", playing,
     and a playhead frozen at 396000/396000 while the ALSA loopback read
     `closed`. Permanently: IDLE_STATES excludes ACTIVE so the 12 h sweep never
     reclaims it, and nothing but a pause armed the auto-stop. It reached
@@ -620,10 +631,8 @@ class TestTheDaemonDyingUnderTheSession:
 
         await world.kill_daemon()
 
-        assert not world.active()
-        meta = world.meta()
-        assert meta.get("is_playing") is False
-        assert not {"title", "artist", "album", "album_art_url"} & set(meta)
+        assert world.session() is None
+        assert world.state()["resume"] is None and world.state()["details"] is None
         assert world.source.get_artwork() is None
         assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
@@ -638,7 +647,7 @@ class TestTheDaemonDyingUnderTheSession:
         await world.select()
 
         await _on_air(world)
-        await world.advance(3 * POSITION_TICK_SECONDS)
+        await world.advance(3 * OLD_TICK_SECONDS)
         assert world.playing()
         assert world.errors() == []
 
@@ -682,14 +691,14 @@ class TestTheDaemonDyingUnderTheSession:
     async def test_a_living_daemon_is_left_alone(self, world):
         """The complement, and the one that matters most: a session on a healthy
         daemon runs through tick after tick, so a guard that fired wrongly would
-        tear it down every POSITION_TICK_SECONDS."""
+        tear it down every OLD_TICK_SECONDS."""
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), _progress(0, 30, 300))
 
-        await world.advance(5 * POSITION_TICK_SECONDS)
+        await world.advance(5 * OLD_TICK_SECONDS)
 
         assert world.playing()
-        assert world.meta().get("title") == "Says"
+        assert _shown(world.state())["title"] == "Says"
         assert world.errors() == []
 
     async def test_a_source_that_cannot_name_its_daemon_claims_nothing(self, world):
@@ -699,7 +708,7 @@ class TestTheDaemonDyingUnderTheSession:
         world.systemd.main_pid = AsyncMock(side_effect=OSError("no systemd here"))
         await _on_air(world)
 
-        await world.advance(5 * POSITION_TICK_SECONDS)
+        await world.advance(5 * OLD_TICK_SECONDS)
 
         assert world.playing()
         assert world.errors() == []
@@ -707,14 +716,15 @@ class TestTheDaemonDyingUnderTheSession:
 
 class TestProgress:
     """`prgr` carries three RTP frame counts. It arrives every 5-15 s, not
-    continuously, so what is kept is a snapshot plus the time it was taken."""
+    continuously, so what is published is an anchor: where the playhead was,
+    and when."""
 
     async def test_a_snapshot_becomes_a_position_and_a_duration_in_ms(self, world):
         await _on_air(world)
         await world.send(_progress(0, 30, 300))
 
-        assert world.meta()["duration"] == 300_000
-        assert abs(world.meta()["position"] - 30_000) < 50
+        assert world.session()["duration_ms"] == 300_000
+        assert abs(world.position_ms() - 30_000) < 50
 
     async def test_a_track_that_does_not_start_at_zero_is_measured_from_its_start(self, world):
         """`start` is the track's own first frame, not the session's: a stream
@@ -723,8 +733,8 @@ class TestProgress:
         await _on_air(world)
         await world.send(_progress(3600, 3610, 3900))
 
-        assert world.meta()["duration"] == 300_000
-        assert abs(world.meta()["position"] - 10_000) < 50
+        assert world.session()["duration_ms"] == 300_000
+        assert abs(world.position_ms() - 10_000) < 50
 
     async def test_a_snapshot_that_makes_no_sense_is_ignored(self, world):
         """`end <= start` is a zero-length track; taken at face value it makes
@@ -734,7 +744,7 @@ class TestProgress:
 
         await world.send(_progress(500, 500, 500))
 
-        assert world.meta()["duration"] == 300_000
+        assert world.session()["duration_ms"] == 300_000
 
     async def test_a_jump_is_broadcast_at_once(self, world):
         """A track change or a seek is an arbitrarily large move that the
@@ -747,7 +757,8 @@ class TestProgress:
 
         pushed = _pushes(world, marker)
         assert len(pushed) == 1
-        assert pushed[0]["position"] > 199_000
+        assert pushed[0]["position"]["ms"] > 199_000
+        assert world.position_ms() > 199_000
 
     async def test_a_snapshot_that_only_confirms_the_interpolation_is_not_broadcast(self, world):
         """A sender that emits `prgr` often would otherwise flood every
@@ -756,37 +767,24 @@ class TestProgress:
         await world.send(_progress(0, 100, 300))
         marker = len(world.recorder.envelopes)
 
-        within = (POSITION_JUMP_TOLERANCE_MS / 1000) / 2
+        within = (POSITION_TOLERANCE_MS / 1000) / 2
         await world.send(_progress(0, 100 + within, 300))
 
         assert _pushes(world, marker) == []
+        assert world.recorder.envelopes[marker:] == []
 
-    async def test_the_position_ages_while_the_track_plays(self, world):
+    async def test_the_position_moves_while_the_track_plays(self, world):
         """`prgr` is 5-15 s apart, so between two of them the position has to be
-        derived from the clock or the bar stops."""
+        derived from the clock or the bar stops: the anchor a playing session
+        publishes moves at rate 1."""
         await _on_air(world)
         await world.send(_progress(0, 30, 300))
-        taken = world.meta()["position"]
-        marker = len(world.recorder.envelopes)
+        taken = world.position_ms()
 
-        await world.advance(POSITION_TICK_SECONDS)
+        await world.advance(OLD_TICK_SECONDS)
 
-        pushed = _pushes(world, marker)
-        assert pushed, "nothing pushed the aged position"
-        assert pushed[-1]["position"] - taken >= POSITION_TICK_SECONDS * 1000 - 100
-        assert world.meta()["position"] == pushed[-1]["position"]
-
-    async def test_the_aged_position_never_runs_past_the_track(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 295, 300))
-        marker = len(world.recorder.envelopes)
-
-        await world.advance(3 * POSITION_TICK_SECONDS)
-
-        pushed = _pushes(world, marker)
-        assert pushed, "nothing pushed the aged position"
-        assert all(p["position"] <= p["duration"] for p in pushed), pushed
-        assert pushed[-1]["position"] == pushed[-1]["duration"]
+        assert world.session()["position"]["rate"] == 1.0
+        assert world.position_ms() - taken >= OLD_TICK_SECONDS * 1000 - 100
 
     async def test_a_paused_position_keeps_what_it_had_aged_to(self, world):
         """The clock is moved on between the snapshot and the pause on purpose:
@@ -798,40 +796,38 @@ class TestProgress:
 
         await world.pauses()
 
-        frozen = world.meta()["position"]
+        frozen = world.position_ms()
         assert frozen >= 34_900, f"the pause discarded the five seconds that had played: {frozen} ms"
         marker = len(world.recorder.envelopes)
         await world.advance(30)
         await world.send(ssnc("snam", "iPhone de Léo".encode()))   # any publish
-        assert world.meta()["position"] == frozen
+        assert world.position_ms() == frozen
         assert _pushes(world, marker) == []
 
     async def test_playing_again_resumes_ageing_from_the_frozen_point(self, world):
         await _on_air(world)
         await world.send(_progress(0, 30, 300))
         await world.pauses()
-        frozen = world.meta()["position"]
+        frozen = world.position_ms()
         await world.advance(30)
 
         await world.resumes()
 
-        resumed = world.meta()["position"]
+        resumed = world.position_ms()
         assert frozen <= resumed < frozen + 1000, "resuming restarted or skipped the track"
-        marker = len(world.recorder.envelopes)
-        await world.advance(POSITION_TICK_SECONDS)
-        pushed = _pushes(world, marker)
-        assert pushed and pushed[-1]["position"] > resumed + 5_000, "the playhead stayed frozen"
+        await world.advance(OLD_TICK_SECONDS)
+        assert world.position_ms() > resumed + 5_000, "the playhead stayed frozen"
 
     async def test_a_snapshot_taken_while_paused_does_not_start_ageing(self, world):
         await _on_air(world)
         await world.pauses()
         await world.send(_progress(0, 30, 300))
-        taken = world.meta()["position"]
+        taken = world.position_ms()
 
         await world.advance(30)
         await world.send(ssnc("snam", "iPhone de Léo".encode()))   # any publish
 
-        assert world.meta()["position"] == taken
+        assert world.position_ms() == taken == 30_000
 
     async def test_a_malformed_progress_payload_is_ignored(self, world):
         await _on_air(world)
@@ -839,7 +835,7 @@ class TestProgress:
 
         await world.send(ssnc("prgr", b"not/a/number"))
 
-        assert world.meta()["duration"] == 300_000
+        assert world.session()["duration_ms"] == 300_000
         assert world.playing()
 
     async def test_a_progress_payload_of_the_wrong_shape_is_ignored(self, world):
@@ -848,73 +844,47 @@ class TestProgress:
 
         await world.send(ssnc("prgr", b"12345"))
 
-        assert world.meta()["duration"] == 300_000
+        assert world.session()["duration_ms"] == 300_000
         assert world.playing()
 
 
-class TestThePositionTicker:
-    """Live clients interpolate locally; this only bounds how stale a *new*
-    connection's initial_state can be — a page refresh mid-track seeds its bar
-    from `system_state.metadata["position"]`."""
+class TestNoPositionTicker:
+    """The old source re-published the aged playhead every 10 s so that a new
+    connection's initial state was never more than 10 s stale. The anchor
+    replaces it: any client computes the playhead from the state it is handed,
+    so a steady playhead puts nothing on the wire."""
 
-    async def test_it_pushes_the_aged_position_while_a_track_plays(self, world):
+    async def test_a_new_client_reads_the_playhead_where_it_is(self, world):
         await _on_air(world)
         await world.send(_progress(0, 30, 300))
         marker = len(world.recorder.envelopes)
 
-        await world.advance(2 * POSITION_TICK_SECONDS)
+        await world.advance(2 * OLD_TICK_SECONDS)
 
-        pushed = _pushes(world, marker)
-        assert len(pushed) >= 2
-        assert pushed[-1]["duration"] == world.meta()["duration"]
-        assert pushed[-1]["position"] > pushed[0]["position"] > 30_000
+        assert world.recorder.envelopes[marker:] == [], "a steady playhead was broadcast"
+        assert abs(world.position_ms() - (30_000 + 2 * OLD_TICK_SECONDS * 1000)) < 50
 
-    async def test_it_stays_quiet_while_nothing_is_playing(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        await world.pauses()
-        marker = len(world.recorder.envelopes)
-
-        await world.advance(6 * POSITION_TICK_SECONDS)
-
-        assert _pushes(world, marker) == []
-
-    async def test_it_stays_quiet_for_a_track_of_unknown_length(self, world):
+    async def test_a_track_of_unknown_length_has_no_playhead(self, world):
         """A sender that never sends `prgr` leaves the duration unknown;
-        broadcasting that would seed every new client's bar with a zero-length
+        publishing a playhead would seed every client's bar with a zero-length
         track."""
         await _on_air(world)
-        marker = len(world.recorder.envelopes)
 
-        await world.advance(6 * POSITION_TICK_SECONDS)
+        await world.advance(6 * OLD_TICK_SECONDS)
 
-        assert _pushes(world, marker) == []
-        assert "duration" not in world.meta()
-
-    async def test_transport_actions_never_stack_a_second_ticker(self, world):
-        """Every pause and resume stops and restarts the ticker. Two live tickers
-        double every position broadcast, and only one of them is ever stopped —
-        the other outlives the pause, or the session, and goes on publishing."""
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        for _ in range(3):
-            await world.pauses()
-            await world.resumes()
-        marker = len(world.recorder.envelopes)
-
-        await world.advance(3 * POSITION_TICK_SECONDS + 1)
-
-        assert len(_pushes(world, marker)) == 3
+        assert world.session()["position"] is None
+        assert world.session()["duration_ms"] is None
+        assert world.positions() == []
 
     async def test_a_stopped_source_pushes_no_position(self, world):
-        """Left running, the ticker goes on broadcasting a position for a source
-        that is no longer active."""
+        """A playhead broadcast for a source that is no longer selected moves
+        a bar nobody should see."""
         await _on_air(world)
         await world.send(_progress(0, 30, 300))
         await world.leave()
         marker = len(world.recorder.envelopes)
 
-        await world.advance(6 * POSITION_TICK_SECONDS)
+        await world.advance(6 * OLD_TICK_SECONDS)
 
         assert _pushes(world, marker) == []
 
@@ -943,7 +913,7 @@ class TestTheWireFormat:
         await reader._process_buffer("".join(_item(*i) for i in _bundle(None, "Says")).encode())
 
         assert heard.kinds() == ["tags"]
-        assert heard.events[0].value.get("title") == "Says"
+        assert heard.events[0].value["title"] == "Says"
         assert heard.events[0].rtptime is None
 
     async def test_a_payload_that_is_not_base64_is_treated_as_absent(self):
@@ -995,7 +965,7 @@ class TestTheWireFormat:
             ssnc("mden", _stamp(RTP_A)),
         )
 
-        meta = world.meta()
+        meta = _shown(world.state())
         assert meta["title"] == "Says"
         assert meta["artist"] == "Nils Frahm"
         assert meta["album"] == "Spaces"
@@ -1008,13 +978,13 @@ class TestTheWireFormat:
         """
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        assert world.meta().get("album_art_url"), "no cover to lose"
+        assert _shown(world.state())["artwork"], "no cover to lose"
 
         await world.send(ssnc("mdst", _stamp(RTP_B)), ssnc("mden", _stamp(RTP_B)))
         await _after_the_hold(world)
 
-        assert world.meta()["title"] == "Says"
-        assert world.meta().get("album_art_url"), \
+        assert _shown(world.state())["title"] == "Says"
+        assert _shown(world.state())["artwork"], \
             "the cover was unpaired by a bundle that carried no track"
 
     async def test_a_picture_with_no_bytes_is_not_published_as_a_cover(self, world):
@@ -1023,7 +993,7 @@ class TestTheWireFormat:
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, None))
 
         assert world.source.get_artwork() is None
-        assert "album_art_url" not in world.meta()
+        assert _shown(world.state())["artwork"] is None
 
 
 class TestTheReadLoop:
@@ -1183,7 +1153,7 @@ class TestTheMetadataPipe:
             with caplog.at_level("WARNING", logger=world.source._logger.name):
                 await world.select()
             assert any("shairport-sync" in r.message for r in caplog.records)
-            assert world.state()["source_state"] == "ready"
+            assert world.state()["service"] == "running" and world.session() is None
         finally:
             await world.source.shutdown()
 
@@ -1193,7 +1163,7 @@ class TestTheMetadataPipe:
         monkeypatch.setattr(os, "mkfifo", Mock(side_effect=FileExistsError()))
         try:
             await world.select()
-            assert world.state()["source_state"] == "ready"
+            assert world.state()["service"] == "running" and world.session() is None
         finally:
             await world.source.shutdown()
 
@@ -1223,7 +1193,7 @@ class TestArtworkHandoff:
 
 class TestTheArtworkRoute:
     """`GET /api/airplay/artwork` — the cover the pipe delivered, served to the
-    player. `metadata.album_art_url` points at it with a `?v=<hash>` so the
+    player. `session.artwork` points at it with a `?v=<hash>` so the
     browser refetches exactly when the bytes change.
     """
 
@@ -1240,7 +1210,7 @@ class TestTheArtworkRoute:
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-        resp = self._client(world.source).get(world.meta()["album_art_url"])
+        resp = self._client(world.source).get(_shown(world.state())["artwork"])
 
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "image/png"
@@ -1253,7 +1223,7 @@ class TestTheArtworkRoute:
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
 
-        cache = self._client(world.source).get(world.meta()["album_art_url"]).headers["cache-control"]
+        cache = self._client(world.source).get(_shown(world.state())["artwork"]).headers["cache-control"]
 
         assert "private" in cache and "immutable" in cache
 
@@ -1273,7 +1243,7 @@ class TestTheArtworkRoute:
         URL would keep drawing."""
         await _on_air(world)
         await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        url = world.meta()["album_art_url"]
+        url = _shown(world.state())["artwork"]
 
         await world.leaves(PHONE)
 
@@ -1328,13 +1298,13 @@ class TestLifecycle:
                 ).encode())
                 for _ in range(200):
                     await asyncio.sleep(0.01)
-                    if world.meta().get("client_name"):
+                    if _shown(world.state())["senders"]:
                         break
             finally:
                 os.close(fd)
 
             assert world.active()
-            assert world.meta().get("client_name") == "iPhone de Léo"
+            assert _shown(world.state())["senders"] == ["iPhone de Léo"]
         finally:
             await world.leave()
             await world.source.shutdown()
@@ -1345,7 +1315,7 @@ class TestLifecycle:
         world.systemd.start = AsyncMock(return_value=False)
         try:
             await world.select()
-            assert world.state()["source_state"] == "error"
+            assert world.state()["service"] == "failed"
             assert made == []
         finally:
             await world.source.shutdown()
@@ -1366,7 +1336,7 @@ class TestLifecycle:
         monkeypatch.setattr(airplay_module, "MetadataReader", Refusing)
         try:
             await world.select()
-            assert world.state()["source_state"] == "error"
+            assert world.state()["service"] == "failed"
             assert len(made) == 1 and made[0].stopped
         finally:
             await world.source.shutdown()
@@ -1385,7 +1355,7 @@ class TestLifecycle:
             assert len(made) == 2
             assert made[0].stopped and not made[1].stopped
             await world.connects(MAC, "Mac mini de Léo")
-            assert world.meta().get("client_name") == "Mac mini de Léo"
+            assert _shown(world.state())["senders"] == ["Mac mini de Léo"]
         finally:
             await world.source.shutdown()
 

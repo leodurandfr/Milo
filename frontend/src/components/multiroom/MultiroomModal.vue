@@ -5,7 +5,7 @@
       <template #actions>
         <Toggle
           :modelValue="isMultiroomActive"
-          :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning"
+          :disabled="unifiedStore.systemState.switching || multiroomStore.isTransitioning"
           @change="handleMultiroomToggle"
         />
       </template>

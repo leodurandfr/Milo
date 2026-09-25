@@ -11,8 +11,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok } from '../helpers/apiCallMock';
+import { publishState, makeSession } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -520,16 +522,20 @@ describe('musicLibraryStore — revalidating the albums grid', () => {
 
 describe('musicLibraryStore — a catalog that was not answering', () => {
   let store;
+  let unified;
 
   beforeEach(async () => {
     resetApiCallMock();
     store = useMusicLibraryStore();
+    unified = useUnifiedAudioStore();
     // Navidrome is down: the storage list is still served from the mount table,
-    // but every count reads zero and every catalog call answers empty.
+    // but every count reads zero and every catalog call answers empty. The
+    // backend says so in the audio state's availability.
     apiCall.get.mockResolvedValueOnce(
-      ok({ storages: [{ ...NAS, track_count: 0, album_count: 0 }], scanning: false, catalog_ready: false })
+      ok({ storages: [{ ...NAS, track_count: 0, album_count: 0 }], scanning: false })
     );
     await store.loadStorages();
+    publishState(unified, { availability: { music_library: 'catalog_unavailable' } });
     await nextTick();
   });
 
@@ -546,18 +552,77 @@ describe('musicLibraryStore — a catalog that was not answering', () => {
     expect(store.albums).toHaveLength(0);
 
     apiCall.get.mockResolvedValueOnce(ok({ albums: [{ id: 'a-1' }, { id: 'a-2' }] }));
-    store.handleStoragesEvent({ data: { storages: [NAS], scanning: false, catalog_ready: true } });
+    publishState(unified, { availability: { music_library: null } });
     await nextTick();
     await vi.waitFor(() => expect(store.albums).toHaveLength(2));
   });
 
-  it('does not refetch on a push that merely repeats the good news', async () => {
-    store.handleStoragesEvent({ data: { storages: [NAS], scanning: false, catalog_ready: true } });
+  it('does not refetch on a state that merely repeats the good news', async () => {
+    publishState(unified, { availability: { music_library: null } });
     await nextTick();
     apiCall.get.mockClear();
 
-    store.handleStoragesEvent({ data: { storages: [NAS], scanning: false, catalog_ready: true } });
+    publishState(unified, { availability: { music_library: null } });
     await nextTick();
     expect(apiCall.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('musicLibraryStore — now playing', () => {
+  let store;
+  let unified;
+
+  const TRACKS = [
+    { id: 'tr-1', title: 'Angel', albumId: 'al-42', artistId: 'ar-7' },
+    { id: 'tr-2', title: 'Risingson', albumId: 'al-42', artistId: 'ar-7' },
+  ];
+  const details = (overrides = {}) => ({
+    kind: 'music_library', queue: TRACKS, queue_index: 1, shuffle: false,
+    track_id: 'tr-2', album_id: 'al-42', artist_id: 'ar-7', ...overrides,
+  });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    unified = useUnifiedAudioStore();
+  });
+
+  it('names the live track from the session and navigates by the details ids', () => {
+    publishState(unified, {
+      source: 'music_library', service: 'running',
+      session: makeSession({ phase: 'paused', title: 'Risingson', artist: 'Massive Attack',
+        album: 'Mezzanine', artwork: '/api/music-library/cover/al-42' }),
+      details: details(),
+      controls: ['resume', 'seek', 'prev', 'set_shuffle', 'play_index', 'stop'],
+    });
+
+    expect(store.nowPlaying).toMatchObject({
+      trackId: 'tr-2', title: 'Risingson', albumId: 'al-42', artistId: 'ar-7',
+      albumArtUrl: '/api/music-library/cover/al-42',
+    });
+    expect(store.queueIndex).toBe(1);
+    expect(store.isPlaying).toBe(false);
+    // The last track of the queue: the backend offers no next.
+    expect(store.canSend('next')).toBe(false);
+    expect(store.canSend('resume')).toBe(true);
+  });
+
+  it('keeps the saved queue a play press reopens after the session ended', () => {
+    publishState(unified, {
+      source: 'music_library', service: 'running',
+      resume: { title: 'Risingson', artist: 'Massive Attack', album: 'Mezzanine',
+        artwork: null, duration_ms: 300000, position_ms: 81000 },
+      details: details(),
+      controls: ['resume', 'play_index', 'stop'],
+    });
+
+    expect(store.nowPlaying?.title).toBe('Risingson');
+    expect(store.canSend('set_shuffle')).toBe(false);
+  });
+
+  it('has nothing to show once the queue is gone', () => {
+    publishState(unified, { source: 'music_library', service: 'running' });
+    expect(store.nowPlaying).toBeNull();
+    expect(store.queue).toEqual([]);
   });
 });

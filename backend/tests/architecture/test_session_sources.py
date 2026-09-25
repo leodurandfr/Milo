@@ -212,6 +212,6 @@ class RadioSource(MpvAudioSource):
     def _do_start(self):
         self._shazam = Shazam(on_track_changed=self._on_track)
     async def _on_track(self, track):
-        self._update_connection_state()
+        self._publish()
 """
     assert callbacks_that_touch_state(ast.parse(drifted)) == ["_on_track is a callback and does not post"]

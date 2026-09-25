@@ -5,7 +5,7 @@ Settings Routes – Version with app deactivation and process stopping
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 from backend.core.models.audio_state import AudioSource
-from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
+from backend.api.route_helpers import api_error_handler
 from backend.api.responses import BulkSettingsResponse
 from backend.config.constants import AUDIO_SOURCE_APPS
 from backend.api.models import (
@@ -398,11 +398,10 @@ def create_settings_router(
                     # === EQUALIZER ===
                     elif app == 'equalizer':
                         # Get the active source for logging
-                        current_state = state_machine.get_current_state()
-                        active_source = coerce_audio_source_or_none(current_state["active_source"])
+                        active_source = state_machine.system_state.active_source
 
                         operations_log.append("Disabling equalizer effects")
-                        logger.info(f"Disabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
+                        logger.info(f"Disabling equalizer effects for active source: {active_source.value}")
                         success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
                         if not success:
                             raise ValueError("Failed to disable equalizer effects")
@@ -433,11 +432,10 @@ def create_settings_router(
                     # === EQUALIZER ===
                     elif app == 'equalizer':
                         # Get the active source for logging
-                        current_state = state_machine.get_current_state()
-                        active_source = coerce_audio_source_or_none(current_state["active_source"])
+                        active_source = state_machine.system_state.active_source
 
                         operations_log.append("Enabling equalizer effects")
-                        logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
+                        logger.info(f"Enabling equalizer effects for active source: {active_source.value}")
                         success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
                         if not success:
                             raise ValueError("Failed to enable equalizer effects")

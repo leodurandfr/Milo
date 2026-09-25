@@ -3,11 +3,12 @@
 // Central state for the Music Library source (Family C). Two concerns:
 //
 //   1. Now-playing — DERIVED from the central audio mirror
-//      (unifiedAudioStore.systemState.metadata) gated on active_source ===
-//      'music_library', exactly like cdStore. The backend broadcasts the queue
-//      projection (title/artist/album/art + queue/index/shuffle) as
-//      standard source metadata, healed by full_state on every reconnect, so
-//      there is no delta-fed now-playing state to maintain here.
+//      (unifiedAudioStore.systemState) gated on source === 'music_library',
+//      exactly like cdStore. The backend publishes the track in `session` (or
+//      `resume` once stopped with a queue to reopen), the queue and its ids in
+//      `details`, and the commands it takes now in `controls` — replaced whole
+//      on every state and on reconnect, so there is no delta-fed now-playing
+//      state to maintain here.
 //
 //   2. Catalog — browse/search/playlist data fetched on demand from
 //      /api/music-library/* (Navidrome via the backend proxy) and cached so
@@ -42,7 +43,7 @@ const ALBUMS_PAGE_SIZE = 40;
 const ARTISTS_RENDER_CHUNK = 40;
 // Cover sizes (square max dimension Navidrome resizes to), scaled by
 // devicePixelRatio (capped at 2) so covers stay crisp on HiDPI screens. The
-// player uses the backend-provided full-size album_art_url as-is.
+// player uses the session's full-size artwork as the backend publishes it.
 //   - grid: auto-fill never leaves a card wider than ~240px CSS, so the largest
 //     cover ever painted is a 2-column phone at @3x — 569 physical px. 300 is
 //     the SMALLEST base that still covers it (2 x 300 >= 569, the cap being 2).
@@ -146,13 +147,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
    * Apply a storage picture — the WS push and the initial GET share this, so
    * both paths land identically.
    */
-  function applyStorages({ storages: list, scanning, catalog_ready: ready }) {
+  function applyStorages({ storages: list, scanning }) {
     if (Array.isArray(list)) {
       storages.value = list;
       storagesLoaded.value = true;
     }
     if (typeof scanning === 'boolean') applyScanning(scanning);
-    if (typeof ready === 'boolean') catalogReady.value = ready;
   }
 
   async function loadStorages({ force = false } = {}) {
@@ -207,32 +207,48 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // =========================================================================
   // NOW PLAYING (derived from the central mirror)
   // =========================================================================
-  const meta = computed(() =>
-    unifiedStore.systemState.active_source === 'music_library'
-      ? (unifiedStore.systemState.metadata || {})
-      : {}
+  const selected = computed(() =>
+    unifiedStore.systemState.source === 'music_library' ? unifiedStore.systemState : null
   );
+  const details = computed(() =>
+    selected.value?.details?.kind === 'music_library' ? selected.value.details : null
+  );
+  const session = computed(() => selected.value?.session ?? null);
 
-  const queue = computed(() => meta.value.queue || []);
-  const queueIndex = computed(() => meta.value.queue_index ?? -1);
-  const shuffle = computed(() => !!meta.value.shuffle);
-  const currentTrackId = computed(() => meta.value.track_id || null);
-  const isPlaying = computed(() => !!meta.value.is_playing);
+  const queue = computed(() => details.value?.queue ?? []);
+  const queueIndex = computed(() => details.value?.queue_index ?? -1);
+  const shuffle = computed(() => !!details.value?.shuffle);
+  const currentTrackId = computed(() => details.value?.track_id ?? null);
+  const phase = computed(() => session.value?.phase ?? null);
+  const isPlaying = computed(() => phase.value === 'playing');
 
-  // Live now-playing, or null when the queue is cleared (READY).
+  // Whether the source takes `command` right now (next is absent on the last
+  // track, seek while loading, everything but resume/play_index/stop once stopped).
+  const canSend = (command) => !!selected.value?.controls.includes(command);
+
+  // The queue's current track: live, or the saved queue a play press reopens.
+  // Null when there is no queue at all (an explicit stop, a queue played out).
   const nowPlaying = computed(() => {
-    const m = meta.value;
-    if (!m.track_id && !m.title) return null;
+    const d = details.value;
+    if (!d) return null;
+    const track = session.value ?? selected.value.resume;
     return {
-      trackId: m.track_id,
-      title: m.title,
-      artist: m.artist,
-      album: m.album,
-      albumId: m.album_id,
-      artistId: m.artist_id,
-      albumArtUrl: m.album_art_url,
+      trackId: d.track_id,
+      title: track?.title ?? null,
+      artist: track?.artist ?? null,
+      album: track?.album ?? null,
+      albumId: d.album_id,
+      artistId: d.artist_id,
+      albumArtUrl: track?.artwork ?? null,
     };
   });
+
+  // Why the library cannot be browsed right now, or null (drawn by the view
+  // itself, not the status card): 'no_storage' (nothing mounted carries a
+  // library) or 'catalog_unavailable' (Navidrome is not answering).
+  const availability = computed(() =>
+    unifiedStore.systemState.availability.music_library ?? null
+  );
 
 
 
@@ -746,8 +762,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // back from an update — and during that window every count reads zero and
   // every list comes back empty, which is exactly what a storage space holding
   // no music looks like. The view needs the difference: the generic empty state
-  // tells someone whose NAS is mounted and full to go connect a NAS.
-  const catalogReady = ref(true);
+  // tells someone whose NAS is mounted and full to go connect a NAS. Read from
+  // the state's availability, the one place the backend says it.
+  const catalogReady = computed(() => availability.value !== 'catalog_unavailable');
 
   // Tracks indexed in the storage space on screen. This is the honest progress
   // figure: Navidrome's global scan status reports a `count` that does NOT move
@@ -1045,7 +1062,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     queueIndex,
     shuffle,
     currentTrackId,
+    phase,
     isPlaying,
+    canSend,
 
     // Favorites (liked songs)
     likedSongs,
@@ -1123,8 +1142,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     search,
     clearSearch,
 
-    // Scan state (pushed with the storage list)
+    // Scan state (pushed with the storage list) and availability (the audio state)
     isScanning,
+    availability,
     catalogReady,
     activeStorageTrackCount,
     rescan,

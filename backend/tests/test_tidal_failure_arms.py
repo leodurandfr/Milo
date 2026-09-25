@@ -346,13 +346,15 @@ class TestTheSourceBoot:
         self, monkeypatch, tmp_path, unit_start
     ):
         """No unit, no controller: nothing may knock on a socket that no daemon
-        owns, and the card says the source failed rather than "ready"."""
+        owns, and the state says the service failed to start rather than
+        "running"."""
         world = TidalWorld(monkeypatch, tmp_path)
         world.systemd.start = unit_start
         try:
             await world.select()
 
-            assert world.state()["source_state"] == "error"
+            assert world.state()["service"] == "failed"
+            assert world.state()["service_error"]["reason"] == "start_failed"
             assert world.daemon.connections == 0
             world.systemd.stop.assert_awaited()
         finally:
@@ -408,7 +410,8 @@ class TestTheSourceBoot:
 
             assert attached_at_unit_start == [0]
             assert world.daemon.received == ["startService"]
-            assert world.state()["source_state"] == "ready"
+            assert world.state()["service"] == "running"
+            assert world.session() is None
         finally:
             await world.source.shutdown()
 
@@ -450,7 +453,7 @@ class TestTheSourceStop:
 
         world.systemd.stop.assert_awaited()
         assert world.pid is None
-        assert world.state()["active_source"] == "none"
+        assert world.state()["source"] == "none"
 
     async def test_a_daemon_already_gone_still_lets_the_unit_stop(self, world):
         """The daemon killed, its socket closed: there is nobody to withdraw

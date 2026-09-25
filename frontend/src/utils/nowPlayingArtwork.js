@@ -1,6 +1,6 @@
 // frontend/src/utils/nowPlayingArtwork.js
 // The one rule for "what is in the cover slot", for the sources whose artwork
-// rides on `systemState.metadata` (the AudioPlayerFull family) — and, for
+// is read from the now-playing record (the AudioPlayerFull family) — and, for
 // `artworkFallback`, for every source there is.
 //
 // Read by AudioPlayerFull — what the player paints — AND by useScreensaver /
@@ -19,24 +19,24 @@
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 
 /**
- * @param {object|null} metadata - systemState.metadata (or the player's cached copy)
+ * @param {object|null} record - a session, a resume record, or the player's snapshot of one
  * @returns {string} cover URL, or '' when there is none
  */
-export function nowPlayingArtwork(metadata) {
-  return (metadata || {}).album_art_url || '';
+export function nowPlayingArtwork(record) {
+  return record?.artwork || '';
 }
 
 /**
- * Whether the backend has announced a cover it is still fetching. CD sets it
- * while the Cover Art Archive answers — seconds normally, over a minute when
- * the archive retries — so the slot veils its placeholder rather than swapping
- * it for the cover a moment later.
+ * Whether the backend has announced a cover it is still fetching. Only the CD
+ * does, in its details, while the Cover Art Archive answers — seconds
+ * normally, over a minute when the archive retries — so the slot veils its
+ * placeholder rather than swapping it for the cover a moment later.
  *
- * @param {object|null} metadata - systemState.metadata
+ * @param {object|null} state - unifiedAudioStore.systemState
  * @returns {boolean}
  */
-export function nowPlayingArtworkPending(metadata) {
-  return !!(metadata || {}).artwork_pending;
+export function nowPlayingArtworkPending(state) {
+  return state?.details?.kind === 'cd' && state.details.artwork_pending === true;
 }
 
 // Sources shipping a static image for the no-cover case. Everything else shows

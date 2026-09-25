@@ -384,23 +384,6 @@ class TestTheSnapclientConfigPush:
 
         assert any("No client_registry_service" in r.message for r in caplog.records)
 
-    async def test_a_broadcast_that_fails_does_not_fail_the_config_write(
-        self, pieces, caplog
-    ):
-        """It is the last step after `/etc` was written and snapserver restarted.
-        Raising there would answer 500 for a change that fully landed, and the
-        settings page would offer to apply it again — another restart, another
-        silence in every room."""
-        _, _, state_machine, _, _ = pieces
-        state_machine.broadcast = AsyncMock(side_effect=RuntimeError("no ws clients"))
-        client = self._client(pieces)
-
-        with caplog.at_level(logging.ERROR, logger="backend.api.routing"):
-            response = self._apply(client)
-
-        assert response.status_code == 200
-        assert any("Error publishing Snapcast update" in r.message for r in caplog.records)
-
     async def test_a_server_config_read_that_fails_still_answers_the_capabilities(
         self, pieces, caplog
     ):

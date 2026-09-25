@@ -35,7 +35,7 @@ from backend.shared import journalctl as journalctl_module
 from backend.sources.mac import source as mac_module
 from backend.sources.mac.source import MacSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, make_settings, make_state_machine, settle,
+    AsyncioProxy, WireReader, make_settings, make_state_machine, settle,
 )
 
 UNIT = "milo-mac.service"
@@ -143,7 +143,7 @@ def _option(argv: Tuple[str, ...], flag: str) -> Optional[str]:
     return None
 
 
-class MacWorld:
+class MacWorld(WireReader):
     """The Mac source on a real state machine, in a world the scenario drives."""
 
     def __init__(self, monkeypatch) -> None:
@@ -349,28 +349,9 @@ class MacWorld:
 
     # === what the wire says ===
 
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def active(self) -> bool:
-        return self.state()["source_state"] == "active"
-
     def names(self) -> List[str]:
-        return (self.state()["metadata"] or {}).get("client_names", [])
-
-    def envelopes(self, category: str, kind: str) -> List[Dict[str, Any]]:
-        return [e for e in self.recorder.envelopes if e["category"] == category and e["type"] == kind]
-
-    def errors(self) -> List[str]:
-        return [e["data"]["reason"] for e in self.envelopes("source", "error")]
+        session = self.session()
+        return session["senders"] if session else []
 
     def cleared(self) -> int:
         return len(self.envelopes("source", "error_cleared"))
-
-    def published(self) -> List[Dict[str, Any]]:
-        out = []
-        for e in self.envelopes("source", "state_changed"):
-            full = (e.get("data") or {}).get("full_state")
-            if full:
-                out.append({"state": full["source_state"], **(full.get("metadata") or {})})
-        return out

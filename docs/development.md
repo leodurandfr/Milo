@@ -56,7 +56,7 @@ The Vite frontend automatically proxies requests to the backend (see `frontend/v
 ```
 backend/
 ├── core/                      # Core infrastructure
-│   ├── models/               # Domain models (AudioSource, SourceState, SystemAudioState)
+│   ├── models/               # Domain models (AudioSource, the AudioState wire, Session/Phase/ServiceState)
 │   ├── state.py              # AudioStateMachine (single source of truth)
 │   ├── audio_source.py       # BaseAudioSource abstract class
 │   ├── settings.py           # SettingsService
@@ -183,16 +183,25 @@ category `source`, you **must** include `"source"` in `data`.
 ```javascript
 {
   "category": "source",          // source | system | routing | equalizer |
-                                 // multiroom | settings | volume | programs
-  "type": "state_changed",
+                                 // multiroom | settings | volume | programs | network
+  "type": "state",
   "origin": "spotify",           // populated from data.source
-  "data": {
+  "data": {                      // the whole AudioState, as GET /api/audio/state returns it
     "source": "spotify",
-    "metadata": { ... }
+    "switching": false,
+    "service": "running",
+    "session": { "phase": "playing", "title": "...", "position": { "ms": 45000, "at": 1790270000.25, "rate": 1.0 }, ... },
+    "controls": ["pause", "seek", "next", "prev"],
+    ...
   },
   "timestamp": 1234567890
 }
 ```
+
+The audio state is never sent in pieces: `source/state` carries all of it whenever a field other than
+the playhead changes, `source/position` carries only a playhead discontinuity (a seek, a speed
+change, a reading more than 2 s off the anchor), and `source/session_ended` announces the end of a
+session. The fields are listed in the [API overview](api-overview.md#the-audio-state).
 
 ## Adding a new audio source
 
@@ -215,10 +224,9 @@ class AudioSource(Enum):
     MY_SOURCE = "my_source"  # ← Add here
 ```
 
-`SourceState` values: `STARTING`, `READY` (engine up, nothing in session), `ACTIVE`
-(a session or content exists — a paused radio is still ACTIVE), `ERROR` (not
-operational; written by the state machine when a transition fails, which leaves
-the source selected so re-selecting it retries).
+The state carries every source's availability, so the new id also needs a field in
+`backend/core/models/audio_wire.py::Availability`; the frontend's strict `AudioStateSchema` derives
+its keys from `ALL_AUDIO_SOURCES` (step 6).
 
 ### 2. Create the source
 
@@ -227,10 +235,25 @@ the source selected so re-selecting it retries).
 message to the source's actor (one mailbox, one task: `core/audio_source.py`), which is what
 serializes a source's lifecycle, commands, pause timer and state reads; `command()` validates against
 `COMMANDS` before posting. What you implement are the hooks the handlers call: `_do_start` (the only
-`@abstractmethod`), plus `_do_stop`, `_handle_command`, `_cleanup`, `_reset_playback_state`,
-`_do_restart`, `_do_release`/`_do_acquire` (a lighter multiroom reroute, Spotify and Bluetooth) and
-`refresh_metadata` as needed — and `_connection_state()`, the pure half of your publisher, which the
-actor compares after each command to republish a state a handler changed without saying so.
+`@abstractmethod`), plus `_do_stop`, `_handle_command`, `_cleanup`, `_do_restart`,
+`_do_release`/`_do_acquire` (a lighter multiroom reroute, Spotify and Bluetooth) and
+`refresh_metadata` as needed.
+
+**What the source publishes is its view** (`SourceView`), which the base composes from four pure
+hooks: `_session_fields(session)` (title, artist, album, artwork, senders, duration_ms),
+`_resume_view()` (what play would bring back while no session runs), `_details()` (one of the
+`Details` models in `core/models/audio_wire.py`, or `None`) and `_controls()` (the exact command
+names the source takes *now* and that would do something — the frontend draws a button iff its
+command is listed). Override `availability()` too if something of the source's own can stop it (a
+disc, an account, a storage), and call `_availability_changed()` when that answer moves;
+connectivity is the state machine's. After changing anything the view reads, call `_publish()`, or
+`_publish_changes()` to publish only if the view moved; the actor also runs `_republish_if_moved()`
+after every message, so a handler that forgot is caught, not relied on. The playhead is an anchor
+kept by the base: `_anchor_position(ms)` on a discontinuity (a seek, a new track, a speed change),
+`_observe_position(ms)` for a reading, which moves the anchor only past 2 s of drift — never publish
+a position on a timer. The ends of sessions announce themselves: `end_session(reason)` sends
+`source/session_ended`. A source never builds a payload, calls `state_machine.update_source_view`,
+or broadcasts a state event.
 
 There is **no `status()`, `get_status()` or `_get_status()`** anywhere in the hierarchy. Status is
 broadcast over the WebSocket, never polled — a `GET /<source>/status` route is explicitly forbidden
@@ -238,12 +261,12 @@ and `tests/architecture/test_source_conformance.py` fails the build if one appea
 
 `backend/sources/my_source/source.py`:
 ```python
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import SourceState
+from backend.core.models.session import CommandScope, Phase, Session
 from backend.sources.my_source.models import SeekParams
 
 
@@ -254,7 +277,10 @@ class MySource(BaseAudioSource):
     # models live in sources/my_source/models.py (a pure pydantic/typing leaf).
     # An entry with no dispatch arm — or an arm with no entry — fails
     # tests/test_command_contract.py.
-    COMMANDS = {"play": None, "seek": SeekParams}
+    COMMANDS = {"pause": None, "resume": None, "seek": SeekParams}
+    # What each command acts on: a SESSION command with no session is refused
+    # by the base, once, for every source.
+    COMMAND_SCOPES = {name: CommandScope.SESSION for name in COMMANDS}
 
     def __init__(self, config, state_machine, settings_service, systemd_manager):
         super().__init__(
@@ -267,15 +293,10 @@ class MySource(BaseAudioSource):
         )
 
     async def _do_start(self) -> bool:
-        """Bring the source up. The @abstractmethod — start() calls this under
-        the transition lock, then publishes the resulting state."""
-        if not await self._start_service_and_wait():
-            return False
-        # READY = service up, no client connected yet. Use set_state (or
-        # emit_connection_state for receivers); never touch the state machine's
-        # private state.
-        self.set_state(SourceState.READY)
-        return True
+        """Bring the source up. The @abstractmethod — the state machine reads
+        the source's view once the start returned (publishes made during a
+        transition are dropped, and this re-read recovers them)."""
+        return await self._start_service_and_wait()
 
     async def _do_stop(self) -> bool:
         """Tear down. The state machine moves the active source to NONE itself."""
@@ -284,11 +305,32 @@ class MySource(BaseAudioSource):
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle commands on already-validated params. Only state-dependent
         checks belong here — shape, type and range are enforced by COMMANDS[cmd]."""
-        if cmd == "play":
-            return self.success_response("Playing")
+        if cmd in ("pause", "resume"):
+            # Ask the player. The phase moves when the player announces it,
+            # never on the command's word.
+            return self.success_response(f"{cmd} sent")
         if cmd == "seek":
+            # A discontinuity: the next publish carries the new anchor.
+            self._anchor_position(params.position_ms)
             return self.success_response(f"Seeked to {params.position_ms}ms")
         return self.error_response(f"Unhandled command: {cmd}")
+
+    # === The view ===
+
+    def _session_fields(self, session: Session) -> Dict[str, Any]:
+        """The live session's content. An empty string is published as null."""
+        return {"title": ..., "artist": ..., "album": ..., "artwork": ..., "duration_ms": ...}
+
+    def _controls(self) -> List[str]:
+        """Exact command names, and only those that would act now."""
+        session = self._session
+        if session is None:
+            return []
+        if session.phase is Phase.PAUSED:
+            return ["resume", "seek"]
+        if session.phase is Phase.LOADING:
+            return ["pause"]  # seek is never listed while loading
+        return ["pause", "seek"]
 ```
 
 **If your source plays through mpv** (like Radio, Podcast, CD and Music Library), extend
@@ -301,8 +343,8 @@ playhead while sound plays; never hand-roll a monitor loop. A source with hardwa
 `DeviceToken`, which a stop neither voids nor cuts.
 
 **If a daemon holds the session** (a sender on shairport-sync, a phone on go-librespot or on the
-Tidal daemon; Qobuz and Mac follow), Milō does not open or end it: after each burst of what
-the daemon announced, hand
+Tidal daemon, an app on qobuz-proxy, the Macs on roc-recv, a device on BlueALSA), Milō does not
+open or end it: after each burst of what the daemon announced, hand
 `reconcile(DaemonSnapshot(sender, phase))` where the daemon says the session stands — or
 `reconcile(None)` when it holds none — and publish if anything moved (`_publish_changes()`).
 Declare `SESSION_DAEMON = True` so the base watches the daemon's process (a pidfd; a daemon killed
@@ -310,10 +352,12 @@ without a goodbye ends the session `DAEMON_DIED`), and `IDLE_POLICY = IdlePolicy
 `_request_end()` that asks the daemon for the end: the end comes back through `reconcile`, recorded
 as the idle timeout. Open no session before the daemon names a track. `airplay/` is the reference
 for a daemon that only announces; `spotify/` for one that can also be asked where it stands (read
-that answer once per burst and let it alone decide the phase — a failed read changes nothing).
+that answer once per burst and let it alone decide the phase — a failed read changes nothing);
+`tidal/` for one whose feed carries the playhead too (each reading goes to `_observe_position()`,
+then one `_publish_changes()` per burst).
 
 The authoritative shape is the family table in [CLAUDE.md](../CLAUDE.md) § *Audio sources* plus an
-existing source — `radio/` is the reference for family C, `qobuz/` for family B, `bluetooth/` for
+existing source — `radio/` is the reference for family C, `qobuz/` for family B, `mac/` for
 family A.
 
 ### 3. Register in container
@@ -442,21 +486,25 @@ these were missed — walk the whole table):
 | `locales/*.json` (8 files) | `audioSources.<id>` — `english.json` first (canonical/fallback) |
 | `backend/config/constants.py` | id in `DEFAULT_DOCK_APPS` (`VALID_DOCK_APPS` derives from the `AudioSource` enum) |
 
-View-component sketch — HTTP goes through `apiCall`, never raw `fetch`/axios:
+View-component sketch — the state is read from `unifiedAudioStore.systemState` (the backend's
+`AudioState`, replaced whole by every `source/state`), a button exists iff its command is in
+`controls`, and HTTP goes through `apiCall` (here inside `sendCommand`), never raw `fetch`/axios:
 ```vue
 <script setup>
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { apiCall } from '@/services/apiCall';
 
 const audioStore = useUnifiedAudioStore();
-const metadata = computed(() => audioStore.metadata || {});
+// This source's slice of the state: another source's session is not ours.
+const isSelected = computed(() => audioStore.systemState.source === 'my_source');
+const session = computed(() => (isSelected.value ? audioStore.systemState.session : null));
+const controls = computed(() => (isSelected.value ? audioStore.systemState.controls : []));
+const isPlaying = computed(() => session.value?.phase === 'playing');
 
-async function play() {
-  await apiCall.post('/api/my_source/play', null, {
-    category: 'my_source',
-    message: 'Error starting playback',
-  });
+function togglePlay() {
+  // POST /api/audio/control/my_source — only a command the source lists now.
+  const command = isPlaying.value ? 'pause' : 'resume';
+  if (controls.value.includes(command)) audioStore.sendCommand('my_source', command);
 }
 </script>
 ```
@@ -491,22 +539,26 @@ This is an excellent reference for building a complex audio source with external
 ### Sidecar source: Qobuz (Family B)
 
 Qobuz Connect (`backend/sources/qobuz/`) is a **Family B** source (passive
-receiver, `showControls=false`, like AirPlay) backed by a reverse-engineered
+receiver with no commands, like AirPlay) backed by a reverse-engineered
 sidecar, **qobuz-proxy**. It is the reference for wiring a source whose playback
 is driven entirely by an external app:
 
 - **No `routes.py`, no binary artwork.** `QobuzSource` starts `milo-qobuz.service`
-  and a `QobuzMonitor` that polls `GET http://127.0.0.1:8689/api/status` (~1 Hz)
-  and maps `playing`/`paused` → ACTIVE via `emit_connection_state(...)`, with a
-  short idle-grace window so a track change doesn't flash "ready to stream".
-  Artwork is a Qobuz CDN URL loaded straight by the kiosk. Position/duration ride
-  the same poll (see the patch below), so the player adds
-  `AudioPlayerFull :showProgress="true"` — a **read-only** bar above the source
-  bar (no seek: there is no local control channel).
-  **AirPlay is the one passive player that does not draw it**, because a Realtime sender
-  (a Mac's system audio, Spotify) never says it paused and the bar ran on through
-  a paused track; only a Buffered one (iPhone Music) does (`AirPlaySource`'s
-  docstring lists what was measured).
+  and a `QobuzMonitor` that polls `GET http://127.0.0.1:8689/api/status` (~1 Hz).
+  The session belongs to the Qobuz cloud, so the source follows it through
+  `reconcile(DaemonSnapshot)`: the session lives while `renderer_active` says the
+  app has picked Milō, and its phase is the player's own `player_state` — never
+  upstream's folded `status`, whose "idle" is a load, a failure and a departed app
+  alike. Artwork is a Qobuz CDN URL loaded straight by the kiosk. Position and
+  duration ride the same poll (see the adaptations below); each reading goes to
+  `_observe_position()`, so only a jump (a seek in the app, a new track) is
+  published. `AudioPlayerFull` draws what the state carries: `controls` is always
+  empty (there is no local control channel, so no transport and no seek), and the
+  session's duration and position give a **read-only** bar above the source bar.
+  **A Realtime AirPlay sender draws no bar at all**: a Mac's system audio or
+  Spotify never says it paused, so its session is `connected` and shown by the
+  status card; only a Buffered sender (iPhone Music) is `playing`/`paused`
+  (`AirPlaySource`'s docstring lists what was measured).
 - **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
   [provisioning/qobuz-proxy.sh](../provisioning/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
@@ -608,9 +660,13 @@ standing in for the podcast catalogue and a mount layer underneath.**
 - **`source.py` builds a gapless mpv playlist** from any context (album / genre /
   playlist / search): the frontend hands ordered Subsonic song dicts to
   `play_context`, the source maps each id to a stream URL and loads them as one mpv
-  native playlist (`--gapless-audio`). Now-playing (title/artist/album/art + queue/
-  index/shuffle/repeat) is broadcast as standard source metadata; the frontend
-  derives it from `unifiedAudioStore` gated on `active_source === 'music_library'`.
+  native playlist (`--gapless-audio`). The playing track is the state's `session`
+  (or its `resume` for 600 s after it stops), and the queue, its index, shuffle
+  and the current track/album/artist ids are its `details`
+  (`kind: "music_library"`). `musicLibraryStore` derives now-playing from
+  `unifiedAudioStore.systemState` gated on `source === 'music_library'`; the
+  queue running out is a `source/session_ended` with `reason: "eof"`, which no
+  frontend store needs today (the state that follows drops the session).
 - **Scan-progress UX.** A first index takes minutes (18 for a 10 000-track iPod);
   a rescan of an already-indexed catalog does not (401 ms over 12 488 tracks), so
   only *new* files ever cost time. Nothing polls: `shares.py::_watch_scan` observes
@@ -625,8 +681,12 @@ standing in for the podcast catalogue and a mount layer underneath.**
   (1-year cache); the frontend never reaches Navidrome directly. Navidrome's online
   metadata/art agents are always enabled (`EnableExternalServices = true` in the
   baked `navidrome.toml` — no user toggle; offline calls fail back silently).
-- **Milo-Mac contract:** no change — playback is generic (`/api/audio/control/{source}`)
-  and metadata is opaque, so no `/api/music-library/*` route is in the manifest.
+- **Milo-Mac contract:** Milo-Mac browses the library itself, so its manifest pins
+  the `/api/music-library/*` routes it calls and the `play_context` body it sends
+  on `/api/audio/control/music_library` — whose `tracks` are the song dicts as the
+  backend served them, a round trip, so a song field Milo-Mac never reads is still
+  not free to drop — and, in the state, `details.music_library.track_id`. Read the
+  manifest for the list.
 
 ## Testing
 
@@ -655,7 +715,6 @@ import pytest
 from unittest.mock import AsyncMock
 
 from backend.sources.my_source.source import MySource
-from backend.core.models.audio_state import SourceState
 
 
 @pytest.fixture
@@ -673,7 +732,9 @@ async def test_start_success(my_source):
     result = await my_source.start()
 
     assert result is True
-    assert my_source.state == SourceState.READY
+    # Started, nothing played yet: no session, so no command to offer.
+    assert my_source.view.session is None
+    assert my_source.view.controls == ()
 ```
 
 See `tests/test_radio_source.py` for a fuller example (mocked service manager, command dispatch, lifecycle transitions).
@@ -755,14 +816,14 @@ class MyService:
 
 ### State machine transitions
 
-Transitions are protected by `_transition_lock`. State updates arriving while `transitioning` is set are **dropped, not buffered**; the post-start resync in `transition_to_source()` re-reads `source.state`/`source.metadata` to recover the final state. There is no replay queue.
+Transitions are protected by `_transition_lock`. Views a source publishes while `transitioning` is set are **dropped, not buffered**; the post-start resync in `transition_to_source()` re-reads `source.view` to recover the final state. There is no replay queue. A failed start is sticky the same way: while `service` is `failed`, every publish is dropped until a start succeeds.
 
 ```python
-# ✅ Good: uses update_source_state
-await state_machine.update_source_state(source, state)
+# ✅ Good: a source publishes its view; the state machine composes the state
+self._publish()
 
 # ❌ Bad: directly modifies state
-state_machine._state.active_source = source
+state_machine.system_state.active_source = source
 ```
 
 ## Best practices
@@ -1091,14 +1152,17 @@ Always use `state_machine.broadcast()` with a typed `WsEvent` subclass from
 the model IS the payload documentation; new event → new subclass):
 
 ```python
-from backend.core.models.ws_events import SourceStateChanged
+from backend.core.models.ws_events import SourceError, SourceErrorReason
 
-await self.state_machine.broadcast(SourceStateChanged(
+await self.state_machine.broadcast(SourceError(
     source=self.source.value,
-    new_state="active",
-    metadata=metadata,
+    reason=SourceErrorReason.STREAM_LOAD_FAILED,
 ))
 ```
+
+The audio state is the exception: nothing constructs `AudioStateChanged` or `SourcePosition` by
+hand. A source calls `_publish()` and the state machine's `publish_state()` decides which of the two
+goes out (and `BaseAudioSource.broadcast_error()` wraps the example above).
 
 ### Settings persistence
 

@@ -1,7 +1,7 @@
 <template>
   <div class="controls" :class="isMobile ? 'transport-scale--phone' : 'transport-scale'">
     <IconButton icon="previous" variant="ghost" size="small" color="var(--color-text-light)"
-      class="control-button transport-secondary" @click="$emit('previous')" />
+      class="control-button transport-secondary" :disabled="!hasPrev" @click="$emit('previous')" />
     <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
       color="var(--color-text)" class="control-button control-button--primary transport-primary"
       :loading="isBuffering" @click="$emit('play-pause')" />
@@ -33,7 +33,12 @@ defineProps({
     type: Boolean,
     default: false
   },
-  // Default true: sources with no "last track" concept stay unaffected.
+  // Whether the source takes `prev` / `next` now: `next` is absent on the
+  // last track of a disc or a queue. Default true for callers with no such state.
+  hasPrev: {
+    type: Boolean,
+    default: true
+  },
   hasNext: {
     type: Boolean,
     default: true

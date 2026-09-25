@@ -15,8 +15,10 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from pydantic import BaseModel, Field
 
+from backend.core import audio_source
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource
+from backend.core.models.session import EndReason, Phase, Session
 from backend.core.state import AudioStateMachine
 
 
@@ -42,12 +44,18 @@ class ConcreteAudioSource(BaseAudioSource):
     async def _do_start(self) -> bool:
         self.start_called = True
         if self._start_success:
-            self.set_state(SourceState.ACTIVE, {"connected": True})
+            self.open_session(Session(phase=Phase.PLAYING))
+            self._publish()
         return self._start_success
 
     async def _do_stop(self) -> bool:
         self.stop_called = True
+        await self.end_session(EndReason.USER_STOP)
+        self._publish()
         return self._stop_success
+
+    def _session_fields(self, session):
+        return {"title": "Track", "duration_ms": 180000}
 
     async def _handle_command(self, cmd, params):
         if cmd == "test_command":
@@ -58,12 +66,12 @@ class ConcreteAudioSource(BaseAudioSource):
 
 
 class SilentStartSource(ConcreteAudioSource):
-    """A source whose `_do_start()` succeeds without announcing a state.
+    """A source whose `_do_start()` succeeds without publishing anything.
 
-    Not a contrived case: `_do_start` is only *expected* to publish READY or
-    ACTIVE, nothing enforces it, and a source that hands back True after
-    launching its unit has done its job. `ConcreteAudioSource` always publishes
-    ACTIVE, which is why the default below was reached by no test.
+    Not a contrived case: nothing obliges `_do_start` to publish, and a source
+    that hands back True after launching its unit has done its job.
+    `ConcreteAudioSource` always opens a session, which is why the case below
+    was reached by no test.
     """
 
     async def _do_start(self) -> bool:
@@ -84,29 +92,32 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.start_called
-        assert source.state == SourceState.ACTIVE
+        assert source.view.session.phase == "playing"
 
 
     @pytest.mark.asyncio
-    async def test_a_start_that_announced_no_state_lands_on_ready(self):
-        """`start()` owes every source a resting state, and READY is it.
+    async def test_a_start_that_published_nothing_lands_running(self):
+        """A start that succeeded owes the card a resting state: running, no
+        session.
 
         What breaks when this fails: a source whose `_do_start()` succeeded
-        without publishing a state stays in STARTING for good — `start()`
-        answered True, the unit is running, and the source never becomes
-        selectable. This is the state contract `BaseAudioSource` holds for all
-        twelve sources, and `audio_source.py:186` is the whole of it.
-
-        The complement is already pinned by `test_start_success`: a `_do_start`
-        that published ACTIVE keeps it, which is why the default is guarded by
-        `== STARTING` rather than applied unconditionally.
+        without publishing stays "starting" for good — `start()` answered True,
+        the unit is running, and the source never becomes usable. The
+        post-start resync reads the source's view, which is what makes a
+        silent start land.
         """
+        state_machine = AudioStateMachine()
         source = SilentStartSource()
+        source.source_id = AudioSource.RADIO.value
+        source.state_machine = state_machine
+        state_machine.register_source(AudioSource.RADIO, source)
 
-        result = await source.start()
+        assert await state_machine.transition_to_source(AudioSource.RADIO) is True
 
-        assert result is True
-        assert source.state == SourceState.READY
+        state = state_machine.get_current_state()
+        assert (state["service"], state["switching"], state["session"]) == (
+            "running", False, None,
+        )
 
     @pytest.mark.asyncio
     async def test_start_failure(self):
@@ -116,7 +127,7 @@ class TestBaseAudioSourceLifecycle:
         result = await source.start()
 
         assert result is False
-        assert source.state == SourceState.ERROR
+        assert source.view.session is None
 
     @pytest.mark.asyncio
     async def test_stop_success(self):
@@ -128,7 +139,7 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.stop_called
-        assert source.state == SourceState.READY
+        assert source.view.session is None
 
     @pytest.mark.asyncio
     async def test_stop_failure(self):
@@ -260,40 +271,26 @@ class TestBaseAudioSourceHelpers:
         assert response["error"] == "Test error"
         assert response["code"] == 500
 
-    def test_set_state(self):
-        """Test set_state helper."""
-        source = ConcreteAudioSource()
 
-        source.set_state(SourceState.ACTIVE, {"key": "value"})
+class TestThePublishedViewIsTheMachines:
+    """What a source publishes must leave the state machine holding exactly
+    the source's own view.
 
-        assert source.state == SourceState.ACTIVE
-        assert source.metadata["key"] == "value"
-
-
-class TestSetStateMetadataSemantics:
-    """set_state() must leave the source's metadata copy identical to the one
-    the state machine stores.
-
-    The two are maintained independently, and two paths copy the source's copy
-    back into the machine — the post-start resync and refresh_active_metadata()
-    on every WS handshake. So any divergence (a merge here against the
-    machine's replace) resurrects fields the machine had already dropped, at a
-    moment no source chose.
+    Two paths copy the source's view into the machine besides the publish —
+    the post-start resync and refresh_active_view() on every WS handshake. So
+    any divergence (the machine keeping a field the source dropped) would
+    resurrect it at a moment no source chose.
     """
 
     @staticmethod
-    async def _publish(source, state, metadata):
-        """Run set_state and drain the update it spawns at the machine."""
-        spawned = []
-        source._bg.spawn = Mock(
-            side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
-        )
-        source.set_state(state, metadata)
-        await asyncio.gather(*spawned)
+    async def _drain(source):
+        """Let the update each publish spawns reach the machine."""
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
     @pytest.fixture
     def wired(self):
-        """A real state machine with the source registered and active."""
+        """A real state machine with the source registered and selected."""
         state_machine = AudioStateMachine()
         source = ConcreteAudioSource()
         source.source_id = AudioSource.RADIO.value
@@ -303,43 +300,30 @@ class TestSetStateMetadataSemantics:
         return source, state_machine
 
     @pytest.mark.asyncio
-    async def test_successive_states_agree(self, wired):
-        """A second, narrower payload must not leave the earlier track behind
-        on the source while the machine has already dropped it."""
+    async def test_successive_publishes_agree(self, wired):
+        """A session, then none: the machine must not keep the track the
+        source already dropped."""
         source, state_machine = wired
 
-        await self._publish(
-            source, SourceState.ACTIVE,
-            {"title": "Track", "artist": "Artist", "is_playing": True},
-        )
-        await self._publish(
-            source, SourceState.READY, {"is_playing": False},
-        )
+        source.open_session(Session(phase=Phase.PLAYING))
+        source._publish()
+        await self._drain(source)
+        assert state_machine.system_state.view.session.title == "Track"
 
-        assert source.metadata == state_machine.system_state.metadata
+        await source.end_session(EndReason.USER_STOP)
+        source._publish()
+        await self._drain(source)
 
-    @pytest.mark.asyncio
-    async def test_state_only_change_agrees(self, wired):
-        """metadata=None is a state-only change on both sides (the multiroom
-        reroute flips to STARTING this way to keep the track on screen)."""
-        source, state_machine = wired
-
-        await self._publish(
-            source, SourceState.ACTIVE, {"title": "Track", "is_playing": True},
-        )
-        published = dict(state_machine.system_state.metadata)
-        await self._publish(source, SourceState.STARTING, None)
-
-        assert source.metadata == state_machine.system_state.metadata == published
+        assert state_machine.system_state.view == source.view
+        assert state_machine.get_current_state()["session"] is None
 
 
 class TestErrorMechanismsStaySeparate:
     """A failed *operation* is a banner; a source that is *down* is a state.
 
-    Both used to ride on `source/state_changed` with new_state "error", which
-    made a station that would not tune indistinguishable on the wire from a
-    dead daemon — and left the real state unreachable, since the injected
-    full_state carried the previous one anyway.
+    Both once rode on one state event with an "error" state, which made a
+    station that would not tune indistinguishable on the wire from a dead
+    daemon. The banner is `source/error`; a failed start is `service: failed`.
     """
 
     @pytest.fixture
@@ -372,9 +356,10 @@ class TestErrorMechanismsStaySeparate:
         assert envelope["data"]["reason"] == SourceErrorReason.STREAM_LOAD_FAILED
 
         # The source is still perfectly usable — its browser, its commands.
-        assert source.state != SourceState.ERROR
-        assert state_machine.system_state.source_state != SourceState.ERROR
-        assert state_machine.system_state.error is None
+        envelopes = [c.args[0] for c in state_machine.ws_manager.broadcast_dict.call_args_list]
+        assert [(e["category"], e["type"]) for e in envelopes] == [("source", "error")]
+        state = state_machine.get_current_state()
+        assert (state["service"], state["service_error"]) == ("running", None)
 
     @pytest.mark.asyncio
     async def test_broadcast_error_cleared_dismisses_the_banner(self, wired):
@@ -411,19 +396,25 @@ class TestErrorMechanismsStaySeparate:
         assert envelopes[1]["data"]["source"] == AudioSource.RADIO.value
 
 
-class TestPositionUpdateReachesBothSinks:
-    """broadcast_position_update() has two effects, and losing either one is
-    invisible from the other.
+class TestThePlayheadReachesBothSinks:
+    """A discontinuity of the playhead has two readers, and losing either one
+    is invisible from the other.
 
-    The wire event is the frontend's drift correction; the write into
-    system_state.metadata is what a WebSocket connecting mid-track receives in
-    its initial_state. A method that only broadcast would hand every freshly
-    opened tab the position the track started from.
+    `source/position` is the live clients' correction; the anchor in the state
+    is what a WebSocket connecting mid-track receives in its initial_state. A
+    source that only sent the event would hand every freshly opened tab the
+    position the track started from.
     """
 
     @pytest.fixture
-    def wired(self):
-        """A real state machine with the source registered and active."""
+    def clock(self, monkeypatch):
+        now = [1700000000.0]
+        monkeypatch.setattr(audio_source, "wall_time", lambda: now[0])
+        return now
+
+    @pytest.fixture
+    async def wired(self, clock):
+        """A real state machine with the source selected and playing."""
         state_machine = AudioStateMachine()
         state_machine.ws_manager = Mock()
         state_machine.ws_manager.broadcast_dict = AsyncMock()
@@ -432,43 +423,74 @@ class TestPositionUpdateReachesBothSinks:
         source.state_machine = state_machine
         state_machine.register_source(AudioSource.RADIO, source)
         state_machine.system_state.active_source = AudioSource.RADIO
-        # ACTIVE as well as selected: a playhead is a claim about a live
-        # session, and update_position_metadata refuses one that is not.
-        state_machine.system_state.source_state = SourceState.ACTIVE
+        source.open_session(Session(phase=Phase.PLAYING))
+        source._anchor_position(0)
+        source._publish()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        state_machine.ws_manager.broadcast_dict.reset_mock()
         return source, state_machine
 
+    @staticmethod
+    def _envelopes(state_machine):
+        return [c.args[0] for c in state_machine.ws_manager.broadcast_dict.call_args_list]
+
     @pytest.mark.asyncio
-    async def test_position_update_syncs_state_then_broadcasts(self, wired):
-        """Both sinks carry position and duration, not just the wire."""
+    async def test_an_end_is_on_the_wire_before_the_state_that_follows_it(self, wired):
+        """The podcast card marks an episode listened only while its state still
+        names the session `source/session_ended` names; sent from a task of its
+        own, the end could be cancelled by the STOP right behind it (its
+        `cancel_all`) or reach a client after the state that dropped it."""
         source, state_machine = wired
-        spawned = []
-        source._bg.spawn = Mock(
-            side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
-        )
+        ended = source.view.session.id
 
-        source.broadcast_position_update(42000, 180000)
-        await asyncio.gather(*spawned)
+        await source.end_session(EndReason.EOF)
+        source._publish()
+        await source._bg.cancel_all()          # what a STOP handled at once does
+        source._publish()                      # ...before its own publish
+        for _ in range(3):
+            await asyncio.sleep(0)
 
-        assert state_machine.system_state.metadata["position"] == 42000
-        assert state_machine.system_state.metadata["duration"] == 180000
+        envelopes = self._envelopes(state_machine)
+        kinds = [(e["type"], e["data"].get("session_id")) for e in envelopes]
+        assert kinds[0] == ("session_ended", ended)
+        assert ("state", None) in kinds[1:]
 
-        envelope = state_machine.ws_manager.broadcast_dict.call_args.args[0]
-        assert (envelope["category"], envelope["type"]) == (
-            "source", "position_update",
-        )
-        assert envelope["data"]["position"] == 42000
-        assert envelope["data"]["duration"] == 180000
+    @pytest.mark.asyncio
+    async def test_a_seek_reaches_the_event_and_the_state(self, wired):
+        source, state_machine = wired
 
+        source._anchor_position(42000)
+        assert source._publish_changes() is True
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
-class TestSourceStateValues:
-    """Test SourceState enum values."""
+        envelopes = self._envelopes(state_machine)
+        assert [(e["category"], e["type"]) for e in envelopes] == [("source", "position")]
+        assert envelopes[0]["data"]["position"]["ms"] == 42000
+        assert envelopes[0]["data"]["session_id"] == source.view.session.id
+        assert state_machine.get_current_state()["session"]["position"]["ms"] == 42000
 
-    def test_state_values(self):
-        """Test state values match expected strings."""
-        assert SourceState.STARTING.value == "starting"
-        assert SourceState.READY.value == "ready"
-        assert SourceState.ACTIVE.value == "active"
-        assert SourceState.ERROR.value == "error"
+    @pytest.mark.asyncio
+    async def test_a_reading_where_the_anchor_says_is_not_published(self, wired, clock):
+        """A reading within the tolerance of the anchor's own extrapolation is
+        not a discontinuity: publishing it would be a tick, the several events
+        a second the anchor exists to make unnecessary."""
+        source, state_machine = wired
+
+        clock[0] += 10.0
+        source._observe_position(10000 + audio_source.POSITION_TOLERANCE_MS - 500)
+        assert source._publish_changes() is False
+
+        clock[0] += 10.0
+        source._observe_position(40000)                  # 20 s ahead of the anchor
+        assert source._publish_changes() is True
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        envelopes = self._envelopes(state_machine)
+        assert [(e["category"], e["type"]) for e in envelopes] == [("source", "position")]
+        assert envelopes[0]["data"]["position"]["ms"] == 40000
 
 
 class TestBaseAudioSourceServiceManager:
@@ -508,30 +530,6 @@ class TestBaseAudioSourceServiceManager:
         result = await source._is_service_active()
 
         assert result is True
-
-
-class TestBaseAudioSourceProperties:
-    """Test BaseAudioSource properties."""
-
-    def test_state_property(self):
-        """Test state property."""
-        source = ConcreteAudioSource()
-
-        assert source.state == SourceState.READY
-
-        source._state = SourceState.ACTIVE
-        assert source.state == SourceState.ACTIVE
-
-    def test_metadata_property_returns_copy(self):
-        """Test metadata property returns a copy."""
-        source = ConcreteAudioSource()
-        source._metadata = {"key": "value"}
-
-        metadata = source.metadata
-        metadata["new_key"] = "new_value"
-
-        # Original should not be modified
-        assert "new_key" not in source._metadata
 
 
 class TestBaseAudioSourceInheritance:
@@ -672,13 +670,13 @@ class TestServiceHelperFailureArms:
 class TestStartFailureArm:
     """`start()` when `_do_start` raises rather than answers.
 
-    `AudioStateMachine.transition_to_source` reads the boolean and the state; a
-    raise that reached it instead would abort the transition itself, leaving
+    `AudioStateMachine.transition_to_source` reads the boolean; a raise that
+    reached it instead would abort the transition itself, leaving
     `transitioning` set and every later update dropped rather than buffered.
     """
 
     @pytest.mark.asyncio
-    async def test_a_raising_start_is_contained_and_lands_in_error(self, caplog):
+    async def test_a_raising_start_is_contained_and_answers_false(self, caplog):
         source = ConcreteAudioSource()
 
         async def _boom():
@@ -689,38 +687,7 @@ class TestStartFailureArm:
         with caplog.at_level(logging.ERROR):
             assert await source.start() is False
 
-        assert source.state == SourceState.ERROR
         assert "loopback device busy" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_the_recorded_reason_has_no_reader(self):
-        """A constat, asserted so it stays true: `_error` is write-only.
-
-        `start()` stores the exception text (and "Start failed"), `stop()` clears
-        it, and nothing in either application reads it back — there is no
-        property, no serialiser, no consumer. What `GET /api/audio/state` shows
-        as `error` is `SystemAudioState.error`, which the state machine sets from
-        the transition or from `metadata["error"]`, and the UI banner is the
-        separate `broadcast_error` / `_error_active` mechanism that
-        `TestErrorMechanismsStaySeparate` above pins.
-
-        Left as is rather than removed: four inert assignments in the ABC every
-        source inherits, and touching that file means the audio-path checklist
-        for a change that provably alters nothing. This test is the record, and
-        it turns red the day someone gives the field a reader — which is the
-        moment to decide what it should mean.
-        """
-        source = ConcreteAudioSource()
-
-        async def _boom():
-            raise RuntimeError("loopback device busy")
-
-        source._do_start = _boom
-        await source.start()
-
-        assert source._error == "loopback device busy"
-        assert not hasattr(type(source), "error"), \
-            "the write-only field grew a reader — see this test's docstring"
 
 
 class TestCommandFailureArm:

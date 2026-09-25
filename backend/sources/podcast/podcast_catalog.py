@@ -29,7 +29,7 @@ one thing to say either way: the catalogue is down. Splitting them is what once
 let an HTTP 503 read as "no results".
 
 `api_error` is deliberately not a claim about the link — that one is reported at
-the source level by full_state.network_unavailable.
+the source level by the state's `availability.podcast`.
 """
 import asyncio
 import contextlib

@@ -1,16 +1,14 @@
 <!-- LyricsPlaybackBar.vue — full-width playback bar pinned to the bottom of
-     LyricsView. Its control surface scales with what the active source can
-     actually do on the wire:
-       - "full"     (spotify, cd, music_library, tidal): name/artist + progress
-                     bar + play/pause/prev/next, same generic
-                     pause/resume/next/prev commands AudioPlayerFull uses. The
-                     bar is interactive wherever the source can seek — Tidal
-                     cannot, so it gets the buttons and a read-only bar.
-       - "metadata" (airplay, qobuz): name/artist + a read-only progress
-                     bar (these are receiver-controlled — no transport surface
-                     on the wire; ProgressBar already self-hides when a source
-                     reports no duration, e.g. Qobuz).
-       - "name-only" (radio): name/artist only — no seek, no track transport.
+     LyricsView. Its control surface is what the session offers right now:
+       - the transport (prev / play-pause / next) when the source's `controls`
+         carry pause or resume — the same generic commands AudioPlayerFull
+         sends, each button live only while its command is listed;
+       - a progress bar when the session has a duration and a position anchor,
+         interactive only while `controls` carries seek (Tidal has the
+         transport and no seek, so it gets the buttons and a read-only bar);
+       - neither for radio (a live stream: no duration, and its stop/next/prev
+         change the station, not the track) — name/artist only.
+       Receivers (AirPlay, Qobuz) list no command, so they get the bar alone.
      Always visible by default; swipes down to hide, swipes up from the bottom
      edge to show again (useSwipeVisibility — the same gesture the Dock would
      normally own, freed up because useDockDrag ignores .lyrics-view). The
@@ -54,7 +52,7 @@
           <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
         </div>
 
-        <div v-if="tier !== 'name-only'" class="lyrics-bar-progress">
+        <div v-if="hasBar" class="lyrics-bar-progress">
           <ProgressBar :currentPosition="currentPosition" :duration="duration"
             :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
             :interactive="canSeek" variant="dark" animateIn @seek="seekTo" />
@@ -62,18 +60,18 @@
 
         <!-- Right column: the transport when the source has one — same as
              AudioPlayer's desktop sidebar (music library's .ml-transport-main):
-             ghost IconButtons, no pill behind them. On the "metadata" tier it
+             ghost IconButtons, no pill behind them. Without a transport it
              stays as an empty column of the same width, so the progress bar
              keeps the exact same centred 44% share whether the transport is
              there or not. -->
-        <div v-if="tier !== 'name-only'" class="lyrics-bar-controls" :class="{ 'is-spacer': tier !== 'full' }">
-          <div v-if="tier === 'full'" class="playback-controls transport-scale--compact">
+        <div v-if="hasBar" class="lyrics-bar-controls" :class="{ 'is-spacer': !hasTransport }">
+          <div v-if="hasTransport" class="playback-controls transport-scale--compact">
             <IconButton icon="previous" variant="ghost" size="small" class="transport-secondary"
-              @click="previousTrack" />
+              :disabled="!controls.includes('prev')" @click="previousTrack" />
             <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-              class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
+              class="transport-primary" :loading="isLoading" @click="togglePlayPause" />
             <IconButton icon="next" variant="ghost" size="small" class="transport-secondary"
-              :disabled="!hasNext" @click="nextTrack" />
+              :disabled="!controls.includes('next')" @click="nextTrack" />
           </div>
         </div>
       </div>
@@ -84,10 +82,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useCdStore } from '@/stores/cdStore';
-import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
-import { isSourceBuffering } from '@/utils/playbackBuffering';
 import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
@@ -102,63 +97,40 @@ const props = defineProps({
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
-const cdStore = useCdStore();
-const musicLibraryStore = useMusicLibraryStore();
 
-const FULL_CONTROL_SOURCES = new Set(['spotify', 'cd', 'music_library', 'tidal']);
-const NAME_ONLY_SOURCES = new Set(['radio']);
+const session = computed(() => unifiedStore.systemState.session);
+const controls = computed(() => unifiedStore.systemState.controls);
 
-// Transport and seek are separate capabilities. Tidal's controller protocol
-// carries pause/resume/next/prev but exposes no seek at all, so it earns the
-// full tier's buttons with a read-only bar — the same split TidalSource.vue
-// makes on AudioPlayerFull with :seekable="false".
-const NO_SEEK_SOURCES = new Set(['tidal']);
+const hasTransport = computed(() =>
+  controls.value.includes('pause') || controls.value.includes('resume')
+);
+// ProgressBar itself waits for the position anchor (isReady), so the row only
+// needs to know whether this session has a length at all.
+const hasProgress = computed(() => session.value?.duration_ms != null);
+// The bar row exists when either half has something to show; the transport
+// column then stands in as a spacer when it has no buttons.
+const hasBar = computed(() => hasTransport.value || hasProgress.value);
+const canSeek = computed(() => controls.value.includes('seek'));
 
-const tier = computed(() => {
-  if (FULL_CONTROL_SOURCES.has(props.source)) return 'full';
-  if (NAME_ONLY_SOURCES.has(props.source)) return 'name-only';
-  return 'metadata';
-});
-
-const canSeek = computed(() => tier.value === 'full' && !NO_SEEK_SOURCES.has(props.source));
-
-const identity = computed(() => getTrackIdentity(props.source, unifiedStore.systemState.metadata));
+const identity = computed(() => getTrackIdentity(unifiedStore.systemState));
 
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } =
-  useSourceProgress(props.source, { exactCorrections: true });
+  useSourceProgress(props.source);
 
-// Same wire commands as AudioPlayerFull — the "full" tier is exactly the set
-// of sources whose backend COMMANDS include generic pause/resume/next/prev.
-function sendSourceCommand(command) {
-  return unifiedStore.sendCommand(props.source, command);
-}
+const isPlaying = computed(() => session.value?.phase === 'playing');
+const isLoading = computed(() => session.value?.phase === 'loading');
+
+// A loading track is on its way to playing, so the toggle pauses it too.
 function togglePlayPause() {
-  sendSourceCommand(unifiedStore.systemState.metadata?.is_playing ? 'pause' : 'resume');
+  const command = isPlaying.value || isLoading.value ? 'pause' : 'resume';
+  if (controls.value.includes(command)) unifiedStore.sendCommand(props.source, command);
 }
 function previousTrack() {
-  sendSourceCommand('prev');
+  unifiedStore.sendCommand(props.source, 'prev');
 }
 function nextTrack() {
-  sendSourceCommand('next');
+  unifiedStore.sendCommand(props.source, 'next');
 }
-
-const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
-
-const isBuffering = computed(() =>
-  isSourceBuffering(props.source, unifiedStore.systemState.metadata)
-);
-
-// Only CD and music_library have a "last track" concept; spotify has no
-// bound on next. Mirrors CDSource.vue / MusicLibrarySource.vue.
-const hasNext = computed(() => {
-  if (props.source === 'cd') {
-    return !cdStore.currentTrack || cdStore.currentTrack < cdStore.tracks.length;
-  }
-  if (props.source === 'music_library') {
-    return musicLibraryStore.queueIndex >= 0 && musicLibraryStore.queueIndex < musicLibraryStore.queue.length - 1;
-  }
-  return true;
-});
 
 // === Swipe show/hide ===
 const dragZone = ref(null);

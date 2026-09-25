@@ -5,7 +5,7 @@
  * none.
  *
  * Only the branches that decide something are asserted — handing the helper an
- * album_art_url and checking it comes back would assert the language, not the
+ * artwork URL and checking it comes back would assert the language, not the
  * rule. What matters is that the no-cover answer is *per source*: the generated
  * station avatar belongs to radio alone (a global answer draws a receiver's
  * track title as a generated avatar), the bundled disc and
@@ -14,28 +14,42 @@
  */
 import { describe, it, expect } from 'vitest';
 import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
+import { makeAudioState, makeSession } from '../helpers/audioState';
 
 describe('nowPlayingArtwork', () => {
-  it('reports no cover as the empty string, not as undefined', () => {
-    // '' is what routes the caller into artworkFallback below; undefined would
-    // render an <img> with no src, which reads as a broken image.
-    expect(nowPlayingArtwork({ title: 'Says', artist: 'Nils Frahm' })).toBe('');
+  it('reports no cover as the empty string, not as null', () => {
+    // '' is what routes the caller into artworkFallback below; null would
+    // render an <img> with no src, which reads as a broken image. The wire
+    // publishes a missing cover as null, never as ''.
+    expect(nowPlayingArtwork(makeSession({ title: 'Says', artist: 'Nils Frahm' }))).toBe('');
   });
 
-  it('survives the metadata being absent entirely', () => {
-    // The screensaver reads this during transitions, when the store's metadata
-    // is briefly null — a throw there blanks the whole screen.
+  it('survives the record being absent entirely', () => {
+    // The screensaver reads this while a source switches, when there is no
+    // session and no resume — a throw there blanks the whole screen.
     expect(nowPlayingArtwork(null)).toBe('');
   });
 });
 
 describe('nowPlayingArtworkPending', () => {
-  it('is false unless a source announces a cover in flight', () => {
-    // Every source but CD omits the key; reading it as pending would veil their
-    // placeholder forever, since only the announcer ever lifts it.
-    expect(nowPlayingArtworkPending({ title: 'Says', album_art_url: '' })).toBe(false);
+  const cd = (details) => makeAudioState({
+    source: 'cd',
+    details: { kind: 'cd', disc: null, current_track: null, artwork_pending: false, ...details },
+  });
+
+  it('follows the flag the CD announces a cover in flight with', () => {
+    expect(nowPlayingArtworkPending(cd({ artwork_pending: true }))).toBe(true);
+    expect(nowPlayingArtworkPending(cd({ artwork_pending: false }))).toBe(false);
+  });
+
+  it('is false for every source that announces nothing', () => {
+    // Only the announcer ever lifts it, so reading anything else as pending
+    // would veil a placeholder forever.
+    expect(nowPlayingArtworkPending(makeAudioState({ source: 'spotify', session: makeSession() }))).toBe(false);
+    expect(nowPlayingArtworkPending(makeAudioState({
+      source: 'airplay', details: { kind: 'airplay', artwork_width: null },
+    }))).toBe(false);
     expect(nowPlayingArtworkPending(null)).toBe(false);
-    expect(nowPlayingArtworkPending({ artwork_pending: true })).toBe(true);
   });
 });
 

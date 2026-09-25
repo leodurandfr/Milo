@@ -22,7 +22,7 @@ What was measured (2026-09-24, a passive probe on the system bus, a second
   not `milo-bluealsa-aplay`, which `BindsTo=` it.
 
 `Bluetooth` is also the adapter the old-wire golden drives (golden/
-test_old_wire_bluetooth.py): its scenarios are written in these words.
+test_wire_bluetooth.py): its scenarios are written in these words.
 """
 import asyncio
 import heapq
@@ -45,7 +45,7 @@ from backend.sources.bluetooth import monitor as monitor_module
 from backend.sources.bluetooth import source as source_module
 from backend.sources.bluetooth.source import BluetoothSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, Wire, instant_short_sleep, make_settings, make_state_machine, settle,
+    AsyncioProxy, Wire, WireReader, instant_short_sleep, make_settings, make_state_machine, settle, use_virtual_wall,
 )
 
 _real_sleep = asyncio.sleep
@@ -670,7 +670,7 @@ class FakeITunes:
         return _Response({"resultCount": len(results), "results": results}, self._held())
 
 
-class Bluetooth:
+class Bluetooth(WireReader):
     """The Bluetooth source on a real state machine, in a world the scenario
     drives: lifecycle and commands through the public API, everything else as
     what BlueZ, BlueALSA and systemd say."""
@@ -678,6 +678,7 @@ class Bluetooth:
     def __init__(self, monkeypatch, settings: Optional[Dict[str, Any]] = None) -> None:
         world = self
         self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         self.bluez = FakeBluez(self.clock)
         self.units: Dict[str, bool] = {BLUEZ_UNIT: True, BLUEALSA_UNIT: False, APLAY_UNIT: False}
         self._pids = itertools.count(124420)
@@ -857,6 +858,11 @@ class Bluetooth:
         self.bluez.player_removed()
         await settle()
 
+    def sender_seeks(self, position: int) -> None:
+        """A scrub on the phone: BlueZ re-anchors its Position and signals
+        nothing (measured — see avrcp.py), so only a read can see it."""
+        self.bluez._reanchor(position)
+
     # --- the daemons -----------------------------------------------------
     async def bluetoothd_restarts(self) -> None:
         """`systemctl restart bluetooth`: a clean exit, then a new daemon."""
@@ -939,34 +945,8 @@ class Bluetooth:
         await settle()
 
     # --- what the wire says ----------------------------------------------
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def active(self) -> bool:
-        return self.state()["source_state"] == "active"
-
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"] or {}
-
-    def playing(self) -> bool:
-        return bool(self.meta().get("is_playing"))
-
-    def envelopes(self, category: str, kind: str) -> List[Dict[str, Any]]:
-        return [e for e in self.recorder.envelopes if e["category"] == category and e["type"] == kind]
-
-    def errors(self) -> List[str]:
-        return [e["data"]["reason"] for e in self.envelopes("source", "error")]
-
     def cleared(self) -> int:
         return len(self.envelopes("source", "error_cleared"))
-
-    def published(self) -> List[Dict[str, Any]]:
-        out = []
-        for e in self.envelopes("source", "state_changed"):
-            full = (e.get("data") or {}).get("full_state")
-            if full:
-                out.append({"state": full["source_state"], **(full.get("metadata") or {})})
-        return out
 
     def exposed(self) -> bool:
         return bool(self.bluez.adapter["Discoverable"] and self.bluez.adapter["Pairable"])

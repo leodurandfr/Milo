@@ -124,7 +124,7 @@ async def test_selecting_the_source_never_waits_for_a_senders_name(world):
     await settle()
     try:
         assert selecting.done()
-        assert not world.state()["transitioning"]
+        assert not world.state()["switching"]
     finally:
         gate.set()
         await selecting
@@ -148,8 +148,8 @@ async def test_a_name_being_looked_up_never_delays_another_macs_departure(world)
 
 
 async def test_a_mac_that_leaves_while_being_named_is_never_shown(world):
-    """The old source published the Mac once its name came back, then READY
-    at its goodbye: a card for a Mac already gone."""
+    """The old source published the Mac once its name came back, then the idle
+    state at its goodbye: a card for a Mac already gone."""
     await world.select()
     gate = world.name_is_slow(MINI_IP)
     await world.mac_streams(MINI_IP)
@@ -157,7 +157,8 @@ async def test_a_mac_that_leaves_while_being_named_is_never_shown(world):
     gate.set()
     await settle()
     assert not world.active()
-    assert all(p["state"] != "active" for p in world.published())
+    assert world.published(), "nothing was published — the assertion below would be empty"
+    assert all(p["session"] is None for p in world.published())
 
 
 # === roc-recv's death (SESSION_DAEMON) ===
@@ -175,15 +176,18 @@ async def test_roc_recv_dying_ends_the_session_with_a_banner(world):
 
 async def test_the_mac_reattaching_to_the_new_roc_recv_clears_the_banner(world):
     """Measured: the Mac reattaches to the restarted process by itself; the
-    banner goes when it is back on screen."""
+    banner goes when it is back on screen — after the state that shows it,
+    never before."""
     await world.select()
     await world.mac_streams(MINI_IP)
     await world.kill_roc_recv()
     await world.systemd_restarts_it()
     assert world.active() and world.names() == [MINI_NAME]
     assert world.cleared() == 1
-    cleared = world.envelopes("source", "error_cleared")[0]
-    assert cleared["data"]["full_state"]["source_state"] == "active"
+    kinds = [(e["type"], e["data"]) for e in world.recorder.envelopes if e["category"] == "source"]
+    at = [i for i, (kind, _) in enumerate(kinds) if kind == "error_cleared"][0]
+    before = [data for kind, data in kinds[:at] if kind == "state"]
+    assert before and before[-1]["session"]["senders"] == [MINI_NAME]
 
 
 async def test_a_stop_systemd_was_asked_for_is_not_a_death(world):
@@ -227,7 +231,7 @@ async def test_leaving_the_source_stops_reading_the_journal(world):
     await world.leave()
     assert world.follows and all(f.returncode is not None for f in world.follows)
     await world.mac_streams(MINI_IP)
-    assert world.state()["active_source"] == "none"
+    assert world.state()["source"] == "none" and world.session() is None
 
 
 async def test_a_line_that_cannot_be_read_costs_only_that_line(world, monkeypatch, caplog):
@@ -270,7 +274,7 @@ async def test_a_unit_that_will_not_start_fails_the_selection(world):
     world.systemd.start.side_effect = None
     world.systemd.start.return_value = False
     await world.select()
-    assert world.state()["source_state"] == "error"
+    assert world.state()["service"] == "failed"
 
 
 async def test_a_unit_that_died_during_its_settle_fails_the_selection(world, caplog):
@@ -280,7 +284,7 @@ async def test_a_unit_that_died_during_its_settle_fails_the_selection(world, cap
     world.systemd.is_active.side_effect = lambda *_: False
     with caplog.at_level("ERROR", logger="source.mac"):
         await world.select()
-    assert world.state()["source_state"] == "error"
+    assert world.state()["service"] == "failed"
     assert "not active after start" in caplog.text
 
 

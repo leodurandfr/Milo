@@ -16,10 +16,25 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock
 
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource
+from backend.core.models.audio_wire import SessionView, SourceView
 from backend.core.state import AudioStateMachine
 
 from .conftest import WebSocketEventCollector, create_mock_source
+
+
+def _playing(title: str, session_id: str = "s1") -> SourceView:
+    """A source's view with a live session playing `title`."""
+    return SourceView(session=SessionView(
+        id=session_id, phase="playing", title=title, artist=None, album=None,
+        artwork=None, senders=[], duration_ms=None, position=None,
+    ))
+
+
+def _states(collector: WebSocketEventCollector):
+    """Every `source/state` payload broadcast, in order."""
+    return [e["data"] for e in collector.events
+            if e["category"] == "source" and e["type"] == "state"]
 
 
 class TestTransitionSequence:
@@ -78,7 +93,7 @@ class TestTransitionSequence:
 
         Validates: - active_source corresponds to requested source
         - transitioning is False after completion
-        - source_state reflects active source state
+        - the service runs, with no session and no error
         """
         sm = state_machine_with_sources
 
@@ -86,10 +101,12 @@ class TestTransitionSequence:
         await sm.transition_to_source(AudioSource.RADIO)
 
         # Verify state consistency
-        assert sm.system_state.active_source == AudioSource.RADIO
-        assert sm.system_state.transitioning is False
-        assert sm.system_state.source_state in (SourceState.STARTING, SourceState.READY)
-        assert sm.system_state.error is None
+        state = sm.get_current_state()
+        assert state["source"] == "radio"
+        assert state["switching"] is False
+        assert state["service"] == "running"
+        assert state["service_error"] is None
+        assert state["session"] is None
 
     @pytest.mark.asyncio
     async def test_transition_to_same_source_is_noop(
@@ -127,9 +144,9 @@ class TestWebSocketEvents:
         """
         Test WebSocket events are emitted during transitions.
 
-        Validates: - transition_start event at beginning
-        - transition_complete event at end
-        - Events have correct format: {category, type, origin, data}
+        Validates: - a `source/state` saying the switch started (starting)
+        - one saying it is over (running)
+        - their origin is the selected source
         """
         sm = state_machine_with_sources
         websocket_collector.clear()
@@ -137,27 +154,13 @@ class TestWebSocketEvents:
         # Perform transition
         await sm.transition_to_source(AudioSource.RADIO)
 
-        # Check for transition_start event
-        start_events = websocket_collector.get_events_by_type("transition_start")
-        assert len(start_events) >= 1, "Should emit transition_start event"
-
-        # data carries only the origin key; the transition detail travels in
-        # the injected full_state
-        start_event = start_events[0]
-        assert start_event["category"] == "system"
-        assert start_event["type"] == "transition_start"
-        assert start_event["data"]["source"] == "system"
-        assert start_event["data"]["full_state"]["active_source"] == "radio"
-
-        # Check for transition_complete event
-        complete_events = websocket_collector.get_events_by_type("transition_complete")
-        assert len(complete_events) >= 1, "Should emit transition_complete event"
-
-        complete_event = complete_events[0]
-        assert complete_event["category"] == "system"
-        assert complete_event["type"] == "transition_complete"
-        assert complete_event["data"]["source"] == "system"
-        assert complete_event["data"]["full_state"]["active_source"] == "radio"
+        events = websocket_collector.get_events_by_type("state")
+        assert [e["origin"] for e in events] == ["radio", "radio"]
+        start, complete = (e["data"] for e in events)
+        assert (start["source"], start["switching"], start["service"]) == ("radio", True, "starting")
+        assert (complete["source"], complete["switching"], complete["service"]) == (
+            "radio", False, "running",
+        )
 
     @pytest.mark.asyncio
     async def test_event_format_has_required_fields(
@@ -188,29 +191,17 @@ class TestWebSocketEvents:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        Verify event sequence: transition_start -> state updates -> transition_complete
+        Verify the sequence: switching starts, then ends — never the reverse.
         """
         sm = state_machine_with_sources
         websocket_collector.clear()
 
         await sm.transition_to_source(AudioSource.RADIO)
 
-        events = websocket_collector.events
-        assert len(events) >= 2, "Should have at least start and complete events"
-
-        # Find indices
-        start_idx = next(
-            (i for i, e in enumerate(events) if e["type"] == "transition_start"),
-            None
-        )
-        complete_idx = next(
-            (i for i, e in enumerate(events) if e["type"] == "transition_complete"),
-            None
-        )
-
-        assert start_idx is not None, "Should have transition_start event"
-        assert complete_idx is not None, "Should have transition_complete event"
-        assert start_idx < complete_idx, "transition_start should come before transition_complete"
+        switching = [s["switching"] for s in _states(websocket_collector)]
+        assert switching[0] is True, "the first state says the switch started"
+        assert switching[-1] is False, "the last state says it is over"
+        assert switching == sorted(switching, reverse=True), "switching never comes back"
 
 
 class TestDirectTransition:
@@ -257,23 +248,18 @@ class TestDirectTransition:
         """
         sm = state_machine_with_sources
 
-        # Transition to RADIO and set some metadata
+        # Transition to RADIO and publish a session
         await sm.transition_to_source(AudioSource.RADIO)
-        await sm.update_source_state(
-            AudioSource.RADIO,
-            SourceState.ACTIVE,
-            {"station": "Test Radio", "bitrate": 320}
-        )
+        await sm.update_source_view(AudioSource.RADIO, _playing("Test Radio"))
 
-        # Verify metadata is set
-        assert sm.system_state.metadata.get("station") == "Test Radio"
+        # Verify the session is on the state
+        assert sm.get_current_state()["session"]["title"] == "Test Radio"
 
         # Transition to SPOTIFY
         await sm.transition_to_source(AudioSource.SPOTIFY)
 
-        # Metadata should be cleared (no leak from RADIO)
-        assert sm.system_state.metadata.get("station") is None
-        assert "bitrate" not in sm.system_state.metadata
+        # The session must be gone (no leak from RADIO)
+        assert sm.get_current_state()["session"] is None
 
     @pytest.mark.asyncio
     async def test_only_one_source_active_at_time(
@@ -336,8 +322,8 @@ class TestErrorHandling:
         result = await sm.transition_to_source(AudioSource.RADIO)
 
         assert result is False, "Should fail for unregistered source"
-        assert sm.system_state.active_source == AudioSource.NONE
-        assert sm.system_state.source_state == SourceState.READY
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("none", "stopped")
 
     @pytest.mark.asyncio
     async def test_transition_with_source_start_failure(
@@ -346,11 +332,11 @@ class TestErrorHandling:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        When source.start fails, the source settles in ERROR and the banner event
-        is broadcast.
+        When source.start fails, the source settles failed and the state that
+        says so is broadcast.
 
-        Validates: - source.start fails -> the source stays selected, in ERROR
-        - Error event broadcast
+        Validates: - source.start fails -> the source stays selected, failed
+        - the broadcast state carries the failure
         """
         sm = integration_state_machine
 
@@ -366,13 +352,13 @@ class TestErrorHandling:
         assert result is False, "Should fail when source.start() fails"
 
         # The source stays selected so the failure is visible — and retryable
-        assert sm.system_state.active_source == AudioSource.RADIO
-        assert sm.system_state.source_state == SourceState.ERROR
-        assert sm.system_state.error
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("radio", "failed")
+        assert state["service_error"]["reason"] == "start_failed"
 
-        # Should broadcast error event
-        error_events = websocket_collector.get_events_by_type("error")
-        assert len(error_events) >= 1, "Should broadcast error event"
+        # The failure reached the wire
+        last = _states(websocket_collector)[-1]
+        assert (last["service"], last["service_error"]["reason"]) == ("failed", "start_failed")
 
     @pytest.mark.asyncio
     async def test_transition_timeout(
@@ -381,14 +367,11 @@ class TestErrorHandling:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        Transition timeout should trigger emergency_stop and broadcast timeout error.
-
-        Validates: - Timeout triggers emergency_stop
-        - Error event with timeout message
+        A transition timeout settles the source failed, for `start_timeout`.
 
         Note: the timeout settles exactly like a failed start — same handler,
-        one message apart — so the source stays selected in ERROR and keeps
-        the message that was broadcast.
+        one reason apart — so the source stays selected, failed, and the
+        broadcast state says why.
         """
         sm = integration_state_machine
         # Shortened so the test measures the guard, not the wall clock: the
@@ -413,19 +396,14 @@ class TestErrorHandling:
 
         assert result is False, "Should fail on timeout"
 
-        # Settled, not reset: the transition is over and the source is in error
-        assert sm.system_state.transitioning is False
-        assert sm.system_state.active_source == AudioSource.RADIO
-        assert sm.system_state.source_state == SourceState.ERROR
+        # Settled, not reset: the transition is over and the source failed
+        state = sm.get_current_state()
+        assert state["switching"] is False
+        assert (state["source"], state["service"]) == ("radio", "failed")
 
-        # Should broadcast error event (before emergency_stop clears error)
-        error_events = websocket_collector.get_events_by_type("error")
-        assert len(error_events) >= 1, "Should broadcast timeout error"
-
-        error_data = error_events[0]["data"]
-        assert "timeout" in error_data.get("error", "").lower() or \
-               "timeout" in error_data.get("message", "").lower(), \
-               "Error should mention timeout"
+        failed = [s for s in _states(websocket_collector) if s["service"] == "failed"]
+        assert failed, "the timeout reached the wire"
+        assert failed[0]["service_error"]["reason"] == "start_timeout"
 
     @pytest.mark.asyncio
     async def test_concurrent_transitions_are_serialized(
@@ -475,8 +453,8 @@ class TestErrorHandling:
         result = await sm.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        assert sm.system_state.active_source == AudioSource.SPOTIFY
-        assert sm.system_state.source_state == SourceState.ERROR
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("spotify", "failed")
 
         target.stop.assert_awaited()
         uninvolved.stop.assert_not_awaited()
@@ -484,8 +462,8 @@ class TestErrorHandling:
         previous.stop.assert_awaited_once()
 
 
-class TestUpdateSourceStateGuards:
-    """Tests for update_source_state's drop guards: updates emitted during a
+class TestUpdateSourceViewGuards:
+    """Tests for update_source_view's drop guards: updates emitted during a
     transition are dropped (no buffer/replay) and recovered by the post-start
     resync; updates from an inactive source are ignored."""
 
@@ -496,24 +474,18 @@ class TestUpdateSourceStateGuards:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        An update emitted from a source's start() (while transitioning=True) is
+        A publish from a source's start() (while transitioning=True) is
         dropped — never broadcast, no replay queue — but the source's final
-        state/metadata is recovered by the post-start resync in
-        transition_to_source().
+        view is recovered by the post-start resync in transition_to_source().
         """
         sm = integration_state_machine
         source_instance = create_mock_source(AudioSource.RADIO)
 
         async def start_with_update():
-            # Emitted while transitioning=True → dropped, never broadcast.
-            await sm.update_source_state(
-                AudioSource.RADIO,
-                SourceState.ACTIVE,
-                {"in_flight": True}
-            )
+            # Published while transitioning=True → dropped, never broadcast.
+            await sm.update_source_view(AudioSource.RADIO, _playing("In flight", "s0"))
             # What _do_start actually achieved — recovered by the resync.
-            source_instance.state = SourceState.ACTIVE
-            source_instance.metadata = {"title": "Resynced"}
+            source_instance.view = _playing("Resynced")
             return True
 
         source_instance.start = start_with_update
@@ -522,18 +494,17 @@ class TestUpdateSourceStateGuards:
 
         await sm.transition_to_source(AudioSource.RADIO)
 
-        # The in-transition update was dropped: no state_changed carried it.
-        state_events = websocket_collector.get_events_by_type("state_changed")
+        # The in-transition publish was dropped: no state carried it.
         assert not any(
-            (e.get("data", {}).get("metadata") or {}).get("in_flight")
-            for e in state_events
-        ), "in-transition update must not be broadcast (no buffer/replay)"
+            (s["session"] or {}).get("title") == "In flight"
+            for s in _states(websocket_collector)
+        ), "in-transition publish must not be broadcast (no buffer/replay)"
 
-        # ...but the source's post-start state was resynced into system_state.
-        assert sm.system_state.active_source == AudioSource.RADIO
-        assert sm.system_state.source_state == SourceState.ACTIVE
-        assert sm.system_state.metadata == {"title": "Resynced"}
-        assert sm.system_state.transitioning is False
+        # ...but the source's post-start view was resynced into the state.
+        state = sm.get_current_state()
+        assert state["source"] == "radio"
+        assert state["switching"] is False
+        assert state["session"]["title"] == "Resynced"
 
     @pytest.mark.asyncio
     async def test_updates_from_inactive_source_ignored(
@@ -548,13 +519,10 @@ class TestUpdateSourceStateGuards:
         # Start RADIO
         await sm.transition_to_source(AudioSource.RADIO)
 
-        # Try to update from SPOTIFY (inactive)
-        await sm.update_source_state(
-            AudioSource.SPOTIFY,
-            SourceState.ACTIVE,
-            {"should_be": "ignored"}
-        )
+        # Try to publish from SPOTIFY (inactive)
+        await sm.update_source_view(AudioSource.SPOTIFY, _playing("Ignored"))
 
-        # Metadata should not contain the ignored update
-        assert sm.system_state.metadata.get("should_be") is None
-        assert sm.system_state.active_source == AudioSource.RADIO
+        # The state must not carry the ignored publish
+        state = sm.get_current_state()
+        assert state["session"] is None
+        assert state["source"] == "radio"

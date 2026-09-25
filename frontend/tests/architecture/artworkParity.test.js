@@ -16,9 +16,9 @@
  *
  * Two halves, and the second was added after the first had been green for
  * months while the views disagreed anyway: *which URL is the cover* (scoped to
- * the sources whose artwork rides on `systemState.metadata` — the three browser
- * sources read their own Pinia store in both places, already a single source of
- * truth), and *what fills the slot when there is no cover*, which is every
+ * the sources whose artwork is read from the now-playing record — the three
+ * browser sources read their own Pinia store in both places, already a single
+ * source of truth), and *what fills the slot when there is no cover*, which is every
  * source there is. The second is what would draw a receiver's track title
  * full-screen as a generated avatar while the player behind it shows the
  * source's glyph.
@@ -66,16 +66,18 @@ describe('artwork parity between the player and the screensaver', () => {
     expect(player).toMatch(/nowPlayingArtwork\(/);
   });
 
-  it('never reads album_art_url in the screensaver — that field is the helper\'s', () => {
-    // Only asserted on the screensaver: the player legitimately names the field
-    // once, caching the raw metadata so its last-valid copy is still something
-    // the helper can read.
-    expect(screensaverCode).not.toMatch(/album_art_url/);
+  it('never reads a record\'s artwork in either view — that field is the helper\'s', () => {
+    // `.artwork` on a session, a resume or the player's snapshot is what the
+    // helper reads; a view reading it itself is a cover expression the pin
+    // below cannot see. The browser sources' store records are the exception
+    // the pin already names (`track.artwork` for radio's recognized song).
+    expect(screensaverCode).not.toMatch(/(nowPlaying|session|resume)\??\.artwork/);
+    expect(playerCode).not.toMatch(/(nowPlaying|session|resume|Metadata\.value)\??\.artwork/);
   });
 
   it('pins every cover the screensaver can show', () => {
     // The real guard, and the one the previous two miss: the Bluetooth bug was
-    // `artwork: null` written straight into a branch — no album_art_url to
+    // `artwork: null` written straight into a branch — no record field to
     // detect, and the other branches still called the helper, so nothing else
     // here would have gone red. Pinning the whole set means a new source cannot
     // invent a cover expression without a reviewer seeing it.
@@ -84,7 +86,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // library read the same Pinia store their player does, which is already a
     // single source of truth. Everything else must go through the helper.
     const ALLOWED = [
-      'nowPlayingArtwork(metadata)',
+      'nowPlayingArtwork(nowPlaying)',
       'track.artwork || stationArt',
       'stationArt',
       'episode?.image_url || null',
@@ -92,15 +94,15 @@ describe('artwork parity between the player and the screensaver', () => {
     ];
 
     // Per line, minus the trailing comma — the expressions contain commas of
-    // their own (`nowPlayingArtwork(source, metadata)`).
+    // their own (`nowPlayingArtwork(source, record)`).
     const found = [...screensaver.matchAll(/^\s*artwork:\s*(.+?),?\s*$/gm)].map((m) => m[1]);
 
     // The extractor must find a real surface, or every assertion below is vacuous.
-    // Six, not one per source: the four receivers share a single `receiver()`
-    // helper, so they contribute one expression between them. That is stricter
-    // than four identical lines, not looser — a fifth receiver cannot introduce
-    // a cover expression of its own without leaving this branch, and leaving it
-    // means a new line here for a reviewer to see.
+    // Six, not one per source: the non-browser sources share two branches —
+    // the players and the receivers — so they contribute one expression each.
+    // That is stricter than one line per source, not looser — a new source
+    // cannot introduce a cover expression of its own without leaving those
+    // branches, and leaving them means a new line here for a reviewer to see.
     expect(found.length).toBeGreaterThanOrEqual(6);
     for (const expression of found) {
       expect(ALLOWED).toContain(expression);
@@ -121,8 +123,8 @@ describe('artwork parity between the player and the screensaver', () => {
     expect(playerCode).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
     expect(screensaverViewCode).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
     expect(playerCode).toMatch(/nowPlayingArtworkPending\(/);
-    expect(screensaverCode.match(/artworkAnnounced: nowPlayingArtworkPending\(metadata\)/g))
-      .toHaveLength(screensaverCode.match(/artwork: nowPlayingArtwork\(metadata\)/g).length);
+    expect(screensaverCode.match(/artworkAnnounced: nowPlayingArtworkPending\(state\)/g))
+      .toHaveLength(screensaverCode.match(/artwork: nowPlayingArtwork\(nowPlaying\)/g).length);
 
     // And neither may re-roll its own wait: the bounded timeout is the only
     // thing that lifts a veil when a cover never arrives.

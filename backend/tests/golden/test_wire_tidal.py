@@ -1,4 +1,4 @@
-"""Tidal's old wire, scenario by scenario (see harness.py for the rules).
+"""Tidal's wire, scenario by scenario (see harness.py for the rules).
 
 The outside world is tidal_connect_application's `tisoc` controller socket.
 FakeTisoc stands in for the Unix socket itself (a real StreamReader fed with
@@ -9,17 +9,17 @@ frame the daemon pushes.
 import asyncio
 import json
 import struct
+from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.sources.tidal import controller_socket as controller_module
-from backend.sources.tidal import source as tidal_module
 from backend.sources.tidal.source import TidalSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, LiveProcessWatch, TickGate, Wire, check_recording, instant_short_sleep,
-    make_state_machine, make_systemd, settle,
+    AsyncioProxy, LiveProcessWatch, TickGate, VirtualClock, Wire, check_recording,
+    instant_short_sleep, make_state_machine, make_systemd, settle, use_virtual_wall,
 )
 
 # The tisoc framing, restated rather than borrowed from the module under test.
@@ -120,34 +120,19 @@ class FakeTisoc:
         self._reader.feed_eof()
 
 
-class FakeLoopClock:
-    """The loop clock tidal/source.py reads to pace its position updates.
-
-    The real one is the host's monotonic clock, so whether a drift correction
-    goes out would depend on when the test ran; this one moves only when the
-    scenario says time passed.
-    """
-
-    def __init__(self):
-        self.now = 1000.0
-
-    def time(self):
-        return self.now
-
-
 class Tidal:
     """Adapter: how each outside-world stimulus reaches TidalSource today."""
 
     def __init__(self, monkeypatch):
         self.daemon = FakeTisoc()
         self.gate = TickGate()
-        self.clock = FakeLoopClock()
+        # The wall clock position anchors are stamped with: it moves only
+        # when the scenario says time passed.
+        self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         socket_asyncio = AsyncioProxy(self.gate.sleep)
         socket_asyncio.open_unix_connection = self.daemon.open_unix_connection
         monkeypatch.setattr(controller_module, "asyncio", socket_asyncio)
-        source_asyncio = AsyncioProxy(asyncio.sleep)
-        source_asyncio.get_running_loop = lambda: self.clock
-        monkeypatch.setattr(tidal_module, "asyncio", source_asyncio)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
         # The daemon's process: a restart underneath is its death, which the
         # session's pidfd watch hears.
@@ -167,11 +152,15 @@ class Tidal:
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch)
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
+        systemd = make_systemd()
+        # What systemd says of the unit once its process is gone: the only
+        # death here is a restart underneath, a crash that Restart= answers.
+        systemd.unit_state = AsyncMock(return_value=("activating", "signal"))
         self.source = TidalSource(
             {"socket_path": "/nonexistent/tidal-controller.sock"},
             state_machine=self.machine,
             settings_service=None,
-            systemd_manager=make_systemd(),
+            systemd_manager=systemd,
         )
         self.machine.register_source(AudioSource.TIDAL, self.source)
 

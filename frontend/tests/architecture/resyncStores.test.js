@@ -239,11 +239,11 @@ describe('App.vue has one recipe for populating the stores', () => {
 describe('WS subscriptions ↔ deltaStores', () => {
   it('sees more stores than any single dispatch shape yields', () => {
     // The floor is above what each extractor finds alone (8 for the tables, 5
-    // for the inline callbacks, 2 for the named handlers), so losing any one
+    // for the inline callbacks, 1 for the named handlers), so losing any one
     // of the three fails here instead of shrinking the rule below in silence.
     expect(storesInDispatchTables(appSource).size).toBeGreaterThan(5);
     expect(storesInInlineHandlers(appSource).size).toBeGreaterThan(3);
-    expect(storesInNamedTableHandlers(appSource).size).toBeGreaterThan(1);
+    expect(storesInNamedTableHandlers(appSource).size).toBeGreaterThan(0);
     expect(storesMutatedByWsHandlers(appSource).size).toBeGreaterThan(8);
   });
 

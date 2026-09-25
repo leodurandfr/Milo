@@ -36,7 +36,7 @@ from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.sources.airplay.source import AirPlaySource
 from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, make_settings, make_state_machine, settle,
+    AsyncioProxy, VirtualClock, WireReader, make_settings, make_state_machine, settle, use_virtual_wall,
 )
 from unittest.mock import AsyncMock, Mock
 
@@ -88,18 +88,6 @@ PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x02X\x00\x00\x02X\x08\x02"
        b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00IEND\xaeB`\x82")
 
 
-class _LoopView:
-    """The running loop, with `time()` answered from the virtual clock (the
-    source ages the `prgr` snapshot by loop time)."""
-
-    def __init__(self, clock: VirtualClock) -> None:
-        self._clock = clock
-
-    def time(self) -> float:
-        return self._clock.now
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(asyncio.get_running_loop(), name)
 
 
 class _ProcessTable:
@@ -118,12 +106,13 @@ class _ProcessTable:
         return getattr(os.path if name in ("join", "dirname") else os, name)
 
 
-class AirPlayWorld:
+class AirPlayWorld(WireReader):
     """The AirPlay source on a real state machine, in a world the scenario drives."""
 
     def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None):
         world = self
         self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         self._pids = itertools.count(FIRST_PID)
         self.live_pids: set = set()
         self.pid: Optional[int] = None
@@ -185,12 +174,8 @@ class AirPlayWorld:
                 return await asyncio.sleep(0)
             return await self.clock.sleep(delay)
 
-        class SourceAsyncio(AsyncioProxy):
-            def get_running_loop(self) -> _LoopView:
-                return _LoopView(world.clock)
 
         monkeypatch.setattr(airplay_module, "MetadataReader", PipeReader)
-        monkeypatch.setattr(airplay_module, "asyncio", SourceAsyncio(sleep))
         monkeypatch.setattr(airplay_module, "os", _ProcessTable(self))
         monkeypatch.setattr(airplay_module, "drop_session", drop_session, raising=False)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
@@ -361,30 +346,3 @@ class AirPlayWorld:
         await settle()
 
     # === what the wire says ===
-
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"] or {}
-
-    def active(self) -> bool:
-        return self.state()["source_state"] == "active"
-
-    def playing(self) -> bool:
-        return self.active() and bool(self.meta().get("is_playing"))
-
-    def errors(self) -> List[str]:
-        return [
-            e["data"]["reason"] for e in self.recorder.envelopes
-            if e["category"] == "source" and e["type"] == "error"
-        ]
-
-    def published(self) -> List[Dict[str, Any]]:
-        """Every (state, metadata) the source put on the wire, in order."""
-        out = []
-        for e in self.recorder.envelopes:
-            full = (e.get("data") or {}).get("full_state")
-            if e["category"] == "source" and e["type"] == "state_changed" and full:
-                out.append({"state": full["source_state"], **(full.get("metadata") or {})})
-        return out

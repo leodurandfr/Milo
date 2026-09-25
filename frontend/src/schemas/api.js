@@ -6,75 +6,85 @@
  * helping catch backend/frontend contract mismatches early.
  *
  * Usage:
- *   import { SystemStateSchema, VolumeStateSchema } from '@/schemas/api';
- *   const result = SystemStateSchema.safeParse(response.data);
+ *   import { AudioStateSchema, VolumeStateSchema } from '@/schemas/api';
+ *   const result = AudioStateSchema.safeParse(response.data);
  *   if (!result.success) logger.warn('api', 'Invalid response', result.error);
  */
 import { z } from 'zod';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
-// === AUDIO SOURCE & STATE ===
+// === AUDIO STATE ===
+//
+// The audio state as the backend publishes it — the same object in
+// GET /api/audio/state, the `source/state` event and system/initial_state
+// (docs: "Développeurs : le fil", frozen 2026-09-24; backend
+// core/models/audio_wire.py::AudioState).
+//
+// STRICT, unlike the resilience schemas below: `service` and `phase` are frozen
+// enums and a state that does not parse is refused whole (the store keeps the
+// last good one and logs it). A permissive .catch() here is how a renamed field
+// became a silent "nothing is playing" — the spec forbids it.
 
 const AudioSourceSchema = z.enum(['none', ...ALL_AUDIO_SOURCES]);
 
-const SourceStateSchema = z.enum([
-  'starting', 'ready', 'active', 'error'
+export const ServiceStateSchema = z.enum(['stopped', 'starting', 'running', 'failed']);
+
+export const PhaseSchema = z.enum(['loading', 'playing', 'paused', 'connected']);
+
+export const AvailabilityReasonSchema = z.enum([
+  'no_network', 'no_internet', 'no_account',
+  'no_drive', 'no_disc', 'reading_disc', 'unreadable_disc', 'ejecting',
+  'no_storage', 'catalog_unavailable',
 ]);
 
-const NetworkUnavailableSchema = z.enum(['no_network', 'no_internet']);
+/** The playhead: `ms` at the instant `at` (UTC seconds), moving at `rate` while playing. */
+export const PositionAnchorSchema = z.object({
+  ms: z.number().int(),
+  at: z.number(),
+  rate: z.number(),
+});
 
-// Metadata varies by source, so we use a flexible schema.
-// String/number fields are nullable: backend emits null for "unknown"
-// (e.g. CD with failed MusicBrainz lookup → album/artist/year=null).
-const MetadataSchema = z.object({
-  // Common fields
-  title: z.string().nullable().optional(),
-  artist: z.string().nullable().optional(),
-  album: z.string().nullable().optional(),
-  duration: z.number().nullable().optional(),
-  position: z.number().nullable().optional(),
-  is_playing: z.boolean().optional(),
-  is_buffering: z.boolean().optional(),
-  album_art_url: z.string().nullable().optional(),
+const SessionSchema = z.object({
+  id: z.string(),
+  phase: PhaseSchema,
+  title: z.string().nullable(),
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  artwork: z.string().nullable(),
+  senders: z.array(z.string()),
+  duration_ms: z.number().int().nullable(),
+  position: PositionAnchorSchema.nullable(),
+});
 
-  // AirPlay-specific: artwork pixel width, used to gate the rich player
-  // on cover quality (browser audio ships tiny favicons / app icons).
-  album_art_width: z.number().nullable().optional(),
+const ResumeSchema = z.object({
+  title: z.string().nullable(),
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  artwork: z.string().nullable(),
+  duration_ms: z.number().int().nullable(),
+  position_ms: z.number().int().nullable(),
+});
 
-  // Radio-specific. The station is the identity and survives a stop (it is
-  // what `resume_playback` re-tunes); the track_* layer is the recognised song
-  // annotating a stream that is running, and goes with the stream. Both are
-  // declared because both are read — radioStore draws them apart, and the
-  // common floor above carries the one-line view of the two.
-  station_name: z.string().nullable().optional(),
-  station_id: z.string().nullable().optional(),
-  favicon: z.string().nullable().optional(),
-  track_title: z.string().nullable().optional(),
-  track_artist: z.string().nullable().optional(),
-  track_artwork: z.string().nullable().optional(),
-
-  // Podcast-specific
-  episode_uuid: z.string().nullable().optional(),
-  podcast_name: z.string().nullable().optional(),
-  playback_speed: z.number().nullable().optional()
-}).passthrough(); // Allow additional fields
-
-export const SystemStateSchema = z.object({
-  active_source: AudioSourceSchema.catch('none'),
-  source_state: SourceStateSchema.catch('ready'),
-  transitioning: z.boolean().catch(false),
-  // .catch({}) safety net: an unexpected metadata shape must never block
-  // a SystemState update — losing the metadata is preferable to freezing
-  // the UI on a stale source_state.
-  metadata: MetadataSchema.catch({}).optional().default({}),
-  error: z.string().nullable().optional().catch(null),
-  multiroom_enabled: z.boolean().catch(false),
-  equalizer_effects_enabled: z.boolean().catch(false),
-  // Why the active source cannot work right now, or null when it can. The
-  // backend already crossed the NetworkManager level with the source's own
-  // requirement, so null here means "nothing to report", never "unknown".
-  network_unavailable: NetworkUnavailableSchema.nullable().optional().catch(null)
-}).passthrough();
+export const AudioStateSchema = z.object({
+  source: AudioSourceSchema,
+  switching: z.boolean(),
+  service: ServiceStateSchema,
+  service_error: z.object({
+    reason: z.enum(['start_timeout', 'start_failed']),
+    message: z.string(),
+  }).nullable(),
+  availability: z.object(
+    Object.fromEntries(ALL_AUDIO_SOURCES.map((source) => [source, AvailabilityReasonSchema.nullable()])),
+  ),
+  session: SessionSchema.nullable(),
+  controls: z.array(z.string()),
+  resume: ResumeSchema.nullable(),
+  // Typed by `kind` on the backend; not frozen, so read by each source's store
+  // for the kind it knows (radio, podcast, music_library, cd, airplay).
+  details: z.object({ kind: z.string() }).passthrough().nullable(),
+  multiroom_enabled: z.boolean(),
+  equalizer_effects_enabled: z.boolean(),
+});
 
 // === VOLUME ===
 

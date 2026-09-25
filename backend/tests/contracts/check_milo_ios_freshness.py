@@ -73,10 +73,18 @@ VENDOR_DIR = HERE / "vendor" / "milo-ios"
 # the only declaration of GET /api/multiroom/state. It was found by the guard
 # below rather than by reading, which is the guard working.
 #
+# The fourth carries no route at all, and is here for the payload invariants:
+# MiloAudioState.swift is the one decoder of GET /api/audio/state (shared byte
+# for byte with Milo-Mac, since 39b0de28), and every key the schema invariant
+# pins is read there. Left out, the vendored corpus mentions none of them and
+# test_an_invariant_names_a_key_the_app_mentions has nothing to check against.
+#
 # A glob is still a bet on a naming convention, so it is not left as one:
 # `unvendored_surface()` below reads EVERY .swift in a checkout and fails on
 # any route literal living outside these patterns.
-SOURCE_FILES = ("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift")
+SOURCE_FILES = (
+    "MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift",
+)
 
 # Where a route literal can appear at all. Used only by the completeness guard.
 _ROUTE_LITERAL = re.compile(r'"(/api/[^"]*)"')

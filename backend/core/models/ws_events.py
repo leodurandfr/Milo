@@ -4,8 +4,9 @@ Typed WebSocket event layer — one class per (category, type) pair.
 
 `CATEGORY`/`TYPE` are class-level, never passed at call sites; the model's own
 fields ARE the wire `data` payload. `AudioStateMachine.broadcast(event)`
-serializes the model, injects `full_state` when the class opts in, and
-wraps it in the `{category, type, origin, data, timestamp}` envelope.
+serializes the model and wraps it in the `{category, type, origin, data,
+timestamp}` envelope. No event carries the audio state beside its own
+payload: the state is an event of its own (`source/state`).
 
 The model is the payload documentation: each class docstring names its
 consumers (frontend store/handler, Milo-Mac where applicable).
@@ -15,6 +16,8 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from backend.core.models.audio_wire import AudioState, PositionAnchor
+from backend.core.models.session import EndReason
 from backend.core.network.models import NetworkStatus
 from backend.core.models.settings_config import (
     AudioStopConfig,
@@ -44,10 +47,6 @@ class WsEvent(BaseModel):
 
     CATEGORY: ClassVar[str]
     TYPE: ClassVar[str]
-    # Whether broadcast() rides the aggregated full_state along. Sole decision
-    # point — only the source/system carriers read by unifiedAudioStore opt in;
-    # every other category's store reads `data` alone.
-    INCLUDE_FULL_STATE: ClassVar[bool] = False
     # True on models whose None fields must be absent from the wire, not null.
     EXCLUDE_NONE: ClassVar[bool] = False
 
@@ -57,13 +56,12 @@ class WsEvent(BaseModel):
         return getattr(self, "source", None) or self.CATEGORY
 
     def wire_data(self) -> Dict[str, Any]:
-        """The envelope `data` payload (before full_state injection)."""
+        """The envelope `data` payload."""
         return self.model_dump(exclude_none=self.EXCLUDE_NONE)
 
     def to_envelope(self, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """The full wire envelope. `data` lets the state machine pass the
-        payload it already enriched with full_state; per-client senders
-        (ws/manager handshake) call it bare."""
+        """The full wire envelope. `data` defaults to the model's own
+        payload (`wire_data()`)."""
         return {
             "category": self.CATEGORY,
             "type": self.TYPE,
@@ -77,55 +75,15 @@ class WsEvent(BaseModel):
 # SYSTEM (core state machine)
 # =============================================================================
 
-class SystemTransitionStart(WsEvent):
-    """App.vue → unifiedAudioStore.updateState — reads the injected full_state only."""
-    CATEGORY = "system"
-    TYPE = "transition_start"
-    INCLUDE_FULL_STATE = True
-    source: Literal["system"] = "system"
-
-
-class SystemTransitionComplete(WsEvent):
-    """App.vue → unifiedAudioStore.updateState — reads the injected full_state only."""
-    CATEGORY = "system"
-    TYPE = "transition_complete"
-    INCLUDE_FULL_STATE = True
-    source: Literal["system"] = "system"
-
-
-class SystemErrorEvent(WsEvent):
-    """Transition-failure banner: App.vue on('system','error') displays the message."""
-    CATEGORY = "system"
-    TYPE = "error"
-    INCLUDE_FULL_STATE = True
-    source: str  # audio source id the failed transition targeted
-    error: str
-    message: str
-
-
-class SystemStateChanged(WsEvent):
-    """Full-state carrier (App.vue → unifiedAudioStore); Milo-Mac keys on the
-    multiroom_changed discriminator (absent everywhere but the routing emitter)."""
-    CATEGORY = "system"
-    TYPE = "state_changed"
-    INCLUDE_FULL_STATE = True
-    EXCLUDE_NONE = True
-    source: str
-    multiroom_changed: Optional[bool] = None
-
-
 class SystemConnectivityChanged(WsEvent):
     """NetworkManager connectivity level changed.
 
-    App.vue → systemStore (Settings › Network reads the level) *and*
-    → unifiedAudioStore, because the injected full_state is what carries the
-    recomputed `network_unavailable`: losing internet blocks the active source
-    without anything about the source itself changing, so this event is the
-    only thing that can tell the card to say so.
+    App.vue → systemStore (Settings › Network reads the level). What the
+    level does to the sources (`availability`) is the state's to say: the
+    state machine republishes `source/state` when it moves.
     """
     CATEGORY = "system"
     TYPE = "connectivity_changed"
-    INCLUDE_FULL_STATE = True
     source: Literal["system"] = "system"
     connectivity: Literal["unknown", "none", "portal", "limited", "full"]
 
@@ -145,25 +103,16 @@ class SystemBackendError(WsEvent):
     """App.vue error toast — forwarded backend ERROR log records."""
     CATEGORY = "system"
     TYPE = "backend_error"
-    INCLUDE_FULL_STATE = True
     message: str
-
-
-class SystemCdDriveStatus(WsEvent):
-    """full_state carrier — drive/disc state travels in the injected
-    full_state metadata, not in data (App.vue → unifiedAudioStore)."""
-    CATEGORY = "system"
-    TYPE = "cd_drive_status"
-    INCLUDE_FULL_STATE = True
-    source: Literal["cd"] = "cd"
 
 
 class SystemInitialState(WsEvent):
     """Handshake reply (ws/manager) — sent to the single ready client, never
-    broadcast; carries its own full_state as an explicit field."""
+    broadcast. App.vue → unifiedAudioStore (`state`, the AudioState),
+    settingsStore (`setup_completed`, `hotspot_active`)."""
     CATEGORY = "system"
     TYPE = "initial_state"
-    full_state: Dict[str, Any]
+    state: Dict[str, Any]
     setup_completed: bool
     hotspot_active: bool
 
@@ -172,20 +121,55 @@ class SystemInitialState(WsEvent):
 # SOURCE (all audio sources — never source-specific categories)
 # =============================================================================
 
-class SourceStateChanged(WsEvent):
-    """App.vue → unifiedAudioStore; podcastStore tracks episode state from it.
+class AudioStateChanged(AudioState, WsEvent):
+    """The whole audio state, sent whenever one of its fields changes and only
+    then (the position axis moves on `source/position` instead).
 
-    Carries the source's own operational state, `SourceState` verbatim. A failed
-    *operation* is not one of those — it rides on SourceError, and ERROR (the
-    source is down) is settled by the state machine, which broadcasts its
-    snapshot through SystemStateChanged.
+    App.vue → unifiedAudioStore (strict Zod schema); Milo-Mac
+    (WebSocketService → MiloAudioState.decode); core/push reads it to know a
+    Now Playing push is due. Its fields are the AudioState's, so `data` is the
+    same object `GET /api/audio/state` returns.
     """
     CATEGORY = "source"
-    TYPE = "state_changed"
-    INCLUDE_FULL_STATE = True
+    TYPE = "state"
+
+    @property
+    def origin(self) -> str:
+        return self.source.value
+
+    def wire_data(self) -> Dict[str, Any]:
+        return self.model_dump(mode="json")
+
+
+class SourcePosition(WsEvent):
+    """A discontinuity of the playhead — a seek, a speed change, or a reading
+    more than 2000 ms from where the anchor says it should be. Never a tick.
+
+    App.vue → unifiedAudioStore (Zod `source.position`); a client ignores a
+    `session_id` that is not its state's.
+    """
+    CATEGORY = "source"
+    TYPE = "position"
     source: str
-    new_state: str
-    metadata: Optional[Dict[str, Any]] = None
+    session_id: str
+    position: PositionAnchor
+
+
+class SourceSessionEnded(WsEvent):
+    """A session ended, for `reason` (EndReason), before the state that follows
+    (queued by `AudioStateMachine.session_ended`, sent ahead of the next publish).
+
+    App.vue → podcastStore (`eof`: the episode was played to its end, marked
+    listened). Nothing else reads it today.
+    """
+    CATEGORY = "source"
+    TYPE = "session_ended"
+    source: str
+    session_id: str
+    reason: EndReason
+
+    def wire_data(self) -> Dict[str, Any]:
+        return self.model_dump(mode="json")
 
 
 class SourceErrorReason:
@@ -210,8 +194,8 @@ class SourceError(WsEvent):
 
     The banner half of the two error mechanisms: an *operation* failed (a station
     that will not tune, a command the daemon refused) while the source stays
-    usable. The source being down is a state instead — SourceState.ERROR in
-    full_state — and no consumer should infer one from the other.
+    usable. The source being down is a state instead — `service: failed` in
+    the state — and no consumer should infer one from the other.
 
     A code, never a sentence: this text is read by a user who chose one of eight
     languages, so the wording belongs to the frontend. The technical detail stays
@@ -219,7 +203,6 @@ class SourceError(WsEvent):
     """
     CATEGORY = "source"
     TYPE = "error"
-    INCLUDE_FULL_STATE = True
     source: str
     reason: str  # see SourceErrorReason
 
@@ -228,17 +211,7 @@ class SourceErrorCleared(WsEvent):
     """App.vue dismisses the error banner when data.source matches the displayed error."""
     CATEGORY = "source"
     TYPE = "error_cleared"
-    INCLUDE_FULL_STATE = True
     source: str
-
-
-class SourcePositionUpdate(WsEvent):
-    """Zod source.position_update → unifiedAudioStore playback-position drift correction."""
-    CATEGORY = "source"
-    TYPE = "position_update"
-    source: str
-    position: int  # milliseconds
-    duration: int  # milliseconds
 
 
 # source/favorite_* is a union discriminated by data.source (radio | podcast).
@@ -247,7 +220,6 @@ class RadioFavoriteAdded(WsEvent):
     """radioStore favorites sync."""
     CATEGORY = "source"
     TYPE = "favorite_added"
-    INCLUDE_FULL_STATE = True
     source: Literal["radio"] = "radio"
     station_id: str
 
@@ -256,7 +228,6 @@ class RadioFavoriteRemoved(WsEvent):
     """radioStore favorites sync."""
     CATEGORY = "source"
     TYPE = "favorite_removed"
-    INCLUDE_FULL_STATE = True
     source: Literal["radio"] = "radio"
     station_id: str
 
@@ -265,7 +236,6 @@ class RadioFavoriteModified(WsEvent):
     """radioStore metadata edit sync; station dict carries id + is_favorite."""
     CATEGORY = "source"
     TYPE = "favorite_modified"
-    INCLUDE_FULL_STATE = True
     source: Literal["radio"] = "radio"
     station: Dict[str, Any]
 
@@ -274,7 +244,6 @@ class PodcastFavoriteAdded(WsEvent):
     """podcastStore subscriptions sync; podcast = the subscription dict."""
     CATEGORY = "source"
     TYPE = "favorite_added"
-    INCLUDE_FULL_STATE = True
     source: Literal["podcast"] = "podcast"
     podcast: Dict[str, Any]
 
@@ -283,7 +252,6 @@ class PodcastFavoriteRemoved(WsEvent):
     """podcastStore subscriptions sync."""
     CATEGORY = "source"
     TYPE = "favorite_removed"
-    INCLUDE_FULL_STATE = True
     source: Literal["podcast"] = "podcast"
     uuid: str
 
@@ -301,19 +269,16 @@ class MusicLibraryStoragesChanged(WsEvent):
     a scan is precisely what makes those counts move — one event, so a tab can
     never hold a storage list and a scan flag that disagree.
 
-    ``catalog_ready`` is false while Navidrome is not answering — a restart, an
-    update, a boot. Every count above then reads zero and every catalog list
-    comes back empty, which is indistinguishable from a storage space holding
-    nothing: this is the field that separates the two, and the only thing that
-    tells a browser already open that the catalog is back.
+    Whether the catalog answers is not here: it is the audio state's
+    `availability.music_library` (`catalog_unavailable` while Navidrome is not
+    answering — every count above then reads zero, which only that tells apart
+    from a storage space holding nothing).
     """
     CATEGORY = "source"
     TYPE = "storages_changed"
-    INCLUDE_FULL_STATE = True
     source: Literal["music_library"] = "music_library"
     storages: List[Dict[str, Any]]
     scanning: bool
-    catalog_ready: bool = True
 
 
 # =============================================================================

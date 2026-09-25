@@ -72,9 +72,9 @@
                  icon+text — NOT a ghost icon button, unlike podcast/music-library's
                  transport. Radio's own convention, kept unconditionally as-is. -->
             <div class="radio-controls-main vertical-layout">
-              <Button variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
+              <Button variant="on-dark" :left-icon="canStop ? 'stop' : 'play'"
                 :loading="isBuffering" @click="handlePlayPause">
-                {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') :
+                {{ canStop ? t('audioSources.radioSource.stopRadio') :
                   t('audioSources.radioSource.playRadio') }}
               </Button>
               <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
@@ -87,7 +87,7 @@
                  entirely — CSS never shows .horizontal-layout inside the expanded card
                  anyway, so rendering it there would only be always-hidden markup. -->
             <div v-if="!expanded" class="playback-controls horizontal-layout">
-              <IconButton :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="ghost" size="medium"
+              <IconButton :icon="canStop ? 'stop' : 'play'" variant="ghost" size="medium"
                 class="transport-primary" :loading="isBuffering" @click="handlePlayPause" />
             </div>
           </div>
@@ -145,6 +145,13 @@ const {
   content: () => radioStore.currentStation
 })
 
+// A live stream has no pause: the source takes `stop` while a session runs
+// (loading included) and `resume_playback` to re-tune the station it kept.
+const controls = computed(() =>
+  unifiedStore.systemState.source === 'radio' ? unifiedStore.systemState.controls : []
+)
+const canStop = computed(() => controls.value.includes('stop'))
+
 const stationIsFavorite = computed(() =>
   station.value
     ? radioStore.favoriteStations.some(s => s.id === station.value.id)
@@ -160,7 +167,7 @@ const bufferingStationId = computed(() => {
   if (!isBuffering.value) {
     return null
   }
-  return unifiedStore.systemState.metadata?.station_id || null
+  return radioStore.currentStation?.id || null
 })
 
 // Station favicon URL — empty when missing; AudioPlayer generates the inline
@@ -243,12 +250,11 @@ async function playStation(stationId) {
 }
 
 async function handlePlayPause() {
-  if (isCurrentlyPlaying.value) {
+  if (canStop.value) {
     await radioStore.stopPlayback()
-  } else if (station.value) {
-    // Re-tune the station the state is publishing — a stopped radio keeps it,
-    // which is what `resume_playback` would use on the backend side too.
-    await radioStore.playStation(station.value.id)
+  } else if (controls.value.includes('resume_playback')) {
+    // Re-tunes the station the state is publishing — a stopped radio keeps it.
+    await unifiedStore.sendCommand('radio', 'resume_playback')
   }
 }
 

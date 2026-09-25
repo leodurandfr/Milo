@@ -14,8 +14,8 @@
   needs to see it beside the booleans that switch on it.
 
   Nor is the note under a control. Half the controls here are read only under a
-  condition — a branch the other props pick (`showProgress` is read only when
-  `showControls` is off), a mode, a viewport, an animation that plays on the way
+  condition — a branch the other props pick (NavigationHeader's `icon` is drawn
+  only while `showBack` is off), a mode, a viewport, an animation that plays on the way
   out — and a panel built from `Component.props` cannot see any of it: it offers
   a switch that does nothing and says nothing. The descriptor names the condition
   in one line, which is the only per-control text on this panel.

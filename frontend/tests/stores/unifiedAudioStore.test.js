@@ -2,7 +2,7 @@
 /**
  * unifiedAudioStore is the central audio mirror: every source's state reaches
  * the UI through it. These tests cover the logic it owns — schema-guarded
- * ingestion of WS payloads, the stale-position guard, and the volume-bar
+ * ingestion of WS payloads, the stale-session position guard, and the volume-bar
  * lifecycle — not the URLs of its pass-through actions.
  *
  * The per-client volume/mute surface is the exception: it *chooses* its endpoint
@@ -16,20 +16,25 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
+import { makeAudioState, makeSession } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
-/** A full_state envelope as broadcast by the backend `system.state_changed`. */
-const fullStateEvent = (fullState) => ({ data: { full_state: fullState } });
+/** A `source/state` event: its data IS the state. */
+const stateEvent = (state) => ({ category: 'source', type: 'state', data: state });
 
-const VALID_FULL_STATE = {
-  active_source: 'spotify',
-  source_state: 'active',
-  transitioning: false,
-  metadata: { title: 'Test Song', position: 1000, duration: 200000 },
+const VALID_STATE = makeAudioState({
+  source: 'spotify',
+  service: 'running',
+  session: makeSession({
+    title: 'Test Song',
+    duration_ms: 200000,
+    position: { ms: 1000, at: 1_750_000_000, rate: 1 },
+  }),
+  controls: ['pause', 'next', 'prev', 'seek'],
   multiroom_enabled: true,
   equalizer_effects_enabled: true,
-};
+});
 
 
 const LOCAL_MAC = 'dc:a6:32:00:00:01';
@@ -58,7 +63,7 @@ describe('unifiedAudioStore', () => {
   function setMultiroom(enabled, volumeClients = {}) {
     registerClient(multiroomStore, LOCAL_MAC, { is_local: true, name: 'Milo' });
     registerClient(multiroomStore, REMOTE_MAC, { name: 'Kitchen' });
-    store.updateState(fullStateEvent({ ...VALID_FULL_STATE, multiroom_enabled: enabled }));
+    store.updateState(stateEvent({ ...VALID_STATE, multiroom_enabled: enabled }));
     store.handleVolumeEvent({
       data: {
         show_bar: false,
@@ -81,81 +86,69 @@ describe('unifiedAudioStore', () => {
     store = useUnifiedAudioStore();
   });
 
-  describe('updateState — full_state ingestion', () => {
-    it('applies a valid full_state to systemState', () => {
-      store.updateState(fullStateEvent(VALID_FULL_STATE));
+  describe('updateState — AudioState ingestion', () => {
+    it('applies a valid state whole', () => {
+      store.updateState(stateEvent(VALID_STATE));
 
-      expect(store.systemState.active_source).toBe('spotify');
-      expect(store.systemState.source_state).toBe('active');
-      expect(store.systemState.multiroom_enabled).toBe(true);
-      expect(store.systemState.metadata.title).toBe('Test Song');
+      expect(store.systemState).toEqual(VALID_STATE);
     });
 
-    it('leaves state untouched when the event carries no full_state', () => {
-      store.updateState(fullStateEvent(VALID_FULL_STATE));
-      store.updateState({ data: {} });
+    it('reads the state under `state` in system/initial_state', () => {
+      store.updateState({ category: 'system', type: 'initial_state', data: { state: { ...VALID_STATE, source: 'radio' } } });
 
-      expect(store.systemState.active_source).toBe('spotify');
+      expect(store.systemState.source).toBe('radio');
     });
 
-    it('coerces an unknown active_source to none rather than dropping the update', () => {
-      // SystemStateSchema uses .catch() defaults: an unrecognised source must not
-      // freeze the UI on a stale source_state (see schemas/api.js).
-      store.updateState(fullStateEvent({ ...VALID_FULL_STATE, active_source: 'gramophone' }));
+    it('refuses a state that does not match the wire and keeps the last good one', () => {
+      // Strict on purpose: a permissive default is how a renamed field became a
+      // silent "nothing is playing". The spec forbids coercing.
+      store.updateState(stateEvent(VALID_STATE));
 
-      expect(store.systemState.active_source).toBe('none');
-      expect(store.systemState.source_state).toBe('active');
+      store.updateState(stateEvent({ ...VALID_STATE, source: 'gramophone' }));
+      store.updateState(stateEvent({ ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'stopped' } }));
+      const { controls: _dropped, ...missingKey } = VALID_STATE;
+      store.updateState(stateEvent(missingKey));
+
+      expect(store.systemState).toEqual(VALID_STATE);
     });
 
-    it('replaces metadata wholesale so a field cleared by the backend disappears', () => {
-      store.updateState(fullStateEvent(VALID_FULL_STATE));
-      store.updateState(fullStateEvent({ ...VALID_FULL_STATE, metadata: { title: 'Next Song' } }));
+    it('replaces the session wholesale so a field cleared by the backend disappears', () => {
+      store.updateState(stateEvent(VALID_STATE));
+      store.updateState(stateEvent({ ...VALID_STATE, session: makeSession({ id: 'session-2', title: 'Next Song' }) }));
 
-      expect(store.systemState.metadata.title).toBe('Next Song');
-      expect(store.systemState.metadata.position).toBeUndefined();
-    });
-
-    it('stamps positionTimestamp on every anchor, including one repeating the value', () => {
-      // The stamp is what the interpolating consumers read as "a new anchor
-      // arrived". A Previous restarting the current track answers the same
-      // position the store already holds — for the whole 30 s a source waits
-      // between periodic syncs — so a stamp that only moved on a changed value
-      // left the progress bar running past a playhead that had gone back to 0.
-      const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
-      store.updateState(fullStateEvent(VALID_FULL_STATE));
-      expect(store.positionTimestamp).toBe(1000);
-
-      now.mockReturnValue(5000);
-      store.updateState(fullStateEvent(VALID_FULL_STATE));
-      expect(store.positionTimestamp).toBe(5000);
-
-      // A state carrying no position at all is not an anchor.
-      now.mockReturnValue(9000);
-      store.updateState(fullStateEvent({ ...VALID_FULL_STATE, metadata: { title: 'Test Song' } }));
-      expect(store.positionTimestamp).toBe(5000);
-      now.mockRestore();
+      expect(store.systemState.session.title).toBe('Next Song');
+      expect(store.systemState.session.position).toBeNull();
     });
   });
 
-  describe('updatePosition — stale-source guard', () => {
+  describe('updatePosition — one session\'s playhead', () => {
     beforeEach(() => {
-      store.updateState(fullStateEvent(VALID_FULL_STATE));
+      store.updateState(stateEvent(VALID_STATE));
     });
 
-    it('applies a position_update coming from the active source', () => {
-      store.updatePosition({ source: 'spotify', position: 5000, duration: 200000 });
+    const MOVED = { ms: 5000, at: 1_750_000_010, rate: 1 };
 
-      expect(store.systemState.metadata.position).toBe(5000);
-      expect(store.systemState.metadata.duration).toBe(200000);
+    it('moves the anchor of the session it names', () => {
+      store.updatePosition({ source: 'spotify', session_id: 'session-1', position: MOVED });
+
+      expect(store.systemState.session.position).toEqual(MOVED);
+      expect(store.systemState.session.title).toBe('Test Song');
     });
 
-    it('ignores a position_update from a source that is no longer active', () => {
-      // During a transition the previous source can still emit; applying it would
-      // rewind the progress bar of the source that just took over.
-      store.updatePosition({ source: 'radio', position: 999999, duration: 1 });
+    it('drops a playhead naming another session', () => {
+      // A session that ended while its last position was in flight must not
+      // rewind the one that took over.
+      store.updatePosition({ source: 'spotify', session_id: 'session-0', position: MOVED });
 
-      expect(store.systemState.metadata.position).toBe(1000);
-      expect(store.systemState.metadata.duration).toBe(200000);
+      expect(store.systemState.session.position).toEqual(VALID_STATE.session.position);
+    });
+
+    it('drops a playhead when there is no session at all', () => {
+      store.updateState(stateEvent({ ...VALID_STATE, session: null }));
+
+      store.updatePosition({ source: 'spotify', session_id: 'session-1', position: MOVED });
+
+      expect(store.systemState.session).toBeNull();
     });
   });
 
@@ -288,20 +281,20 @@ describe('unifiedAudioStore', () => {
     it('applies the audio snapshot unwrapped and the volume snapshot from its envelope', async () => {
       apiCall.get.mockImplementation(async (url) => (
         url === '/api/audio/state'
-          ? ok({ ...VALID_FULL_STATE, active_source: 'radio' })
+          ? ok({ ...VALID_STATE, source: 'radio' })
           : ok({ status: 'success', data: VOLUME_SNAPSHOT })
       ));
 
       await store.resync();
 
-      expect(store.systemState.active_source).toBe('radio');
+      expect(store.systemState.source).toBe('radio');
       expect(store.volumeState.global_volume_db).toBe(-22);
     });
 
     it('leaves the volume bar hidden — a heal the user did not cause must not flash it', async () => {
       apiCall.get.mockImplementation(async (url) => (
         url === '/api/audio/state'
-          ? ok(VALID_FULL_STATE)
+          ? ok(VALID_STATE)
           : ok({ status: 'success', data: VOLUME_SNAPSHOT })
       ));
 
@@ -312,12 +305,12 @@ describe('unifiedAudioStore', () => {
 
     it('keeps the audio half when the volume request fails', async () => {
       apiCall.get.mockImplementation(async (url) => (
-        url === '/api/audio/state' ? ok({ ...VALID_FULL_STATE, active_source: 'radio' }) : fail()
+        url === '/api/audio/state' ? ok({ ...VALID_STATE, source: 'radio' }) : fail()
       ));
 
       await store.resync();
 
-      expect(store.systemState.active_source).toBe('radio');
+      expect(store.systemState.source).toBe('radio');
       expect(store.volumeState.global_volume_db).toBe(-45);
     });
 
@@ -327,7 +320,7 @@ describe('unifiedAudioStore', () => {
       store.handleVolumeEvent({ data: { show_bar: false, state: VOLUME_SNAPSHOT } });
       apiCall.get.mockImplementation(async (url) => (
         url === '/api/audio/state'
-          ? ok(VALID_FULL_STATE)
+          ? ok(VALID_STATE)
           : ok({ status: 'error', message: 'boom' })
       ));
 

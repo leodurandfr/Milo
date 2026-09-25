@@ -16,11 +16,13 @@ by hand on a unit.
 import asyncio
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, PropertyMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.health import create_health_router
+from backend.core.models.audio_state import AudioSource
+from backend.core.state import AudioStateMachine
 
 
 def _services(*, routing_raises=False, state_machine_raises=False,
@@ -31,11 +33,15 @@ def _services(*, routing_raises=False, state_machine_raises=False,
     """The five collaborators the router probes, each independently breakable."""
     state_machine = Mock()
     if state_machine_raises:
-        state_machine.get_current_state = Mock(side_effect=RuntimeError("state machine down"))
+        type(state_machine).system_state = PropertyMock(
+            side_effect=RuntimeError("state machine down"))
     else:
-        state_machine.get_current_state = Mock(
-            return_value={"active_source": "radio", "transitioning": False}
-        )
+        # A real machine's record and composition, radio selected: what the
+        # routes report is read off it, not off a dict typed here.
+        real = AudioStateMachine()
+        real.system_state.active_source = AudioSource.RADIO
+        state_machine.system_state = real.system_state
+        state_machine.get_current_state = real.get_current_state
     state_machine.sources = sources if sources is not None else {}
 
     routing = Mock()
@@ -95,6 +101,18 @@ class TestProbeIsolation:
         """Routing down is unhealthy. Losing that to the snapcast probe's own
         except clause is how a hard failure got downgraded to degraded."""
         assert _health(routing_raises=True)["status"] == "unhealthy"
+
+
+class TestTheStateMachineProbe:
+
+    def test_it_reports_the_selection_and_whether_a_switch_runs(self):
+        """The operator reads `source`/`switching` here to tell a unit stuck
+        in a switch from one idling on a source; the keys are the state's own."""
+        checks = _health()
+
+        assert checks["services"]["state_machine"] == {
+            "healthy": True, "source": "radio", "switching": False,
+        }
 
 
 class TestStatusEscalatesMonotonically:
@@ -237,4 +255,6 @@ class TestTheTwoFallbackReads:
 
         assert body["setup_completed"] is False
         assert body["hotspot_active"] is True
-        assert body["full_state"]["active_source"] == "radio"
+        assert "full_state" not in body
+        assert body["state"]["source"] == "radio"
+        assert body["state"]["service"] == "running"

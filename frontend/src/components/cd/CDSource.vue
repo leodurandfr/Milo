@@ -1,11 +1,11 @@
 <!-- CDSource.vue - CD Player (wrapper around AudioPlayerFull) -->
 <template>
-  <AudioPlayerFull source="cd" :hideContent="cdStore.showTracklist" :hasNext="hasNext">
+  <AudioPlayerFull source="cd" :hideContent="cdStore.showTracklist">
     <template #action-buttons>
       <div class="action-buttons">
         <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" :variant="isMobile ? 'on-grey' : 'background-strong'"
           size="medium" @click="cdStore.toggleTracklist()" />
-        <IconButton icon="eject" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
+        <IconButton v-if="canEject" icon="eject" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
           @click="cdStore.eject()" />
       </div>
     </template>
@@ -20,12 +20,12 @@
           <span v-if="releaseYear" class="text-mono-small tracklist-year">{{ releaseYear }}</span>
         </div>
         <div class="tracklist-scroll">
-          <TrackRow v-for="track in cdStore.tracks" :key="track.number" :song="track"
+          <TrackRow v-for="track in cdStore.tracks" :key="track.number" :song="trackRecord(track)"
             :number="track.number"
             :current="track.number === cdStore.currentTrack"
             :playing="track.number === cdStore.currentTrack && cdStore.isPlaying"
             :fallback-title="t('audioSources.cdSource.trackN', { n: track.number })"
-            @play="cdStore.playTrack($event)" />
+            @play="playTrack" />
         </div>
       </div>
     </template>
@@ -36,6 +36,7 @@
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useCdStore } from '@/stores/cdStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -44,6 +45,7 @@ import { useIsMobile } from '@/composables/useIsMobile';
 
 const { t } = useI18n();
 const cdStore = useCdStore();
+const unifiedStore = useUnifiedAudioStore();
 const { isMobile } = useIsMobile();
 
 const artistName = computed(() =>
@@ -57,10 +59,22 @@ const albumTitle = computed(() =>
 // Release year (MusicBrainz "YYYY" or empty) — shown next to the album when known
 const releaseYear = computed(() => cdStore.discInfo?.year || '');
 
-// Mirrors the backend's "next" no-op on the last track.
-const hasNext = computed(() =>
-  !cdStore.currentTrack || cdStore.currentTrack < cdStore.tracks.length
-);
+// The backend lists what the disc accepts now: eject even for a disc it
+// cannot play, play_track only once the disc is playable.
+const canEject = computed(() => unifiedStore.systemState.controls.includes('eject'));
+const canPlayTrack = computed(() => unifiedStore.systemState.controls.includes('play_track'));
+
+function playTrack(number) {
+  if (canPlayTrack.value) cdStore.playTrack(number);
+}
+
+// TrackRow reads a catalog record whose duration is in seconds; the wire's is in ms.
+function trackRecord(track) {
+  return {
+    title: track.title,
+    duration: track.duration_ms == null ? null : track.duration_ms / 1000,
+  };
+}
 </script>
 
 <style scoped>

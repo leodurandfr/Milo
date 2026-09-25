@@ -21,8 +21,9 @@ def create_router(state_machine: "AudioStateMachine"):
 
     @router.get("/state", response_model=AudioStateResponse)
     async def get_current_state():
-        """Gets current audio system state with refreshed metadata"""
-        await state_machine.refresh_active_metadata()
+        """The audio state (docs: "le fil"), the active source's player re-read
+        first so its anchor is current. The same object as `source/state`."""
+        await state_machine.refresh_active_view()
         return state_machine.get_current_state()
 
     @router.post("/source/{source_name}", response_model=StatusResponse)

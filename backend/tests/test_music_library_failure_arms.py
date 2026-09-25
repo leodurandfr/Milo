@@ -9,7 +9,7 @@ going after ten minutes.
 They matter because every one of them is the difference between a failure the
 user can see and a screen that lies:
 
-* a **resume that fails** must take back the ACTIVE it announced, or the
+* a **resume that fails** must take back the session it announced, or the
   now-playing screen draws a playing track over an mpv that has nothing loaded;
 * a **reconcile that fails** must schedule its retry, or every storage space
   keeps a null library id for the rest of the session and the frontend drops
@@ -34,10 +34,11 @@ from backend.sources.music_library.navidrome_client import ScanRequest, ScanStat
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.sources.music_library.storage import StorageManager
 from backend.tests.golden.harness import settle
-from backend.tests.golden.test_old_wire_music_library import FakeNavidrome
+from backend.tests.golden.test_wire_music_library import FakeNavidrome
 from backend.tests.test_mpv_sessions import LibraryRig
 from backend.tests.test_music_library_source import (
-    TRACKS, NoCredFile, lengths, loads_since, meta, play,
+    TRACKS, NoCredFile, anchor_ms, details, lengths, loads_since, phase, play, session,
+    session_ends,
 )
 
 
@@ -112,7 +113,7 @@ class TestDoStart:
     async def test_an_mpv_that_will_not_answer_its_socket_is_a_failed_start(
         self, source
     ):
-        """`_do_start` returning True with no IPC leaves the source ACTIVE and
+        """`_do_start` returning True with no IPC leaves the service running and
         every later transport command answering "no active queue" instead of
         the state machine reporting a source that could not start."""
         mpv = _mpv(connect=AsyncMock(return_value=False))
@@ -169,15 +170,16 @@ class TestResumeThatCannotBeRestored:
         await rig.select()
 
         assert loads_since(rig, mark) == []
-        assert rig.state()["source_state"] == "ready"
-        assert meta(rig)["track_id"] == "s2"
+        assert session(rig) is None
+        assert details(rig)["track_id"] == "s2"
+        assert rig.state()["resume"]["title"] == "Two"
 
         monkeypatch.setattr(library_module, "NavidromeClient", ClosableNavidrome)
         result = await rig.command("resume")
 
         assert result["success"] is True
-        assert rig.state()["source_state"] == "active"
-        assert meta(rig)["track_id"] == "s2"
+        assert phase(rig) == "playing"
+        assert details(rig)["track_id"] == "s2"
 
     async def test_an_mpv_that_cannot_be_reached_reopens_nothing(self, idle_rig):
         """mpv gone when the press comes (crashed, systemd not done bringing it
@@ -197,14 +199,14 @@ class TestResumeThatCannotBeRestored:
 
         assert result["success"] is False
         assert loads_since(idle_rig, mark) == []
-        assert idle_rig.state()["source_state"] == "ready"
-        assert meta(idle_rig)["track_id"] == "s1"
+        assert session(idle_rig) is None
+        assert details(idle_rig)["track_id"] == "s1"
 
     async def test_a_restore_mpv_refuses_takes_its_own_announcement_back(self, idle_rig):
         """The restore shows the saved track at once and loads underneath. When
-        mpv refuses the load, that ACTIVE announced a queue with nothing behind
-        it. Breaks: the screen and the lock screen (Milo-iOS) stay on a playing
-        track over silence, with no banner."""
+        mpv refuses the load, that session announced a queue with nothing
+        behind it. Breaks: the screen and the lock screen (Milo-iOS) stay on a
+        playing track over silence, with no banner."""
         await idle_rig.select()
         await play(idle_rig)
         await idle_rig.tick()
@@ -216,12 +218,13 @@ class TestResumeThatCannotBeRestored:
 
         assert result["success"] is False
         announced = [
-            e["data"]["full_state"]["source_state"]
+            e["data"]["session"] is not None
             for e in idle_rig.recorder.envelopes[mark:]
-            if e["type"] == "state_changed"
+            if (e["category"], e["type"]) == ("source", "state")
         ]
-        assert announced == ["active", "ready"]
-        assert idle_rig.state()["metadata"]["is_playing"] is False
+        assert announced == [True, False]
+        assert session(idle_rig) is None
+        assert session_ends(idle_rig)[-1] == "load_failed"
         assert idle_rig.errors() == ["playback_failed"]
 
     async def test_a_load_that_raises_is_ended_by_the_loading_watchdog(self, idle_rig):
@@ -239,8 +242,8 @@ class TestResumeThatCannotBeRestored:
         await settle()
 
         assert result["success"] is False
-        assert idle_rig.state()["source_state"] == "ready"
-        assert idle_rig.state()["metadata"]["is_buffering"] is False
+        assert session(idle_rig) is None
+        assert session_ends(idle_rig)[-1] == "load_failed"
         assert idle_rig.errors() == ["playback_failed"]
 
 
@@ -267,7 +270,7 @@ class TestTransportFailsWithAnAnswer:
         result = await playing.command("seek", {"position_ms": 5000})
 
         assert result["success"] is False
-        assert meta(playing)["position"] == 0
+        assert anchor_ms(playing) == 0
 
     async def test_a_track_switch_over_a_dead_link_answers_the_failure(self, playing):
         """Breaks: the player moves to the next track over mpv still playing
@@ -277,8 +280,8 @@ class TestTransportFailsWithAnAnswer:
         result = await playing.command("next")
 
         assert result["success"] is False
-        assert meta(playing)["queue_index"] == 1
-        assert meta(playing)["is_playing"] is True
+        assert details(playing)["queue_index"] == 1
+        assert phase(playing) == "playing"
 
     async def test_a_restart_over_a_dead_link_answers_the_failure(self, rig):
         """`prev` near the start of the first track restarts it rather than
@@ -291,8 +294,8 @@ class TestTransportFailsWithAnAnswer:
         result = await rig.command("prev")
 
         assert result["success"] is False
-        assert meta(rig)["track_id"] == "s1"
-        assert meta(rig)["is_playing"] is True
+        assert details(rig)["track_id"] == "s1"
+        assert phase(rig) == "playing"
 
     async def test_a_shuffle_toggle_over_a_dead_link_answers_the_failure(self, playing):
         """Breaks: shuffle reported on over a queue that was never reordered."""
@@ -301,8 +304,8 @@ class TestTransportFailsWithAnAnswer:
         result = await playing.command("set_shuffle", {"shuffle": True})
 
         assert result["success"] is False
-        assert meta(playing)["shuffle"] is False, "shuffle was reported on over a failed reorder"
-        assert [t["id"] for t in meta(playing)["queue"]] == ["s1", "s2", "s3"]
+        assert details(playing)["shuffle"] is False, "shuffle was reported on over a failed reorder"
+        assert [t["id"] for t in details(playing)["queue"]] == ["s1", "s2", "s3"]
 
     async def test_a_reorder_mpv_refuses_leaves_the_queue_as_it_was(self, rig):
         """The queue is only rewritten after mpv accepted the new tail; writing
@@ -323,8 +326,8 @@ class TestTransportFailsWithAnAnswer:
         result = await rig.command("set_shuffle", {"shuffle": False})
 
         assert result["success"] is False
-        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s3", "s2"]
-        assert meta(rig)["shuffle"] is True
+        assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s3", "s2"]
+        assert details(rig)["shuffle"] is True
 
     async def test_shuffle_needs_the_catalog_to_rebuild_the_tail(self, playing, monkeypatch):
         """Every reordered entry needs a fresh stream URL. Breaks: the tail is

@@ -361,7 +361,7 @@ class IrRemoteController:
                 # Sleep first so the screen-off feedback is immediate; the
                 # source transition (slower — stops systemd units) runs
                 # after. Transitioning to NONE never wakes the screen
-                # because the wake path only fires on source_state="active".
+                # because the wake path only fires when a session opens.
                 await self.screen_controller.force_sleep()
                 await self.state_machine.transition_to_source(AudioSource.NONE)
             elif count >= 2:

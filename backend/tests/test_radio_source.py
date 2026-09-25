@@ -3,8 +3,8 @@
 
 Driven through the outside world only (tests/radio_world.py: mpv simulated,
 the station store, the directory and the recognition service faked, a real
-AudioStateMachine) and read where the clients read it: `source_state` and
-`metadata` on the state machine, `source/error` banners, command answers, and
+AudioStateMachine) and read where the clients read it: the state's `session`,
+`resume` and `details`, `source/error` banners, command answers, and
 what mpv was told to load. Also the station store's own persistence rules and
 the two pure helpers (the in-band title parser, the pre-roll probe).
 """
@@ -24,7 +24,7 @@ from backend.sources.radio.source import RadioSource
 from backend.tests.golden.harness import (
     AsyncioProxy, instant_short_sleep, make_settings, make_systemd, settle,
 )
-from backend.tests.golden.test_old_wire_radio import FIP, NOVA, FakeShazam
+from backend.tests.golden.test_wire_radio import FIP, NOVA, FakeShazam
 from backend.tests.mpv_sim import MpvSim
 from backend.tests.radio_world import RadioWorld
 
@@ -67,11 +67,12 @@ class TestRadioSourceLifecycle:
     """Selecting and leaving the radio, as the state machine does it."""
 
     async def test_selecting_starts_the_unit_and_attaches_to_mpv(self, radio):
-        """READY with nothing tuned: the card offers stations, no spinner."""
+        """No session with nothing tuned: the card offers stations, no spinner."""
         await radio.select()
 
-        assert radio.state()["source_state"] == "ready"
-        assert radio.meta() == {"is_playing": False, "is_buffering": False}
+        state = radio.state()
+        assert state["service"] == "running"
+        assert (state["session"], state["resume"], state["details"]) == (None, None, None)
         radio.systemd.start.assert_awaited_once_with("milo-radio.service")
         assert radio.mpv.is_connected
 
@@ -82,7 +83,7 @@ class TestRadioSourceLifecycle:
 
         await radio.select()
 
-        assert radio.state()["source_state"] == "error"
+        assert radio.state()["service"] == "failed"
         radio.systemd.stop.assert_awaited_once_with("milo-radio.service")
 
     async def test_leaving_stops_the_unit_and_keeps_the_station(self, radio):
@@ -92,13 +93,13 @@ class TestRadioSourceLifecycle:
         await radio.tune(FIP)
 
         await radio.leave()
-        assert radio.state()["active_source"] == "none"
+        assert radio.state()["source"] == "none"
         radio.systemd.stop.assert_awaited_once_with("milo-radio.service")
         assert not radio.mpv.is_connected
 
         await radio.select()
-        assert radio.state()["source_state"] == "ready"
-        assert radio.meta()["station_id"] == "fip"
+        assert not radio.active()
+        assert radio.station() == "fip"
 
     async def test_a_tuned_station_is_active(self, radio):
         await radio.select()
@@ -106,7 +107,7 @@ class TestRadioSourceLifecycle:
         result = await radio.command("play_station", {"station_id": "fip"})
 
         assert result["success"] is True
-        assert radio.state()["source_state"] == "active"
+        assert radio.active()
         assert radio.loads()[-1][1] == FIP["url"]
 
 
@@ -284,7 +285,7 @@ class TestStationDataPersistence:
 
 
 class TestTheCommonFloor:
-    """Radio fills title/artist/album/album_art_url like every other source.
+    """Radio fills the session's title/artist/album/artwork like every other source.
 
     It used to fill none of them: the track travelled in `track_title` and
     `track_artist` beside an empty floor, and every generic consumer re-derived
@@ -301,11 +302,11 @@ class TestTheCommonFloor:
         await radio.tune(FIP)
         await radio.tick(4)
 
-        meta = radio.meta()
-        assert (meta["title"], meta["artist"]) == ("Snibor", "Gil Evans")
-        assert meta["album"] == meta["station_name"]
+        session, details = radio.session(), radio.details()
+        assert (session["title"], session["artist"]) == ("Snibor", "Gil Evans")
+        assert session["album"] == details["station"]["name"]
         # Both layers stay on the wire: the UI draws them apart.
-        assert (meta["track_title"], meta["track_artist"]) == ("Snibor", "Gil Evans")
+        assert (details["track"]["title"], details["track"]["artist"]) == ("Snibor", "Gil Evans")
 
     async def test_without_a_track_the_station_is_the_title(self, radio):
         """A stream with no in-band metadata and no Shazam match is still
@@ -314,10 +315,10 @@ class TestTheCommonFloor:
         await radio.tune(FIP)
         await radio.tick(4)
 
-        meta = radio.meta()
-        assert meta["title"] == meta["station_name"]
-        assert "artist" not in meta
-        assert "track_title" not in meta
+        session, details = radio.session(), radio.details()
+        assert session["title"] == details["station"]["name"]
+        assert session["artist"] is None
+        assert details["track"] is None
 
     async def test_a_track_shazam_recognised_is_the_title(self, radio):
         """The fallback layer reaches the floor the same way in-band does."""
@@ -330,20 +331,21 @@ class TestTheCommonFloor:
         await shazam.on_track_changed(shazam.current_track)
         await settle()
 
-        assert (radio.meta()["title"], radio.meta()["artist"]) == ("Take Five", "Dave Brubeck")
+        session = radio.session()
+        assert (session["title"], session["artist"]) == ("Take Five", "Dave Brubeck")
 
     async def test_the_cover_falls_back_to_the_station_logo_through_the_proxy(self, radio):
-        """`album_art_url` is the floor, so it has to be fetchable as-is. A
+        """The session's `artwork` is the floor, so it has to be fetchable as-is. A
         station logo is often an external URL behind a WAF that refuses a bare
         User-Agent, which is what /api/radio/favicon exists for — a client
         should not have to know that rule to draw a cover."""
         await radio.select()
         await radio.tune(FIP)
-        assert radio.meta()["album_art_url"].startswith("/api/radio/favicon?url=https%3A")
+        assert radio.session()["artwork"].startswith("/api/radio/favicon?url=https%3A")
 
         # A logo this unit already serves is handed over untouched.
         await radio.tune(NOVA)
-        assert radio.meta()["album_art_url"] == radio.meta()["favicon"]
+        assert radio.session()["artwork"] == radio.details()["station"]["favicon"]
 
     async def test_an_in_band_track_gets_its_cover_resolved(self, radio):
         """In-band carries no artwork; the cover looked up from artist and
@@ -355,8 +357,8 @@ class TestTheCommonFloor:
         await radio.tick(4)
 
         radio.artwork.resolve.assert_awaited_with("Gil Evans", "Snibor")
-        assert radio.meta()["album_art_url"] == "https://art.example/snibor.jpg"
-        assert radio.meta()["track_artwork"] == "https://art.example/snibor.jpg"
+        assert radio.session()["artwork"] == "https://art.example/snibor.jpg"
+        assert radio.details()["track"]["artwork"] == "https://art.example/snibor.jpg"
 
     async def test_a_stopped_station_keeps_the_floor_and_drops_the_track(self, radio):
         """What a stop publishes: the station a play press would re-tune, and
@@ -369,38 +371,26 @@ class TestTheCommonFloor:
 
         await radio.command("stop")
 
-        meta = radio.meta()
-        assert meta["station_id"] == "fip"
-        assert meta["title"] == meta["station_name"]
-        assert meta["is_playing"] is False
-        assert "track_title" not in meta
-        assert "track_artist" not in meta
+        state = radio.state()
+        assert state["session"] is None
+        assert radio.station() == "fip"
+        assert state["resume"]["title"] == state["details"]["station"]["name"]
+        assert state["details"]["track"] is None
 
 
 class TestPlaybackMetadata:
-    """The station keys the radio card and Milo-Mac read."""
+    """The station the radio card and Milo-Mac read (`details.station`)."""
 
     async def test_a_tuned_station_publishes_its_card(self, radio):
         await radio.select()
         await radio.tune(FIP)
 
-        meta = radio.meta()
-        assert meta["station_id"] == "fip"
-        assert meta["station_name"] == FIP["name"]
-        assert meta["station_url"] == FIP["url"]
-        assert (meta["country"], meta["genre"]) == (FIP["country"], FIP["genre"])
-        assert meta["is_favorite"] is True
-        assert (meta["is_playing"], meta["is_buffering"]) == (True, False)
-
-    async def test_a_station_outside_the_favorites_says_so(self, radio):
-        """The heart on the card reads this; a stale True hides "add to
-        favorites" for a station that is not one."""
-        await radio.select()
-        await radio.command("play_station", {
-            "station_id": "s1", "station": {"id": "s1", "name": "Jazz", "url": "http://x/jazz"},
-        })
-
-        assert radio.meta()["is_favorite"] is False
+        station = radio.details()["station"]
+        assert station["id"] == "fip"
+        assert station["name"] == FIP["name"]
+        assert station["url"] == FIP["url"]
+        assert (station["country"], station["genre"]) == (FIP["country"], FIP["genre"])
+        assert radio.phase() == "playing"
 
 class TestInbandTrackParsing:
     """Test _parse_inband_track (WI-1)."""
@@ -497,7 +487,7 @@ class TestInbandShazamArbitration:
         radio.stream_title("Miles Davis - So What")
         await radio.tick(4)
 
-        assert radio.meta()["track_title"] == "So What"
+        assert radio.track_title() == "So What"
         assert not radio.shazam_running()
 
     async def test_recognition_disabled_suppresses_in_band_before_reading_it(self, radio):
@@ -518,7 +508,7 @@ class TestInbandShazamArbitration:
 
         await radio.tick(16)
 
-        assert "track_title" not in radio.meta()
+        assert radio.track_title() is None
         assert reads == []
         radio.artwork.resolve.assert_not_awaited()
 
@@ -554,14 +544,14 @@ class TestInbandShazamArbitration:
         await radio.select()
         await radio.tune(FIP)
         await radio.tick(4)
-        assert radio.meta()["track_title"] == "So What"
+        assert radio.track_title() == "So What"
 
         radio.stream_title(None)
         await radio.tick(4 * 3)
-        assert radio.meta()["track_title"] == "So What"
+        assert radio.track_title() == "So What"
 
         await radio.tick(4)
-        assert "track_title" not in radio.meta()
+        assert radio.track_title() is None
         # Still an in-band station: silence does not hand over to Shazam.
         assert not radio.shazam_running()
 
@@ -628,7 +618,7 @@ class TestTransportOnAnIdleSource:
         result = await radio.command("stop")
 
         assert result["success"] is True
-        assert radio.state()["source_state"] == "ready"
+        assert not radio.active()
 
 
 A = {"id": "a", "name": "A", "url": "http://stream.example/a"}
@@ -687,12 +677,12 @@ class TestFavoriteStepping:
         """The press has to know where the walk left off, or every press after
         a stop would restart at one end of the list."""
         await tuned.command("stop")
-        assert tuned.state()["source_state"] == "ready"
+        assert not tuned.active()
 
         await tuned.command("next")
 
         assert tuned.station() == "c"
-        assert tuned.state()["source_state"] == "active"
+        assert tuned.active()
 
     async def test_the_only_favorite_is_not_re_tuned(self, tuned):
         """Re-tuning the station already playing costs a re-buffer and buys

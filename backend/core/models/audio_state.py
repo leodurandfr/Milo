@@ -1,10 +1,10 @@
 # backend/core/models/audio_state.py
 """
-Unified audio system state model with multiroom support.
+The audio vocabulary shared across the backend: which sources exist, what each
+needs from the network, and what the network gives. The state itself is
+core/models/audio_wire.py.
 """
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
 
 
 class AudioSource(Enum):
@@ -22,41 +22,13 @@ class AudioSource(Enum):
     MUSIC_LIBRARY = "music_library"
 
 
-class SourceState(Enum):
-    """The four states an audio source can be in — all reachable, no other.
-
-    READY and ACTIVE split on whether a SESSION IS LIVE, not on whether audio is
-    coming out: a paused CD stays ACTIVE because the disc is still loaded, and a
-    stream that drops while a station is tuned stays ACTIVE too. `is_playing`
-    is what says whether anything is audible. (The example used to be a paused
-    radio, which is the one source that cannot pause — its play/stop tears the
-    stream down, and there was no such state to describe.)
-
-    READY does NOT mean "nothing to show". A source that stops with something to
-    resume publishes it — the station `resume_playback` would re-tune, the
-    episode and second an auto-stop left, the disc, the saved queue — so its
-    identity survives the stop and only its session does not. Only when there is
-    genuinely nothing to come back to is the payload the inert
-    {is_playing, is_buffering} pair. That is the difference an outside consumer
-    reads to tell "stopped, here is what resumes" from "nothing ever played";
-    before it existed, both were the same empty payload.
-
-    "ready" rather than "connected" because nothing connects to Radio, CD or
-    the Music Library — they are simply ready to play.
-    """
-    STARTING = "starting"      # Starting or restarting
-    READY = "ready"            # No live session; may still carry what resumes
-    ACTIVE = "active"          # A session or content exists
-    ERROR = "error"            # Not operational (a failed transition)
-
-
 class NetworkRequirement(Enum):
     """What a source needs from the network to be usable at all.
 
     Declared per source as `BaseAudioSource.NETWORK_REQUIREMENT` and crossed
-    with NetworkManager's connectivity level to produce `network_unavailable`
-    in full_state — so "no internet" is only ever reported to the user when it
-    actually blocks the source they selected.
+    with NetworkManager's connectivity level into that source's `availability`
+    entry — so "no internet" is only ever reported for a source it actually
+    blocks.
     """
     NONE = "none"          # Works with the network unplugged (Bluetooth, CD, Music Library)
     LAN = "lan"            # Needs the local network only (AirPlay, Mac/ROC)
@@ -78,7 +50,8 @@ class ConnectivityLevel(Enum):
 
 
 class NetworkUnavailable(Enum):
-    """Why the *active* source cannot work right now, or absent when it can.
+    """Why a source cannot work right now because of the link, or absent when
+    it can.
 
     PORTAL collapses into NO_INTERNET on purpose: an appliance with no browser
     cannot accept a captive portal's terms, so the user-facing answer — and the
@@ -86,29 +59,3 @@ class NetworkUnavailable(Enum):
     """
     NO_NETWORK = "no_network"    # Nothing is reachable
     NO_INTERNET = "no_internet"  # LAN is up, the internet is not
-
-
-@dataclass
-class SystemAudioState:
-    """
-    Source-scoped audio state. Global feature flags (`multiroom_enabled`,
-    `equalizer_effects_enabled`) are owned by their respective services
-    (AudioRoutingService, CamillaDSPService) and merged into the wire payload
-    by AudioStateMachine.broadcast() when aggregating full_state.
-    """
-    active_source: AudioSource = AudioSource.NONE
-    source_state: SourceState = SourceState.READY
-    transitioning: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert state to dictionary for serialization."""
-        return {
-            "active_source": self.active_source.value,
-            "source_state": self.source_state.value,
-            "transitioning": self.transitioning,
-            "metadata": self.metadata,
-            "error": self.error,
-        }
-

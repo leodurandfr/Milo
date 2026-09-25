@@ -33,7 +33,6 @@ def source():
     src._service_manager.start = AsyncMock(return_value=True)
     src._service_manager.stop = AsyncMock(return_value=True)
     src._service_manager.is_active = AsyncMock(return_value=True)
-    src.emit_connection_state = Mock()
     return src
 
 

@@ -45,7 +45,8 @@ class ScreenController:
         self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
         self.screen_on = True
         self.running = False
-        self.current_source_state = "ready"
+        # A session is live on the selected source: the screen stays awake.
+        self.session_live = False
 
     def _detect_backlight_path(self):
         """Detect the sysfs backlight brightness path for DSI screens."""
@@ -225,13 +226,13 @@ class ScreenController:
         await self.state_machine.broadcast(ScreenSleepChanged(sleeping=sleeping))
 
     async def _monitor_source_state(self):
-        """Monitors source state"""
+        """Wakes the screen when a session opens, keeps it awake while one is
+        live, and restarts the countdown when it ends."""
         while self.running:
             try:
-                system_state = self.state_machine.get_current_state()
-                new_state = system_state.get("source_state", "ready")
+                live = self.state_machine.system_state.view.session is not None
 
-                if self.current_source_state != "active" and new_state == "active":
+                if not self.session_live and live:
                     was_sleeping = not self.screen_on
                     woke = await self._screen_cmd(self.screen_on_cmd)
                     self.last_activity_time = monotonic()
@@ -241,10 +242,10 @@ class ScreenController:
                     # panel woke while it is still dark.
                     if was_sleeping and woke:
                         await self._broadcast_sleep_state(False)
-                elif self.current_source_state == "active" and new_state == "ready":
+                elif self.session_live and not live:
                     self.last_activity_time = monotonic()
 
-                self.current_source_state = new_state
+                self.session_live = live
                 await asyncio.sleep(2)
 
             except Exception as e:
@@ -271,8 +272,8 @@ class ScreenController:
                         await asyncio.sleep(1)
                         continue
 
-                # Keep timer at 0 while source is "active"
-                if self.current_source_state == "active":
+                # Keep timer at 0 while a session is live
+                if self.session_live:
                     self.last_activity_time = monotonic()
 
                 time_since_activity = monotonic() - self.last_activity_time
@@ -280,7 +281,7 @@ class ScreenController:
                 should_turn_off = (
                     self.screen_on and
                     time_since_activity >= self.timeout_seconds and
-                    self.current_source_state != "active"
+                    not self.session_live
                 )
 
                 if should_turn_off:

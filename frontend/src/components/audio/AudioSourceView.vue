@@ -45,7 +45,7 @@
         <AudioSourceStatus :source-type="currentSourceType" :display-state="displayState"
           :unavailable-reason="unavailableReason" :device-name="currentDeviceName"
           :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" @connect="handleConnect"
-          @retry="handleRetry" @open-network-settings="handleOpenNetworkSettings" />
+          @retry="handleRetry" @eject="handleEject" @open-network-settings="handleOpenNetworkSettings" />
       </div>
 
     </Transition>
@@ -94,9 +94,8 @@ import AudioSourceStatus from './AudioSourceStatus.vue';
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 
-const activeSource = computed(() => unifiedStore.systemState.active_source);
-const transitioning = computed(() => unifiedStore.systemState.transitioning);
-const metadata = computed(() => unifiedStore.systemState.metadata);
+const activeSource = computed(() => unifiedStore.systemState.source);
+const switching = computed(() => unifiedStore.systemState.switching);
 
 // === DISCONNECT LOGIC ===
 const isDisconnecting = computed(() => unifiedStore.isDisconnecting(activeSource.value));
@@ -105,11 +104,17 @@ function handleDisconnect() {
   unifiedStore.disconnectSource(activeSource.value);
 }
 
-// The retry a failed transition leaves available: the source stays selected in
-// ERROR, so re-selecting it is what re-runs the start the state machine gave up
-// on (the guard in state.py lets the same source through when it is errored).
+// The retry a failed start leaves available: the source stays selected with
+// `service: failed`, so re-selecting it is what re-runs the start the state
+// machine gave up on (the guard in state.py lets the same source through).
 function handleRetry() {
   unifiedStore.changeSource(activeSource.value);
+}
+
+// A disc the drive holds but Milō cannot read: ejecting it is the only way out
+// of a slot drive (E67).
+function handleEject() {
+  unifiedStore.sendCommand(activeSource.value, 'eject');
 }
 
 // The two CTAs a missing prerequisite offers, both of them a settings screen:
@@ -141,37 +146,22 @@ const shouldShowBluetooth = computed(() => richSource.value === 'bluetooth');
 
 const shouldShowSourceStatus = computed(() => {
   if (activeSource.value === 'none') return false;  // nothing active (incl. deactivation)
-  if (transitioning.value) return true;             // status card during transitions
+  if (switching.value) return true;                 // status card while switching
   return richSource.value === null;                 // active source without a rich view
 });
 
 // === PROPERTIES FOR SOURCE STATUS ===
 const currentSourceType = computed(() => activeSource.value);
 
-// The card's vocabulary — the backend enum plus CD's two transient screens,
-// through the anti-flash floor — and what stops the source working, if
-// anything. Derived in one place so the gallery's source pages document the
+// The card's vocabulary — the service, the session's phase and CD's two drive
+// operations, through the anti-flash floor — and what stops the source
+// working, if anything. Derived in one place so the gallery's source pages document the
 // same derivation the app performs.
 const { displayState, unavailableReason } = useSourceStatusDisplay();
 
-const currentDeviceName = computed(() => {
-  const meta = metadata.value || {};
-
-  switch (activeSource.value) {
-    case 'bluetooth':
-      return meta.device_name || '';
-    case 'mac':
-      return meta.client_names || [];
-    case 'airplay':
-      return meta.client_name || '';
-    case 'qobuz':
-      // Passive receiver: the proxy exposes no controller identity, only the
-      // speaker name. Keep the status card generic (handled in AudioSourceStatus).
-      return '';
-    default:
-      return '';
-  }
-});
+// Who is sending: AirPlay's client, the Bluetooth device, the Macs (a list,
+// one per Mac). Spotify, Tidal and Qobuz name none (docs: "le fil", D3).
+const currentDeviceName = computed(() => unifiedStore.systemState.session?.senders || []);
 
 // Key for transitions - includes state for source status to animate between states.
 // The reason is in it because it changes while the state does not: unplugging the

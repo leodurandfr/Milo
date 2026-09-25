@@ -1,0 +1,2880 @@
+{
+ "select_and_leave": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "session_opens_and_plays": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Mad Again",
+     "artist": "BunnaB, Guest",
+     "album": "Ice Cream Summer",
+     "artwork": "https://resources.tidal.example/mad/1280.jpg",
+     "senders": [],
+     "duration_ms": 30066,
+     "position": {
+      "ms": 500,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Mad Again",
+     "artist": "BunnaB, Guest",
+     "album": "Ice Cream Summer",
+     "artwork": "https://resources.tidal.example/mad/1280.jpg",
+     "senders": [],
+     "duration_ms": 30066,
+     "position": {
+      "ms": 500,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "pause_resume_from_milo_and_phone": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 4000,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 4000,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 9000,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 9000,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "Mad Again",
+     "artist": "BunnaB, Guest",
+     "album": "Ice Cream Summer",
+     "artwork": "https://resources.tidal.example/mad/1280.jpg",
+     "senders": [],
+     "duration_ms": 30066,
+     "position": {
+      "ms": 4000,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "resume",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "track_changes": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 330000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 330000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 330000,
+      "position": {
+       "ms": 200,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 330000,
+      "position": null
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "playing",
+     "title": "Teardrop",
+     "artist": "Massive Attack",
+     "album": "Mezzanine",
+     "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+     "senders": [],
+     "duration_ms": 330000,
+     "position": {
+      "ms": 200,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    },
+    "controls": [
+     "pause",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   },
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "Teardrop",
+     "artist": "Massive Attack",
+     "album": "Mezzanine",
+     "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+     "senders": [],
+     "duration_ms": 330000,
+     "position": null
+    },
+    "controls": [
+     "resume",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "phone_ends_the_session": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 8000,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "reason": "sender_left"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "playback_error_mid_track": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "paused",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": null
+     },
+     "controls": [
+      "resume",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "reason": "playback_failed"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": {
+     "id": "session-1",
+     "phase": "paused",
+     "title": "Mad Again",
+     "artist": "BunnaB, Guest",
+     "album": "Ice Cream Summer",
+     "artwork": "https://resources.tidal.example/mad/1280.jpg",
+     "senders": [],
+     "duration_ms": 30066,
+     "position": null
+    },
+    "controls": [
+     "resume",
+     "next",
+     "prev"
+    ],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ },
+ "controller_socket_drops": {
+  "ws": [
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": true,
+     "service": "starting",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 237000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "loading",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Mad Again",
+      "artist": "BunnaB, Guest",
+      "album": "Ice Cream Summer",
+      "artwork": "https://resources.tidal.example/mad/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "reason": "daemon_died"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "reason": "stream_disconnected"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 330000,
+      "position": null
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "loading",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 0,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "error_cleared",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-2",
+      "phase": "playing",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "artwork": "https://resources.tidal.example/teardrop/1280.jpg",
+      "senders": [],
+      "duration_ms": 30066,
+      "position": {
+       "ms": 500,
+       "at": 1790270000.0,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev"
+     ],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": true,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "session_ended",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-2",
+     "reason": "source_switch"
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   }
+  ],
+  "rest": [
+   {
+    "source": "tidal",
+    "switching": false,
+    "service": "running",
+    "service_error": null,
+    "availability": {
+     "radio": null,
+     "podcast": null,
+     "music_library": null,
+     "cd": null,
+     "spotify": null,
+     "tidal": null,
+     "qobuz": null,
+     "airplay": null,
+     "bluetooth": null,
+     "mac": null
+    },
+    "session": null,
+    "controls": [],
+    "resume": null,
+    "details": null,
+    "multiroom_enabled": false,
+    "equalizer_effects_enabled": false
+   }
+  ]
+ }
+}

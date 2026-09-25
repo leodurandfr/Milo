@@ -31,12 +31,18 @@ async def playing_iphone(bt, track=SAYS):
     await bt.player_added(IPHONE, track, status="playing", position=0)
 
 
+def has_player(bt) -> bool:
+    """Whether the wire offers the linked phone's transport: `controls` holds
+    it only while that phone has an AVRCP player (E33)."""
+    return "next" in bt.state()["controls"]
+
+
 # === The phase comes from the phone's player and its stream ===
 
 async def test_a_phone_playing_is_playing(bt):
     await playing_iphone(bt)
     assert bt.active() and bt.playing()
-    assert bt.meta()["title"] == "Says" and bt.meta()["device_name"] == "iPhone de Léo"
+    assert bt.session()["title"] == "Says" and bt.session()["senders"] == ["iPhone de Léo"]
 
 
 async def test_a_pause_on_the_phone_is_a_pause_and_the_link_stays(bt):
@@ -85,11 +91,11 @@ async def test_a_long_pause_keeps_the_link(bt):
 
 async def test_a_player_outliving_its_link_is_not_published(bt):
     """E30, measured once: the player outlived its A2DP link by 1.0 s, and the
-    READY published meanwhile carried `has_avrcp: true`."""
+    idle state published meanwhile still offered its transport."""
     await playing_iphone(bt)
     await bt.pcm_removed(IPHONE)
     assert not bt.active()
-    assert not bt.meta().get("has_avrcp")
+    assert bt.state()["controls"] == []
 
 
 async def test_another_phones_player_never_names_the_one_connected(bt):
@@ -98,9 +104,9 @@ async def test_another_phones_player_never_names_the_one_connected(bt):
     await bt.select()
     await bt.player_added(IPHONE, SAYS, status="playing", position=0)
     await bt.pcm_added(PIXEL)
-    assert bt.active() and bt.meta()["device_name"] == "Pixel 8"
-    assert bt.meta().get("title") is None
-    assert not bt.meta().get("has_avrcp")
+    assert bt.active() and bt.session()["senders"] == ["Pixel 8"]
+    assert bt.session()["title"] is None
+    assert not has_player(bt)
     result = await bt.try_command("pause")
     assert not result.get("success")
     assert bt.bluez.transport == []
@@ -111,7 +117,7 @@ async def test_the_player_arriving_before_the_link_is_the_phones(bt):
     await bt.select()
     await bt.player_added(IPHONE, SAYS, status="playing", position=0)
     await bt.pcm_added(IPHONE)
-    assert bt.playing() and bt.meta()["title"] == "Says"
+    assert bt.playing() and bt.session()["title"] == "Says"
 
 
 # === bluetoothd (E31, E75) ===
@@ -119,11 +125,11 @@ async def test_the_player_arriving_before_the_link_is_the_phones(bt):
 async def test_bluetoothd_killed_forgets_the_player(bt):
     """E31, measured: SIGKILL removes nothing from the bus; BlueALSA drops the
     PCM 7 ms later, but the old code kept the dead daemon's player for good
-    (`has_avrcp: true` in READY)."""
+    (its transport still offered with no phone linked)."""
     await playing_iphone(bt)
     await bt.bluetoothd_killed_and_restarted()
     assert not bt.active()
-    assert not bt.meta().get("has_avrcp")
+    assert bt.state()["controls"] == []
 
 
 async def test_bluetoothd_killed_under_a_session_is_a_death_with_a_banner(bt):
@@ -165,7 +171,7 @@ async def test_a_phone_back_after_bluetoothd_died_inherits_nothing_from_it(bt):
     await bt.bluetoothd_killed_and_restarted()
     await bt.pcm_added(IPHONE)
     assert bt.active()
-    assert bt.meta().get("title") is None and not bt.meta().get("has_avrcp")
+    assert bt.session()["title"] is None and not has_player(bt)
 
 
 async def test_a_bluetoothd_restarted_on_purpose_is_never_a_death(bt):
@@ -211,7 +217,7 @@ async def test_a_name_change_not_sent_by_the_bus_itself_is_ignored(bt):
     for handler in list(bt.bluez.handlers):
         handler(forged)
     await settle()
-    assert bt.active() and bt.meta().get("has_avrcp")
+    assert bt.active() and has_player(bt)
     assert bt.errors() == []
 
 
@@ -353,10 +359,10 @@ async def test_a_second_app_player_coming_and_going_keeps_the_phones_player(bt):
     other = bt.bluez.other_player_added(IPHONE, "player1", "stopped")
     from backend.tests.golden.harness import settle
     await settle()
-    assert bt.playing() and bt.meta().get("has_avrcp")
+    assert bt.playing() and has_player(bt)
     bt.bluez.other_player_removed(other)
     await settle()
-    assert bt.playing() and bt.meta().get("has_avrcp")
+    assert bt.playing() and has_player(bt)
     await bt.command("pause")
     assert bt.bluez.transport == ["Pause"]
 
@@ -370,14 +376,15 @@ async def test_the_followed_player_leaving_hands_over_to_the_one_left(bt):
     bt.bluez.player_removed()
     from backend.tests.golden.harness import settle
     await settle()
-    assert bt.active() and bt.meta().get("has_avrcp")
+    assert bt.active() and has_player(bt)
     bt.bluez.object_manager_gate.set()
 
 
 async def test_a_phone_switching_apps_never_shows_a_moment_without_a_player(bt):
     """Measured on the unit: the iPhone adds its Spotify player, BlueZ names it
     the live one, then the Music player goes — within 4 ms. Following the new
-    one only after the old one left published `has_avrcp: false` for 8 ms."""
+    one only after the old one left published a state without its transport
+    for 8 ms."""
     await playing_iphone(bt)
     before = len(bt.published())
     bt.bluez.object_manager_gate = asyncio.Event()
@@ -390,7 +397,7 @@ async def test_a_phone_switching_apps_never_shows_a_moment_without_a_player(bt):
     await settle()
     after = bt.published()[before:]
     assert after, "the switch published nothing — the assertion below would be empty"
-    assert all(p.get("has_avrcp") for p in after)
+    assert all("next" in p["controls"] for p in after)
 
 
 async def test_the_player_bluez_names_live_is_followed_at_once(bt):
@@ -402,7 +409,7 @@ async def test_the_player_bluez_names_live_is_followed_at_once(bt):
     bt.bluez.control_names(IPHONE, other)
     from backend.tests.golden.harness import settle
     await settle()
-    assert bt.active() and bt.meta().get("has_avrcp") and not bt.playing()
+    assert bt.active() and has_player(bt) and not bt.playing()
     bt.bluez.object_manager_gate.set()
 
 
@@ -434,7 +441,7 @@ async def test_a_phone_being_turned_away_never_takes_the_holders_player(bt):
     other = bt.bluez.other_player_added(PIXEL, "player0", "playing")
     bt.bluez.control_names(PIXEL, other)
     await settle()
-    assert bt.playing() and bt.meta().get("has_avrcp") and bt.meta().get("title") == "Says"
+    assert bt.playing() and has_player(bt) and bt.session()["title"] == "Says"
     await bt.command("pause")
     assert bt.bluez.transport == ["Pause"]
     bt.bluez.disconnect_gate.set()
@@ -449,14 +456,14 @@ async def test_the_live_player_is_the_one_bluez_names_and_it_survives_the_others
     bt.bluez.player_removed()
     from backend.tests.golden.harness import settle
     await settle()
-    assert bt.meta().get("has_avrcp")
+    assert has_player(bt)
     assert bt.bluez.others and bt.active()
 
 
 async def test_a_second_phone_is_turned_away_while_one_holds_the_link(bt):
     await playing_iphone(bt)
     await bt.pcm_added(PIXEL)
-    assert bt.meta()["device_name"] == "iPhone de Léo"
+    assert bt.session()["senders"] == ["iPhone de Léo"]
     assert bt.bluez.devices[PIXEL.path]["Connected"] is False
 
 
@@ -525,7 +532,7 @@ async def test_a_multiroom_toggle_keeps_the_phone_and_moves_only_the_writer(bt):
     before = len(bt.unit_calls)
     await bt.reroute()
     assert bt.unit_calls[before:] == [("stop", APLAY_UNIT), ("start", APLAY_UNIT)]
-    assert bt.active() and bt.playing() and bt.meta()["title"] == "Feeling Good"
+    assert bt.active() and bt.playing() and bt.session()["title"] == "Feeling Good"
 
 
 async def test_a_phone_already_linked_at_select_is_adopted_with_its_stream(bt):

@@ -4,10 +4,8 @@ Six axes, one owner each (docs: source architecture, "the six axes"): the
 selection belongs to the state machine; the service, the session, its position
 anchor and the resume point to the source; the device to each source. This
 module holds the types for the axes the sources own and the one table that
-says how a session's phase may move and how it may end.
-
-Nothing here reaches the wire yet: the old projection stays in force until the
-sources are migrated and the wire switches in one step.
+says how a session's phase may move and how it may end. What reaches the wire
+is projected from them in core/models/audio_wire.py.
 """
 from dataclasses import dataclass, field
 from enum import Enum
@@ -179,6 +177,24 @@ def table_gaps(
     return gaps
 
 
+@dataclass(frozen=True)
+class Anchor:
+    """The session's playhead: `ms` at the wall-clock instant `at`, advancing
+    at `rate` while `moving` (the phase was PLAYING when it was set). The one
+    implementation of playhead aging, kept by BaseAudioSource."""
+    ms: int
+    at: float
+    rate: float
+    moving: bool
+
+    def now(self, at: float, duration_ms: Optional[int]) -> int:
+        """Where the playhead is at `at`, bounded to [0, duration_ms]."""
+        ms = self.ms + ((at - self.at) * 1000 * self.rate if self.moving else 0)
+        if duration_ms is not None:
+            ms = min(ms, duration_ms)
+        return max(0, int(ms))
+
+
 @dataclass(eq=False)
 class Session:
     """One listening session. Its identity is the generation token: a timer,
@@ -192,12 +208,16 @@ class Session:
     different sender is a different session), and `end_requested` is the
     reason Milō asked the daemon to end it for — the end that comes back,
     however it comes, is recorded under that reason.
+
+    `anchor` is the position axis (None: the session has no position — a
+    radio stream, a Mac). Set only by BaseAudioSource's anchor methods.
     """
     phase: Phase
     id: str = field(default_factory=lambda: uuid4().hex)
     heard: bool = False
     sender: Optional[str] = None
     end_requested: Optional[EndReason] = None
+    anchor: Optional[Anchor] = None
 
     def advance(self, event: PhaseEvent) -> Phase:
         self.phase = next_phase(self.phase, event)

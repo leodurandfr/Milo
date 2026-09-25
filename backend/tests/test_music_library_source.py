@@ -2,8 +2,9 @@
 """MusicLibrarySource playback + queue (P1-6), driven through the outside world.
 
 Covers the play_context → gapless mpv queue path, transport commands
-(pause/resume/next/prev/seek/play_index/set_shuffle/stop), the now-playing WS
-metadata projection (title/artist/album/art + queue/index/shuffle), the live
+(pause/resume/next/prev/seek/play_index/set_shuffle/stop), the now-playing on
+the wire (the session's title/artist/album/artwork, the details' queue/index/
+shuffle, the resume point), the live
 shuffle toggle, resume-on-return, the gapless advance and end of queue as mpv
 announces them, the scrobble accounting Navidrome's play history is built from,
 and the whole-catalog album walk the alphabetical grid is paged from.
@@ -25,7 +26,7 @@ from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library import source as library_module
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import AsyncioProxy, settle
-from backend.tests.golden.test_old_wire_music_library import FakeNavidrome
+from backend.tests.golden.test_wire_music_library import FakeNavidrome
 from backend.tests.test_mpv_sessions import WATCHDOG_S, LibraryRig
 
 _real_sleep = asyncio.sleep
@@ -102,8 +103,34 @@ async def play(rig, tracks=TRACKS, start_index=0, **extra):
     )
 
 
-def meta(rig):
-    return rig.state()["metadata"]
+def session(rig):
+    """The live session on the wire, or None."""
+    return rig.state()["session"]
+
+
+def phase(rig):
+    live = session(rig)
+    return live["phase"] if live else None
+
+
+def details(rig):
+    """The library's own content on the wire: the queue, its index, shuffle
+    and the current track's ids — the live queue, or the one a play press
+    would reopen. None when there is neither."""
+    return rig.state()["details"]
+
+
+def anchor_ms(rig):
+    """Where the last discontinuity put the playhead (the anchor's `ms`):
+    exact, unlike the anchor aged on the wall clock."""
+    return session(rig)["position"]["ms"]
+
+
+def session_ends(rig):
+    return [
+        e["data"]["reason"] for e in rig.recorder.envelopes
+        if e["category"] == "source" and e["type"] == "session_ended"
+    ]
 
 
 def sent_since(rig, mark):
@@ -144,11 +171,9 @@ class TestPlayContext:
         result = await play(rig)
 
         assert result["success"] is True
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["queue"] == TRACKS
-        assert state["metadata"]["queue_index"] == 0
-        assert state["metadata"]["is_playing"] is True
+        assert phase(rig) == "playing"
+        assert details(rig)["queue"] == TRACKS
+        assert details(rig)["queue_index"] == 0
         sent = sent_since(rig, mark)
         assert [c[1] for c in sent if c[0] == "loadfile"] == [url(t["id"]) for t in TRACKS]
         assert all(c[2] == "append" for c in sent if c[0] == "loadfile")
@@ -162,9 +187,9 @@ class TestPlayContext:
         await play(rig, start_index=2)
 
         assert ("play_index", 2) in rig.mpv.sent[-2:]
-        assert meta(rig)["queue_index"] == 2
-        assert meta(rig)["track_id"] == "s3"
-        assert meta(rig)["duration"] == 300_000
+        assert details(rig)["queue_index"] == 2
+        assert details(rig)["track_id"] == "s3"
+        assert session(rig)["duration_ms"] == 300_000
 
     async def test_shuffle_keeps_picked_track_first(self, rig):
         """Shuffle play from a row keeps that row's track first and shuffles the
@@ -175,9 +200,9 @@ class TestPlayContext:
         with patch("backend.sources.music_library.source.random.shuffle", lambda seq: None):
             await play(rig, start_index=1, shuffle=True)
 
-        assert meta(rig)["shuffle"] is True
-        assert meta(rig)["queue"][0] == TRACKS[1]
-        assert meta(rig)["queue_index"] == 0
+        assert details(rig)["shuffle"] is True
+        assert details(rig)["queue"][0] == TRACKS[1]
+        assert details(rig)["queue_index"] == 0
         assert ("play_index", 0) in rig.mpv.sent[-2:]
 
     async def test_missing_id_rejected(self, rig):
@@ -221,7 +246,8 @@ class TestPlayContext:
         result = await play(rig)
 
         assert result["success"] is False
-        assert rig.state()["source_state"] == "ready"
+        assert session(rig) is None
+        assert session_ends(rig) == ["load_failed"]
         assert rig.errors() == ["playback_failed"]
 
 
@@ -252,7 +278,7 @@ class TestAPausedQueueReplacedByAnother:
         await rig.select()
         await play(rig)
         await rig.command("pause")               # the pause timer is armed
-        assert meta(rig)["is_playing"] is False
+        assert phase(rig) == "paused"
 
         loading, loaded = asyncio.Event(), asyncio.Event()
         real_loadfile = rig.mpv.loadfile
@@ -276,10 +302,8 @@ class TestAPausedQueueReplacedByAnother:
         await settle()
         last_start = max(i for i, c in enumerate(rig.mpv.sent) if c[0] == "play_index")
         assert ("stop",) not in rig.mpv.sent[last_start:]
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["track_id"] == "s3"
-        assert state["metadata"]["is_playing"] is True
+        assert details(rig)["track_id"] == "s3"
+        assert phase(rig) == "playing"
 
 
 class TestTransport:
@@ -298,9 +322,8 @@ class TestTransport:
 
         assert result["success"] is True
         assert rig.mpv.paused is True
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_playing"] is False
+        assert phase(rig) == "paused"
+        assert "resume" in rig.state()["controls"]
 
     async def test_resume(self, rig):
         """Breaks: play after pause stays silent, or the button stays on play."""
@@ -311,7 +334,7 @@ class TestTransport:
 
         assert result["success"] is True
         assert rig.mpv.paused is False
-        assert meta(rig)["is_playing"] is True
+        assert phase(rig) == "playing"
 
     async def test_seek(self, rig):
         """The progress bar's drag, in ms on the wire, seconds to mpv. Breaks:
@@ -322,7 +345,7 @@ class TestTransport:
 
         assert result["success"] is True
         assert ("seek", 42) in rig.mpv.sent
-        assert meta(rig)["position"] == 42_000
+        assert anchor_ms(rig) == 42_000
 
     async def test_next(self, rig):
         """Breaks: the next button leaves the track playing, or the player
@@ -333,8 +356,8 @@ class TestTransport:
 
         assert result["success"] is True
         assert ("play_index", 1) in rig.mpv.sent[-2:]
-        assert meta(rig)["queue_index"] == 1
-        assert meta(rig)["track_id"] == "s2"
+        assert details(rig)["queue_index"] == 1
+        assert details(rig)["track_id"] == "s2"
 
     async def test_next_at_end_is_noop(self, rig):
         """Breaks: next on the last track errors in the UI, or restarts it."""
@@ -345,7 +368,9 @@ class TestTransport:
 
         assert result["success"] is True
         assert sent_since(rig, mark) == []
-        assert meta(rig)["track_id"] == "s3"
+        assert details(rig)["track_id"] == "s3"
+        # The last track offers no next: the button is disabled, not a no-op.
+        assert "next" not in rig.state()["controls"]
 
     async def test_prev_restarts_current_when_past_threshold(self, rig):
         """Past 3 s, prev restarts the track (Spotify feel). Breaks: prev
@@ -359,7 +384,8 @@ class TestTransport:
         assert result["success"] is True
         assert ("seek", 0) in sent_since(rig, mark)
         assert not [c for c in sent_since(rig, mark) if c[0] == "play_index"]
-        assert meta(rig)["track_id"] == "s2"
+        assert details(rig)["track_id"] == "s2"
+        assert anchor_ms(rig) == 0
 
     async def test_prev_steps_back_when_early(self, rig):
         """Within 3 s, prev steps to the previous entry. Breaks: a double press
@@ -371,7 +397,7 @@ class TestTransport:
 
         assert result["success"] is True
         assert ("play_index", 0) in rig.mpv.sent[-2:]
-        assert meta(rig)["track_id"] == "s1"
+        assert details(rig)["track_id"] == "s1"
 
     async def test_play_index(self, rig):
         """The queue view's row tap. Breaks: tapping a row plays another."""
@@ -381,7 +407,7 @@ class TestTransport:
 
         assert result["success"] is True
         assert ("play_index", 2) in rig.mpv.sent[-2:]
-        assert meta(rig)["track_id"] == "s3"
+        assert details(rig)["track_id"] == "s3"
 
     async def test_play_index_out_of_range(self, rig):
         """Breaks: a stale queue view's tap reaches mpv with an index it lacks."""
@@ -403,21 +429,25 @@ class TestTransport:
         assert ("stop",) in rig.mpv.sent
         assert rig.mpv.current is None
         state = rig.state()
-        assert state["source_state"] == "ready"
-        assert state["metadata"] == {"is_playing": False, "is_buffering": False}
+        assert state["session"] is None
+        assert state["details"] is None
+        assert state["resume"] is None
 
 
 class TestMetadata:
 
-    async def test_nothing_played_publishes_the_inert_pair(self, rig):
-        """An opened library with nothing to resume is READY with the pair
-        every player reads. Breaks: a stale track (or no is_playing key at
-        all) on the shared player and on Milo-Mac."""
+    async def test_nothing_played_publishes_nothing_to_play(self, rig):
+        """An opened library with nothing to resume runs with no session, no
+        resume point, no queue and no command to offer. Breaks: a stale track
+        (or a transport button) on the shared player and on Milo-Mac."""
         await rig.select()
 
         state = rig.state()
-        assert state["source_state"] == "ready"
-        assert state["metadata"] == {"is_playing": False, "is_buffering": False}
+        assert state["service"] == "running"
+        assert state["session"] is None
+        assert state["resume"] is None
+        assert state["details"] is None
+        assert state["controls"] == []
 
     async def test_now_playing_projection(self, rig):
         """The now-playing record the shared AudioPlayer, Milo-Mac and Milo-iOS
@@ -428,15 +458,15 @@ class TestMetadata:
             await play(rig, start_index=1, shuffle=True)
         await rig.command("seek", {"position_ms": 60_000})
 
-        data = meta(rig)
+        live, data = session(rig), details(rig)
 
-        assert data["title"] == "Two"
-        assert data["artist"] == "DP"
-        assert data["album"] == "Disc"
-        assert data["album_art_url"] == "/api/music-library/cover/al1"
+        assert live["title"] == "Two"
+        assert live["artist"] == "DP"
+        assert live["album"] == "Disc"
+        assert live["artwork"] == "/api/music-library/cover/al1"
         # position/duration in ms (shared wire convention)
-        assert data["position"] == 60_000
-        assert data["duration"] == 200_000
+        assert anchor_ms(rig) == 60_000
+        assert live["duration_ms"] == 200_000
         assert data["queue"] == [TRACKS[1], TRACKS[0], TRACKS[2]]
         assert data["queue_index"] == 0
         assert data["shuffle"] is True
@@ -464,17 +494,16 @@ class TestMpvMovesTheQueue:
         await rig.mpv.ends("eof")
         await settle()
 
-        data = meta(rig)
-        assert data["track_id"] == "s2"
-        assert data["queue_index"] == 1
-        assert data["duration"] == 200_000
-        assert data["is_playing"] is True
+        assert details(rig)["track_id"] == "s2"
+        assert details(rig)["queue_index"] == 1
+        assert session(rig)["duration_ms"] == 200_000
+        assert phase(rig) == "playing"
         assert len([c for c in rig.mpv.sent if c[0] == "play_index"]) == plays
 
     async def test_queue_finished_when_the_last_entry_ends(self, rig):
-        """Breaks: a played-out album stays ACTIVE on its last track, or ends
-        with an error banner; `queue_ended` is what the frontend's queue view
-        reads to close."""
+        """Breaks: a played-out album stays on its last track, or ends with
+        an error banner; the `eof` end is what the frontend's queue view reads
+        to close."""
         await rig.select()
         await play(rig, start_index=2)
         await rig.tick()
@@ -482,9 +511,8 @@ class TestMpvMovesTheQueue:
         await rig.mpv.ends("eof")
         await settle()
 
-        state = rig.state()
-        assert state["source_state"] == "ready"
-        assert state["metadata"]["queue_ended"] is True
+        assert session(rig) is None
+        assert session_ends(rig) == ["eof"]
         assert rig.errors() == []
 
     async def test_a_track_that_cannot_be_read_is_skipped(self, rig):
@@ -499,9 +527,8 @@ class TestMpvMovesTheQueue:
         await rig.mpv.ends("eof")
         await settle()
 
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["track_id"] == "s3"
+        assert phase(rig) == "playing"
+        assert details(rig)["track_id"] == "s3"
         assert rig.errors() == []
 
     async def test_buffering_until_mpv_opens_the_file(self, rig, monkeypatch):
@@ -511,14 +538,12 @@ class TestMpvMovesTheQueue:
         rig.mpv.auto_open = False
         await rig.select()
         await play(rig)
-        assert meta(rig)["is_buffering"] is True
-        assert meta(rig)["is_playing"] is False
+        assert phase(rig) == "loading"
 
         await rig.mpv.opens()
         await settle()
 
-        assert meta(rig)["is_buffering"] is False
-        assert meta(rig)["is_playing"] is True
+        assert phase(rig) == "playing"
 
 
 class TestSetShuffle:
@@ -539,8 +564,8 @@ class TestSetShuffle:
             result = await rig.command("set_shuffle", {"shuffle": True})
 
         assert result["success"] is True
-        assert meta(rig)["shuffle"] is True
-        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s2", "s3"]
+        assert details(rig)["shuffle"] is True
+        assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s2", "s3"]
         assert rig.mpv.current is playing
         assert not [c for c in sent_since(rig, mark) if c[0] in ("stop", "play_index")]
         assert [e.url for e in rig.mpv.playlist] == [url("s1"), url("s2"), url("s3")]
@@ -551,19 +576,19 @@ class TestSetShuffle:
         await rig.select()
         with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
             await play(rig, shuffle=True)
-        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s3", "s2"]
+        assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s3", "s2"]
         await rig.tick()
 
         result = await rig.command("set_shuffle", {"shuffle": False})
 
         assert result["success"] is True
-        assert meta(rig)["shuffle"] is False
-        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s2", "s3"]
+        assert details(rig)["shuffle"] is False
+        assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s2", "s3"]
         assert [e.url for e in rig.mpv.playlist] == [url("s1"), url("s2"), url("s3")]
 
         await rig.mpv.ends("eof")               # the gapless advance after it
         await settle()
-        assert meta(rig)["track_id"] == "s2"
+        assert details(rig)["track_id"] == "s2"
 
     async def test_toggle_off_keeps_a_track_the_queue_lists_twice(self, rig):
         """A repeated track id must survive shuffle OFF, minus the played copies.
@@ -579,7 +604,7 @@ class TestSetShuffle:
         # Shuffled: the first copy of s1 plays, everything else is upcoming.
         with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
             await play(rig, tracks=pristine, shuffle=True)
-        assert [t["title"] for t in meta(rig)["queue"]] == ["One", "Three", "One (reprise)", "Two"]
+        assert [t["title"] for t in details(rig)["queue"]] == ["One", "Three", "One (reprise)", "Two"]
         await rig.tick()
 
         result = await rig.command("set_shuffle", {"shuffle": False})
@@ -587,8 +612,8 @@ class TestSetShuffle:
         assert result["success"] is True
         # One copy of s1 played, so exactly one is dropped — the second returns
         # to its pristine place between s2 and s3.
-        assert [t["id"] for t in meta(rig)["queue"]] == ["s1", "s2", "s1", "s3"]
-        assert meta(rig)["queue"][2]["title"] == "One (reprise)"
+        assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s2", "s1", "s3"]
+        assert details(rig)["queue"][2]["title"] == "One (reprise)"
         assert [e.url for e in rig.mpv.playlist] == [
             url("s1"), url("s2"), url("s1"), url("s3"),
         ]
@@ -603,7 +628,7 @@ class TestSetShuffle:
 
         assert result["success"] is True
         assert sent_since(rig, mark) == []
-        assert meta(rig)["shuffle"] is False
+        assert details(rig)["shuffle"] is False
 
     async def test_requires_active_queue(self, rig):
         """Breaks: a toggle with nothing playing answers success and moves
@@ -707,7 +732,7 @@ class TestScrobble:
         await listen(rig, 5)
 
         await rig.command("seek", {"position_ms": 55_000})
-        assert meta(rig)["position"] == 55_000   # the playhead did jump
+        assert anchor_ms(rig) == 55_000           # the playhead did jump
         await listen(rig, 1)
 
         assert submissions(client) == []         # the listening did not
@@ -809,10 +834,8 @@ class TestScrobble:
 
         await listen(rig, 40)
 
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_playing"] is True
-        assert state["metadata"]["track_id"] == "s1"
+        assert phase(rig) == "playing"
+        assert details(rig)["track_id"] == "s1"
         assert rig.errors() == []
 
 
@@ -874,12 +897,10 @@ class TestResume:
 
         await rig.select()
 
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["track_id"] == "s2"
-        assert state["metadata"]["queue_index"] == 1
-        assert state["metadata"]["position"] == 60_000
-        assert state["metadata"]["is_playing"] is False
+        assert phase(rig) == "paused"
+        assert details(rig)["track_id"] == "s2"
+        assert details(rig)["queue_index"] == 1
+        assert anchor_ms(rig) == 60_000
         sent = sent_since(rig, mark)
         assert ("set_property", "pause", True) in sent
         assert [c[3] for c in sent if c[0] == "loadfile"] == [None, 60, None]
@@ -899,7 +920,7 @@ class TestResume:
 
         await rig.select()
 
-        data = meta(rig)
+        data = details(rig)
         assert [t["id"] for t in data["queue"]] == ["s1", "s3", "s2"]
         assert data["queue_index"] == 1
         assert data["track_id"] == "s3"
@@ -907,7 +928,8 @@ class TestResume:
         assert [e.url for e in rig.mpv.playlist] == [url("s1"), url("s3"), url("s2")]
 
     async def test_the_idle_timeout_publishes_what_a_play_press_would_reopen(self, idle_rig):
-        """READY carries the saved queue, not an empty payload. Breaks: a
+        """No session, and the saved queue on the wire as the resume point and
+        the queue it would reopen, with the commands that reopen it. Breaks: a
         consumer outside this checkout (Milo-Mac, Milo-iOS) cannot tell a paused
         detour from a library that never played, and the frontend has to keep
         its own sticky copy."""
@@ -919,13 +941,13 @@ class TestResume:
         await idle_rig.command("pause")          # the idle timeout ends the session
 
         state = idle_rig.state()
-        assert state["source_state"] == "ready"
-        data = state["metadata"]
-        assert data["track_id"] == "s3"
-        assert data["title"] == "Three"
-        assert data["queue_index"] == 2
-        assert data["is_playing"] is False
-        assert data["position"] == 30_000
+        assert state["session"] is None
+        assert session_ends(idle_rig) == ["idle_timeout"]
+        assert state["resume"]["title"] == "Three"
+        assert state["resume"]["position_ms"] == 30_000
+        assert state["details"]["track_id"] == "s3"
+        assert state["details"]["queue_index"] == 2
+        assert "resume" in state["controls"]
 
     async def test_idle_timeout_then_source_switch_keeps_the_queue(self, idle_rig):
         """The documented resume case, end to end: pause long enough for the idle
@@ -944,8 +966,10 @@ class TestResume:
 
         reopened = loads_since(idle_rig, mark)
         assert [c[3] for c in reopened] == [None, None, 30]
-        assert meta(idle_rig)["track_id"] == "s3"
-        assert meta(idle_rig)["position"] == 30_000
+        assert details(idle_rig)["track_id"] == "s3"
+        # Reopened paused, the short pause timeout ends it again at once: the
+        # second it offers is still the one it was left at.
+        assert idle_rig.state()["resume"]["position_ms"] == 30_000
 
     async def test_an_explicit_stop_leaves_nothing_to_resume(self, rig):
         """Stopping on purpose is not a detour. Breaks: the payload cannot tell
@@ -955,15 +979,16 @@ class TestResume:
         await rig.tick()
 
         await rig.command("stop")
-        assert meta(rig) == {"is_playing": False, "is_buffering": False}
+        assert rig.state()["resume"] is None
+        assert details(rig) is None
 
         await rig.leave()
         mark = len(rig.mpv.sent)
         await rig.select()
 
         assert loads_since(rig, mark) == []
-        assert rig.state()["source_state"] == "ready"
-        assert "track_id" not in meta(rig)
+        assert session(rig) is None
+        assert details(rig) is None
 
     async def test_a_played_out_queue_leaves_nothing_to_resume(self, rig):
         """Breaks: reopening the library puts the last track of an album that
@@ -979,7 +1004,8 @@ class TestResume:
         await rig.select()
 
         assert loads_since(rig, mark) == []
-        assert "track_id" not in meta(rig)
+        assert session(rig) is None
+        assert details(rig) is None
 
     async def test_a_new_context_retires_the_saved_queue(self, idle_rig):
         """A fresh play supersedes the saved queue before it loads. Breaks: a
@@ -989,14 +1015,14 @@ class TestResume:
         await play(idle_rig, start_index=2)
         await idle_rig.tick()
         await idle_rig.command("pause")          # idle timeout: the resume view
-        assert meta(idle_rig)["track_id"] == "s3"
+        assert details(idle_rig)["track_id"] == "s3"
         idle_rig.mpv.accept = False
 
         result = await play(idle_rig, tracks=[TRACKS[0]])
 
         assert result["success"] is False
-        assert idle_rig.state()["source_state"] == "ready"
-        assert meta(idle_rig).get("track_id") != "s3"
+        assert session(idle_rig) is None
+        assert details(idle_rig) is None or details(idle_rig)["track_id"] != "s3"
 
     async def test_a_resumed_queue_still_knows_which_key_it_came_from(self, rig):
         """Capture → restore → the storage-gone end must still fire. Breaks: a
@@ -1008,12 +1034,13 @@ class TestResume:
         await rig.tick()
         await rig.leave()
         await rig.select()
-        assert rig.state()["source_state"] == "active"
+        assert session(rig) is not None
 
         await rig.key_pulled()
 
-        assert rig.state()["source_state"] == "ready"
-        assert "track_id" not in meta(rig)
+        assert session(rig) is None
+        assert session_ends(rig)[-1] == "storage_gone"
+        assert details(rig) is None
 
     async def test_a_storage_gone_end_leaves_nothing_to_resume(self, rig):
         """The storage-gone end must not save the queue it just condemned.
@@ -1023,7 +1050,7 @@ class TestResume:
         await play(rig, library_id=3)
         await rig.tick()
         await rig.key_pulled()
-        assert "track_id" not in meta(rig)
+        assert details(rig) is None
 
         for entry in rig.shares.entries:          # the key comes back
             entry["mounted"] = True
@@ -1033,7 +1060,7 @@ class TestResume:
         await rig.select()
 
         assert loads_since(rig, mark) == []
-        assert "track_id" not in meta(rig)
+        assert details(rig) is None
 
     async def test_a_stale_resume_point_is_not_reopened_by_itself(self, monkeypatch):
         """Past its TTL the library opens on nothing, not on a paused track.
@@ -1053,8 +1080,8 @@ class TestResume:
         await rig.select()
 
         assert loads_since(rig, mark) == []
-        assert rig.state()["source_state"] == "ready"
-        assert "track_id" not in meta(rig)
+        assert session(rig) is None
+        assert details(rig) is None
 
     async def test_resume_with_nothing_playing_and_nothing_saved_refuses(self, rig):
         """With no queue and no saved one there is no end state that makes
@@ -1105,7 +1132,7 @@ class TestRescanOnOpen:
 
         await rig.select()
 
-        assert rig.state()["source_state"] == "ready"
+        assert rig.state()["service"] == "running"
         assert (await play(rig))["success"] is True
         released.set()
         await settle()
@@ -1148,7 +1175,7 @@ class TestMpvRefusesTheTransportCommand:
         result = await rig.command("pause")
 
         assert result["success"] is False
-        assert meta(rig)["is_playing"] is True
+        assert phase(rig) == "playing"
         assert len(rig.recorder.envelopes) == published
 
     async def test_resume_refused_keeps_the_track_paused(self, rig):
@@ -1157,17 +1184,17 @@ class TestMpvRefusesTheTransportCommand:
         result = await rig.command("resume")
 
         assert result["success"] is False
-        assert meta(rig)["is_playing"] is False
+        assert phase(rig) == "paused"
         assert len(rig.recorder.envelopes) == published
 
     async def test_seek_refused_keeps_the_position(self, rig):
         published = await self._playing(rig)
-        before = meta(rig)["position"]
+        before = anchor_ms(rig)
 
         result = await rig.command("seek", {"position_ms": 42000})
 
         assert result["success"] is False
-        assert meta(rig)["position"] == before
+        assert anchor_ms(rig) == before
         assert len(rig.recorder.envelopes) == published
 
     async def test_track_switch_refused_keeps_the_queue_index(self, rig):
@@ -1177,8 +1204,8 @@ class TestMpvRefusesTheTransportCommand:
         result = await rig.command("next")
 
         assert result["success"] is False
-        assert meta(rig)["queue_index"] == 1
-        assert meta(rig)["is_playing"] is True
+        assert details(rig)["queue_index"] == 1
+        assert phase(rig) == "playing"
         assert len(rig.recorder.envelopes) == published
 
     async def test_prev_restart_refused_keeps_the_playhead(self, rig):
@@ -1193,8 +1220,8 @@ class TestMpvRefusesTheTransportCommand:
         result = await rig.command("prev")
 
         assert result["success"] is False
-        assert meta(rig)["position"] == 5000
-        assert meta(rig)["queue_index"] == 1
+        assert anchor_ms(rig) == 5000
+        assert details(rig)["queue_index"] == 1
         assert len(rig.recorder.envelopes) == published
 
 
@@ -1225,7 +1252,7 @@ async def test_a_reorder_refused_halfway_still_ends_the_queue(rig):
     await settle()
 
     assert rig.mpv.current is None           # mpv is idle: nothing plays
-    assert rig.state()["source_state"] == "ready"
+    assert session(rig) is None
 
 
 async def test_a_reorder_whose_append_is_refused_keeps_the_now_playing_true(rig):
@@ -1252,4 +1279,4 @@ async def test_a_reorder_whose_append_is_refused_keeps_the_now_playing_true(rig)
     await settle()
 
     playing_url = rig.mpv.current.url
-    assert f"id={meta(rig)['track_id']}&" in playing_url
+    assert f"id={details(rig)['track_id']}&" in playing_url

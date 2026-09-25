@@ -22,7 +22,8 @@ from typing import List, Dict, Any
 from fastapi.websockets import WebSocketState
 
 from backend.ws import WebSocketManager, WebSocketServer
-from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
+from backend.core.models.audio_state import AudioSource
+from backend.core.state import AudioStateMachine
 
 
 
@@ -117,24 +118,15 @@ def mock_state_machine_for_ws(mock_volume_service):
     """Mock state machine for WebSocket server."""
     sm = Mock()
 
-    # Basic state
-    sm.system_state = SystemAudioState(
-        active_source=AudioSource.NONE,
-        source_state=SourceState.READY,
-        transitioning=False,
-        metadata={},
-        error=None,
-    )
+    # The state is a real state machine's, composed from its own record: the
+    # handshake carries what `get_current_state()` composes, not a dict the
+    # test typed.
+    real = AudioStateMachine()
+    sm.system_state = real.system_state
+    sm.get_current_state = real.get_current_state
 
     # Methods
-    sm.refresh_active_metadata = AsyncMock()
-    sm.get_current_state = Mock(return_value={
-        "active_source": "none",
-        "source_state": "ready",
-        "transitioning": False,
-        "metadata": {},
-        "error": None,
-    })
+    sm.refresh_active_view = AsyncMock(return_value=False)
     sm.broadcast = AsyncMock()
 
     return sm
@@ -223,10 +215,10 @@ class TestWebSocketConnection:
         mock_websocket: MockWebSocket
     ):
         """
-        Test initial_state contains full_state data.
+        Test initial_state carries the audio state under `state`.
 
         Validates:
-        - data.full_state contains system state snapshot
+        - data.state is the whole AudioState, every key present
         """
         mock_websocket.queue_message({"type": "ready"})
 
@@ -243,12 +235,11 @@ class TestWebSocketConnection:
 
         event = initial_events[0]
         assert "data" in event
-        assert "full_state" in event["data"]
+        assert "full_state" not in event["data"]
 
-        full_state = event["data"]["full_state"]
-        assert "active_source" in full_state
-        assert "source_state" in full_state
-        assert "transitioning" in full_state
+        state = event["data"]["state"]
+        assert state == AudioStateMachine().get_current_state()
+        assert {"source", "switching", "service", "session", "controls"} <= state.keys()
 
     @pytest.mark.asyncio
     async def test_initial_state_has_required_fields(
@@ -484,16 +475,10 @@ class TestReconnection:
             pass
 
         initial_state_1 = client.get_events_by_type("initial_state")[0]
-        assert initial_state_1["data"]["full_state"]["active_source"] == "none"
+        assert initial_state_1["data"]["state"]["source"] == "none"
 
         # Simulate state change while "disconnected"
-        mock_state_machine_for_ws.get_current_state = Mock(return_value={
-            "active_source": "radio",
-            "source_state": "connected",
-            "transitioning": False,
-            "metadata": {"station": "Test FM"},
-            "error": None,
-        })
+        mock_state_machine_for_ws.system_state.active_source = AudioSource.RADIO
 
         # Reconnect
         websocket_manager.disconnect(client)
@@ -510,8 +495,8 @@ class TestReconnection:
 
         # Should reflect new state
         initial_state_2 = client2.get_events_by_type("initial_state")[0]
-        assert initial_state_2["data"]["full_state"]["active_source"] == "radio"
-        assert initial_state_2["data"]["full_state"]["source_state"] == "connected"
+        assert initial_state_2["data"]["state"]["source"] == "radio"
+        assert initial_state_2["data"]["state"]["service"] == "running"
 
     @pytest.mark.asyncio
     async def test_multiple_clients_receive_broadcasts(

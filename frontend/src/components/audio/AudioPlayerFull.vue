@@ -1,4 +1,7 @@
-<!-- AudioPlayerFull.vue - Full-screen player for Spotify, AirPlay, and CD -->
+<!-- AudioPlayerFull.vue - Full-screen player for the sources with nothing to browse in Milō.
+     What it offers is read from the state, never from its caller: the buttons
+     from `controls`, the play/pause glyph from the session's phase, the bar
+     from the session's duration and position anchor. -->
 <template>
   <div class="connect-player">
     <!-- source-motion: what the source swap rises, leaving .connect-player (the
@@ -58,33 +61,30 @@
         <!-- Content: player info or replacement (e.g., CD tracklist) -->
         <Transition name="player-swap" mode="out-in">
           <div v-if="!hideContent" key="player-info" class="player-info">
-            <div class="track-info" :class="{ 'no-controls': !showControls }">
+            <div class="track-info" :class="{ 'no-controls': !hasTransport }">
               <h1 class="track-title heading-1">{{ persistentMetadata.title || t('status.unknownTitle') }}</h1>
               <p class="track-artist heading-2">{{ persistentMetadata.artist || t('status.unknownArtist') }}</p>
             </div>
             <div class="controls-section">
-              <template v-if="showControls">
-                <div class="progress-wrapper">
-                  <ProgressBar :currentPosition="currentPosition" :duration="duration"
-                    :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                    :interactive="seekable" animateIn @seek="seekTo" />
-                </div>
-                <div class="controls-wrapper">
-                  <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering" :hasNext="hasNext"
-                    @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
-                </div>
-              </template>
-              <template v-else>
-                <div v-if="showProgress" class="progress-wrapper">
-                  <ProgressBar :currentPosition="currentPosition" :duration="duration"
-                    :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                    :interactive="false" animateIn />
-                </div>
-                <div class="source-bar">
-                  <AppIcon :name="source" :size="40" />
-                  <span class="source-bar-name heading-4">{{ sourceBarName }}</span>
-                </div>
-              </template>
+              <!-- With a transport the row is always reserved, so the centered
+                   track-info does not shift when the bar mounts on play; a
+                   receiver without one only takes it while it has a bar. The
+                   bar hides itself until the source has a duration and a
+                   position. -->
+              <div v-if="hasTransport || hasProgress" class="progress-wrapper">
+                <ProgressBar :currentPosition="currentPosition" :duration="duration"
+                  :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
+                  :interactive="canSeek" animateIn @seek="seekTo" />
+              </div>
+              <div v-if="hasTransport" class="controls-wrapper">
+                <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
+                  :hasPrev="hasPrev" :hasNext="hasNext"
+                  @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
+              </div>
+              <div v-else class="source-bar">
+                <AppIcon :name="source" :size="40" />
+                <span class="source-bar-name heading-4">{{ sourceBarName }}</span>
+              </div>
             </div>
           </div>
           <div v-else key="content-replace" class="content-replace">
@@ -94,10 +94,10 @@
       </div>
     </div>
 
-    <!-- No error branch here on purpose: `full_state.error` is only ever set
-         alongside SourceState.ERROR, and useRichDisplay refuses a rich display
-         in that state before it looks at the source at all — so this player is
-         never mounted with a message to show. The status card draws it. -->
+    <!-- No error branch here on purpose: a failed service is refused a rich
+         display by useRichDisplay before it looks at the source at all, so
+         this player is never mounted with a message to show. The status card
+         draws it. -->
   </div>
 </template>
 
@@ -106,13 +106,13 @@ import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
-import { isSourceBuffering } from '@/utils/playbackBuffering';
 import { useI18n } from '@/services/i18n';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import { formatDeviceNames } from '@/utils/deviceName';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
-import { nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
+import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
@@ -124,39 +124,9 @@ const props = defineProps({
     type: String,
     required: true
   },
-  showControls: {
-    type: Boolean,
-    default: true
-  },
-  // Receiver-controlled sources (showControls=false) that still report
-  // position/duration: adds a read-only bar above the source bar. Qobuz opts
-  // in — its position rides the ~1 Hz status poll, and useSourceProgress
-  // interpolates between corrections. AirPlay passes false
-  // on purpose: nothing on that channel reports that the sender paused, so an
-  // interpolated bar runs on through a paused track. Off by default for the
-  // controlled sources, which draw their own bar next to the transport.
-  showProgress: {
-    type: Boolean,
-    default: false
-  },
-  // Whether the bar drawn next to the transport accepts a scrub. Default true:
-  // every controlled source but one can seek. Tidal cannot — its controller
-  // protocol has no seek command at all (the daemon seeks internally, but
-  // exposes nothing for it), so offering the gesture would just drop taps.
-  // Only consulted when showControls is set; the read-only bar the receiver
-  // sources draw is never interactive.
-  seekable: {
-    type: Boolean,
-    default: true
-  },
   hideContent: {
     type: Boolean,
     default: false
-  },
-  // Default true: sources with no "last track" concept (Spotify, AirPlay) stay unaffected.
-  hasNext: {
-    type: Boolean,
-    default: true
   }
 });
 
@@ -168,13 +138,47 @@ const { currentPosition, duration, progressPercentage, seekTo, isPositionInitial
 // screensaver is dismissed — the artwork column is left untouched on purpose.
 const revealNonce = useScreensaverRevealNonce();
 
-// Playback controls — sendCommand swallows + logs errors via the store.
+// This source's slice of the state: another source's session, controls and
+// phase are not ours (the player is still on screen while it leaves).
+const isSelected = computed(() => unifiedStore.systemState.source === props.source);
+const session = computed(() => (isSelected.value ? unifiedStore.systemState.session : null));
+const controls = computed(() => (isSelected.value ? unifiedStore.systemState.controls : []));
+const phase = computed(() => session.value?.phase ?? null);
+
+// === TRANSPORT ===
+// A source drives its transport from here when it takes pause or resume; the
+// receivers (AirPlay, Qobuz) take neither and draw a source bar instead.
+// Latched on a settled state: while switching away `controls` is empty, and
+// the player leaving must not trade its transport for a source bar mid-fade.
+const hasTransport = ref(false);
+watch(
+  () => {
+    const { switching, service } = unifiedStore.systemState;
+    return isSelected.value && !switching && service === 'running' ? controls.value : null;
+  },
+  (settled) => {
+    if (settled) hasTransport.value = settled.includes('pause') || settled.includes('resume');
+  },
+  { immediate: true }
+);
+const canSeek = computed(() => controls.value.includes('seek'));
+// `next` is absent on the last track of a disc or a queue.
+const hasPrev = computed(() => controls.value.includes('prev'));
+const hasNext = computed(() => controls.value.includes('next'));
+const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
+
+const isPlaying = computed(() => phase.value === 'playing');
+const isBuffering = computed(() => phase.value === 'loading');
+
+// sendCommand swallows + logs errors via the store. A command the source does
+// not list now would be refused, so it is not sent.
 function sendSourceCommand(command) {
-  return unifiedStore.sendCommand(props.source, command);
+  if (!controls.value.includes(command)) return;
+  unifiedStore.sendCommand(props.source, command);
 }
 
 function togglePlayPause() {
-  sendSourceCommand(unifiedStore.systemState.metadata?.is_playing ? 'pause' : 'resume');
+  sendSourceCommand(isPlaying.value || isBuffering.value ? 'pause' : 'resume');
 }
 
 function previousTrack() {
@@ -186,19 +190,18 @@ function nextTrack() {
 }
 
 // === METADATA PERSISTENCE ===
+// The last record worth naming, so the title and cover do not blank out while
+// the player leaves (a source switch clears the record under it) — see the util.
 const lastValidMetadata = ref({
   title: '',
   artist: '',
-  album_art_url: ''
+  artwork: ''
 });
 
-// Cache last valid metadata so the UI doesn't blank out during brief gaps.
-// What counts as worth keeping is per-source and lives in the util — CD is the
-// one source that reaches this player with no artist.
 watch(
-  () => unifiedStore.systemState.metadata,
-  (currentMetadata) => {
-    const snapshot = nowPlayingSnapshot(props.source, currentMetadata);
+  () => nowPlayingOf(unifiedStore.systemState, props.source),
+  (record) => {
+    const snapshot = nowPlayingSnapshot(record);
     if (snapshot) lastValidMetadata.value = snapshot;
   },
   { immediate: true }
@@ -206,21 +209,13 @@ watch(
 
 const persistentMetadata = computed(() => lastValidMetadata.value);
 
-// Real-time playback state (not persisted)
-const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
-
-const isBuffering = computed(() =>
-  isSourceBuffering(props.source, unifiedStore.systemState.metadata)
-);
-
-
-// Who is sending, when the channel says so: AirPlay's sender. Nothing
-// identifies the sender on the other receiver channels — the Qobuz proxy only
-// knows the speaker — so the answer there is the source itself, read from the
-// same key the status card and the dock use, never a label a backend hardcoded
-// in one language.
+// Who is sending, when the channel says so: AirPlay's and Bluetooth's sender.
+// Nothing identifies the sender on the other receiver channels — the Qobuz
+// proxy only knows the speaker — so the answer there is the source itself,
+// read from the same key the status card and the dock use, never a label a
+// backend hardcoded in one language.
 const sourceBarName = computed(
-  () => unifiedStore.systemState.metadata?.client_name
+  () => formatDeviceNames(session.value?.senders)
     || t(AUDIO_SOURCE_LABEL_KEYS[props.source])
 );
 
@@ -240,13 +235,10 @@ const trackKey = computed(
 );
 // Live, not from the cached copy: a lifted flag must lift the veil at once.
 const artworkAnnounced = computed(
-  () => nowPlayingArtworkPending(unifiedStore.systemState.metadata)
+  () => isSelected.value && nowPlayingArtworkPending(unifiedStore.systemState)
 );
 const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
   useArtworkTransition(targetArtwork, trackKey, artworkAnnounced);
-
-
-
 </script>
 
 <style scoped>

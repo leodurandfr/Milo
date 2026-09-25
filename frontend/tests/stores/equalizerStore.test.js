@@ -17,6 +17,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
+import { publishState, makeSession } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -46,17 +47,12 @@ function registerZone(zoneId, clientIds, extra = {}) {
 }
 
 function setMultiroom(enabled, volumeClients = {}) {
-  audioStore.updateState({
-    data: {
-      full_state: {
-        active_source: 'spotify',
-        source_state: 'active',
-        transitioning: false,
-        metadata: {},
-        multiroom_enabled: enabled,
-        equalizer_effects_enabled: true,
-      },
-    },
+  publishState(audioStore, {
+    source: 'spotify',
+    service: 'running',
+    session: makeSession(),
+    multiroom_enabled: enabled,
+    equalizer_effects_enabled: true,
   });
   audioStore.handleVolumeEvent({
     data: {

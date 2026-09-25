@@ -16,7 +16,8 @@ with NO network access:
     `WsEvent` subclass from `core/models/ws_events.py` referenced outside its
     defining module (`broadcast(event)` is the sole emission API);
   * every payload invariant the manifest documents (`ws.payload_invariants`)
-    holds on the typed event models — the exact fields Milo-Mac reads exist.
+    holds on the typed event models — the exact fields Milo-Mac reads exist,
+    and (for source/state) the vendored decoder MiloAudioState.swift reads them.
 
 A separate, non-blocking CI job (`check_milo_mac_freshness.py`) re-clones
 Milo-Mac and verifies the *manifest itself* still matches what Milo-Mac
@@ -167,7 +168,7 @@ def _scan_typed_events():
 
     Typed events pin (CATEGORY, TYPE) at the class level, so an emission site
     is any reference to the event class outside `core/models/ws_events.py`
-    (instantiation `SourceStateChanged(...)` or class handoff
+    (instantiation `SourcePosition(...)` or class handoff
     `progress_event_cls=SatelliteUpdateProgress`). Bare imports don't count —
     an imported-but-unused class is dead code ruff flags anyway.
     """
@@ -233,36 +234,93 @@ def _sole_event_class(category: str, evt_type: str):
     return classes[0]
 
 
-def test_invariant_full_state_envelope():
-    """full_state subkeys Milo-Mac reads exist in the aggregated state dict,
-    and every carrier pair still opts into full_state injection."""
-    from backend.core.state import AudioStateMachine
+def _models_of(annotation) -> list:
+    """The pydantic models an annotation can hold: Optional, List and a
+    discriminated union unwrapped."""
+    import typing
 
-    inv = _INVARIANTS["full_state_envelope"]
-    state_keys = set(AudioStateMachine().get_current_state())
-    missing = set(inv["required_subkeys"]) - state_keys
-    assert not missing, (
-        f"full_state lost subkey(s) {sorted(missing)} required by Milo-Mac "
-        f"(get_current_state() now returns {sorted(state_keys)})."
+    origin = typing.get_origin(annotation)
+    if origin is typing.Annotated:
+        return _models_of(typing.get_args(annotation)[0])
+    if origin in (typing.Union, list, getattr(__import__("types"), "UnionType", None)):
+        return [m for arg in typing.get_args(annotation) for m in _models_of(arg)]
+    return [annotation] if isinstance(annotation, type) and hasattr(annotation, "model_fields") else []
+
+
+def _resolve_on_model(model, dotted: str) -> None:
+    """Raise KeyError unless `dotted` names a field on `model`; a step into a
+    union (`details`) must find the field on every member."""
+    current = [model]
+    for part in dotted.split("."):
+        if not current:
+            raise KeyError(f"{dotted}: `{part}` is under a non-model")
+        for m in current:
+            if part not in m.model_fields:
+                raise KeyError(f"{dotted}: {m.__name__} has no `{part}`")
+        current = [n for m in current for n in _models_of(m.model_fields[part].annotation)]
+
+
+def _swift_enum_cases(swift: str, name: str) -> list:
+    """The case names of `enum <name>: String` in the vendored decoder."""
+    match = re.search(rf"enum {name}: String[^{{]*\{{(.*?)\n    \}}", swift, re.S)
+    assert match, f"enum {name} not found in the vendored decoder — extractor drift?"
+    cases = []
+    for line in match.group(1).splitlines():
+        line = line.split("//")[0].strip()
+        if line.startswith("case "):
+            cases += [c.strip() for c in line[len("case "):].split(",")]
+    assert cases, f"enum {name} has no cases — extractor drift?"
+    return cases
+
+
+def test_invariant_source_state():
+    """Every key MiloAudioState.swift reads off `source/state` exists on the
+    backend's typed state AND is read by the vendored decoder; the two frozen
+    enums hold the same values on both sides.
+
+    Both directions matter. A key the backend drops fails the whole decode in
+    the app for the required ones (source, switching, service, controls, the
+    two flags, a session's id/phase/senders) — Milo-Mac then ignores every
+    state and its menu freezes on the last one. A key the manifest keeps after
+    the decoder stopped reading it over-constrains the backend.
+    """
+    from backend.core.models import audio_wire
+    from backend.core.models.session import Phase, ServiceState
+
+    inv = _INVARIANTS["source/state"]
+    decoder = (VENDOR_DIR / inv["decoder"]).read_text()
+    assert "struct MiloAudioState" in decoder, "vendored decoder unreadable"
+    assert _sole_event_class("source", "state").__mro__[1] is audio_wire.AudioState
+
+    missing_backend, missing_decoder = [], []
+    for dotted in inv["data_keys"]:
+        try:
+            _resolve_on_model(audio_wire.AudioState, dotted)
+        except KeyError as e:
+            missing_backend.append(str(e))
+        leaf = dotted.split(".")[-1]
+        if not re.search(rf"\b{re.escape(leaf)}\b", decoder):
+            missing_decoder.append(dotted)
+    details = {
+        "radio": audio_wire.RadioDetails, "music_library": audio_wire.MusicLibraryDetails,
+    }
+    for kind, keys in inv["details_keys"].items():
+        for dotted in keys:
+            try:
+                _resolve_on_model(details[kind], dotted)
+            except KeyError as e:
+                missing_backend.append(f"details[{kind}].{e}")
+            if not re.search(rf"\b{re.escape(dotted.split('.')[-1])}\b", decoder):
+                missing_decoder.append(f"details[{kind}].{dotted}")
+    assert not missing_backend, f"the state lost key(s) Milo-Mac decodes: {missing_backend}"
+    assert not missing_decoder, (
+        f"manifest keys the vendored decoder never reads: {missing_decoder} — "
+        "refresh the manifest from MiloAudioState.swift"
     )
 
-    for pair in inv["carried_by"]:
-        category, evt_type = pair.split("/")
-        for cls in _EVENT_CLASSES[(category, evt_type)]:
-            assert cls.INCLUDE_FULL_STATE, (
-                f"{pair} ({cls.__name__}) no longer carries full_state but "
-                f"Milo-Mac reads it from this event."
-            )
-
-
-def test_invariant_multiroom_changed_discriminator():
-    """The multiroom_changed boolean sibling of full_state must stay declarable."""
-    inv = _INVARIANTS["multiroom_changed_discriminator"]
-    cls = _sole_event_class("system", "state_changed")
-    assert inv["data_key"] in cls.model_fields, (
-        f"{cls.__name__} lost `{inv['data_key']}` — Milo-Mac keys its multiroom "
-        f"spinner completion on it."
-    )
+    enums = inv["frozen_enums"]
+    assert enums["service"] == [s.value for s in ServiceState] == _swift_enum_cases(decoder, "ServiceState")
+    assert enums["session.phase"] == [p.value for p in Phase] == _swift_enum_cases(decoder, "Phase")
 
 
 def test_invariant_volume_changed():
@@ -315,8 +373,7 @@ def test_all_payload_invariants_are_verified():
     mirrors the test functions above (routing/multiroom_error is presence-only,
     covered by test_ws_broadcast_site_exists)."""
     verified = {
-        "full_state_envelope",
-        "multiroom_changed_discriminator",
+        "source/state",
         "volume_changed",
         "settings/volume_limits_changed",
         "settings/dock_apps_changed",
@@ -404,7 +461,7 @@ def test_every_consumer_named_exists_in_the_snapshot():
     """
     corpus = "\n".join(
         (VENDOR_DIR / name).read_text()
-        for name in ("MiloAPIService.swift", "WebSocketService.swift")
+        for name in ("MiloAPIService.swift", "WebSocketService.swift", "MiloAudioState.swift")
     )
     assert "func " in corpus, "vendored snapshot unreadable — the check below cannot fail"
 

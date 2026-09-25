@@ -20,7 +20,7 @@ export const useSystemStore = defineStore('system', () => {
   // silent, or NM has not probed yet) and reads as "no problem observed".
   // Whether a *source* is blocked by it is not decided here — the backend
   // crosses the level with the source's own requirement and publishes the
-  // answer as full_state.network_unavailable.
+  // answer per source in the audio state's `availability`.
   const connectivity = ref('unknown');
   // The label of the audio card hardware.json names when ALSA cannot see it,
   // null when all is well. A HAT is not hot-pluggable, so this is settled at

@@ -25,37 +25,23 @@ Mac), which the phase follows:
 
 Artwork is stored in memory and served via a dedicated HTTP endpoint.
 """
-import asyncio
 import hashlib
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.session import (
     DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy, Session,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.audio_wire import AirPlayDetails
 from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent
 from backend.sources.airplay.remote import drop_session
 from backend.shared.artwork import decode_artwork_dimensions
 
 # Sample rate for RTP frame to millisecond conversion
 AIRPLAY_SAMPLE_RATE = 44100
-
-# How often the aged position is pushed out while a track plays. shairport-sync
-# emits `prgr` every 5-15 s, not continuously, so the frame snapshot has
-# to be aged here: left alone, system_state.metadata["position"] stays frozen at
-# whatever the track started on, and every client that connects mid-track (a page
-# refresh, a second browser) seeds its progress bar from that stale value and
-# restarts from it. Live clients interpolate locally, so this interval only bounds
-# how stale a *new* connection's initial_state can be.
-POSITION_TICK_SECONDS = 10.0
-
-# A snapshot further than this from the interpolated position is a real jump
-# (track change, seek) rather than routine confirmation.
-POSITION_JUMP_TOLERANCE_MS = 2000
 
 # How long the cover in hand may outlive its pairing while the next one is
 # still in flight.
@@ -65,8 +51,8 @@ POSITION_JUMP_TOLERANCE_MS = 2000
 # it arrives. This bounds the picture that is far enough from the tags on
 # screen to be another track's (see _artwork_is_current, which is what decides
 # that one stamped a few milliseconds off is simply this track's).
-# Publishing that gap drops album_art_url, and the frontend's untrusted-sender
-# gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing album_art_width as
+# Publishing that gap drops the artwork, and the frontend's untrusted-sender
+# gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing artwork_width as
 # "this sender pushes no real cover": AudioPlayerFull is swapped for the status
 # card and back, which is visible as the player animating itself out and in.
 #
@@ -143,11 +129,10 @@ class AirPlaySession(Session):
     tags: Dict[str, str] = field(default_factory=dict)
     track_id: Optional[str] = None      # the rtptime of the tags on screen
     cover: Optional[Cover] = None
-    # Progress: `prgr` gives a snapshot; the time since it arrived ages it.
-    # position_at is None while nothing flows, which freezes the ageing.
-    position_ms: int = 0
+    # Progress: `prgr` gives a snapshot, handed to the position axis once the
+    # burst's phase is known.
     duration_ms: int = 0
-    position_at: Optional[float] = None
+    reading: Optional[int] = None
 
 
 class AirPlaySource(BaseAudioSource):
@@ -199,7 +184,7 @@ class AirPlaySource(BaseAudioSource):
             await self._ensure_metadata_pipe()
             self._metadata_reader = MetadataReader(self._metadata_pipe, on_event=self._on_pipe_event)
             await self._metadata_reader.start()
-            self._update_connection_state()
+            self._publish()
             return True
         except Exception as e:
             self._logger.error(f"Start failed: {e}")
@@ -243,11 +228,18 @@ class AirPlaySource(BaseAudioSource):
         session = self._session
         if session is not None:
             await self.reconcile(DaemonSnapshot(session.sender, self._phase_of(session)))
-            if self._session is session:
-                self._sync_clock(session)
+            if self._session is session and session.reading is not None:
+                reading, session.reading = session.reading, None
+                self._observe_position(reading)
         # Compared, not repeated: a burst that only moved the playhead (`prgr`,
         # every 5-15 s) travels on the position axis, never as a full state.
         self._publish_changes()
+        if self._session is not None:
+            # A live session is the answer to the only error this source
+            # raises — the daemon dying under the previous one. Without this
+            # the banner would outlive its cause and sit over a sender that
+            # reconnected fine; a no-op when no error is active.
+            self.broadcast_error_cleared()
 
     async def _apply(self, event: PipeEvent) -> None:
         """One announcement, applied to the session it is about."""
@@ -323,11 +315,6 @@ class AirPlaySource(BaseAudioSource):
             return Phase.LOADING
         return Phase.PLAYING if session.stream_type == BUFFERED else Phase.CONNECTED
 
-    @staticmethod
-    def _flowing(session: AirPlaySession) -> bool:
-        """Sound is arriving (a Realtime stream included, silence or not)."""
-        return session.stream and session.first_frame and not session.paused
-
     def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
         return AirPlaySession(phase=snapshot.phase, sender=snapshot.sender)
 
@@ -365,9 +352,9 @@ class AirPlaySource(BaseAudioSource):
         Also decodes pixel dimensions so the frontend can gate the rich
         player on artwork quality: browser audio (no MediaSession cover) ends
         up as a small favicon / app-icon, whereas real senders (Apple Music,
-        Spotify desktop) push a high-resolution cover. Dimensions are
-        broadcast as album_art_width/height; the display policy lives on the
-        frontend (AudioSourceView.hasRichDisplay).
+        Spotify desktop) push a high-resolution cover. The width is published
+        as `details.artwork_width`; the display policy lives on the frontend
+        (useRichDisplay).
 
         The rtptime is recorded before the dedupe: two tracks off one album send
         the identical image, and the picture that changed nothing still moved
@@ -431,7 +418,7 @@ class AirPlaySource(BaseAudioSource):
         yet; picture first leaves a picture stamped for a track the tags have
         not announced, and the publish, judging on equality alone, dropped the
         cover from a state still carrying the *previous* track's title. The
-        frontend reads a missing album_art_width as "this sender pushes no real
+        frontend reads a missing artwork_width as "this sender pushes no real
         cover" and swapped the player for the status card and back, which is
         the same flicker from the other side.
 
@@ -448,46 +435,13 @@ class AirPlaySource(BaseAudioSource):
 
     # === Progress ===
 
-    def _now(self) -> float:
-        return asyncio.get_running_loop().time()
-
     def _on_progress(self, session: AirPlaySession, start: int, current: int, end: int) -> None:
-        """A progress snapshot (RTP frames at 44100 Hz).
-
-        A fresh snapshot (a new track, a seek) can be an arbitrarily large
-        jump, which local interpolation on the clients cannot guess, so only a
-        jump is broadcast at once. A snapshot that merely confirms the
-        interpolation is left to the ticker, so a sender that emits `prgr`
-        often can't flood every connected client.
-        """
+        """A progress snapshot (RTP frames at 44100 Hz): the length, and a
+        playhead reading for the position axis."""
         if end <= start:
             return
-        predicted = self._position_of(session)
         session.duration_ms = int((end - start) / AIRPLAY_SAMPLE_RATE * 1000)
-        session.position_ms = max(0, int((current - start) / AIRPLAY_SAMPLE_RATE * 1000))
-        session.position_at = self._now() if self._flowing(session) else None
-        if abs(session.position_ms - predicted) > POSITION_JUMP_TOLERANCE_MS:
-            self.broadcast_position_update(session.position_ms, session.duration_ms)
-
-    def _position_of(self, session: AirPlaySession) -> int:
-        """The snapshot, aged by the time elapsed since it was taken."""
-        if session.position_at is None:
-            return session.position_ms
-        elapsed = (self._now() - session.position_at) * 1000
-        return min(session.position_ms + int(elapsed), session.duration_ms)
-
-    def _sync_clock(self, session: AirPlaySession) -> None:
-        """The playhead ages while sound flows and freezes otherwise; the
-        ticker that keeps the published position fresh runs meanwhile."""
-        if self._flowing(session):
-            if session.position_at is None and session.duration_ms > 0:
-                session.position_at = self._now()
-            if not self._timer_armed("position"):
-                self._arm_timer("position", POSITION_TICK_SECONDS, session)
-        else:
-            session.position_ms = self._position_of(session)
-            session.position_at = None
-            self._disarm_timer("position")
+        session.reading = max(0, int((current - start) / AIRPLAY_SAMPLE_RATE * 1000))
 
     async def _on_timer(self, name: str, token: object) -> None:
         session = self._session
@@ -495,11 +449,7 @@ class AirPlaySource(BaseAudioSource):
             return
         if name == "artwork":
             # The hold ran out: the cover goes, once, instead of on every event.
-            self._update_connection_state()
-        elif name == "position" and self._flowing(session):
-            if session.duration_ms > 0:
-                self.broadcast_position_update(self._position_of(session), session.duration_ms)
-            self._arm_timer("position", POSITION_TICK_SECONDS, session)
+            self._publish()
 
     # === Publication ===
 
@@ -516,38 +466,32 @@ class AirPlaySource(BaseAudioSource):
                     "(will be created by shairport-sync)"
                 )
 
-    def _update_connection_state(self) -> None:
-        """Publish the session (or its absence)."""
-        # A live session is the answer to the only error this source raises —
-        # the daemon dying under the previous one. Without this the banner
-        # would outlive its cause and sit over a sender that reconnected fine;
-        # a no-op when no error is active.
-        if self._session is not None:
-            self.broadcast_error_cleared()
-        self.emit_connection_state(*self._connection_state())
+    # === The view (docs: "le fil") ===
 
-    def _connection_state(self):
-        session = self._session
-        if not isinstance(session, AirPlaySession):
-            return False, None, {}
-        phase = session.phase
-        core = PlaybackMetadata(
-            **session.tags,
-            is_playing=phase is Phase.PLAYING or (phase is Phase.CONNECTED and self._flowing(session)),
-            is_buffering=phase is Phase.LOADING,
-        )
-        if session.duration_ms > 0:
-            core.duration = session.duration_ms
-            core.position = self._position_of(session)
-        extras: Dict[str, Any] = {"client_name": session.client_name}
-        # The cover is published for the track it was stamped for, and the
-        # width comes with it; a pending hold keeps them for the few ms a
-        # newly-stamped track's own picture may still be in flight.
+    def _published_cover(self, session: AirPlaySession) -> Optional[Cover]:
+        """The cover is published for the track it was stamped for; a pending
+        hold keeps it for the few ms a newly-stamped track's own picture may
+        still be in flight."""
         cover = session.cover
         if cover is not None and (self._artwork_is_current(session) or self._timer_armed("artwork")):
-            core.album_art_url = cover.url
-            extras["album_art_width"] = cover.width
-        return True, core, extras
+            return cover
+        return None
+
+    def _session_fields(self, session: AirPlaySession) -> Dict[str, Any]:
+        cover = self._published_cover(session)
+        return {
+            **session.tags,
+            "artwork": cover.url if cover else None,
+            "senders": [session.client_name] if session.client_name else [],
+            "duration_ms": session.duration_ms or None,
+        }
+
+    def _details(self) -> Optional[AirPlayDetails]:
+        session = self._session
+        if not isinstance(session, AirPlaySession):
+            return None
+        cover = self._published_cover(session)
+        return AirPlayDetails(artwork_width=cover.width if cover else None)
 
     # === Public API ===
 

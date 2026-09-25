@@ -1,10 +1,9 @@
 // frontend/src/stores/lyricsStore.js
 // Lyrics for the now-playing track, fetched on demand when the Lyrics app modal
 // opens (and refetched when the track changes while it's open). Keys off the
-// unified store's metadata, so it works for any rich-metadata source — except
-// Radio, which carries its Shazam/in-band recognized track under track_title/
-// track_artist rather than the canonical title/artist (see radioStore.trackInfo;
-// the station itself is a continuous stream, not a track).
+// unified store's session, so it works for any rich-metadata source. Radio
+// included: its session names the station with no artist until a track is
+// recognized (Shazam or in-band), so a bare station never reads as a track.
 import { defineStore } from 'pinia';
 import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
@@ -21,12 +20,9 @@ export function isLyricsCompatible(activeSource) {
   return !!activeSource && activeSource !== 'none' && !LYRICS_INCOMPATIBLE_SOURCES.has(activeSource);
 }
 
-export function getTrackIdentity(activeSource, metadata) {
-  const meta = metadata || {};
-  if (activeSource === 'radio') {
-    return { artist: meta.track_artist || '', title: meta.track_title || '' };
-  }
-  return { artist: meta.artist || '', title: meta.title || '' };
+/** The (artist, title) lyrics are looked up by, from a whole AudioState. */
+export function getTrackIdentity(state) {
+  return { artist: state.session?.artist || '', title: state.session?.title || '' };
 }
 
 export const useLyricsStore = defineStore('lyrics', () => {
@@ -59,7 +55,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
   //
   // Snapserver schedules every chunk `buffer_ms` into the future so all speakers
   // play it at the same instant, so in multiroom the sound heard at any moment is
-  // what the source wrote buffer_ms ago — while metadata.position reports where
+  // what the source wrote buffer_ms ago — while the session position reports where
   // the source *is*. The highlight is therefore held BACK by the buffer (the
   // offset is negative); it used to be pushed forward by a fixed 500 ms, which
   // doubled the error instead of cancelling it. Direct mode has no such stage,
@@ -156,9 +152,8 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
   async function loadLyrics() {
     const unifiedStore = useUnifiedAudioStore();
-    const activeSource = unifiedStore.systemState.active_source;
-    const meta = unifiedStore.systemState.metadata || {};
-    const identity = getTrackIdentity(activeSource, meta);
+    const state = unifiedStore.systemState;
+    const identity = getTrackIdentity(state);
     const artist = identity.artist.trim();
     const title = identity.title.trim();
 
@@ -209,7 +204,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
       params: {
         artist,
         title,
-        duration: meta.duration || 0,
+        duration: state.session?.duration_ms || 0,
       },
       signal,
       // An unreachable LRCLIB comes back as a 200 with status=error; checkStatus

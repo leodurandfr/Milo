@@ -1,35 +1,38 @@
 // frontend/src/utils/nowPlayingMetadata.js
-/**
- * The snapshot AudioPlayerFull holds on to, so the title/artist/cover do not
- * blank out in the gap between two metadata updates — or null when the incoming
- * metadata is not worth keeping and the previous snapshot should stand.
- *
- * A title is the whole requirement. Requiring an artist alongside it is what
- * froze the CD player on its empty seed: a disc MusicBrainz cannot identify
- * (a burned CD, an obscure pressing, or any disc while the unit is offline)
- * comes back from `_build_fallback_disc_info` with artist=None and a perfectly
- * real "Track N" title, and useRichDisplay admits CD on disc_present +
- * cache_ready alone — so the player is on screen with a title it refused to
- * store. The screensaver, which reads the live metadata instead of a snapshot,
- * showed that same title correctly the whole time.
- *
- * The pair is still required everywhere else, and that is not symmetry for its
- * own sake: every other source mounting this player is gated upstream on title
- * AND artist, so a snapshot carrying one without the other there is a
- * half-populated update, and storing it would blank an artist that is known.
- *
- * @param {string} source - Active audio source id
- * @param {Object|null} metadata - unifiedAudioStore.systemState.metadata
- * @returns {{title: string, artist: string, album_art_url: string}|null}
- */
-export function nowPlayingSnapshot(source, metadata) {
-  const meta = metadata || {};
-  if (!meta.title) return null;
-  if (!meta.artist && source !== 'cd') return null;
+// What a now-playing view names, read the same way by AudioPlayerFull and the
+// screensaver so the two cannot draw different tracks.
 
+/**
+ * The record the view of `source` draws: the session, or — with none — what
+ * play would bring back (a CD's track, a library resume). Null when the state
+ * belongs to another source: its session is not ours to draw.
+ *
+ * @param {object|null} state - unifiedAudioStore.systemState
+ * @param {string} source - the source whose view asks
+ * @returns {object|null} a session or a resume record (same title/artist/artwork fields)
+ */
+export function nowPlayingOf(state, source) {
+  if (!state || state.source !== source) return null;
+  return state.session ?? state.resume ?? null;
+}
+
+/**
+ * The snapshot AudioPlayerFull holds on to, or null when the record is not
+ * worth keeping and the previous snapshot should stand — a session with
+ * nothing to name (a sender still connecting), or the record gone while the
+ * player leaves.
+ *
+ * A title is the whole requirement: a disc no lookup identified has a real
+ * "Track N" title and no artist, and the player is on screen for it.
+ *
+ * @param {object|null} record - from nowPlayingOf
+ * @returns {{title: string, artist: string, artwork: string}|null}
+ */
+export function nowPlayingSnapshot(record) {
+  if (!record?.title) return null;
   return {
-    title: meta.title,
-    artist: meta.artist || '',
-    album_art_url: meta.album_art_url || ''
+    title: record.title,
+    artist: record.artist || '',
+    artwork: record.artwork || '',
   };
 }

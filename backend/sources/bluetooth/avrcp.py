@@ -279,6 +279,8 @@ class AvrcpController:
         self._track: Dict[str, Any] = {}
         self._status: str = ""
         self._position: Optional[int] = None
+        # When `_position` was taken: a reading ages while the track plays.
+        self._position_at: float = 0.0
         self._on_update: Optional[UpdateCallback] = None
         self._on_daemon: Optional[DaemonCallback] = None
         self._dirty: asyncio.Queue = asyncio.Queue(maxsize=1)
@@ -502,9 +504,11 @@ class AvrcpController:
             # will never notice (see `send`).
             return
         self._position = value
+        self._position_at = time.monotonic()
 
     def snapshot(self) -> Dict[str, Any]:
-        """Current player state, keyed like PlaybackMetadata."""
+        """Current player state: title, artist, album, duration and position
+        (ms), is_playing."""
         snap = parse_track(self._track)
         snap["is_playing"] = self._status in PLAYING_STATES
         position = self._position
@@ -517,6 +521,12 @@ class AvrcpController:
                 int((time.monotonic() - self._own_playhead_from) * 1000)
                 if snap["is_playing"] else 0
             )
+        elif position is not None and position < POSITION_ENDED and snap["is_playing"]:
+            # A reading is where the playhead was when it was taken, up to a
+            # poll interval ago; read as it was, a burst between two polls saw
+            # it seconds behind and pulled the bar back. BlueZ extrapolates the
+            # same way between two anchors.
+            position += int((time.monotonic() - self._position_at) * 1000)
         snap["position"] = None if position is None or position >= POSITION_ENDED else position
         return snap
 
@@ -730,6 +740,7 @@ class AvrcpController:
             # Authoritative: BlueZ only signals Position when it has re-anchored,
             # and that value is precisely the correction a Get cannot give us.
             self._position = props["Position"].value
+            self._position_at = time.monotonic()
             self._own_playhead_from = None
 
     def _playhead_origin(self) -> Optional[float]:

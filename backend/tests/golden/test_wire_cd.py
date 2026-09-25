@@ -1,4 +1,4 @@
-"""CD's old wire, scenario by scenario (see harness.py for the rules)."""
+"""CD's wire, scenario by scenario (see harness.py for the rules)."""
 import asyncio
 from typing import Any, Dict, List, Optional
 
@@ -159,6 +159,7 @@ class Cd:
         self.data = FakeCdData()
         self.mpv = EventMpv()
         self.monitor_gate = TickGate()
+        self.monitor_gate.clocks.append(self.mpv.elapse)
         self.clock = VirtualClock()
         self.ejected: List[tuple] = []
         self._listeners: List[Any] = []

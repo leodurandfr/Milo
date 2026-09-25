@@ -82,7 +82,7 @@ markDarkSurface();
 const closeButtonWrapper = ref(null);
 const closeButtonRef = ref(null);
 
-const activeSource = computed(() => unifiedStore.systemState.active_source);
+const activeSource = computed(() => unifiedStore.systemState.source);
 
 // Reported by LyricsContent once it has centred (or immediately, for plain
 // lyrics). The loading screen spans both waits — the LRCLIB lookup and this one —
@@ -100,21 +100,17 @@ watch(() => lyricsStore.loading, (isLoading) => {
   if (isLoading) contentReady.value = false;
 });
 
-// One key for every source. Radio used to fill no album_art_url, so this
-// re-derived it — recognised track's artwork, else the station favicon — which
-// is the same rule RadioSource.vue's playerArtwork applies, and the same one
-// the push layer and Milo-iOS each carried a copy of. The source computes it
-// now, which is what makes the backdrop one read instead of a fourth branch.
-const artworkUrl = computed(() => {
-  return unifiedStore.systemState.metadata?.album_art_url || '';
-});
+// One key for every source: the session's artwork is already the source's own
+// pick (radio's recognized track, else its station favicon), so the backdrop is
+// one read rather than a branch per source.
+const artworkUrl = computed(() => unifiedStore.systemState.session?.artwork || '');
 
 // Track identity — refetch on change (a new track, or a mid-stream Shazam hit on
-// radio). Position updates mutate metadata but not artist/title, so they don't
+// radio). A position update moves the anchor but not artist/title, so it doesn't
 // retrigger. The component only exists while lyricsStore.isOpen (AudioSourceView
 // mounts/unmounts it), so the initial fetch is lyricsStore.open()'s job.
 const trackKey = computed(() => {
-  const identity = getTrackIdentity(activeSource.value, unifiedStore.systemState.metadata);
+  const identity = getTrackIdentity(unifiedStore.systemState);
   return `${identity.artist}|||${identity.title}`;
 });
 watch(trackKey, () => lyricsStore.loadLyrics());
@@ -136,7 +132,7 @@ const emptyState = computed(() => {
   if (!isLyricsCompatible(source)) {
     return { message: t('lyrics.notCompatible'), showTrack: false };
   }
-  const identity = getTrackIdentity(source, unifiedStore.systemState.metadata);
+  const identity = getTrackIdentity(unifiedStore.systemState);
   if (!identity.artist || !identity.title) {
     return {
       message: source === 'radio' ? t('lyrics.noTrackDetected') : t('lyrics.notPlaying'),
@@ -155,7 +151,7 @@ const emptyState = computed(() => {
 const showPlaybackBar = computed(() => {
   const source = activeSource.value;
   if (!isLyricsCompatible(source)) return false;
-  const identity = getTrackIdentity(source, unifiedStore.systemState.metadata);
+  const identity = getTrackIdentity(unifiedStore.systemState);
   return !!(identity.artist && identity.title);
 });
 

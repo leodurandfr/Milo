@@ -16,11 +16,10 @@ from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
-from backend.core.models.audio_state import SourceState
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.shared.persistence import SchemaVersionMismatch
 from backend.tests.golden.harness import settle
-from backend.tests.golden.test_old_wire_podcast import EPISODE_A, SHOW
+from backend.tests.golden.test_wire_podcast import EPISODE_A, SHOW
 from backend.tests.test_mpv_sessions import PodcastRig
 
 
@@ -72,10 +71,6 @@ def slow_watchdog(monkeypatch, rig):
     monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 60.0, raising=False)
 
 
-def meta(rig) -> dict:
-    return rig.state()["metadata"]
-
-
 def published(rig) -> int:
     return len(rig.recorder.envelopes)
 
@@ -100,14 +95,14 @@ class TestPodcastSourceLifecycle:
     """Test PodcastSource lifecycle methods."""
 
     async def test_start_success(self, rig):
-        """Selecting Podcast starts its unit and settles READY with nothing
-        loaded. If it fails, the podcast screen (frontend PodcastSource.vue)
+        """Selecting Podcast starts its unit and settles with no session and
+        nothing loaded. If it fails, the podcast screen (frontend PodcastSource.vue)
         opens on an error card instead of the browser."""
         await rig.select()
 
         state = rig.state()
-        assert state["active_source"] == "podcast"
-        assert state["source_state"] == "ready"
+        assert (state["source"], state["service"]) == ("podcast", "running")
+        assert (state["session"], state["resume"], state["details"]) == (None, None, None)
         rig.systemd.start.assert_awaited_with("milo-podcast.service")
         assert rig.mpv.is_connected
 
@@ -164,9 +159,7 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is True
         assert [load[1] for load in rig.loads()] == [EPISODE_A["audio_url"]]
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_playing"] is True
+        assert rig.playing()
         assert rig.episode() == EPISODE_A["uuid"]
 
     async def test_pause_command(self, rig):
@@ -182,7 +175,7 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is True
         assert rig.mpv.paused is True
-        assert meta(rig)["is_playing"] is False
+        assert rig.phase() == "paused"
         assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 300
 
     async def test_resume_command(self, rig):
@@ -197,7 +190,7 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is True
         assert rig.mpv.paused is False
-        assert meta(rig)["is_playing"] is True
+        assert rig.playing()
 
     async def test_seek_command(self, rig):
         """A seek moves mpv, publishes the new position and saves it. If it
@@ -210,7 +203,7 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is True
         assert ("seek", 300) in rig.mpv.sent
-        assert meta(rig)["position"] == 300_000
+        assert rig.position_ms() == 300_000
         assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 300
 
     async def test_auto_stop_clears_playback(self, auto_stop_rig):
@@ -228,7 +221,7 @@ class TestPodcastSourceCommands:
         await rig.command("pause")               # the 1 s idle timeout fires
         await settle()
 
-        assert rig.state()["source_state"] == "ready"
+        assert not rig.active()
         assert ("stop",) in rig.mpv.sent
         assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 305
         assert rig.data.completed == []
@@ -261,8 +254,10 @@ class TestPodcastSourceCommands:
 
     async def test_set_speed_during_playback_reaches_mpv(self, rig):
         """A speed set while an episode plays changes mpv's speed now, is
-        stored, and is published. If it fails, the speed menu (PodcastPlayer)
-        shows 1.5x over an episode still playing at 1x."""
+        stored, and is published — with the playhead moving at the new rate
+        from here on. If it fails, the speed menu (PodcastPlayer) shows 1.5x
+        over an episode still playing at 1x, or the bar runs at the old
+        speed."""
         await rig.select()
         await rig.play(EPISODE_A)
 
@@ -271,7 +266,8 @@ class TestPodcastSourceCommands:
         assert result["success"] is True
         assert rig.mpv.speed == 1.5
         assert rig.data.settings["playback_speed"] == 1.5
-        assert meta(rig)["playback_speed"] == 1.5
+        assert rig.details()["speed"] == 1.5
+        assert rig.session()["position"]["rate"] == 1.5
 
 class TestPodcastDataService:
     """Test PodcastDataService."""
@@ -355,51 +351,34 @@ class TestPodcastDataService:
         assert subscriptions[0]["added_at"] == first["added_at"]
 
 
-class TestConnectionState:
-    """Test connection state management."""
+class TestPlaybackDetails:
+    """What a playing episode publishes in `details` and its session."""
 
-    def test_update_state_no_episode(self, podcast_source):
-        """Test state is READY with no episode."""
-        podcast_source._update_connection_state()
-
-        assert podcast_source.state == SourceState.READY
-
-
-class TestPlaybackMetadata:
-    """Test playback metadata building."""
-
-    def test_build_metadata_no_episode(self, podcast_source):
-        """Test metadata is empty with no episode."""
-        metadata = podcast_source._build_playback_metadata()
-
-        assert metadata == {}
-
-    async def test_build_metadata_with_episode(self, rig):
-        """The record a playing episode publishes: its identity, the show, the
+    async def test_a_playing_episode_publishes_its_record(self, rig):
+        """The episode as the catalog routes return it, the show, the
         playhead and length in milliseconds (the shared wire convention), the
-        transport pair and the speed. If it fails, the podcast player
+        phase and the speed. If it fails, the podcast player
         (podcastStore / AudioPlayer.vue) draws the wrong episode, a bar off by a
         factor of 1000, or the wrong speed."""
         await rig.select()
         await rig.command("set_speed", {"speed": 1.5})
         await rig.play(EPISODE_A)
         rig.mpv.playhead(120)
-        await rig.machine.refresh_active_metadata()
+        await rig.machine.refresh_active_view()
 
-        metadata = meta(rig)
-        assert metadata["episode_uuid"] == EPISODE_A["uuid"]
-        assert metadata["episode_name"] == EPISODE_A["name"]
-        assert metadata["podcast_name"] == SHOW["name"]
-        assert metadata["podcast_uuid"] == SHOW["uuid"]
-        assert metadata["position"] == 120_000
-        assert metadata["duration"] == 1_800_000
-        assert metadata["is_playing"] is True
-        assert metadata["is_buffering"] is False
-        assert metadata["playback_speed"] == 1.5
+        details, session = rig.details(), rig.session()
+        assert details["episode"]["uuid"] == EPISODE_A["uuid"]
+        assert details["episode"]["name"] == EPISODE_A["name"]
+        assert details["episode"]["podcast"] == SHOW
+        assert details["speed"] == 1.5
+        assert rig.position_ms() == 120_000
+        assert session["duration_ms"] == 1_800_000
+        assert session["phase"] == "playing"
+        assert session["position"]["rate"] == 1.5
 
 
 class TestTheCommonFloor:
-    """Podcast fills title/artist/album/album_art_url like every other source.
+    """Podcast fills the session's title/artist/album/artwork like every other source.
 
     It filled none of them, and unlike radio it was in no consumer's fallback
     either: `core/push/payloads.py` and Milo-iOS both read
@@ -416,11 +395,11 @@ class TestTheCommonFloor:
         await rig.select()
         await rig.play(EPISODE_A)
 
-        metadata = meta(rig)
-        assert metadata["title"] == EPISODE_A["name"]
-        assert metadata["artist"] == SHOW["name"]
-        assert metadata["album"] == SHOW["name"]
-        assert metadata["album_art_url"] == EPISODE_A["image_url"]
+        session = rig.session()
+        assert session["title"] == EPISODE_A["name"]
+        assert session["artist"] == SHOW["name"]
+        assert session["album"] == SHOW["name"]
+        assert session["artwork"] == EPISODE_A["image_url"]
 
     async def test_a_stopped_episode_publishes_where_it_would_resume(self, auto_stop_rig):
         """An auto-stop leaves an episode and a second to come back to, and
@@ -440,18 +419,18 @@ class TestTheCommonFloor:
         await settle()
 
         state = rig.state()
-        assert state["source_state"] == "ready"
-        metadata = state["metadata"]
-        assert metadata["episode_uuid"] == EPISODE_A["uuid"]
-        assert metadata["title"] == EPISODE_A["name"]
-        assert metadata["is_playing"] is False
-        assert metadata["position"] == 754_000
-        assert metadata["duration"] == 2_100_000
+        assert state["session"] is None
+        assert rig.episode() == EPISODE_A["uuid"]
+        resume = state["resume"]
+        assert resume["title"] == EPISODE_A["name"]
+        assert resume["position_ms"] == 754_000
+        assert resume["duration_ms"] == 2_100_000
+        assert "resume" in state["controls"]
 
     async def test_an_episode_that_ended_leaves_nothing_to_resume(self, rig):
         """The distinction the payload has to carry: a stop is a pause that
         gave up, an ending is an ending. The frontend flips the finished card
-        to "already listened" off the ending's own keys, and must not also be
+        to "already listened" off the session's `eof` end, and must not also be
         offered it as the thing a play press resumes. If it fails, the rotary's
         play press restarts an episode the owner just finished."""
         await rig.select()
@@ -462,10 +441,10 @@ class TestTheCommonFloor:
         await rig.mpv.ends("eof")
         await settle()
 
-        metadata = meta(rig)
-        assert metadata["episode_ended"] is True
-        assert "current_episode" not in metadata
-        assert "title" not in metadata
+        state = rig.state()
+        assert rig.session_ends() == ["eof"]
+        assert (state["session"], state["resume"], state["details"]) == (None, None, None)
+        assert "resume" not in state["controls"]
         result = await rig.command("resume")
         assert result["success"] is False
         assert len(rig.loads()) == 1
@@ -482,7 +461,7 @@ class TestEpisodeEndDetection:
     """
 
     async def test_episode_ends_on_eof_even_if_position_short_of_duration(self, rig):
-        """EOF returns to READY and persists completion even when the last
+        """EOF ends the session and persists completion even when the last
         observed position is far short of the reported duration — the original
         'stuck at the end' bug. A final progress row is written (so a short clip
         has one), then the explicit completion mark. If it fails, the episode
@@ -497,10 +476,8 @@ class TestEpisodeEndDetection:
         await rig.mpv.ends("eof")
         await settle()
 
-        state = rig.state()
-        assert state["source_state"] == "ready"
-        assert state["metadata"]["completed"] is True
-        assert state["metadata"]["episode_uuid"] == EPISODE_A["uuid"]
+        assert not rig.active()
+        assert rig.session_ends() == ["eof"]
         assert rig.data.completed == [EPISODE_A["uuid"]]
         assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 3000
 
@@ -517,13 +494,12 @@ class TestEpisodeEndDetection:
 
         await rig.mpv.stalls()
         await settle()
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_buffering"] is True
+        assert rig.phase() == "loading"
 
         await rig.mpv.recovers()
         await settle()
-        assert meta(rig)["is_playing"] is True
+        assert rig.playing()
+        assert rig.session_ends() == []
         assert rig.data.completed == []
         assert len(rig.mpv.sent) == sent_before
 
@@ -542,7 +518,7 @@ class TestEpisodeEndDetection:
 
         assert rig.data.completed == []
         assert rig.errors() == ["stream_load_failed"]
-        assert rig.state()["source_state"] == "ready"
+        assert not rig.active()
         assert rig.episode() == EPISODE_A["uuid"]
 
 
@@ -599,7 +575,7 @@ class TestMpvRefusesTheTransportCommand:
         result = await rig.command("pause")
 
         assert result["success"] is False
-        assert meta(rig)["is_playing"] is True
+        assert rig.playing()
         assert rig.data.progress == {}
         assert published(rig) == before
 
@@ -612,7 +588,7 @@ class TestMpvRefusesTheTransportCommand:
         result = await rig.command("resume")
 
         assert result["success"] is False
-        assert meta(rig)["is_playing"] is False
+        assert rig.phase() == "paused"
         assert published(rig) == before
 
     async def test_seek_refused_keeps_the_position(self, rig):
@@ -635,7 +611,7 @@ class TestMpvRefusesTheTransportCommand:
 
         assert result["success"] is False
         assert rig.data.settings["playback_speed"] == 1.0
-        assert meta(rig)["playback_speed"] == 1.0
+        assert rig.details()["speed"] == 1.0
         assert published(rig) == before
 
 
@@ -663,7 +639,7 @@ class TestTransportOnAnIdleSource:
         assert "resume" in result["error"].lower()
 
     async def test_resume_after_an_auto_stop_reopens_the_episode(self, auto_stop_rig):
-        """A play press from READY is the case the rotary and the IR remote
+        """A play press with no session is the case the rotary and the IR remote
         send, and the only name they know is `resume` — playback_dispatch maps
         every non-Spotify transport onto it. Refusing here answered "No episode
         to resume" on a source that was publishing the episode it would resume,
@@ -675,16 +651,14 @@ class TestTransportOnAnIdleSource:
         rig.mpv.playhead(305)
         await rig.command("pause")               # the 1 s idle timeout fires
         await settle()
-        assert rig.state()["source_state"] == "ready"
+        assert not rig.active()
 
         result = await rig.command("resume")
 
         assert result["success"] is True
         url, _mode, start_s = rig.loads()[-1][1:4]
         assert (url, start_s) == (EPISODE_A["audio_url"], 305)
-        state = rig.state()
-        assert state["source_state"] == "active"
-        assert state["metadata"]["is_playing"] is True
+        assert rig.playing()
 
     @pytest.mark.asyncio
     async def test_seek_with_no_session_answers_a_domain_error(self, podcast_source):

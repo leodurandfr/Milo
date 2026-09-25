@@ -35,8 +35,8 @@
           </div>
         </div>
 
-        <!-- Bottom action button: retry, Bluetooth disconnect, or Qobuz
-             connect-account CTA. The <button> IS the full-width bar so the whole
+        <!-- Bottom action button: retry, Bluetooth disconnect, eject an
+             unreadable disc, or Qobuz connect-account CTA. The <button> IS the full-width bar so the whole
              surface is clickable. -->
         <button v-if="actionButton" @click="actionButton.onClick" :disabled="actionButton.disabled"
           class="action-button heading-3">
@@ -69,9 +69,9 @@ const props = defineProps({
     required: true,
     validator: (value) => value === 'none' || ALL_AUDIO_SOURCES.includes(value)
   },
-  // The card's own vocabulary, not the backend enum: the four SourceState
-  // members plus CD's three metadata-derived screens. Declared in one place —
-  // see useSourceStatusDisplay, which is what derives it.
+  // The card's own vocabulary: the service, the session's phase and the CD's
+  // two drive operations. Declared in one place — see useSourceStatusDisplay,
+  // which is what derives it.
   displayState: {
     type: String,
     required: true,
@@ -96,7 +96,7 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(['disconnect', 'connect', 'retry', 'open-network-settings']);
+const emit = defineEmits(['disconnect', 'connect', 'retry', 'eject', 'open-network-settings']);
 
 // The three states whose icon slot is a spinner instead of the source glyph:
 // something is under way that the card is waiting on.
@@ -112,11 +112,18 @@ const SPINNING_STATES = ['starting', 'loading_disc', 'ejecting'];
  */
 const PHRASE_KEYS = {
   starting: 'status.loading',   // only reached with no source name to append
-  active: 'status.playing',
+  loading: 'status.buffering',
+  playing: 'status.playing',
+  paused: 'status.paused',
+  connected: 'status.ready',    // a sender with no name to show: it is there
   error: 'status.error',
   loading_disc: 'status.loadingAlbum',
   ejecting: 'status.ejecting'
 };
+
+// The states a live session puts the card in: with a sender to name, the card
+// says who is connected rather than what the transport is doing.
+const SESSION_STATES = ['loading', 'playing', 'paused', 'connected'];
 
 /**
  * The phrase for a missing prerequisite, which outranks the state's own.
@@ -130,7 +137,9 @@ const UNAVAILABLE_PHRASE_KEYS = {
   no_network: 'status.noNetwork',
   no_internet: 'status.noInternet',
   no_account: 'status.accountNotConnected',
-  no_drive: 'audioSources.cdSource.noDriveConnected'
+  no_drive: 'audioSources.cdSource.noDriveConnected',
+  no_disc: 'status.noDisc',
+  unreadable_disc: 'audioSources.errors.discUnreadable'
 };
 
 /**
@@ -198,7 +207,7 @@ const status = computed(() => {
     return { lines: [t(STARTING_PHRASE_KEYS[props.sourceType]), sourceName.value], nameLine: 2 };
   }
 
-  if (!props.unavailableReason && props.displayState === 'active' && props.deviceName) {
+  if (!props.unavailableReason && SESSION_STATES.includes(props.displayState) && props.deviceName?.length) {
     // ROC is a one-way stream from N senders rather than a link to one device,
     // which is a different sentence, not a different layout.
     const lead = props.sourceType === 'mac' ? t('status.audioReceivedFrom') : t('status.connectedTo');
@@ -214,8 +223,9 @@ const status = computed(() => {
 // Single bottom action button on the card, or null to hide it. Mutually
 // exclusive by construction: a missing prerequisite is answered first, since
 // its fix is what unblocks everything downstream — retrying a start that has no
-// network cannot succeed. `no_drive` is the one reason with no button: plugging
-// a drive in is not something the UI can offer.
+// network cannot succeed. A disc Milō cannot read is answered by ejecting it
+// (E67: a slot drive has no button of its own). `no_drive` and `no_disc` have
+// no button: plugging a drive in, or a disc, is not something the UI can offer.
 //
 // `starting` shows none of them, prerequisites included: the card reads
 // "Démarrage de <source>" while the start is under way, and a button offering
@@ -228,7 +238,10 @@ const actionButton = computed(() => {
     if (props.unavailableReason === 'no_account') {
       return { label: t('status.connect'), disabled: false, onClick: () => emit('connect') };
     }
-    if (props.unavailableReason === 'no_drive') return null;
+    if (props.unavailableReason === 'unreadable_disc') {
+      return { label: t('status.eject'), disabled: false, onClick: () => emit('eject') };
+    }
+    if (props.unavailableReason === 'no_drive' || props.unavailableReason === 'no_disc') return null;
     return {
       label: t('status.networkSettings'),
       disabled: false,
@@ -242,7 +255,7 @@ const actionButton = computed(() => {
       onClick: () => emit('retry'),
     };
   }
-  if (props.sourceType === 'bluetooth' && props.displayState === 'active') {
+  if (props.sourceType === 'bluetooth' && SESSION_STATES.includes(props.displayState)) {
     return {
       label: props.isDisconnecting ? t('status.disconnecting') : t('status.disconnect'),
       disabled: props.isDisconnecting,

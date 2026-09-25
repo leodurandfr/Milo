@@ -670,7 +670,6 @@ async def list_storages(
         return {
             "storages": await source.shares.storages_with_stats(),
             "scanning": bool(scan.get("scanning")),
-            "catalog_ready": bool(scan.get("catalog_ready")),
         }
 
 

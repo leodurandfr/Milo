@@ -9,11 +9,13 @@ same success as one that took everything.
 """
 import asyncio
 from time import monotonic
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
 
+from backend.core.models.audio_wire import SessionView, SourceView
 from backend.core.settings import SettingsService
+from backend.core.state import SystemAudioState
 from backend.hardware.screen import ScreenController
 
 
@@ -23,6 +25,16 @@ def _make_proc(returncode=0, stderr=b""):
     proc.returncode = returncode
     proc.kill = Mock()
     return proc
+
+
+def _session_on_the_state(controller, live):
+    """Put a live session (or none) on the state machine's record, where the
+    screen reads it."""
+    session = SessionView(
+        id="s-1", phase="playing", title="T", artist=None, album=None,
+        artwork=None, senders=[], duration_ms=None, position=None,
+    ) if live else None
+    controller.state_machine.system_state = SystemAudioState(view=SourceView(session=session))
 
 
 @pytest.fixture
@@ -168,7 +180,7 @@ class TestSleepStateFollowsThePanel:
         controller.timeout_seconds = 1
         controller.boot_time = None
         controller.last_activity_time = monotonic() - 60
-        controller.current_source_state = "ready"
+        controller.session_live = False
 
         async def stop_after_first_pass(_delay):
             controller.running = False
@@ -182,13 +194,11 @@ class TestSleepStateFollowsThePanel:
     async def test_the_source_monitor_does_not_announce_a_refused_wake(
         self, controller, broadcasts
     ):
-        """A source going active wakes the panel; a refused wake stays unannounced."""
+        """A session opening wakes the panel; a refused wake stays unannounced."""
         controller.screen_on = False
         controller.running = True
-        controller.current_source_state = "ready"
-        controller.state_machine.get_current_state = Mock(
-            return_value={"source_state": "active"}
-        )
+        controller.session_live = False
+        _session_on_the_state(controller, live=True)
 
         async def stop_after_first_pass(_delay):
             controller.running = False
@@ -334,7 +344,7 @@ class TestTheBootGracePeriod:
         controller.boot_grace_period = 30
         controller.boot_time = monotonic()          # just booted
         controller.last_activity_time = monotonic() - 600
-        controller.current_source_state = "ready"
+        controller.session_live = False
 
         shell = await self._one_pass(controller)
 
@@ -347,7 +357,7 @@ class TestTheBootGracePeriod:
         controller.boot_grace_period = 30
         controller.boot_time = monotonic() - 600    # long past the window
         controller.last_activity_time = monotonic() - 600
-        controller.current_source_state = "ready"
+        controller.session_live = False
 
         shell = await self._one_pass(controller)
 
@@ -387,7 +397,7 @@ class TestTheInactivityTimeoutItself:
         controller.timeout_seconds = 1
         controller.boot_time = None
         controller.last_activity_time = monotonic() - 600
-        controller.current_source_state = "ready"
+        controller.session_live = False
         for key, value in overrides.items():
             setattr(controller, key, value)
 
@@ -403,7 +413,7 @@ class TestTheInactivityTimeoutItself:
     async def test_a_playing_source_holds_the_timer_open(self, controller):
         """The now-playing screen must stay lit while music plays, however long
         nobody touches the panel."""
-        self._idle_for_ages(controller, current_source_state="active")
+        self._idle_for_ages(controller, session_live=True)
 
         shell = await self._one_pass(controller)
 
@@ -435,7 +445,7 @@ class TestTheInactivityTimeoutItself:
         controller.timeout_seconds = 1
         controller.boot_time = None
         controller.screen_on = False
-        controller.current_source_state = "ready"
+        controller.session_live = False
         passes = []
 
         async def stop(_delay):
@@ -464,16 +474,14 @@ class TestTheSourceStateWatch:
             await controller._monitor_source_state()
         return shell
 
-    async def test_a_source_going_active_wakes_a_sleeping_panel(self, controller):
+    async def test_a_session_opening_wakes_a_sleeping_panel(self, controller):
         """Starting playback from the phone must light the kiosk; this is the
         only path that does it without a touch."""
         controller._broadcast_sleep_state = AsyncMock()
         controller.screen_on = False
         controller.running = True
-        controller.current_source_state = "ready"
-        controller.state_machine.get_current_state = Mock(
-            return_value={"source_state": "active"}
-        )
+        controller.session_live = False
+        _session_on_the_state(controller, live=True)
 
         shell = await self._one_pass(controller)
 
@@ -486,10 +494,8 @@ class TestTheSourceStateWatch:
         controller._broadcast_sleep_state = AsyncMock()
         controller.screen_on = True
         controller.running = True
-        controller.current_source_state = "ready"
-        controller.state_machine.get_current_state = Mock(
-            return_value={"source_state": "active"}
-        )
+        controller.session_live = False
+        _session_on_the_state(controller, live=True)
 
         await self._one_pass(controller)
 
@@ -500,11 +506,9 @@ class TestTheSourceStateWatch:
         counted the whole album as inactivity."""
         controller.running = True
         controller.screen_on = True
-        controller.current_source_state = "active"
+        controller.session_live = True
         controller.last_activity_time = monotonic() - 600
-        controller.state_machine.get_current_state = Mock(
-            return_value={"source_state": "ready"}
-        )
+        _session_on_the_state(controller, live=False)
 
         shell = await self._one_pass(controller)
 
@@ -520,8 +524,8 @@ class TestTheSourceStateWatch:
             if len(passes) >= 2:
                 controller.running = False
 
-        controller.state_machine.get_current_state = Mock(
-            side_effect=[RuntimeError("state machine gone"), {"source_state": "ready"}]
+        type(controller.state_machine).system_state = PropertyMock(
+            side_effect=[RuntimeError("state machine gone"), SystemAudioState()]
         )
         with patch("asyncio.sleep", new=AsyncMock(side_effect=stop)):
             await controller._monitor_source_state()

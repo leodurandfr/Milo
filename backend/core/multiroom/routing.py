@@ -20,7 +20,6 @@ from backend.core.models.ws_events import (
     RoutingMultiroomEnabling,
     RoutingMultiroomError,
     RoutingMultiroomReady,
-    SystemStateChanged,
 )
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
 from backend.shared.background import BackgroundTaskSet
@@ -273,8 +272,7 @@ class AudioRoutingService:
     `multiroom_enabled` is read directly from settings.json on every access
     (no in-memory cache). `equalizer_effects_enabled` is owned by
     CamillaDSPService and read through a property. The state machine reads
-    both via these accessors when aggregating `full_state` for source/system
-    broadcasts.
+    both via these accessors when composing the audio state.
     """
 
     def __init__(self, settings_service: Optional["SettingsService"] = None,
@@ -571,30 +569,30 @@ class AudioRoutingService:
 
             self.logger.info(f"Reconciling multiroom {old_state} → {enabled}")
 
-            try:
-                await self._broadcast_transition_event(enabled)
-                await self._apply_transition(enabled)
-                if self.settings_service:
-                    await self.settings_service.set_setting_strict(
-                        'routing.multiroom_enabled', enabled
-                    )
-            except Exception as e:
-                self.logger.error(f"multiroom transition failed: {e}")
-                await self._broadcast_error(enabled)
-                return False
+            # `switching` spans the whole toggle, volume sync included: its end
+            # is the first state where it is false again, carrying the new
+            # mode — what Milo-Mac and the frontend wait for (docs: "le fil", D7).
+            switch = (
+                self.state_machine.multiroom_switch() if self.state_machine
+                else contextlib.nullcontext()
+            )
+            async with switch:
+                try:
+                    await self._broadcast_transition_event(enabled)
+                    await self._apply_transition(enabled)
+                    if self.settings_service:
+                        await self.settings_service.set_setting_strict(
+                            'routing.multiroom_enabled', enabled
+                        )
+                except Exception as e:
+                    self.logger.error(f"multiroom transition failed: {e}")
+                    await self._broadcast_error(enabled)
+                    return False
 
-            # Physical mode is committed above. Follow-up sync (WS readiness,
-            # volume push, multiroom_ready) is best-effort and self-healing —
-            # it logs warnings but never fails the transition.
-            await self._post_transition_setup_best_effort(enabled)
-
-            # multiroom_changed: the discriminator Milo-Mac keys on (only this
-            # emitter sets it); the new mode itself travels in the injected
-            # full_state.
-            if self.state_machine:
-                await self.state_machine.broadcast(
-                    SystemStateChanged(source="routing", multiroom_changed=True)
-                )
+                # Physical mode is committed above. Follow-up sync (WS readiness,
+                # volume push, multiroom_ready) is best-effort and self-healing —
+                # it logs warnings but never fails the transition.
+                await self._post_transition_setup_best_effort(enabled)
 
             self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
@@ -759,10 +757,9 @@ class AudioRoutingService:
             self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
             enabled, "equalizer_effects", body,
         )
-        # Broadcast final state after successful transition — full_state
-        # aggregation reads equalizer_effects_enabled from camilladsp.
+        # The state carries equalizer_effects_enabled, read from camilladsp.
         if success and self.state_machine:
-            await self.state_machine.broadcast(SystemStateChanged(source="equalizer"))
+            await self.state_machine.publish_state()
         return success
 
     async def regenerate_env_files(self) -> None:

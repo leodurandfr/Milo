@@ -34,7 +34,7 @@ import time
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiofiles
 import aiohttp
@@ -46,15 +46,10 @@ from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.spotify.models import SeekParams, NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.shared.decorators import handle_errors
 from backend.shared.journalctl import follow_unit
-
-# A position further than this from the aged one is a jump (a seek), which the
-# clients' interpolation cannot guess: it goes out on the position axis.
-POSITION_JUMP_TOLERANCE_MS = 2000
 
 
 @dataclass(frozen=True)
@@ -75,15 +70,10 @@ UNREADABLE = _Unreadable()
 
 @dataclass(eq=False)
 class SpotifySession(Session):
-    """One Connect session: the track on screen and where its playhead was.
-
-    `position_at` is the loop time `position_ms` was read at while the track
-    plays; None freezes it (paused, loading).
-    """
+    """One Connect session: the track on screen (its playhead is the
+    session's anchor)."""
     track: Dict[str, Any] = field(default_factory=dict)
     uri: Optional[str] = None
-    position_ms: int = 0
-    position_at: Optional[float] = None
 
 
 class SpotifySource(BaseAudioSource):
@@ -205,7 +195,7 @@ class SpotifySource(BaseAudioSource):
             # 6. Start log monitor for error detection
             self._start_log_monitor()
 
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -341,7 +331,7 @@ class SpotifySource(BaseAudioSource):
             status = await self._read_status()
             if status is not UNREADABLE:
                 await self._apply_status(status)
-        self._update_connection_state()
+        self._publish()
         self._logger.info(f"Reroute: output reopened on {device}")
         return True
 
@@ -391,7 +381,7 @@ class SpotifySource(BaseAudioSource):
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
         if cmd == "seek":
-            duration = self._session.track.get("duration") or 0
+            duration = self._session.track.get("duration_ms") or 0
             if duration > 0 and params.position_ms > duration:
                 return self.error_response(
                     f"position_ms ({params.position_ms}) exceeds duration ({duration}ms)"
@@ -531,7 +521,7 @@ class SpotifySource(BaseAudioSource):
             return True
 
         if await self.end_session(EndReason.USER_STOP) is not None:
-            self._update_connection_state()
+            self._publish()
         return await self._restart_service()
 
     # === /events ===
@@ -628,10 +618,13 @@ class SpotifySource(BaseAudioSource):
             content = self.transform_track_metadata(status.track)
             position = content.pop("position") or 0
             uri = status.track.get("uri")
-            if uri == session.uri and abs(position - self._position_of(session)) > POSITION_JUMP_TOLERANCE_MS:
-                self.broadcast_position_update(position, content.get("duration") or 0)
-            session.track, session.uri, session.position_ms = content, uri, position
-        self._sync_clock(session)
+            new_track = uri != session.uri
+            session.track, session.uri = content, uri
+            if new_track:
+                self._anchor_position(position)
+            else:
+                # A read of the same track: only a jump (a seek) moves the anchor.
+                self._observe_position(position)
 
     @staticmethod
     def _phase_of(status: LibrespotStatus) -> Phase:
@@ -644,24 +637,6 @@ class SpotifySource(BaseAudioSource):
     def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
         return SpotifySession(phase=snapshot.phase, sender=snapshot.sender)
 
-    # === Position ===
-
-    def _now(self) -> float:
-        return asyncio.get_running_loop().time()
-
-    def _position_of(self, session: SpotifySession) -> int:
-        """The last position read, aged by the time it has played since."""
-        if session.position_at is None:
-            return session.position_ms
-        elapsed = int((self._now() - session.position_at) * 1000)
-        duration = session.track.get("duration") or 0
-        position = session.position_ms + elapsed
-        return min(position, duration) if duration else position
-
-    def _sync_clock(self, session: SpotifySession) -> None:
-        """The playhead ages while the track plays and freezes otherwise."""
-        session.position_at = self._now() if session.phase is Phase.PLAYING else None
-
     # === Metadata ===
 
     @staticmethod
@@ -669,14 +644,14 @@ class SpotifySource(BaseAudioSource):
         """Transform a go-librespot track dict into Milo's metadata format.
 
         Single source of truth for the go-librespot → Milo field mapping.
-        Does NOT include 'is_playing' — callers add that based on their own context.
+        The playhead is `position`, which the caller takes out for the anchor.
         """
         return {
             "title": track.get("name"),
             "artist": ", ".join(track.get("artist_names", [])) or None,
             "album": track.get("album_name"),
-            "album_art_url": track.get("album_cover_url"),
-            "duration": track.get("duration", 0),
+            "artwork": track.get("album_cover_url"),
+            "duration_ms": track.get("duration") or None,
             "position": track.get("position", 0),
         }
 
@@ -753,8 +728,7 @@ class SpotifySource(BaseAudioSource):
         if status is UNREADABLE:
             return False
         await self._apply_status(status)
-        if not self._publish_changes():
-            self._metadata = self._compose(*self._connection_state())[1]
+        self._publish_changes()
         return True
 
     async def _send_api_command(
@@ -885,18 +859,18 @@ class SpotifySource(BaseAudioSource):
         # What /events posted and nobody handled belongs to this daemon run.
         self._discard_feed()
 
-    def _update_connection_state(self) -> None:
-        """Publish the session (or its absence)."""
-        self.emit_connection_state(*self._connection_state())
+    # === The view (docs: "le fil") ===
 
-    def _connection_state(self):
+    def _session_fields(self, session: SpotifySession) -> Dict[str, Any]:
+        # The account is an identity, not a name to show: `senders` stays empty.
+        return dict(session.track)
+
+    def _controls(self) -> List[str]:
         session = self._session
-        if not isinstance(session, SpotifySession):
-            return False, None, None
-        core = PlaybackMetadata(
-            **session.track,
-            is_playing=session.phase is Phase.PLAYING,
-            is_buffering=session.phase is Phase.LOADING,
-        )
-        core.position = self._position_of(session)
-        return True, core, None
+        if session is None:
+            return []
+        if session.phase is Phase.LOADING:
+            return ["pause", "next", "prev"]
+        if session.phase is Phase.PAUSED:
+            return ["resume", "seek", "next", "prev"]
+        return ["pause", "seek", "next", "prev"]

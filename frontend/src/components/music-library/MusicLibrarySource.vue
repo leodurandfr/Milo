@@ -64,7 +64,8 @@
           <template #progress>
             <div @click.stop>
               <ProgressBar :current-position="positionMs" :duration="durationMs"
-                :progress-percentage="livePercent" variant="dark" @seek="seekTo" />
+                :progress-percentage="livePercent" :interactive="store.canSend('seek')"
+                variant="dark" @seek="seekTo" />
             </div>
           </template>
 
@@ -76,14 +77,14 @@
               <div class="playback-controls">
                 <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
                   :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                  @click="store.toggleShuffle()" />
+                  :disabled="!store.canSend('set_shuffle')" @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
                   <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
-                    @click="store.previous()" />
+                    :disabled="!store.canSend('prev')" @click="store.previous()" />
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
                     class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
                   <IconButton icon="next" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
-                    :disabled="!hasNext" @click="store.next()" />
+                    :disabled="!store.canSend('next')" @click="store.next()" />
                 </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
                   :color="store.currentStarred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
@@ -244,12 +245,13 @@ onMounted(() => {
 });
 
 // === Player controls ===
+// A loading track is paused like a playing one: the press is about what the
+// user hears next, and the backend takes `pause` in both phases.
 function togglePlayPause() {
-  if (isPlaying.value) store.pause();
-  else store.resume();
+  const running = store.phase === 'playing' || store.phase === 'loading';
+  if (running && store.canSend('pause')) store.pause();
+  else if (!running && store.canSend('resume')) store.resume();
 }
-// Mirrors backend's 'next' no-op on the queue's last track.
-const hasNext = computed(() => store.queueIndex >= 0 && store.queueIndex < store.queue.length - 1);
 </script>
 
 <style scoped>

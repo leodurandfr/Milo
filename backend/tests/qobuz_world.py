@@ -32,11 +32,12 @@ import aiohttp
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
+from backend.sources.qobuz import account as account_module
 from backend.sources.qobuz import monitor as monitor_module
 from backend.sources.qobuz import source as qobuz_module
 from backend.sources.qobuz.source import QobuzSource
 from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, make_settings, make_state_machine, settle,
+    AsyncioProxy, VirtualClock, WireReader, make_settings, make_state_machine, settle, use_virtual_wall,
 )
 
 FIRST_PID = 96029
@@ -130,26 +131,21 @@ class _AiohttpProxy:
         return getattr(aiohttp, name)
 
 
-class _LoopView:
-    def __init__(self, clock: VirtualClock) -> None:
-        self._clock = clock
-
-    def time(self) -> float:
-        return self._clock.now
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(asyncio.get_running_loop(), name)
 
 
-class QobuzWorld:
+class QobuzWorld(WireReader):
     """The Qobuz source on a real state machine, in a world the scenario drives.
 
     The monitor polls once per virtual second: `advance(1)` is one poll.
     """
 
-    def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None,
+        logged_in: bool = True,
+    ):
         world = self
         self.clock = VirtualClock()
+        use_virtual_wall(monkeypatch, self.clock)
         self.sidecar = Sidecar()
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
@@ -187,16 +183,20 @@ class QobuzWorld:
                 return await asyncio.sleep(0)
             return await self.clock.sleep(delay)
 
-        class SourceAsyncio(AsyncioProxy):
-            def get_running_loop(self) -> _LoopView:
-                return _LoopView(world.clock)
 
         monkeypatch.setattr(monitor_module, "aiohttp", _AiohttpProxy(self.sidecar))
         monkeypatch.setattr(monitor_module, "asyncio", AsyncioProxy(sleep))
-        monkeypatch.setattr(qobuz_module, "asyncio", SourceAsyncio(sleep), raising=False)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
         self.volume_flag = tmp_path / "allow_app_volume"
+        # qobuz-proxy's token cache, off the appliance's own (a unit that has
+        # logged in holds one; CI does not).
+        self.credentials = tmp_path / "credentials.json"
+        monkeypatch.setattr(account_module, "QOBUZ_CREDENTIALS_FILE", self.credentials)
+        if logged_in:
+            self.sidecar_logs_in()
+        else:
+            self.sidecar.authenticated = False
         monkeypatch.setattr(qobuz_module, "QOBUZ_VOLUME_FLAG", self.volume_flag)
 
         self.machine, self.recorder = make_state_machine()
@@ -300,6 +300,13 @@ class QobuzWorld:
         self.sidecar.player_state = "error"
         await self.advance(1)
 
+    def sidecar_logs_in(self) -> None:
+        """The OAuth callback landed: the sidecar caches the token."""
+        self.sidecar.authenticated = True
+        self.credentials.write_text(
+            '{"user_id": 1234567, "user_auth_token": "a-token", "email": "someone@example.com"}'
+        )
+
     async def app_picks_another_output(self) -> None:
         self.sidecar.renderer_active = False
         self.sidecar.player_state = "stopped"
@@ -309,6 +316,12 @@ class QobuzWorld:
 
     async def advance(self, seconds: float) -> None:
         await self.clock.advance(seconds)
+
+    async def boot(self) -> None:
+        """The backend coming up: initialize_services() initializes the source
+        (it reads the token cache) long before anyone selects Qobuz."""
+        await self.source.initialize()
+        await settle()
 
     async def select(self) -> None:
         await self.machine.transition_to_source(AudioSource.QOBUZ)
@@ -324,36 +337,5 @@ class QobuzWorld:
         await self.machine.reroute_active_source(apply_mode)
         await self.advance(1)
 
-    # === what the wire says ===
-
-    def state(self) -> Dict[str, Any]:
-        return self.machine.get_current_state()
-
-    def meta(self) -> Dict[str, Any]:
-        return self.state()["metadata"] or {}
-
-    def active(self) -> bool:
-        return self.state()["source_state"] == "active"
-
-    def playing(self) -> bool:
-        return self.active() and bool(self.meta().get("is_playing"))
-
-    def buffering(self) -> bool:
-        return self.active() and bool(self.meta().get("is_buffering"))
-
-    def envelopes(self, category: str, kind: str) -> List[Dict[str, Any]]:
-        return [e for e in self.recorder.envelopes if e["category"] == category and e["type"] == kind]
-
-    def errors(self) -> List[str]:
-        return [e["data"]["reason"] for e in self.envelopes("source", "error")]
-
-    def published(self) -> List[Dict[str, Any]]:
-        out = []
-        for e in self.envelopes("source", "state_changed"):
-            full = (e.get("data") or {}).get("full_state")
-            if full:
-                out.append({"state": full["source_state"], **(full.get("metadata") or {})})
-        return out
-
-    def positions(self) -> List[Dict[str, Any]]:
-        return [e["data"] for e in self.envelopes("source", "position_update")]
+    def availability(self) -> Optional[str]:
+        return self.state()["availability"]["qobuz"]

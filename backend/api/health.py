@@ -46,11 +46,11 @@ def create_health_router(state_machine: "AudioStateMachine",
         }
 
         try:
-            state = state_machine.get_current_state()
+            state = state_machine.system_state
             checks["services"]["state_machine"] = {
                 "healthy": True,
-                "active_source": state.get("active_source"),
-                "transitioning": state.get("transitioning", False)
+                "source": state.active_source.value,
+                "switching": state.switching,
             }
         except Exception as e:
             checks["services"]["state_machine"] = {
@@ -158,7 +158,7 @@ def create_health_router(state_machine: "AudioStateMachine",
 
         return {
             "status": "success",
-            "full_state": current_state,
+            "state": current_state,
             "setup_completed": setup_completed,
             "hotspot_active": hotspot_active,
         }

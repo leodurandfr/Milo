@@ -14,8 +14,8 @@
  *
  * This registry is not the only validation seam. The two highest-traffic
  * payloads are already validated by their own schemas in unifiedAudioStore.js
- * — `full_state` (SystemStateSchema) and `volume_changed` state
- * (VolumeStateSchema) — so they need no entry here.
+ * — `source/state` and `system/initial_state`'s `state` (AudioStateSchema) and
+ * `volume_changed` state (VolumeStateSchema) — so they need no entry here.
  *
  * To add a schema (when the rule above is met): declare it below, expose it
  * via `wsEventRegistry`, and switch the consumer to `parsedOn(...)`.
@@ -26,6 +26,7 @@
  */
 import { z } from 'zod';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { PositionAnchorSchema } from '@/schemas/api';
 
 // Backend: backend/core/equalizer/service.py — CamillaDspState enum.
 const CamillaDspStateSchema = z.enum([
@@ -140,11 +141,11 @@ export const wsEventRegistry = {
   'programs.satellite_app_update_complete': SatelliteUpdateCompleteSchema,
   'programs.satellite_camilladsp_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_camilladsp_update_complete': SatelliteUpdateCompleteSchema,
-  // Backend: SourcePositionUpdate (audio_source.py broadcast_position_update).
-  // Position and duration are in milliseconds.
-  'source.position_update': z.object({
+  // Backend: SourcePosition — the playhead's anchor alone moved (a seek, a
+  // speed change, a drift past 2 s). Read by Milo-Mac's store as well as ours.
+  'source.position': z.object({
     source: z.enum(['none', ...ALL_AUDIO_SOURCES]),
-    position: z.number(),
-    duration: z.number(),
+    session_id: z.string(),
+    position: PositionAnchorSchema,
   }),
 };

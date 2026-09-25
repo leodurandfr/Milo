@@ -75,7 +75,7 @@ const appliedSeconds = ref(0);
 const isApplying = ref(false);
 
 const crossfadeEnabled = computed(() => crossfadeSeconds.value !== 0);
-const spotifyRunning = computed(() => unifiedStore.systemState.active_source === 'spotify');
+const spotifyRunning = computed(() => unifiedStore.systemState.source === 'spotify');
 const needsRestart = computed(() => spotifyRunning.value && crossfadeSeconds.value !== appliedSeconds.value);
 
 function save(applyNow) {

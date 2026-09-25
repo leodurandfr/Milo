@@ -80,11 +80,7 @@ class MacSource(BaseAudioSource):
     SESSION_DAEMON = True
 
     # The one family-A source: ROC hands over an IP and nothing else, so there
-    # is no transport and no media field to project — only the sender's name,
-    # which rides in `extras`. Everything else publishes the inert
-    # {is_playing, is_buffering} pair even when stopped.
-    MUTE_RECEIVER = True
-
+    # is no transport and no media field to project — only the senders' names.
     COMMANDS = {}
     COMMAND_SCOPES = {}
 
@@ -129,7 +125,7 @@ class MacSource(BaseAudioSource):
                 return False
 
             started_usec = await self._service_main_start_usec()
-            self._update_connection_state()
+            self._publish()
             self._journal_task = asyncio.create_task(self._follow_journal(started_usec))
             return True
 
@@ -437,13 +433,7 @@ class MacSource(BaseAudioSource):
 
         return stdout.decode().strip() if proc.returncode == 0 else None
 
-    def _update_connection_state(self) -> None:
-        """The one publish site: the Macs attached, by name."""
-        self.emit_connection_state(*self._connection_state())
-
-    def _connection_state(self):
-        session = self._session
-        names = (
-            list(dict.fromkeys(session.senders.values())) if isinstance(session, MacSession) else []
-        )
-        return session is not None, None, {"client_names": names}
+    def _session_fields(self, session: MacSession) -> Dict[str, Any]:
+        """The Macs attached, by name — one entry per Mac, however many
+        streams it has opened (D3)."""
+        return {"senders": list(dict.fromkeys(session.senders.values()))}

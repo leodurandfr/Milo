@@ -31,10 +31,9 @@ the unit (2026-09-24, a Mac's Tidal app, strace on the controller socket):
 Album art is a Tidal CDN URL loaded directly by the kiosk — no binary artwork
 route, same as Qobuz.
 """
-import asyncio
 from backend.core.models.ws_events import SourceErrorReason
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -44,7 +43,6 @@ from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.tidal.controller_socket import TidalControllerSocket
 
 # Where milo-tidal.service is told to put its controller socket
@@ -63,15 +61,10 @@ _PHASES = {
 }
 _STATE_IDLE = "IDLE"
 
-# The daemon pushes a player status about twice a second. The frontend
-# interpolates the playhead locally, so a moved position alone is worth only a
-# periodic drift correction — at the same cadence AirPlay ages its own. What
-# interpolation cannot guess (play/pause, buffering, a session appearing, a
-# track ending) still goes out immediately, through the full state path.
-POSITION_BROADCAST_INTERVAL = 10.0
-
-# A playhead further than this from the aged one is a jump, not drift.
-POSITION_JUMP_TOLERANCE_MS = 2000
+# A status saying no track is loaded (IDLE): no playhead at all. The daemon
+# pushes a status about twice a second; each reading goes to the position
+# axis, which publishes only a jump.
+_NO_TRACK = object()
 
 
 @dataclass(eq=False)
@@ -79,15 +72,15 @@ class TidalSession(Session):
     """One sender's session: the track on screen and the daemon's player state.
 
     `duration_ms` is the status one — what the account may play (a 30 s
-    preview) — and wins over the media's once known. `position_at` is the loop
-    time `position_ms` was read at while the track plays.
+    preview) — and wins over the media's once known. `reading` is the last
+    playhead a status reported, handed to the position axis once the burst's
+    phase is known (`_NO_TRACK`: the player holds no track).
     """
     media: Dict[str, Any] = field(default_factory=dict)
     media_id: Optional[str] = None
     player_state: Optional[str] = None
-    position_ms: Optional[int] = None
     duration_ms: Optional[int] = None
-    position_at: Optional[float] = None
+    reading: Any = None
 
 
 class TidalSource(BaseAudioSource):
@@ -124,7 +117,6 @@ class TidalSource(BaseAudioSource):
         # The last player status seen before any track was named (E14): the
         # session it describes opens with the first media.
         self._early_status: Optional[Dict[str, Any]] = None
-        self._last_progress_broadcast: Optional[float] = None
         self.auto_stop_enabled = True
 
     async def _do_start(self) -> bool:
@@ -156,7 +148,7 @@ class TidalSource(BaseAudioSource):
                 await self._cleanup()
                 return False
 
-            self._update_connection_state()
+            self._publish()
             return True
 
         except Exception as e:
@@ -251,13 +243,16 @@ class TidalSource(BaseAudioSource):
         if isinstance(session, TidalSession):
             await self.reconcile(DaemonSnapshot(None, self._phase_of(session)))
             if self._session is session:
-                self._sync_clock(session)
+                reading, session.reading = session.reading, None
+                if reading is _NO_TRACK:
+                    self._clear_position()
+                elif reading is not None:
+                    self._observe_position(reading)
                 playing = session.phase is Phase.PLAYING
                 if playing:
                     # A track plays: the playback error it followed is over (E16).
                     self.broadcast_error_cleared()
-        if not self._publish_changes():
-            self._broadcast_progress()
+        self._publish_changes()
         if failed and not playing:
             # An error the same burst already played past is not shown.
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
@@ -313,7 +308,7 @@ class TidalSource(BaseAudioSource):
             session = self._session
             if isinstance(session, TidalSession):
                 session.player_state = "PAUSED"
-                session.position_ms = None
+                session.reading = _NO_TRACK
             return True
 
         else:
@@ -348,10 +343,8 @@ class TidalSource(BaseAudioSource):
         # none of the previous one's playhead or entitlement.
         identity = media_info.get("mediaId") or media_info.get("itemId") or metadata.get("title")
         if identity != session.media_id:
-            session.media_id, session.position_ms, session.duration_ms = identity, None, None
-            session.position_at = None
-            # Its first playhead goes out at once, not up to 10 s later.
-            self._last_progress_broadcast = None
+            session.media_id, session.duration_ms = identity, None
+            self._clear_position()
         if early:
             self._apply_player_status(early)
         artists = metadata.get("artists") or []
@@ -359,8 +352,8 @@ class TidalSource(BaseAudioSource):
             "title": metadata.get("title"),
             "artist": ", ".join(artists) or None,
             "album": metadata.get("albumTitle"),
-            "album_art_url": self._largest_image(metadata.get("images") or {}),
-            "duration": metadata.get("duration"),
+            "artwork": self._largest_image(metadata.get("images") or {}),
+            "duration_ms": metadata.get("duration"),
         }
 
     @staticmethod
@@ -385,19 +378,11 @@ class TidalSource(BaseAudioSource):
         session.player_state = player_state
         if player_state == _STATE_IDLE:
             # No track loaded: no position inside one.
-            session.position_ms = None
+            session.reading = _NO_TRACK
             return
-        predicted = self._position_of(session)
-        session.position_ms = status.get("progress")
-        session.position_at = self._now()
         session.duration_ms = status.get("duration") or session.duration_ms
-        if (
-            predicted is not None and session.position_ms is not None
-            and abs(session.position_ms - predicted) > POSITION_JUMP_TOLERANCE_MS
-        ):
-            # A seek on the sender, a track repeating: interpolation cannot
-            # guess it, so it goes out now rather than at the next correction.
-            self._last_progress_broadcast = None
+        if status.get("progress") is not None:
+            session.reading = status.get("progress")
 
     @staticmethod
     def _phase_of(session: TidalSession) -> Phase:
@@ -406,73 +391,21 @@ class TidalSource(BaseAudioSource):
     def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
         return TidalSession(phase=snapshot.phase, sender=snapshot.sender)
 
-    # === Position ===
+    # === The view (docs: "le fil") ===
 
-    def _now(self) -> float:
-        return asyncio.get_running_loop().time()
+    def _session_fields(self, session: TidalSession) -> Dict[str, Any]:
+        """Unlike Qobuz there is no sender name: with transport controls on
+        screen the player draws the transport, not a source bar."""
+        return {**session.media, "duration_ms": session.duration_ms or session.media.get("duration_ms")}
 
-    def _position_of(self, session: TidalSession) -> Optional[int]:
-        if session.position_ms is None or session.position_at is None:
-            return session.position_ms
-        position = session.position_ms + int((self._now() - session.position_at) * 1000)
-        return min(position, session.duration_ms) if session.duration_ms else position
-
-    def _sync_clock(self, session: TidalSession) -> None:
-        """The playhead ages from the last status frame while the track plays
-        and freezes otherwise; a burst that carried no status leaves the
-        anchor where that frame put it."""
-        if session.phase is Phase.PLAYING:
-            if session.position_at is None:
-                session.position_at = self._now()
-        else:
-            session.position_ms = self._position_of(session)
-            session.position_at = None
-
-    def _duration_of(self, session: TidalSession) -> Optional[int]:
-        return session.duration_ms or session.media.get("duration")
-
-    def _broadcast_progress(self) -> None:
-        """Drift-correct the playhead, at most every POSITION_BROADCAST_INTERVAL."""
+    def _controls(self) -> List[str]:
+        """Its protocol has transport but no seek."""
         session = self._session
-        if not isinstance(session, TidalSession) or session.phase is not Phase.PLAYING:
-            return
-        position, duration = self._position_of(session), self._duration_of(session)
-        if position is None or not duration:
-            return
-
-        now = self._now()
-        last = self._last_progress_broadcast
-        if last is not None and now - last < POSITION_BROADCAST_INTERVAL:
-            return
-
-        self._last_progress_broadcast = now
-        self.broadcast_position_update(position, duration)
-
-    # === Publication ===
-
-    def _update_connection_state(self) -> None:
-        """Publish connection/playback state to the shared player.
-
-        Broadcast metadata (WS source/state_changed → system_state.metadata):
-        title, artist, album, album_art_url, position, duration, is_playing,
-        is_buffering — all canonical PlaybackMetadata, no extras. Unlike Qobuz
-        there is no client_name: with transport controls on screen the player
-        draws the transport, not a source bar.
-        """
-        self.emit_connection_state(*self._connection_state())
-
-    def _connection_state(self):
-        session = self._session
-        if not isinstance(session, TidalSession):
-            return False, None, None
-        core = PlaybackMetadata(
-            **session.media,
-            is_playing=session.phase is Phase.PLAYING,
-            is_buffering=session.phase is Phase.LOADING,
-        )
-        core.duration = self._duration_of(session)
-        core.position = self._position_of(session)
-        return True, core, None
+        if session is None:
+            return []
+        if session.phase is Phase.PAUSED:
+            return ["resume", "next", "prev"]
+        return ["pause", "next", "prev"]
 
     async def _cleanup(self) -> None:
         """Drop the controller socket (unit stop is _withdraw's)."""

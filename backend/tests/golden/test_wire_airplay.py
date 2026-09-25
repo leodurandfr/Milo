@@ -1,4 +1,4 @@
-"""AirPlay's old wire, scenario by scenario (see harness.py for the rules).
+"""AirPlay's wire, scenario by scenario (see harness.py for the rules).
 
 A stimulus is what shairport-sync writes to its metadata pipe — one
 (type, code, payload) item each, in the vocabulary of metadata_reader.py — plus
@@ -10,6 +10,7 @@ import base64
 import struct
 import zlib
 from typing import Optional, Tuple
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -20,7 +21,7 @@ from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.sources.airplay.source import AirPlaySource
 from backend.tests.golden.harness import (
     AsyncioProxy, VirtualClock, Wire, check_recording, make_settings,
-    make_state_machine, make_systemd, settle,
+    make_state_machine, make_systemd, settle, use_virtual_wall,
 )
 
 Item = Tuple[str, str, Optional[bytes]]
@@ -57,6 +58,7 @@ RTP_B = RTP_A + 44100 * 240          # the next track, four minutes on
 RTP_C = RTP_B + 44100 * 200
 RTP_LAPTOP = 17_000_000              # another sender, another RTP clock
 TRACK_START = 1_000_000              # prgr frames: where the track began
+TICK_SECONDS = 10.0                  # one step of `seconds_pass`
 
 
 # === What shairport-sync writes (one metadata item each) ===
@@ -113,28 +115,14 @@ def _xml(item: Item) -> str:
 
 # === The adapter ===
 
-class _LoopView:
-    """The running loop, its `time()` answered from the scenario's clock: the
-    source ages the `prgr` snapshot by loop time, and a real clock would put
-    wall-clock jitter into every published position."""
-
-    def __init__(self, clock: VirtualClock) -> None:
-        self._clock = clock
-
-    def time(self) -> float:
-        return self._clock.now
-
-    def __getattr__(self, name: str):
-        return getattr(asyncio.get_running_loop(), name)
-
-
 class AirPlay:
     """Adapter: how each outside-world stimulus reaches AirPlaySource today.
 
-    Phase 3a: the source's timers (the position ticker, the cover hold, the
-    idle timeout) are the base's named timers on one virtual clock; the
-    daemon's death reaches it through a pidfd watch; the idle timeout asks the
-    daemon for the end over D-Bus (DropSession), which answers with a `disc`.
+    Phase 3a: the source's timers (the cover hold, the idle timeout) are the
+    base's named timers on one virtual clock, which also stamps the position
+    anchors (phase 5b); the daemon's death reaches it through a pidfd watch;
+    the idle timeout asks the daemon for the end over D-Bus (DropSession),
+    which answers with a `disc`.
     """
 
     def __init__(self, monkeypatch, tmp_path, settings=None):
@@ -177,22 +165,22 @@ class AirPlay:
                 asyncio.ensure_future(adapter._write(disc(adapter.sender)))
             return True
 
-        class SourceAsyncio(AsyncioProxy):
-            def get_running_loop(self):
-                return _LoopView(adapter.clock)
-
         async def sleep(delay: float, *a, **k):
             if delay <= 1.0:                     # a unit's settle delay
                 return await asyncio.sleep(0)
             return await adapter.clock.sleep(delay)
 
         monkeypatch.setattr(airplay_module, "MetadataReader", PipeReader)
-        monkeypatch.setattr(airplay_module, "asyncio", SourceAsyncio(sleep))
         monkeypatch.setattr(airplay_module, "drop_session", drop_session)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch)
+        # The position axis reads the wall clock: it runs on the scenario's.
+        use_virtual_wall(monkeypatch, self.clock)
         systemd = make_systemd()
         systemd.main_pid.side_effect = lambda *_: self.daemon_pid
+        # What systemd says of the unit once its process is gone: the only
+        # death here is a kill, which Restart= answers (measured 2026-09-24).
+        systemd.unit_state = AsyncMock(return_value=("activating", "signal"))
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         self.source = AirPlaySource(
@@ -225,9 +213,9 @@ class AirPlay:
         await settle()
 
     async def seconds_pass(self, ticks: int = 1):
-        """Ten seconds go by, `ticks` times: the position ticker runs once each."""
+        """Ten seconds go by, `ticks` times (the old position ticker's period)."""
         for _ in range(ticks):
-            await self.clock.advance(airplay_module.POSITION_TICK_SECONDS)
+            await self.clock.advance(TICK_SECONDS)
 
     async def cover_hold_runs_out(self):
         await self.clock.advance(airplay_module.ARTWORK_SETTLE_SECONDS)

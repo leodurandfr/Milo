@@ -90,16 +90,17 @@ async function handleAppVolumeToggle(enabled) {
 }
 
 const account = ref({ authenticated: false, email: null });
-// The CTA opens a page served by qobuz-proxy on :8689, so it is armed only once
-// the sidecar has actually answered — `account_authenticated` is published by the
-// source's own poll and by nothing else (monitor.py skips a tick the proxy did not
-// answer), and `_reset_playback_state` clears it at every start. `active_source`
+// The CTA opens a page served by qobuz-proxy on :8689, so it is armed only while
+// the sidecar runs: the source selected AND its service running. The selection
 // alone is set before the source starts and survives a failed start, which would
-// offer a button whose only possible answer is the backend's 409.
-const canConnect = computed(() =>
-  unifiedStore.systemState.active_source === 'qobuz' &&
-  unifiedStore.systemState.metadata?.account_authenticated === false
-);
+// offer a button whose only possible answer is the backend's 409. Whether an
+// account is missing is the source's availability — from the sidecar's own
+// polls while it runs, never flashed by the ~0.3 s it answers before loading
+// its credentials.
+const canConnect = computed(() => {
+  const { source, service, availability } = unifiedStore.systemState;
+  return source === 'qobuz' && service === 'running' && availability.qobuz === 'no_account';
+});
 const loading = ref(true);
 const connecting = ref(false);
 const disconnecting = ref(false);

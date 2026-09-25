@@ -17,11 +17,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.core.models.audio_state import SourceState
 from backend.sources.music_library.disc_merge import build_merged_id
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import settle
-from backend.tests.golden.test_old_wire_music_library import ALBUM
+from backend.tests.golden.test_wire_music_library import ALBUM
 from backend.tests.test_mpv_sessions import LibraryRig
 
 
@@ -129,27 +128,70 @@ async def test_unplugged_key_keeps_its_entry_and_its_library():
 
 # === a storage space that disappears ========================================
 
-async def test_unplugging_the_key_being_played_publishes_ready(monkeypatch):
-    """The end a yanked key triggers has to reach the screen, before the
+async def test_unplugging_the_key_being_played_ends_its_session_before_the_storages_push(
+    monkeypatch,
+):
+    """The end a yanked key triggers has to reach the screen before the
     storages push that follows it.
 
-    MusicLibraryStoragesChanged carries full_state, and musicLibraryStore
-    applies it — so if the session's end is published after it (or not at
-    all), the client is handed a state still saying the track plays, and
-    nothing corrects it.
+    musicLibraryStore redraws the "storage unplugged" view from the storages
+    push; if the session's end is published after it (or not at all), the
+    player keeps a track playing from a key that is gone, and nothing
+    corrects it.
     """
     rig = LibraryRig(monkeypatch)
     await rig.select()
     await rig.command("play_context", {"tracks": ALBUM, "library_id": 3})
     await rig.tick()
+    mark = len(rig.recorder.envelopes)
 
     await rig.key_pulled()
 
-    pushed = [e for e in rig.recorder.envelopes if e["type"] == "storages_changed"]
-    carried = pushed[-1]["data"]["full_state"]
-    assert carried["source_state"] == SourceState.READY.value
-    assert carried["metadata"]["is_playing"] is False
-    assert "track_id" not in carried["metadata"]
+    after = rig.recorder.envelopes[mark:]
+    kinds = [(e["category"], e["type"]) for e in after]
+    pushed = max(i for i, kind in enumerate(kinds) if kind[1] == "storages_changed")
+    ended = kinds.index(("source", "session_ended"))
+    assert after[ended]["data"]["reason"] == "storage_gone"
+    published = [
+        i for i, kind in enumerate(kinds)
+        if kind == ("source", "state") and after[i]["data"]["session"] is None
+    ]
+    assert published and ended < published[0] < pushed
+    assert rig.state()["session"] is None
+    assert rig.state()["details"] is None
+
+
+async def test_a_library_with_no_storage_mounted_says_so(monkeypatch):
+    """No mounted storage bearing a library leaves nothing to browse or play,
+    and the state says why (availability, docs: "le fil", §3). Breaks: the
+    dock and Milo-Mac offer a library that can only show an empty grid; or,
+    once the key is back, it stays marked unavailable."""
+    rig = LibraryRig(monkeypatch)
+    await rig.select()
+
+    await rig.key_pulled()
+    assert rig.state()["availability"]["music_library"] == "no_storage"
+
+    for entry in rig.shares.entries:
+        entry["mounted"] = True
+    await rig.shares.on_storages_changed()
+    await settle()
+    assert rig.state()["availability"]["music_library"] is None
+
+
+async def test_a_catalog_that_does_not_answer_says_so(monkeypatch):
+    """A key mounted while Navidrome is down (a restart, an update, a boot):
+    the storage is there, the catalog is not. Breaks: the library reads as
+    playable while every list comes back empty — or as "no storage", which
+    sends the user to replug a key that is fine."""
+    rig = LibraryRig(monkeypatch)
+    await rig.select()
+    rig.shares.scan_state = lambda: {"scanning": False, "catalog_ready": False}
+
+    await rig.shares.on_storages_changed()
+    await settle()
+
+    assert rig.state()["availability"]["music_library"] == "catalog_unavailable"
 
 
 async def test_a_storage_still_mounted_stops_nothing(monkeypatch):
@@ -164,8 +206,8 @@ async def test_a_storage_still_mounted_stops_nothing(monkeypatch):
     await library.shares.on_storages_changed()
     await settle()
 
-    assert library.state()["source_state"] == "active"
-    assert library.state()["metadata"]["is_playing"] is True
+    assert library.state()["session"]["phase"] == "playing"
+    assert "session_ended" not in [e["type"] for e in library.recorder.envelopes]
 
 
 # === library reconcile ======================================================

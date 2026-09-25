@@ -230,9 +230,9 @@ flowing; anything else is "connected" (a Mac publishes no state for its first 10
 | Remote session | An iPhone controlling *another* device (a Mac, a HomePod) publishes the iOS card's two lines. The player must show title and artist, never "Now playing on …" | targeted |
 | Disconnect | The button drops the link and the UI returns to "Ready". **Watch for a few seconds**: a second paired device takes the freed link on its own, which looks like a button that did nothing. `journalctl -u milo-backend | grep "Disconnect requested"` says which sender was asked | targeted |
 | One sender at a time | While one device holds the link, the others are `Blocked` and Milō disappears from their output lists. Expected, not a fault | targeted |
-| Output switched away | A Mac kept connected but switched to its own speakers: `is_playing` false at once (the stream stopped), back to playing when switched back. Never "playing" over silence | targeted |
-| bluetoothd killed | `sudo systemctl kill -s KILL bluetooth.service` while playing: READY and the "stream interrupted" banner at once; the new bluetoothd is visible again by itself (`busctl get-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Discoverable` → true); the phone reconnects without reselecting the source and the banner goes | targeted |
-| BlueALSA killed | `sudo systemctl kill -s KILL milo-bluealsa.service` while playing: READY and the banner at once; systemd restarts it and `milo-bluealsa-aplay` is active again (`systemctl is-active`); a reconnected phone is audible | targeted |
+| Output switched away | A Mac kept connected but switched to its own speakers: the session leaves `playing` at once (the stream stopped) for `connected`, and the card reads "Connected to [Mac name]"; back to `playing` when switched back. Never `playing` over silence | targeted |
+| bluetoothd killed | `sudo systemctl kill -s KILL bluetooth.service` while playing: the session ends (the card reads ready) and the "stream interrupted" banner shows at once; the new bluetoothd is visible again by itself (`busctl get-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Discoverable` → true); the phone reconnects without reselecting the source and the banner goes | targeted |
+| BlueALSA killed | `sudo systemctl kill -s KILL milo-bluealsa.service` while playing: the session ends (the card reads ready) and the banner shows at once; systemd restarts it and `milo-bluealsa-aplay` is active again (`systemctl is-active`); a reconnected phone is audible | targeted |
 | Backend restart under a phone | `sudo systemctl restart milo-backend` with a phone connected: afterwards Milō is not discoverable and every audio peer is `Blocked` (the phone is dropped, not left connected and silent); no ERROR/WARNING from `source.bluetooth` | targeted |
 
 ### Mac / ROC (A) ⚠ Mac required
@@ -242,8 +242,8 @@ flowing; anything else is "connected" (a Mac publishes no state for its first 10
 | Detection | Starting the ROC sender switches Milō to the Mac source on its own | targeted |
 | State | UI shows "Connected to [Mac name]"; "Ready to stream" when idle | targeted |
 | Audio | Continuous audio, no dropouts, at the configured latency profile | targeted |
-| Left while off | A Mac that picked another output while Milō played another source is not shown when Mac is selected again (`client_names` empty, READY) | targeted |
-| roc-recv killed | `kill -9` its MainPID mid-stream: READY and the banner at once; systemd restarts it ~5 s later and the Mac is back on screen by itself, banner gone | targeted |
+| Left while off | A Mac that picked another output while Milō played another source is not shown when Mac is selected again (`session: null`, the card reads ready) | targeted |
+| roc-recv killed | `kill -9` its MainPID mid-stream: the session ends (the card reads ready) and the banner shows at once; systemd restarts it ~5 s later and the Mac is back on screen by itself, banner gone | targeted |
 
 ## Volume and CamillaDSP
 

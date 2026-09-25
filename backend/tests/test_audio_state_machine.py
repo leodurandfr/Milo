@@ -4,14 +4,16 @@ Unit tests for AudioStateMachine — the single source of truth.
 
 Tests cover:
 - Source registration, activation, deactivation and direct source-to-source switch
-- The update rules: an inactive source is ignored, an update during a transition
-  is dropped, a state change replaces metadata while metadata=None preserves it
+- The update rules: an inactive source is ignored, a publish during a transition
+  is dropped, a view replaces the previous one wholesale
 - Failure settling: a clean False from start(), a raising start() and the
-  timeout all leave the source selected in ERROR — plus the retry that unlocks
-  and the inactivity sweep that eventually clears it
-- The transition lock
-- WebSocket broadcasting, and which categories carry full_state
-- `network_unavailable`: the NM level crossed with the source's own requirement
+  timeout all leave the source selected with `service: failed` — plus the
+  retry that unlocks and the inactivity sweep that eventually clears it
+- The transition lock, and the multiroom switch held across a reroute
+- What goes on the wire: `source/state` only when the state moved,
+  `source/position` when only the playhead did
+- `availability`: the NM level crossed with each source's own requirement,
+  then the source's own reason
 """
 import logging
 
@@ -25,9 +27,50 @@ from backend.core.models.audio_state import (
     AudioSource,
     ConnectivityLevel,
     NetworkRequirement,
-    SourceState,
 )
-from backend.core.models.ws_events import SourceStateChanged, SystemErrorEvent, VolumeChanged
+from backend.core.models.audio_wire import (
+    PositionAnchor, ServiceError, SessionView, SourceView,
+)
+from backend.core.models.ws_events import SourceError, VolumeChanged
+
+
+def make_source(**overrides):
+    """A registered source as the state machine sees it: lifecycle calls that
+    succeed, no session, available, needing no network."""
+    source = Mock()
+    source.initialize = AsyncMock(return_value=True)
+    source.start = AsyncMock(return_value=True)
+    source.stop = AsyncMock(return_value=True)
+    source.is_initialized = False
+    source.view = SourceView()
+    source.availability = Mock(return_value=None)
+    source.NETWORK_REQUIREMENT = NetworkRequirement.NONE
+    source.hold_mailbox = free_mailbox()
+    for name, value in overrides.items():
+        setattr(source, name, value)
+    return source
+
+
+def session_view(title="Song", *, session_id="s1", phase="playing", position=None, **fields):
+    """A source's view with a live session."""
+    return SourceView(session=SessionView(
+        id=session_id, phase=phase, title=title, artist=fields.get("artist"),
+        album=fields.get("album"), artwork=None, senders=[],
+        duration_ms=fields.get("duration_ms"), position=position,
+    ))
+
+
+def recorded(state_machine):
+    """Record what the machine broadcasts, as envelopes."""
+    state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
+    return state_machine.ws_manager.broadcast_dict
+
+
+def envelopes(broadcast_dict, category=None, type_=None):
+    return [
+        c.args[0] for c in broadcast_dict.call_args_list
+        if category is None or (c.args[0]["category"], c.args[0]["type"]) == (category, type_)
+    ]
 
 
 @pytest.fixture
@@ -39,27 +82,21 @@ def state_machine():
 @pytest.fixture
 def mock_source():
     """Create a mock audio source."""
-    source = Mock()
-    source.initialize = AsyncMock(return_value=True)
-    source.start = AsyncMock(return_value=True)
-    source.stop = AsyncMock(return_value=True)
-    source.is_initialized = False
-    source.state = SourceState.READY
-    source.metadata = {}
-    source.hold_mailbox = free_mailbox()
-    return source
+    return make_source()
 
 
 class TestAudioStateMachineBasics:
     """Test basic state machine operations."""
 
     def test_initial_state(self, state_machine):
-        """Test initial state is NONE with READY."""
+        """No source selected: nothing runs, nothing switches, nothing failed."""
         state = state_machine.get_current_state()
-        assert state["active_source"] == "none"
-        assert state["source_state"] == "ready"
-        assert state["transitioning"] is False
-        assert state["error"] is None
+        assert state["source"] == "none"
+        assert state["service"] == "stopped"
+        assert state["switching"] is False
+        assert state["service_error"] is None
+        assert state["session"] is None
+        assert state["controls"] == []
 
     def test_register_source(self, state_machine, mock_source):
         """Test source registration."""
@@ -101,7 +138,7 @@ class TestSourceActivation:
         assert result is False
         mock_source.stop.assert_not_called()
         assert state_machine.system_state.active_source == AudioSource.SPOTIFY
-        assert state_machine.system_state.source_state != SourceState.ERROR
+        assert state_machine.get_current_state()["service"] == "running"
 
     @pytest.mark.asyncio
     async def test_transition_to_none(self, state_machine, mock_source):
@@ -135,17 +172,8 @@ class TestDirectTransition:
     @pytest.mark.asyncio
     async def test_direct_transition(self, state_machine):
         """Test switching directly from one source to another."""
-        mock_radio = Mock()
-        mock_radio.initialize = AsyncMock(return_value=True)
-        mock_radio.start = AsyncMock(return_value=True)
-        mock_radio.stop = AsyncMock(return_value=True)
-        mock_radio.is_initialized = False
-
-        mock_spotify = Mock()
-        mock_spotify.initialize = AsyncMock(return_value=True)
-        mock_spotify.start = AsyncMock(return_value=True)
-        mock_spotify.stop = AsyncMock(return_value=True)
-        mock_spotify.is_initialized = False
+        mock_radio = make_source()
+        mock_spotify = make_source()
 
         state_machine.register_source(AudioSource.RADIO, mock_radio)
         state_machine.register_source(AudioSource.SPOTIFY, mock_spotify)
@@ -162,119 +190,66 @@ class TestDirectTransition:
         mock_spotify.start.assert_called()
 
 
-class TestSourceStateUpdate:
-    """Test source state updates."""
+class TestSourceViewUpdate:
+    """What a source's publish does to the state."""
 
     @pytest.mark.asyncio
-    async def test_update_source_state(self, state_machine, mock_source):
-        """Test updating source state."""
+    async def test_update_source_view(self, state_machine, mock_source):
+        """The selected source's view becomes the state's."""
         state_machine.register_source(AudioSource.RADIO, mock_source)
         await state_machine.transition_to_source(AudioSource.RADIO)
 
-        await state_machine.update_source_state(
-            AudioSource.RADIO,
-            SourceState.ACTIVE,
-            {"title": "Test Station"}
-        )
+        await state_machine.update_source_view(AudioSource.RADIO, session_view("Test Station"))
 
-        assert state_machine.system_state.source_state == SourceState.ACTIVE
-        assert state_machine.system_state.metadata["title"] == "Test Station"
+        session = state_machine.get_current_state()["session"]
+        assert (session["phase"], session["title"]) == ("playing", "Test Station")
 
     @pytest.mark.asyncio
-    async def test_update_source_state_inactive_source(self, state_machine, mock_source):
-        """Test updating inactive source state is ignored."""
+    async def test_update_from_an_inactive_source_is_ignored(self, state_machine, mock_source):
+        """A source that is not selected cannot put its session on the card."""
         state_machine.register_source(AudioSource.RADIO, mock_source)
         await state_machine.transition_to_source(AudioSource.RADIO)
 
-        # Try to update spotify while radio is active
-        await state_machine.update_source_state(
-            AudioSource.SPOTIFY,
-            SourceState.ACTIVE,
-            {}
-        )
+        await state_machine.update_source_view(AudioSource.SPOTIFY, session_view("Elsewhere"))
 
-        # Should still be starting (from activation), not connected
-        assert state_machine.system_state.source_state != SourceState.ACTIVE
-
-    @pytest.mark.asyncio
-    async def test_update_source_state_error(self, state_machine, mock_source):
-        """Test updating source state to ERROR."""
-        state_machine.register_source(AudioSource.RADIO, mock_source)
-        await state_machine.transition_to_source(AudioSource.RADIO)
-
-        await state_machine.update_source_state(
-            AudioSource.RADIO,
-            SourceState.ERROR,
-            {"error": "Connection failed"}
-        )
-
-        assert state_machine.system_state.source_state == SourceState.ERROR
-        assert state_machine.system_state.error == "Connection failed"
+        assert state_machine.get_current_state()["session"] is None
 
     @pytest.mark.asyncio
     async def test_update_during_transition_is_dropped(self, state_machine):
-        """Updates arriving while `transitioning` is set are dropped, not buffered.
+        """Publishes arriving while `transitioning` is set are dropped, not buffered.
 
-        There is no replay queue: the post-start resync re-reads source.state
-        instead. An update that slipped through here would let a source's
-        pre-transition state overwrite the one being transitioned to.
+        There is no replay queue: the post-start resync re-reads source.view
+        instead. A publish that slipped through here would let a source's
+        pre-transition view overwrite the one being transitioned to.
         """
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.transitioning = True
-        before = state_machine.system_state.source_state
+        before = state_machine.system_state.view
 
-        await state_machine.update_source_state(
-            AudioSource.SPOTIFY, SourceState.ACTIVE, {}
-        )
+        await state_machine.update_source_view(AudioSource.SPOTIFY, session_view())
 
-        assert state_machine.system_state.source_state == before
+        assert state_machine.system_state.view == before
 
     @pytest.mark.asyncio
-    async def test_state_change_replaces_metadata_wholesale(self, state_machine):
-        """A state transition replaces metadata, it does not merge it.
+    async def test_a_view_replaces_the_previous_one_wholesale(self, state_machine):
+        """A publish replaces the view, it does not merge it.
 
-        Regression guard: update_source_state used to MERGE, so a source
-        dropping to READY with a partial payload (Spotify when go-librespot
-        dies, sending only the "off" flags) left the previous track's
-        title/artist/album/uri stale in system_state.metadata — and so in
-        GET /api/audio/state.
+        Regression guard: the state used to MERGE, so a source dropping to a
+        narrower payload (Spotify when go-librespot dies) left the previous
+        track's title/artist/album stale in GET /api/audio/state.
         """
         state_machine.system_state.active_source = AudioSource.SPOTIFY
 
-        await state_machine.update_source_state(
-            AudioSource.SPOTIFY,
-            SourceState.ACTIVE,
-            {"title": "Song", "artist": "Artist", "album": "Album",
-             "uri": "spotify:track:x", "is_playing": True},
+        await state_machine.update_source_view(
+            AudioSource.SPOTIFY, session_view("Song", artist="Artist", album="Album"),
         )
-        await state_machine.update_source_state(
-            AudioSource.SPOTIFY,
-            SourceState.READY,
-            {"device_connected": False, "is_playing": False},
+        await state_machine.update_source_view(
+            AudioSource.SPOTIFY, session_view(None, phase="connected"),
         )
 
-        assert state_machine.system_state.metadata == {
-            "device_connected": False, "is_playing": False
-        }
-
-    @pytest.mark.asyncio
-    async def test_none_metadata_leaves_the_previous_payload(self, state_machine):
-        """metadata=None is a state-only change: metadata is left untouched.
-
-        This is the routing path — AudioRoutingService flips the active source
-        to STARTING during a reroute while the current track must stay visible
-        in the UI, so it passes no metadata.
-        """
-        state_machine.system_state.active_source = AudioSource.SPOTIFY
-        state_machine.system_state.source_state = SourceState.ACTIVE
-        state_machine.system_state.metadata = {"title": "Song", "artist": "Artist"}
-
-        await state_machine.update_source_state(
-            AudioSource.SPOTIFY, SourceState.STARTING, None
-        )
-
-        assert state_machine.system_state.source_state == SourceState.STARTING
-        assert state_machine.system_state.metadata == {"title": "Song", "artist": "Artist"}
+        session = state_machine.get_current_state()["session"]
+        assert (session["title"], session["artist"], session["album"]) == (None, None, None)
+        assert session["phase"] == "connected"
 
 
 class TestWebSocketBroadcasting:
@@ -283,84 +258,133 @@ class TestWebSocketBroadcasting:
     @pytest.mark.asyncio
     async def test_broadcast_with_ws_manager(self, state_machine):
         """Test broadcast calls ws_manager.broadcast_dict."""
-        mock_manager = Mock()
-        mock_manager.broadcast_dict = AsyncMock()
-        state_machine.ws_manager = mock_manager
+        sent = recorded(state_machine)
 
-        await state_machine.broadcast(SystemErrorEvent(source="radio", error="boom", message="Boom"))
+        await state_machine.broadcast(SourceError(source="radio", reason="stream_load_failed"))
 
-        mock_manager.broadcast_dict.assert_called_once()
-        call_args = mock_manager.broadcast_dict.call_args[0][0]
-        assert call_args["category"] == "system"
-        assert call_args["type"] == "error"
-        assert call_args["data"]["message"] == "Boom"
+        sent.assert_called_once()
+        call_args = sent.call_args[0][0]
+        assert (call_args["category"], call_args["type"]) == ("source", "error")
+        assert call_args["data"]["reason"] == "stream_load_failed"
 
     @pytest.mark.asyncio
     async def test_broadcast_without_ws_manager(self, state_machine):
         """Test broadcast works without ws_manager."""
         # Should not raise
-        await state_machine.broadcast(SystemErrorEvent(source="radio", error="boom", message="Boom"))
+        await state_machine.broadcast(SourceError(source="radio", reason="stream_load_failed"))
 
     @pytest.mark.asyncio
-    async def test_broadcast_includes_full_state_for_source(self, state_machine):
-        """Test source events include full_state."""
-        mock_manager = Mock()
-        mock_manager.broadcast_dict = AsyncMock()
-        state_machine.ws_manager = mock_manager
-
-        await state_machine.broadcast(SourceStateChanged(source="radio", new_state="active"))
-
-        call_args = mock_manager.broadcast_dict.call_args[0][0]
-        assert "full_state" in call_args["data"]
-
-    @pytest.mark.asyncio
-    async def test_broadcast_excludes_full_state_for_volume(self, state_machine):
-        """Test volume events do not include full_state."""
-        mock_manager = Mock()
-        mock_manager.broadcast_dict = AsyncMock()
-        state_machine.ws_manager = mock_manager
+    async def test_a_volume_event_carries_no_state(self, state_machine):
+        """The state travels once, as `source/state`; no other event carries it."""
+        sent = recorded(state_machine)
 
         await state_machine.broadcast(VolumeChanged(
             show_bar=True, step_mobile_db=3.0, multiroom_enabled=False, state={}
         ))
 
-        call_args = mock_manager.broadcast_dict.call_args[0][0]
-        assert "full_state" not in call_args["data"]
+        assert "full_state" not in sent.call_args[0][0]["data"]
 
     @pytest.mark.asyncio
-    async def test_broadcast_full_state_aggregates_flags_from_services(self, state_machine):
-        """Source/system events must merge multiroom_enabled and
-        equalizer_effects_enabled into full_state from their owning services."""
-        mock_manager = Mock()
-        mock_manager.broadcast_dict = AsyncMock()
-        state_machine.ws_manager = mock_manager
+    async def test_the_state_composes_the_flags_of_their_owning_services(self, state_machine):
+        """multiroom_enabled and equalizer_effects_enabled are read from the
+        routing and CamillaDSP services, not kept here."""
+        sent = recorded(state_machine)
+        state_machine.routing_service = Mock(multiroom_enabled=True)
+        state_machine.camilladsp_service = Mock(effects_enabled=False)
 
-        # Wire stand-in services exposing the two flag properties
-        routing = Mock()
-        routing.multiroom_enabled = True
-        equalizer = Mock()
-        equalizer.effects_enabled = False
-        state_machine.routing_service = routing
-        state_machine.camilladsp_service = equalizer
+        await state_machine.publish_state()
 
-        await state_machine.broadcast(SourceStateChanged(source="radio", new_state="active"))
-
-        full_state = mock_manager.broadcast_dict.call_args[0][0]["data"]["full_state"]
-        assert full_state["multiroom_enabled"] is True
-        assert full_state["equalizer_effects_enabled"] is False
+        data = envelopes(sent, "source", "state")[0]["data"]
+        assert data["multiroom_enabled"] is True
+        assert data["equalizer_effects_enabled"] is False
 
     @pytest.mark.asyncio
     async def test_transition_broadcasts_to_websocket(self, state_machine, mock_source):
-        """Test transitions broadcast to ws_manager."""
-        mock_manager = Mock()
-        mock_manager.broadcast_dict = AsyncMock()
-        state_machine.ws_manager = mock_manager
+        """A switch is announced as it starts and as it ends."""
+        sent = recorded(state_machine)
         state_machine.register_source(AudioSource.RADIO, mock_source)
 
         await state_machine.transition_to_source(AudioSource.RADIO)
 
-        # Should have called broadcast_dict for transition_start and transition_complete
-        assert mock_manager.broadcast_dict.call_count >= 2
+        states = [e["data"] for e in envelopes(sent, "source", "state")]
+        assert [(s["switching"], s["service"]) for s in states] == [
+            (True, "starting"), (False, "running"),
+        ]
+
+
+class TestPublishState:
+    """What `publish_state()` puts on the wire: the state when anything but the
+    playhead moved, the position alone when only the playhead did, and
+    nothing when nothing did.
+
+    What breaks when this fails: a state per tick floods every client (and
+    wakes the push loop on each), or a seek never reaches a client that is
+    extrapolating from the old anchor.
+    """
+
+    ANCHOR = PositionAnchor(ms=1000, at=1700000000.0, rate=1.0)
+
+    async def _playing(self, state_machine, position):
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        await state_machine.update_source_view(
+            AudioSource.PODCAST, session_view("Episode", position=position),
+        )
+
+    async def test_the_state_event_is_the_state(self, state_machine):
+        sent = recorded(state_machine)
+        state_machine.system_state.active_source = AudioSource.RADIO
+
+        await state_machine.publish_state()
+
+        (envelope,) = envelopes(sent)
+        assert (envelope["category"], envelope["type"], envelope["origin"]) == (
+            "source", "state", "radio",
+        )
+        assert envelope["data"] == state_machine.get_current_state()
+
+    async def test_an_unchanged_state_is_not_sent_again(self, state_machine):
+        sent = recorded(state_machine)
+
+        await state_machine.publish_state()
+        await state_machine.publish_state()
+
+        assert len(envelopes(sent)) == 1
+
+    async def test_a_moved_anchor_alone_is_a_position_event(self, state_machine):
+        sent = recorded(state_machine)
+        await self._playing(state_machine, self.ANCHOR)
+        sent.reset_mock()
+
+        await self._playing(state_machine, PositionAnchor(ms=60000, at=1700000005.0, rate=1.0))
+
+        (envelope,) = envelopes(sent)
+        assert (envelope["category"], envelope["type"]) == ("source", "position")
+        assert envelope["data"] == {
+            "source": "podcast", "session_id": "s1",
+            "position": {"ms": 60000, "at": 1700000005.0, "rate": 1.0},
+        }
+
+    async def test_a_state_change_carries_the_anchor_with_it(self, state_machine):
+        """A pause moves the phase and re-stamps the anchor: one `source/state`
+        carrying both, never a state and then a position."""
+        sent = recorded(state_machine)
+        await self._playing(state_machine, self.ANCHOR)
+        sent.reset_mock()
+
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        paused_anchor = PositionAnchor(ms=4000, at=1700000003.0, rate=1.0)
+        await state_machine.update_source_view(
+            AudioSource.PODCAST,
+            session_view("Episode", phase="paused", position=paused_anchor),
+        )
+
+        (envelope,) = envelopes(sent)
+        assert (envelope["category"], envelope["type"]) == ("source", "state")
+        assert envelope["data"]["session"]["position"]["ms"] == 4000
+
+        # ...and the anchor it carried is not sent again on its own.
+        await state_machine.publish_state()
+        assert len(envelopes(sent)) == 1
 
 
 class TestTransitionTimeout:
@@ -381,20 +405,17 @@ class TestTransitionTimeout:
         cancellation cannot unwind that itself — `_do_start`'s own `except
         Exception` does not catch a CancelledError.
 
-        The error string is the second half: both arms settle identically, so it
-        is the only thing in `full_state` or the journal that says which one
-        fired.
+        The reason is the second half: both arms settle identically, so
+        `service_error.reason` is the only thing in the state or the journal
+        that says which one fired.
         """
-        slow_source = Mock()
-        slow_source.initialize = AsyncMock(return_value=True)
+        slow_source = make_source()
 
         async def slow_start():
             await asyncio.sleep(10)  # Longer than TRANSITION_TIMEOUT
             return True
 
         slow_source.start = slow_start
-        slow_source.stop = AsyncMock(return_value=True)
-        slow_source.is_initialized = False
 
         state_machine.register_source(AudioSource.RADIO, slow_source)
         state_machine.TRANSITION_TIMEOUT = 0.1  # Very short timeout for test
@@ -403,8 +424,9 @@ class TestTransitionTimeout:
 
         assert result is False
         slow_source.stop.assert_awaited_once()
-        assert state_machine.system_state.error == "Transition timeout"
-        assert state_machine.system_state.source_state == SourceState.ERROR
+        state = state_machine.get_current_state()
+        assert state["service"] == "failed"
+        assert state["service_error"]["reason"] == "start_timeout"
 
 
 class TestConcurrency:
@@ -439,17 +461,17 @@ class TestFailedTransition:
     """How a transition that could not complete settles, and how it is retried."""
 
     @pytest.mark.asyncio
-    async def test_start_returning_false_settles_the_source_in_error(
+    async def test_start_returning_false_settles_the_source_failed(
         self, state_machine, mock_source
     ):
-        """A clean start failure leaves the source selected, in ERROR, with the
+        """A clean start failure leaves the source selected, failed, with the
         message kept.
 
         Distinct from the raising case below: _do_start returning False is the
         documented way for a source to say "the service did not come up". The
-        machine keeps pointing at it on purpose — "this source is in error" is
-        what happened, and dropping to "no source" is what used to throw it
-        away, message included.
+        machine keeps pointing at it on purpose — "this source failed" is what
+        happened, and dropping to "no source" is what used to throw it away,
+        message included.
         """
         mock_source.start = AsyncMock(return_value=False)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
@@ -457,13 +479,17 @@ class TestFailedTransition:
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
-        assert state_machine.system_state.source_state == SourceState.ERROR
-        assert state_machine.system_state.error == "Failed to start spotify"
-        assert state_machine.system_state.transitioning is False
+        state = state_machine.get_current_state()
+        assert (state["source"], state["service"], state["switching"]) == (
+            "spotify", "failed", False,
+        )
+        assert state["service_error"] == {
+            "reason": "start_failed", "message": "Failed to start spotify",
+        }
+        assert state["controls"] == []
 
     @pytest.mark.asyncio
-    async def test_raising_start_stops_the_target_and_settles_in_error(
+    async def test_raising_start_stops_the_target_and_settles_failed(
         self, state_machine
     ):
         """A start that raises is stopped, then settled the same way.
@@ -472,11 +498,7 @@ class TestFailedTransition:
         came up (mpv started, IPC connect failed), so the failed target is the
         one source the unwind must tear down.
         """
-        failing_source = Mock()
-        failing_source.initialize = AsyncMock(return_value=True)
-        failing_source.start = AsyncMock(side_effect=Exception("Start failed"))
-        failing_source.stop = AsyncMock(return_value=True)
-        failing_source.is_initialized = False
+        failing_source = make_source(start=AsyncMock(side_effect=Exception("Start failed")))
 
         state_machine.register_source(AudioSource.RADIO, failing_source)
 
@@ -484,18 +506,18 @@ class TestFailedTransition:
 
         assert result is False
         failing_source.stop.assert_called()
-        assert state_machine.system_state.active_source == AudioSource.RADIO
-        assert state_machine.system_state.source_state == SourceState.ERROR
+        state = state_machine.get_current_state()
+        assert (state["source"], state["service"]) == ("radio", "failed")
 
     @pytest.mark.asyncio
-    async def test_reselecting_an_errored_source_retries_it(
+    async def test_reselecting_a_failed_source_retries_it(
         self, state_machine, mock_source
     ):
-        """Re-selecting the errored source restarts it, and a success clears it.
+        """Re-selecting the failed source restarts it, and a success clears it.
 
         The whole point of leaving it selected: re-selecting the *active* source
-        is otherwise a no-op, and the ERROR exception in that guard is what the
-        card's retry rides on. Never exercised before — nothing wrote ERROR.
+        is otherwise a no-op, and the failure exception in that guard is what
+        the card's retry rides on.
         """
         mock_source.start = AsyncMock(return_value=False)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
@@ -503,21 +525,20 @@ class TestFailedTransition:
 
         # The daemon is back: the same gesture now starts it for real.
         mock_source.start = AsyncMock(return_value=True)
-        mock_source.state = SourceState.READY
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is True
         mock_source.start.assert_awaited_once()
-        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
-        assert state_machine.system_state.source_state == SourceState.READY
+        state = state_machine.get_current_state()
+        assert (state["source"], state["service"]) == ("spotify", "running")
         # The previous attempt's message must not survive its retry.
-        assert state_machine.system_state.error is None
+        assert state["service_error"] is None
 
     @pytest.mark.asyncio
-    async def test_errored_source_is_still_deactivated_when_idle(
+    async def test_a_failed_source_is_still_deactivated_when_idle(
         self, state_machine, mock_source
     ):
-        """The 12 h inactivity sweep covers ERROR, not just READY.
+        """The 12 h inactivity sweep covers a failed source, not just an idle one.
 
         Without it a source that failed to start would stay selected for ever,
         since it produces no activity to reset the timer either.
@@ -554,13 +575,7 @@ class TestFailedTransition:
             stop_calls.append("end")
             return True
 
-        old_source = Mock()
-        old_source.initialize = AsyncMock(return_value=True)
-        old_source.start = AsyncMock(return_value=True)
-        old_source.stop = slow_stop
-        old_source.is_initialized = False
-        old_source.state = SourceState.ACTIVE
-        old_source.metadata = {}
+        old_source = make_source(stop=slow_stop)
 
         state_machine.register_source(AudioSource.BLUETOOTH, old_source)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
@@ -598,13 +613,7 @@ class TestFailedTransition:
             order.append("new started")
             return True
 
-        old_source = Mock()
-        old_source.initialize = AsyncMock(return_value=True)
-        old_source.start = AsyncMock(return_value=True)
-        old_source.stop = slow_stop
-        old_source.is_initialized = False
-        old_source.state = SourceState.ACTIVE
-        old_source.metadata = {}
+        old_source = make_source(stop=slow_stop)
         mock_source.start = start_new
 
         state_machine.register_source(AudioSource.BLUETOOTH, old_source)
@@ -633,13 +642,7 @@ class TestFailedTransition:
         unconditional (bluetoothctl + bluealsa, no is-running guard) — so the
         recovery above must be reachable only from the cancelled branch.
         """
-        old_source = Mock()
-        old_source.initialize = AsyncMock(return_value=True)
-        old_source.start = AsyncMock(return_value=True)
-        old_source.stop = AsyncMock(return_value=True)
-        old_source.is_initialized = False
-        old_source.state = SourceState.ACTIVE
-        old_source.metadata = {}
+        old_source = make_source(stop=AsyncMock(return_value=True))
 
         mock_source.start = AsyncMock(side_effect=Exception("Start failed"))
         state_machine.register_source(AudioSource.BLUETOOTH, old_source)
@@ -652,55 +655,54 @@ class TestFailedTransition:
         old_source.stop.assert_awaited_once()
 
 
-class TestErrorIsTheLastWordOfAFailedStart:
-    """ERROR, once settled, is what every client is shown until a start succeeds."""
+class TestAFailureIsTheLastWordOfAFailedStart:
+    """`service: failed`, once settled, is what every client is shown until a
+    start succeeds."""
 
     @pytest.mark.asyncio
-    async def test_the_error_banner_carries_the_error_state(self, state_machine, mock_source):
-        """The banner's full_state is what the card draws under it.
+    async def test_the_failure_lands_with_the_switch_over(self, state_machine, mock_source):
+        """The state that says `failed` is the one the card draws.
 
-        It used to carry STARTING with `transitioning` already false — a
-        "starting" card under an error banner, Dock re-enabled — for as long as
-        the failed target took to stop, before ERROR landed.
+        A "starting" once lingered with the switch already over — a spinner
+        under the failure, Dock re-enabled — for as long as the failed target
+        took to stop, before the failure landed (E03). And the settle after
+        the target stopped repeats nothing already on the wire.
         """
-        manager = Mock()
-        manager.broadcast_dict = AsyncMock()
-        state_machine.ws_manager = manager
+        sent = recorded(state_machine)
         mock_source.start = AsyncMock(return_value=False)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
 
         await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
-        banners = [
-            c.args[0] for c in manager.broadcast_dict.call_args_list
-            if (c.args[0]["category"], c.args[0]["type"]) == ("system", "error")
-        ]
-        assert len(banners) == 1
-        assert banners[0]["data"]["full_state"]["source_state"] == "error"
-        assert banners[0]["data"]["full_state"]["transitioning"] is False
+        states = [e["data"] for e in envelopes(sent, "source", "state")]
+        assert not [s for s in states if s["service"] == "starting" and not s["switching"]]
+        failed = [s for s in states if s["service"] == "failed"]
+        assert len(failed) == 1
+        assert failed[0]["switching"] is False
+        assert states[-1] == failed[0]
 
     @pytest.mark.asyncio
-    async def test_a_source_publishing_after_a_failed_start_does_not_hide_the_error(
+    async def test_a_source_publishing_after_a_failed_start_does_not_hide_the_failure(
         self, state_machine, mock_source
     ):
         """The CD's disc watcher runs whether or not its start succeeded, and its
-        next publish replaced ERROR with READY — the card lost "Retry" and
-        re-selecting the source became a no-op."""
+        next publish replaced the failure — the card lost "Retry" and
+        re-selecting the source became a no-op (E07)."""
         mock_source.start = AsyncMock(return_value=False)
         state_machine.register_source(AudioSource.CD, mock_source)
         await state_machine.transition_to_source(AudioSource.CD)
 
-        await state_machine.update_source_state(
-            AudioSource.CD, SourceState.READY, {"disc_present": True}
-        )
+        await state_machine.update_source_view(AudioSource.CD, session_view("Track 1"))
 
-        assert state_machine.system_state.source_state == SourceState.ERROR
-        assert state_machine.system_state.error == "Failed to start cd"
+        state = state_machine.get_current_state()
+        assert state["service"] == "failed"
+        assert state["service_error"]["message"] == "Failed to start cd"
+        assert state["session"] is None
 
         mock_source.start = AsyncMock(return_value=True)
         assert await state_machine.transition_to_source(AudioSource.CD) is True
         mock_source.start.assert_awaited_once()
-        assert state_machine.system_state.source_state == SourceState.READY
+        assert state_machine.get_current_state()["service"] == "running"
 
 
 class TestASourceThatWillNotStop:
@@ -771,8 +773,7 @@ class TestASourceThatWillNotStop:
     async def test_the_transition_still_proceeds_over_it(self, state_machine, mock_source):
         """Refusing would turn an unclean stop into a source the user cannot
         select — worse than the failure it guards."""
-        stubborn = Mock()
-        stubborn.stop = AsyncMock(return_value=False)
+        stubborn = make_source(stop=AsyncMock(return_value=False))
         state_machine.sources[AudioSource.SPOTIFY] = stubborn
         state_machine.sources[AudioSource.BLUETOOTH] = mock_source
         state_machine.system_state.active_source = AudioSource.SPOTIFY
@@ -784,18 +785,24 @@ class TestASourceThatWillNotStop:
 class TestGetCurrentState:
     """Test get_current_state method."""
 
-    def test_get_current_state_returns_dict(self, state_machine):
-        """Test get_current_state returns state dict."""
+    def test_every_key_is_always_present(self, state_machine):
+        """An absent value is null, never a missing key: the store's strict
+        schema and Milo-Mac's decoder both refuse a state with a key missing."""
         state = state_machine.get_current_state()
 
-        assert isinstance(state, dict)
-        assert "active_source" in state
-        assert "source_state" in state
-        assert "transitioning" in state
+        assert set(state) == {
+            "source", "switching", "service", "service_error", "availability",
+            "session", "controls", "resume", "details", "multiroom_enabled",
+            "equalizer_effects_enabled",
+        }
+        assert set(state["availability"]) == {
+            s.value for s in AudioSource if s is not AudioSource.NONE
+        }
 
 
-class TestNetworkUnavailable:
-    """`full_state.network_unavailable` — the two-axis rule the card renders.
+class TestAvailability:
+    """`availability` — the two-axis rule the cards render, then the source's
+    own reason.
 
     Reporting on NetworkManager's level alone is what made the old offline
     banner fire while playing a CD; reporting on the source alone cannot tell a
@@ -803,12 +810,12 @@ class TestNetworkUnavailable:
     """
 
     @staticmethod
-    def _wire(state_machine, level, source, requirement):
+    def _wire(state_machine, level, source, requirement, own=None):
         state_machine.connectivity_service = Mock(level=level)
-        instance = Mock()
-        instance.NETWORK_REQUIREMENT = requirement
+        instance = make_source(NETWORK_REQUIREMENT=requirement,
+                               availability=Mock(return_value=own))
         state_machine.register_source(source, instance)
-        state_machine.system_state.active_source = source
+        return instance
 
     @pytest.mark.parametrize(
         "level,requirement,expected",
@@ -834,14 +841,42 @@ class TestNetworkUnavailable:
         self, state_machine, level, requirement, expected
     ):
         self._wire(state_machine, level, AudioSource.SPOTIFY, requirement)
-        assert state_machine.get_current_state()["network_unavailable"] == expected
+        assert state_machine.get_current_state()["availability"]["spotify"] == expected
 
-    def test_no_source_selected_reports_nothing(self, state_machine):
-        """AudioSource.NONE needs nothing, so a dead link is not its problem —
-        this is what keeps the home screen quiet instead of raising the banner
-        the old boolean raised on every `!online`."""
-        state_machine.connectivity_service = Mock(level=ConnectivityLevel.NONE)
-        assert state_machine.get_current_state()["network_unavailable"] is None
+    def test_every_source_is_answered_whichever_is_selected(self, state_machine):
+        """The home screen's cards read one entry each: a source nobody
+        selected is still greyed by a dead link, and one the link does not
+        concern is not."""
+        self._wire(state_machine, ConnectivityLevel.NONE, AudioSource.RADIO,
+                   NetworkRequirement.INTERNET)
+        self._wire(state_machine, ConnectivityLevel.NONE, AudioSource.CD,
+                   NetworkRequirement.NONE)
+
+        availability = state_machine.get_current_state()["availability"]
+
+        assert state_machine.get_current_state()["source"] == "none"
+        assert (availability["radio"], availability["cd"]) == ("no_network", None)
+
+    def test_the_link_comes_before_the_sources_own_reason(self, state_machine):
+        """Two reasons, one card: the link is the one the user can act on first."""
+        instance = self._wire(state_machine, ConnectivityLevel.FULL, AudioSource.QOBUZ,
+                              NetworkRequirement.INTERNET, own="no_account")
+        assert state_machine.get_current_state()["availability"]["qobuz"] == "no_account"
+
+        state_machine.connectivity_service.level = ConnectivityLevel.LIMITED
+        assert state_machine.get_current_state()["availability"]["qobuz"] == "no_internet"
+        assert instance.availability.call_count == 1   # the link answered first
+
+    def test_a_source_that_cannot_answer_is_available(self, state_machine, caplog):
+        """Fail open, and say so: a raising `availability()` must not take the
+        state route (GET /api/audio/state, every broadcast) down with it."""
+        instance = self._wire(state_machine, ConnectivityLevel.FULL, AudioSource.CD,
+                              NetworkRequirement.NONE)
+        instance.availability = Mock(side_effect=RuntimeError("drive gone"))
+
+        with caplog.at_level(logging.ERROR):
+            assert state_machine.get_current_state()["availability"]["cd"] is None
+        assert "drive gone" in caplog.text
 
     def test_unwired_service_reports_nothing(self, state_machine):
         """No connectivity service (a dev host without NM) must not paint every
@@ -849,145 +884,132 @@ class TestNetworkUnavailable:
         self._wire(state_machine, ConnectivityLevel.NONE, AudioSource.RADIO,
                    NetworkRequirement.INTERNET)
         state_machine.connectivity_service = None
-        assert state_machine.get_current_state()["network_unavailable"] is None
+        assert state_machine.get_current_state()["availability"]["radio"] is None
 
 
-class TestBlockedTransitionBanner:
-    """A failed start the link already explains must not also raise a banner.
+class TestAFailedStartRaisesNoBanner:
+    """A failed start is the state's to say, never a banner as well.
 
     Two notifications for one cause is what made the offline behaviour read as
     broken on the unit: the status card said "no internet" with the network
     settings one tap away, and a raw "Network is unreachable" sat on top of it.
+    The card now shows `service: failed` with its retry, and the log line is a
+    WARNING, which the banner's log handler does not forward.
     """
 
-    async def _fail_to_start(self, state_machine, requirement, level):
-        source = Mock()
-        source.initialize = AsyncMock(return_value=True)
-        source.start = AsyncMock(return_value=False)   # the daemon refuses
-        source.stop = AsyncMock(return_value=True)
-        source.is_initialized = True
-        source.state = SourceState.ERROR
-        source.metadata = {}
-        source.NETWORK_REQUIREMENT = requirement
+    async def _fail_to_start(self, state_machine, requirement, level, caplog):
+        source = make_source(
+            start=AsyncMock(return_value=False),   # the daemon refuses
+            is_initialized=True, NETWORK_REQUIREMENT=requirement,
+        )
         state_machine.register_source(AudioSource.AIRPLAY, source)
         state_machine.connectivity_service = Mock(level=level)
-        state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
+        sent = recorded(state_machine)
+        with caplog.at_level(logging.WARNING, logger="backend.core.state"):
+            await state_machine.transition_to_source(AudioSource.AIRPLAY)
+        return sent
 
-        events = []
-        original = state_machine.broadcast
-
-        async def capture(event):
-            events.append(event)
-            await original(event)
-
-        state_machine.broadcast = capture
-        await state_machine.transition_to_source(AudioSource.AIRPLAY)
-        return events
-
-    async def test_no_banner_when_the_link_explains_it(self, state_machine):
-        events = await self._fail_to_start(
-            state_machine, NetworkRequirement.LAN, ConnectivityLevel.NONE
+    @pytest.mark.parametrize("level", [ConnectivityLevel.NONE, ConnectivityLevel.FULL])
+    async def test_only_the_state_says_it(self, state_machine, caplog, level):
+        sent = await self._fail_to_start(
+            state_machine, NetworkRequirement.LAN, level, caplog
         )
-        assert not any(isinstance(e, SystemErrorEvent) for e in events)
-        # The state still settles in ERROR — only the banner is withheld.
-        assert state_machine.system_state.source_state == SourceState.ERROR
-        assert state_machine.get_current_state()["network_unavailable"] == "no_network"
 
-    async def test_banner_still_raised_when_the_link_is_fine(self, state_machine):
-        """The regression guard on the suppression: a daemon that dies with the
-        network up has nothing else to tell the user, so the banner must fire."""
-        events = await self._fail_to_start(
-            state_machine, NetworkRequirement.LAN, ConnectivityLevel.FULL
+        assert {(e["category"], e["type"]) for e in envelopes(sent)} == {("source", "state")}
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert "Transition failed" in caplog.text
+        assert state_machine.get_current_state()["service"] == "failed"
+
+    async def test_the_link_that_explains_it_is_on_the_state(self, state_machine, caplog):
+        await self._fail_to_start(
+            state_machine, NetworkRequirement.LAN, ConnectivityLevel.NONE, caplog
         )
-        assert any(isinstance(e, SystemErrorEvent) for e in events)
+
+        state = state_machine.get_current_state()
+        assert state["availability"]["airplay"] == "no_network"
+        assert "link is no_network" in caplog.text
 
 
-class TestRefreshActiveMetadata:
-    """The metadata pull behind GET /api/audio/state and the WS handshake.
+class TestRefreshActiveView:
+    """The re-read behind GET /api/audio/state and the WS handshake.
 
     What breaks when this fails: a client connecting mid-track is handed the
-    record the state machine last stored instead of the one the source holds,
+    view the state machine last stored instead of the one the source holds,
     so the now-playing card — and Milo-Mac, which reads the same payload —
-    draws a stale or empty track until the source next publishes on its own.
+    draws a stale anchor or an empty track until the source next publishes.
     """
+
+    STORED = session_view("Stored")
 
     def _register(self, state_machine, source):
         state_machine.register_source(AudioSource.SPOTIFY, source)
         state_machine.system_state.active_source = AudioSource.SPOTIFY
-        state_machine.system_state.metadata = {"title": "Stored"}
+        state_machine.system_state.view = self.STORED
 
-    async def test_the_sources_record_replaces_the_stored_one(self, state_machine):
-        source = Mock(metadata={"title": "Fresh", "artist": "Artist"})
-        source.refresh_when_idle = AsyncMock(return_value=True)
+    async def test_the_sources_view_replaces_the_stored_one(self, state_machine):
+        source = make_source(view=session_view("Fresh", artist="Artist"),
+                             refresh_when_idle=AsyncMock(return_value=True))
         self._register(state_machine, source)
 
-        assert await state_machine.refresh_active_metadata() is True
-        assert state_machine.get_current_state()["metadata"] == {
-            "title": "Fresh", "artist": "Artist"
-        }
+        assert await state_machine.refresh_active_view() is True
+        session = state_machine.get_current_state()["session"]
+        assert (session["title"], session["artist"]) == ("Fresh", "Artist")
 
-    async def test_a_source_with_nothing_to_report_leaves_the_record_alone(self, state_machine):
-        """Only a hook that says it refreshed may overwrite the record.
-
-        Four of the five sources implementing the hook derive their metadata
-        from a session this call does not touch, so a False verdict means the
-        source could not read — copying its record anyway would publish
-        whatever half-state the failed read left behind.
-        """
-        source = Mock(metadata={"title": "Half-read"})
-        source.refresh_when_idle = AsyncMock(return_value=False)
+    async def test_a_source_with_nothing_to_report_leaves_the_view_alone(self, state_machine):
+        """Only a hook that says it re-read may overwrite the view: a False
+        verdict means the source could not read, and copying its view anyway
+        would publish whatever half-state the failed read left behind."""
+        source = make_source(view=session_view("Half-read"),
+                             refresh_when_idle=AsyncMock(return_value=False))
         self._register(state_machine, source)
 
-        assert await state_machine.refresh_active_metadata() is False
-        assert state_machine.system_state.metadata == {"title": "Stored"}
+        assert await state_machine.refresh_active_view() is False
+        assert state_machine.system_state.view == self.STORED
 
     async def test_a_hook_that_raises_does_not_take_the_state_route_down(self, state_machine):
         """This runs on the WS handshake and on every GET /api/audio/state, so a
-        source whose daemon just died must cost a stale record, not a 500."""
-        source = Mock(metadata={})
-        source.refresh_when_idle = AsyncMock(side_effect=RuntimeError("daemon gone"))
+        source whose daemon just died must cost a stale view, not a 500."""
+        source = make_source(refresh_when_idle=AsyncMock(side_effect=RuntimeError("daemon gone")))
         self._register(state_machine, source)
 
-        assert await state_machine.refresh_active_metadata() is False
-        assert state_machine.system_state.metadata == {"title": "Stored"}
+        assert await state_machine.refresh_active_view() is False
+        assert state_machine.system_state.view == self.STORED
 
     async def test_a_source_switched_away_from_during_the_read_is_not_written_back(
         self, state_machine, mock_source
     ):
         """The hook awaits the source's daemon (Spotify reads go-librespot's
         /status over HTTP), and a transition can complete inside that await.
-        Writing the outgoing source's record then puts its track on the card of
+        Writing the outgoing source's view then puts its track on the card of
         the source that replaced it, until that one next publishes."""
         answered = asyncio.Event()
-        source = Mock(metadata={"title": "Outgoing"})
 
         async def _read_the_daemon():
             await answered.wait()
             return True
 
-        source.refresh_when_idle = AsyncMock(side_effect=_read_the_daemon)
-        source.stop = AsyncMock(return_value=True)
+        source = make_source(view=session_view("Outgoing"),
+                             refresh_when_idle=AsyncMock(side_effect=_read_the_daemon))
         self._register(state_machine, source)
-        mock_source.metadata = {"title": "Radio"}
+        mock_source.view = session_view("Radio")
         state_machine.register_source(AudioSource.RADIO, mock_source)
 
-        refresh = asyncio.create_task(state_machine.refresh_active_metadata())
+        refresh = asyncio.create_task(state_machine.refresh_active_view())
         await asyncio.sleep(0)
         assert await state_machine.transition_to_source(AudioSource.RADIO)
         answered.set()
         await refresh
 
         assert state_machine.system_state.active_source == AudioSource.RADIO
-        assert state_machine.system_state.metadata == {"title": "Radio"}
+        assert state_machine.get_current_state()["session"]["title"] == "Radio"
 
     async def test_a_read_that_lands_inside_a_transition_is_not_written(self, state_machine):
-        """Retrying an errored source keeps it active while it restarts. The
-        transition blanks the record and resyncs it from the source once the
-        start is done; a refresh landing in between would publish the record of
+        """Retrying a failed source keeps it selected while it restarts. The
+        transition blanks the view and resyncs it from the source once the
+        start is done; a refresh landing in between would publish the view of
         the attempt that failed, over a card that says it is starting."""
         answered = asyncio.Event()
         started = asyncio.Event()
-        source = Mock(metadata={"title": "Failed attempt"})
 
         async def _read_the_daemon():
             await answered.wait()
@@ -997,13 +1019,15 @@ class TestRefreshActiveMetadata:
             await started.wait()
             return True
 
-        source.refresh_when_idle = AsyncMock(side_effect=_read_the_daemon)
-        source.start = AsyncMock(side_effect=_start)
-        source.state = SourceState.ACTIVE
+        source = make_source(view=session_view("Failed attempt"),
+                             refresh_when_idle=AsyncMock(side_effect=_read_the_daemon),
+                             start=AsyncMock(side_effect=_start))
         self._register(state_machine, source)
-        state_machine.system_state.source_state = SourceState.ERROR
+        state_machine.system_state.view = SourceView()
+        state_machine.system_state.service_error = ServiceError(
+            reason="start_failed", message="Failed to start spotify")
 
-        refresh = asyncio.create_task(state_machine.refresh_active_metadata())
+        refresh = asyncio.create_task(state_machine.refresh_active_view())
         await asyncio.sleep(0)
         retry = asyncio.create_task(state_machine.transition_to_source(AudioSource.SPOTIFY))
         while not state_machine.system_state.transitioning:
@@ -1011,72 +1035,9 @@ class TestRefreshActiveMetadata:
         answered.set()
         await refresh
 
-        assert state_machine.system_state.metadata == {}
+        assert state_machine.system_state.view == SourceView()
         started.set()
         assert await retry
-
-
-class TestUpdatePositionMetadata:
-    """The live playhead written into the record a new WS client is handed.
-
-    What breaks when this fails: `initial_state` carries no position/duration,
-    so a client connecting mid-track draws its progress bar at zero until the
-    source's next position tick.
-    """
-
-    async def test_the_playhead_lands_in_the_state_a_new_client_reads(self, state_machine):
-        state_machine.system_state.active_source = AudioSource.RADIO
-        state_machine.system_state.source_state = SourceState.ACTIVE
-        state_machine.system_state.metadata = {"title": "Song"}
-
-        await state_machine.update_position_metadata(AudioSource.RADIO, 42, 180)
-
-        metadata = state_machine.get_current_state()["metadata"]
-        assert metadata["position"] == 42
-        assert metadata["duration"] == 180
-        assert metadata["title"] == "Song", "the record is updated, not replaced"
-
-    async def test_a_source_that_is_no_longer_active_cannot_move_the_playhead(
-        self, state_machine
-    ):
-        """A source switched away from can still have a position poll in flight;
-        writing it would drag the visible progress bar to another track's
-        playhead."""
-        state_machine.system_state.active_source = AudioSource.RADIO
-        state_machine.system_state.metadata = {"title": "Song", "position": 42, "duration": 180}
-
-        await state_machine.update_position_metadata(AudioSource.PODCAST, 9999, 9999)
-
-        assert state_machine.system_state.metadata == {
-            "title": "Song", "position": 42, "duration": 180
-        }
-
-    async def test_a_playhead_is_refused_once_the_source_went_idle(self, state_machine):
-        """A producer that awaits its hardware between reading the playhead and
-        pushing it — Bluetooth reads the position over D-Bus — can arrive after
-        the session ended. Stamping it would put a position and a duration on a
-        payload that says nothing is playing."""
-        state_machine.system_state.active_source = AudioSource.BLUETOOTH
-        state_machine.system_state.source_state = SourceState.READY
-        state_machine.system_state.metadata = {"is_playing": False, "is_buffering": False}
-
-        await state_machine.update_position_metadata(AudioSource.BLUETOOTH, 4200, 60000)
-
-        assert state_machine.system_state.metadata == {
-            "is_playing": False, "is_buffering": False
-        }
-
-    async def test_a_playhead_is_refused_during_a_transition(self, state_machine):
-        """Same rule as update_source_state: what a transition publishes is
-        settled by its post-start resync, never by a task still in flight."""
-        state_machine.system_state.active_source = AudioSource.PODCAST
-        state_machine.system_state.source_state = SourceState.ACTIVE
-        state_machine.system_state.transitioning = True
-        state_machine.system_state.metadata = {}
-
-        await state_machine.update_position_metadata(AudioSource.PODCAST, 4200, 60000)
-
-        assert state_machine.system_state.metadata == {}
 
 
 class TestRerouteActiveSource:
@@ -1086,7 +1047,7 @@ class TestRerouteActiveSource:
     `reroute_active_source()`, which carries the active source across it under
     the transition lock. What breaks when this fails: a user tapping a source
     while a reroute is in flight has both paths stopping and starting the same
-    units — or the card never leaves the reroute's STARTING.
+    units — or the card never shows what the source published across it.
     """
 
     async def test_it_locks_out_a_concurrent_transition(self, state_machine, mock_source):
@@ -1131,34 +1092,44 @@ class TestRerouteActiveSource:
 
         mock_source.acquire_after_reroute.assert_awaited_once()
 
-    async def test_the_starting_state_reaches_the_ui_live(self, state_machine, mock_source):
+    async def test_what_the_source_publishes_meanwhile_reaches_the_ui_live(
+        self, state_machine, mock_source
+    ):
         """The reroute deliberately does NOT set `transitioning`.
 
-        `update_source_state()` drops — never buffers — every update arriving
-        while that flag is set, and the reroute's own STARTING must go out.
-        Setting it, by symmetry with `transition_to_source()`, would silently
-        swallow that — and the source's own start publish after it.
+        `update_source_view()` drops — never buffers — every publish arriving
+        while that flag is set, and the source's own publishes across the
+        reroute must go out: the toggle's `switching` (the caller's
+        `multiroom_switch()`) already says the service is starting, with the
+        track kept on the card, and the reacquire's publish lands on it.
         """
-        state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
-        mock_source.release_for_reroute = AsyncMock(return_value=True)
-        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        sent = recorded(state_machine)
         state_machine.register_source(AudioSource.RADIO, mock_source)
         state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.system_state.view = session_view("Song")
         state_machine.ALSA_RELEASE_SETTLE_S = 0
-        seen = []
+
+        async def reacquire():
+            await state_machine.update_source_view(
+                AudioSource.RADIO, session_view("Song", session_id="s2"))
+            return True
+
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(side_effect=reacquire)
 
         async def switch_output():
-            seen.append(state_machine.system_state.source_state)
+            pass
 
-        await state_machine.reroute_active_source(switch_output)
+        async with state_machine.multiroom_switch():
+            await state_machine.reroute_active_source(switch_output)
+            assert state_machine.system_state.transitioning is False
 
-        assert seen == [SourceState.STARTING]
-        assert state_machine.system_state.transitioning is False
-        states = [
-            c.args[0]["data"]["new_state"]
-            for c in state_machine.ws_manager.broadcast_dict.await_args_list
+        states = [e["data"] for e in envelopes(sent, "source", "state")]
+        assert [(s["switching"], s["service"], s["session"]["id"]) for s in states] == [
+            (True, "starting", "s1"),       # the toggle starts: the track stays
+            (True, "starting", "s2"),       # the reacquire's publish, live
+            (False, "running", "s2"),       # the toggle ends
         ]
-        assert states == ["starting"]
         mock_source.release_for_reroute.assert_awaited_once()
         mock_source.acquire_after_reroute.assert_awaited_once()
 
@@ -1325,29 +1296,30 @@ class TestShutdownSources:
         spotify.shutdown.assert_awaited_once()
 
 
-class TestRerouteOfAnErroredSource:
-    async def test_a_reacquire_that_succeeds_clears_the_error(self, state_machine, mock_source):
-        """ERROR is sticky against the source's own publishes, so the reroute's
-        successful reacquire is what must lift it — otherwise the source plays
-        (the reacquire is a full start) under a card that still says "Retry"."""
+class TestRerouteOfAFailedSource:
+    async def test_a_reacquire_that_succeeds_clears_the_failure(self, state_machine, mock_source):
+        """A failure is sticky against the source's own publishes, so the
+        reroute's successful reacquire is what must lift it — otherwise the
+        source plays (the reacquire is a full start) under a card that still
+        says "Retry"."""
         mock_source.start = AsyncMock(return_value=False)
         mock_source.release_for_reroute = AsyncMock(return_value=True)
         mock_source.acquire_after_reroute = AsyncMock(return_value=True)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         state_machine.ALSA_RELEASE_SETTLE_S = 0
         await state_machine.transition_to_source(AudioSource.SPOTIFY)
-        assert state_machine.system_state.source_state == SourceState.ERROR
+        assert state_machine.get_current_state()["service"] == "failed"
 
-        mock_source.state = SourceState.READY
-        mock_source.metadata = {"is_playing": False, "is_buffering": False}
+        mock_source.view = session_view("Back")
 
         async def switch_output():
             pass
 
         await state_machine.reroute_active_source(switch_output)
 
-        assert state_machine.system_state.source_state == SourceState.READY
-        assert state_machine.system_state.error is None
+        state = state_machine.get_current_state()
+        assert (state["service"], state["service_error"]) == ("running", None)
+        assert state["session"]["title"] == "Back"
 
 
 class TestATeardownThatNeverEnds:
@@ -1360,13 +1332,7 @@ class TestATeardownThatNeverEnds:
         async def stuck_stop():
             await asyncio.Event().wait()
 
-        old_source = Mock()
-        old_source.initialize = AsyncMock(return_value=True)
-        old_source.start = AsyncMock(return_value=True)
-        old_source.stop = stuck_stop
-        old_source.is_initialized = False
-        old_source.state = SourceState.ACTIVE
-        old_source.metadata = {}
+        old_source = make_source(stop=stuck_stop)
         state_machine.register_source(AudioSource.BLUETOOTH, old_source)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         await state_machine.transition_to_source(AudioSource.BLUETOOTH)

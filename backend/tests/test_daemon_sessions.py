@@ -21,7 +21,6 @@ from backend.core.audio_source import BaseAudioSource
 from backend.core.models.session import (
     DaemonSnapshot, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
 )
-from backend.core.models.source_metadata import PlaybackMetadata
 from backend.shared import pidfd
 from backend.shared.pidfd import ProcessWatch
 from backend.tests.golden.harness import AsyncioProxy, VirtualClock, settle
@@ -54,16 +53,8 @@ class Daemon(BaseAudioSource):
     async def _session_ended(self, session, reason) -> None:
         self.ends.append(reason)
 
-    def _connection_state(self):
-        session = self._session
-        if session is None:
-            return False, None, {}
-        return True, PlaybackMetadata(is_playing=session.phase is Phase.PLAYING), {
-            "sender": session.sender, "phase": session.phase.value,
-        }
-
-    def _update_connection_state(self) -> None:
-        self.emit_connection_state(*self._connection_state())
+    def _session_fields(self, session):
+        return {"senders": [session.sender] if session.sender else []}
 
 
 class Pids:
@@ -139,7 +130,7 @@ async def _report(source: Daemon, sender, phase=None):
 
     async def apply():
         done.set_result(await source.reconcile(snapshot))
-        source._update_connection_state()
+        source._publish()
 
     source._post_result(apply)
     await settle()
@@ -155,7 +146,7 @@ async def test_a_report_opens_moves_and_ends_the_session(daemon):
     assert moved is opened and moved.phase is Phase.PLAYING
     assert await _report(daemon, None) is None
     assert daemon.ends == [EndReason.SENDER_LEFT]
-    assert daemon.metadata.get("sender") is None
+    assert daemon.view.session is None
 
 
 async def test_the_same_report_twice_changes_nothing(daemon):
@@ -171,7 +162,7 @@ async def test_a_report_from_another_sender_is_another_session(daemon):
     second = await _report(daemon, "mac", Phase.CONNECTED)
     assert second is not first
     assert daemon.ends == [EndReason.SENDER_LEFT]
-    assert daemon.metadata["sender"] == "mac"
+    assert daemon.view.session.senders == ["mac"]
 
 
 async def test_a_session_opened_before_its_sender_was_named_keeps_it(daemon):
@@ -192,7 +183,7 @@ async def test_the_session_is_watched_against_the_daemon_that_holds_it(daemon, p
     pids.exit()
     await settle()
     assert daemon.ends == [EndReason.DAEMON_DIED]
-    assert daemon.state.value == "ready"
+    assert daemon.view.session is None
     assert pids.watched == []
 
 
@@ -243,7 +234,7 @@ async def test_a_daemon_that_cannot_be_named_is_not_watched(daemon, pids):
     pids.pid = None
     await _report(daemon, "phone", Phase.PLAYING)
     assert pids.watched == []
-    assert daemon.metadata["phase"] == "playing"
+    assert daemon.view.session.phase == "playing"
 
 
 # === REQUEST_END ===
@@ -281,7 +272,7 @@ async def test_a_failed_restart_leaves_the_session_with_the_daemon(daemon, pids,
     await _report(daemon, "phone", Phase.PAUSED)
     await clock.advance(DELAY + 1)
     assert daemon.ends == []
-    assert daemon.metadata["phase"] == "paused"
+    assert daemon.view.session.phase == "paused"
     await _report(daemon, "phone", Phase.PLAYING)
     await _report(daemon, None)
     assert daemon.ends == [EndReason.SENDER_LEFT]        # the request was withdrawn
