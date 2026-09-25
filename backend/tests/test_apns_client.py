@@ -164,7 +164,7 @@ class TestVerdicts:
 
     @pytest.mark.parametrize("reason", sorted(DEAD_TOKEN_REASONS))
     async def test_a_dead_token_is_reported_dead(self, client, reason):
-        """These three are the only answers that may cost a token. Derived from
+        """These are the only answers that may cost a token. Derived from
         the production set rather than retyped, so adding one cannot leave this
         test agreeing with a stale copy of it."""
         stub_transport(client, lambda r: httpx.Response(400, json={"reason": reason}))
@@ -172,6 +172,17 @@ class TestVerdicts:
         result = await client.send(token(), {}, "nowplaying")
 
         assert result.dead is True and result.ok is False
+
+    async def test_an_expired_session_token_is_dead(self, client):
+        """Measured 2026-09-25: a Now Playing session's token, its session
+        ended the evening before, answered `410 ExpiredToken` to every push —
+        38 in a morning, each logged as an error, because the reason was not
+        one that purges and the token was addressed again on every change."""
+        stub_transport(client, lambda r: httpx.Response(410, json={"reason": "ExpiredToken"}))
+
+        result = await client.send(token(), {}, "nowplaying")
+
+        assert result.dead is True
 
     async def test_a_refused_push_type_never_costs_the_token(self, client):
         """Measured: APNs checks the push type BEFORE the device token, so

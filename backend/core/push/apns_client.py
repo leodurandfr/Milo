@@ -49,7 +49,7 @@ JWT_LIFETIME_S = 50 * 60
 
 # Reason codes that mean "this token will never work again". Everything else
 # is transient or a bug on this side, and must NOT cost the caller its token.
-DEAD_TOKEN_REASONS = {"Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic"}
+DEAD_TOKEN_REASONS = {"Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic", "ExpiredToken"}
 
 _KEY_FILENAME = re.compile(r"AuthKey_([A-Z0-9]{10})\.p8")
 
