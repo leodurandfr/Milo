@@ -49,7 +49,6 @@ from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
     now_playing_payload,
-    shown_track,
     widget_payload,
 )
 from backend.shared.background import BackgroundTaskSet
@@ -97,6 +96,11 @@ START_REPORT_GRACE_S = 60.0
 # What it costs: after playback really stops, the card lingers, showing paused.
 # That is what every other player does, and it is the side of the trade whose
 # failure is merely untidy rather than a feature that stops working.
+#
+# It is also the one way a card ends. Leaving the source for `none` used to end
+# it on sight; it now shows Milō's own card for the grace like any other idle
+# state (owner's call, 2026-09-25), so the Lock Screen says where the music
+# went instead of dropping it.
 SESSION_IDLE_GRACE_S = 300.0
 
 
@@ -127,10 +131,9 @@ class PushService:
         self._session_renewed_at: float = 0.0
         self._session_cleared_at: float = 0.0
         self._idle_since: float = 0.0
-        # The card last sent, and the source it was built under. Only read when
-        # the state cannot answer — see `_publish_paused`.
-        self._last_attributes: Optional[Dict[str, Any]] = None
-        self._last_source: Optional[str] = None
+        # The card last sent while nothing plays, so an idle cycle that changes
+        # nothing spends no push — see `_publish_paused`.
+        self._idle_card: Optional[Dict[str, Any]] = None
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -183,23 +186,17 @@ class PushService:
           identical — see its docstring for what acting on the first idle cycle
           cost.
 
-        A report is different evidence, and that is the justification for ending
-        here without waiting out the grace: it only arrives while the app is
-        running, which is the one condition under which a card that turns out to
-        have been closed too early can be reopened and claim the screen —
-        `RemoteMediaSession.requestToBecomeSystemPrimary` is the app's to call
-        and nobody else's. When the app is not running, no report arrives and
-        the grace still governs, untouched.
-
-        **What that argument turns on is the card being empty**, which it no
-        longer always is. A source that stops with something to resume publishes
-        it, so an idle state now comes in two kinds and they want opposite
-        answers: a card with nothing behind it is closed at once, as before,
-        while one still naming what a play press would bring back is held and
-        left to the grace — closing it would put the phone back to the very
-        "nothing ever played" this state exists to tell apart. The evidence a
-        report carries is about the DEVICE; which of the two this is comes from
-        the state, and only the state can say.
+        A report used to end an empty card at once, on the argument that it
+        only arrives while the app runs, which is when a card closed too early
+        can be reopened. **No card is empty any more**: an idle state draws what
+        it would resume, else its source's own card, else Milō's
+        (`payloads.source_card`), and the owner chose on 2026-09-25 to keep that
+        card for the grace rather than drop it. So a report ends nothing on its
+        own: it arms the same grace the bus does, and whichever seam sees the
+        idle state first starts the clock. Closing here while the bus held the
+        card would make it last five minutes or two seconds depending on whether
+        the app happened to be open — the inconsistency the app had with the
+        push until then.
 
         Sends at most one push per report, and at most one per session in each
         direction: `_session_id` is the guard, set by the `start` and cleared by
@@ -228,10 +225,7 @@ class PushService:
 
             if device_id not in self._session_devices():
                 return
-            if self._displays_something(state):
-                await self._consider_ending(state)
-            else:
-                await self._end_session()
+            await self._consider_ending(state)
 
     def _device_can_be_started(self, device_id: str) -> bool:
         """Does the reporting device hold a token a `start` can be sent to?
@@ -299,29 +293,14 @@ class PushService:
         session is "Milō is playing something", not "Milō is playing Spotify",
         so its id stays stable while the track and the source underneath move.
 
-        It does NOT survive the source being left. `align_session_to_playback`
-        has always ended on the spot when the state named nothing, and this
-        path waited out the whole grace for the same state — so the card
-        cleared at once if the app happened to be open to report, and hung on
-        for five minutes if it was not. The Lock Screen is the surface that
-        matters when the app is closed, which is exactly where it behaved worst.
+        It survives the source being left, too, for the grace: `none` shows
+        Milō's card, then ends like any other idle state. It was ended on sight
+        from 2026-09-22 — a card naming nothing read as Milō still offering
+        something to play — and no card names nothing any more.
         """
         async with self._session_lock:
             if not self._has_active_source(state):
-                # Both guards are `_consider_ending`'s own, and skipping
-                # either was measured on the appliance: without the session
-                # check `_end_session` ran on every publish with no session to
-                # end — `Now Playing session None ended` in the journal, and
-                # `_session_cleared_at` pushed forward each time — and without
-                # `switching` a source change reads as nothing playing while
-                # it is in flight, which empties the Lock Screen on every
-                # switch.
-                if (self._session_id is not None
-                        and not state.get("switching")
-                        and not self._a_source_is_selected(state)):
-                    await self._end_session()
-                else:
-                    await self._consider_ending(state)
+                await self._consider_ending(state)
                 return
 
             self._idle_since = 0.0
@@ -353,9 +332,11 @@ class PushService:
         happened; without waking ourselves, a session would linger until
         something unrelated happened to stir the bus.
 
-        The grace is what a running app can shorten: `align_session_to_playback`
-        ends on the report instead of waiting, because a report only arrives
-        while the app is there to reopen the card.
+        Nothing shortens the grace, not even a report from the running app: see
+        `align_session_to_playback`. The clock starts at the first idle cycle
+        and is not restarted by what happens inside it — leaving a quiet source
+        for `none` swaps the card for Milō's, and the session still ends five
+        minutes after the music did.
         """
         if self._session_id is None:
             return
@@ -365,13 +346,13 @@ class PushService:
         now = time.time()
         if self._idle_since == 0.0:
             self._idle_since = now
+            self._idle_card = None
             self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
-            await self._publish_paused(state)
-            return
-        if now - self._idle_since < SESSION_IDLE_GRACE_S:
+        elif now - self._idle_since >= SESSION_IDLE_GRACE_S:
+            await self._end_session()
             return
 
-        await self._end_session()
+        await self._publish_paused(state)
 
     async def _publish_paused(self, state: Dict[str, Any]) -> None:
         """Say the music stopped, without saying the session did.
@@ -379,49 +360,30 @@ class PushService:
         Keeping the session through the gap is what stops the card from
         disappearing — but on its own it left the card claiming the previous
         source was still playing, because nothing is published while the state
-        reads idle. The last attributes are re-sent with `isPlaying` false, so
-        the card holds its place and tells the truth while the next source
-        starts.
+        reads idle. The idle card is sent with `isPlaying` false, so it holds
+        its place and tells the truth while the next source starts.
 
-        **The track it holds comes from the state wherever the state has one.**
-        A source that stopped with something to resume publishes what it would
-        resume, so the card is rebuilt from it: a station change holds the
-        station that was there, which is the least flicker, and a source change
-        shows the new source's own idle identity. Both used to be guessed from
-        the copy below, and the guess was measured wrong once (radio → spotify,
-        2026-09-20: the Lock Screen kept the radio track, paused, under a source
-        that had nothing to play, for the whole grace).
+        **The card is always rebuilt from the state.** A source that stopped
+        with something to resume shows what a play press would bring back; any
+        other idle state shows its source's own card — name, dock icon, and
+        who is sending — and `none` shows Milō's (`payloads.source_card`).
+        This used to guess from a copy of the last card for the sources with no
+        resume point, because their idle state rebuilt as a media card with
+        every field null; holding the previous track across an AirPlay sender
+        reconnecting beat blanking. They have a card of their own now, and the
+        copy had already been measured wrong once (radio → spotify, 2026-09-20:
+        the radio track held, paused, under a source with nothing to play).
 
-        **The copy survives for the sources whose state cannot answer.** Only
-        the four mpv sources keep a resume point; the receivers —
-        AirPlay, Qobuz, Bluetooth — and Spotify/Tidal publish the inert
-        pair alone when their sender goes, so rebuilding from that state gives
-        a card with every field null, which on the phone is a media card with
-        nothing in it. An AirPlay sender that disconnects and comes straight
-        back is the ordinary case, and blanking through it is worse than
-        holding what was there. Scoped to the SAME source, because a track
-        belonging to a source nobody selected any more is the lie above.
+        **Re-sent only when it changes.** Every idle cycle lands here — a
+        source left for `none` inside the grace has to reach the phone as
+        Milō's card — and the app's report calls in every couple of seconds, so
+        the card is compared with the last one sent, timestamp aside, and an
+        idle cycle that changes nothing spends no push.
 
-        **Not a debt, and not waiting on those six to publish an idle identity:
-        they have none to publish.** All six are driven from the other end — the
-        four receivers by their sender, Spotify and Tidal by a Connect session
-        that is gone by the time the source reads READY — so nothing over there
-        can be resumed from here, and "what would come back" is not a fact their
-        producers are withholding. What this holds is the last card across a
-        GAP, which is a different problem from the one the mpv sources solved by
-        publishing what a play press would reopen. Extending that change here
-        would mean inventing a "last played" for sources where it means nothing.
-
-        Ending instead of emptying would be the wrong trade and it has been
+        Ending instead of showing would be the wrong trade and it has been
         measured: a session opened afterwards by a push has never been in the
         foreground, so it cannot ask to be system primary, and nothing comes
         back until the app is relaunched. See `_consider_ending`.
-
-        Rebuilding refreshes the timestamp, where holding the copy keeps the old
-        one. Harmless either way: `isPlaying` is forced off below, and iOS
-        extrapolates a position from the timestamp only while playing. This also
-        fires once per idle window — the second consideration onwards returns
-        early in `_consider_ending` — so a fresh stamp costs no extra push.
         """
         if self._session_id is None:
             return
@@ -429,15 +391,7 @@ class PushService:
         if not targets:
             return
 
-        holds_over = (
-            self._last_attributes is not None
-            and not self._displays_something(state)
-            and str(state.get("source") or "none") == self._last_source
-        )
-        if holds_over:
-            attributes = {**self._last_attributes, "isPlaying": False}
-        else:
-            attributes = await self._build_attributes(self._session_id, state)
+        attributes = await self._build_attributes(self._session_id, state)
         # Forced, never read off the state. This function has one thing to say
         # and a source that is not active can still carry `is_playing` —
         # Bluetooth's AVRCP feed publishes a transport whether or not BlueALSA
@@ -445,11 +399,15 @@ class PushService:
         # back into playing, with a position iOS extrapolates.
         attributes["isPlaying"] = False
 
-        await self._send_all(
+        card = {k: v for k, v in attributes.items() if k != "timestamp"}
+        if card == self._idle_card:
+            return
+        if await self._send_all(
             targets,
             now_playing_payload("update", self._session_id, attributes),
             "nowplaying",
-        )
+        ):
+            self._idle_card = card
 
     async def _wake_after(self, delay: float) -> None:
         """Stir the coalescer once, later. See `_consider_ending`."""
@@ -636,18 +594,12 @@ class PushService:
         logger.info(f"Now Playing session {session_id} ended")
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Project the published state into the attributes the card draws.
-
-        Keeps a copy, for the one case the state cannot answer — see
-        `_publish_paused`.
-        """
-        self._last_source = str(state.get("source") or "none")
-        self._last_attributes = build_attributes(
+        """Project the published state into the attributes the card draws."""
+        return build_attributes(
             session_id=session_id,
             state=state,
             devices=await self._devices(),
         )
-        return self._last_attributes
 
     async def _devices(self) -> List[NowPlayingDevice]:
         """One slider per room the phone can actually move, and no others.
@@ -798,40 +750,6 @@ class PushService:
         if delivered:
             await self._registry.mark_pushed(delivered)
         return bool(delivered)
-
-    @staticmethod
-    def _displays_something(state: Dict[str, Any]) -> bool:
-        """Would the card drawn from this state name anything at all?
-
-        The rule `build_attributes` projects the card by (`shown_track`): the
-        session's title, else the resume point's — asking a second question of
-        a second field is how "the lock screen shows a session" and "the state
-        says there is one" come to disagree.
-        """
-        return shown_track(state) is not None
-
-    @staticmethod
-    def _a_source_is_selected(state: Dict[str, Any]) -> bool:
-        """Is any source selected at all — playing, warming up or idle?
-
-        Strictly weaker than `_has_active_source`, and the two are not
-        interchangeable: this is true wherever that one is, AND wherever a
-        source is selected without being active — every source just switched
-        to and not yet started, and every source that has gone quiet. Only
-        `none` means nobody chose anything.
-
-        This is what lets a session end the moment the source is LEFT while a
-        source merely going quiet keeps its grace. The distinction is safe
-        because `transition_to_source` assigns the target in the same locked
-        block that raises `switching`, so a change from one source to
-        another never passes through `none` — measured 2026-09-22, sampling
-        /api/audio/state across radio -> spotify: `spotify/starting` then
-        `spotify/ready`, and `none` in no sample. Were that ever to change,
-        leaving a source and changing source would become indistinguishable
-        here and the card would blink on every switch.
-        """
-        source = state.get("source")
-        return bool(source) and str(source) != "none"
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:

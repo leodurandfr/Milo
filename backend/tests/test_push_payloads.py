@@ -9,11 +9,13 @@ The dB ↔ 0..1 conversion used to be declared here and is tested next to its
 owner now — `tests/test_core_volume.py::TestVolumeScale`.
 """
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from backend.core.push.payloads import (
-    MAC_ARTWORK,
+    MILO_CARD,
+    SOURCE_CARDS,
     NowPlayingDevice,
     build_attributes,
     now_playing_payload,
@@ -97,7 +99,7 @@ class TestNowPlayingAttributes:
 
         assert attrs["id"] == "sess"
         assert attrs["isPlaying"] is False
-        assert attrs["currentTrack"]["title"] is None
+        assert attrs["currentTrack"]["title"] == "Bluetooth"
 
     def test_the_resume_point_is_shown_when_the_session_names_nothing(self, state):
         """The card's own rule (MiloAudioState.shown): a session with no title
@@ -137,8 +139,8 @@ class TestNowPlayingAttributes:
         assert build_attributes("sess", state, [], now=NOW)["controls"] == ["pause", "next", "prev"]
 
     def test_a_mac_names_its_senders_under_the_macos_icon(self):
-        """A Mac sends a stream with no track: the card names who is sending,
-        under the dock's macOS icon, and draws no bar."""
+        """A Mac sends a stream with no track: the card names the source and
+        who is sending, under the dock's macOS icon, and draws no bar."""
         state = {
             "source": "mac", "controls": [], "resume": None,
             "session": {
@@ -150,9 +152,36 @@ class TestNowPlayingAttributes:
 
         track = build_attributes("sess", state, [], now=NOW)["currentTrack"]
 
-        assert (track["title"], track["artworkURL"], track["duration"]) == (
-            "Mac mini, MacBook Air", MAC_ARTWORK, 0.0,
+        assert (track["title"], track["artist"], track["artworkURL"], track["duration"]) == (
+            "Récepteur macOS", "Mac mini, MacBook Air", "/now-playing/macos.jpg", 0.0,
         )
+
+    def test_a_source_with_nothing_playing_shows_its_own_card(self):
+        """Selected, idle, nothing to resume: the source's name over its icon,
+        rather than a media card with every field null."""
+        attrs = build_attributes("sess", {"source": "spotify", "session": None,
+                                          "resume": None}, [], now=NOW)
+
+        track = attrs["currentTrack"]
+        assert (track["title"], track["artist"], track["artworkURL"]) == (
+            "Spotify", None, "/now-playing/spotify.jpg",
+        )
+        assert track["id"] == "spotify:Spotify"
+
+    @pytest.mark.parametrize("source", ["none", None, "a-source-from-the-future"])
+    def test_no_source_shows_milos_card(self, source):
+        """What the Lock Screen holds for the grace once the source is left."""
+        track = build_attributes("sess", {"source": source, "session": None,
+                                          "resume": None}, [], now=NOW)["currentTrack"]
+
+        assert (track["title"], track["artworkURL"]) == ("Milō", "/now-playing/milo.jpg")
+
+    def test_every_card_has_its_icon_on_disk(self):
+        """nginx serves these from dist/, copied from frontend/public/. A name
+        with no file is a 404 the extension turns into a grey square."""
+        public = Path(__file__).resolve().parents[2] / "frontend" / "public"
+        for _, icon in [*SOURCE_CARDS.values(), MILO_CARD]:
+            assert (public / "now-playing" / f"{icon}.jpg").is_file(), icon
 
     def test_each_speaker_is_its_own_device(self, state):
         """One slider per room in Control Center. Collapsing them to a global

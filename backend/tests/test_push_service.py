@@ -313,6 +313,8 @@ class TestSessionLifecycle:
             "sess-phone", "sess-ipad"}
 
         service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        past_the_grace(service)
         apns.send.reset_mock()
 
         await service._publish()
@@ -348,16 +350,15 @@ class TestSessionLifecycle:
 
         assert service._session_id == session_id
 
-    async def test_playback_stopping_ends_the_session(self, service, registry, apns):
-        """Leaving the source ends it AT ONCE, with no paused snapshot first.
+    async def test_leaving_the_source_shows_milos_card_then_ends(
+        self, service, registry, apns
+    ):
+        """Leaving the source puts Milō's own card up for the grace, then ends.
 
-        This used to empty the card and end it a grace later, and the emptying
-        was the whole point: `none` was treated as one more gap to ride out.
-        It is not one. Nothing is selected, so nothing will resume and no
-        `start` is coming — the grace could only keep Milō on a Lock Screen it
-        no longer owns. Reported from the appliance 2026-09-22: source left,
-        Control Center still offering the track that was playing, and the only
-        way to clear it was to open the app so it would report.
+        It was ended on sight from 2026-09-22, because the card it left behind
+        named nothing and read as Milō still offering something to play. The
+        owner chose on 2026-09-25 to show Milō's card instead: the Lock Screen
+        says where the music went, and the track that was playing is gone.
         """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
@@ -368,9 +369,61 @@ class TestSessionLifecycle:
 
         await service._publish()
 
+        assert service._session_id is not None
+        assert sent_events(apns) == ["update"]
+        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
+        assert attributes["isPlaying"] is False
+        assert attributes["currentTrack"]["title"] == "Milō"
+        assert attributes["currentTrack"]["artworkURL"] == "/now-playing/milo.jpg"
+
+        past_the_grace(service)
+        apns.send.reset_mock()
+        await service._publish()
+
         assert service._session_id is None
         assert sent_events(apns) == ["end"]
         assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
+
+    async def test_leaving_a_quiet_source_swaps_the_card_without_restarting_the_clock(
+        self, service, registry, apns
+    ):
+        """The grace counts from when the music stopped. A source left inside
+        it still has to reach the phone as Milō's card — the first idle cycle
+        is not the only one that sends — and must not buy five more minutes."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        idle_since = service._idle_since
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["update"]
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == "Milō"
+        assert service._idle_since == idle_since
+
+    async def test_an_idle_cycle_that_changes_nothing_spends_no_push(
+        self, service, registry, apns
+    ):
+        """Every idle cycle reaches `_publish_paused` now, and the app's report
+        calls in every couple of seconds: only a different card is sent."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        apns.send.reset_mock()
+
+        await service._publish()
+        await service.align_session_to_playback("phone-1")
+
+        assert sent_events(apns) == []
 
     async def test_a_refused_start_does_not_claim_a_session(self, service, registry, apns):
         """Recording a session the phone never opened would send every later
@@ -521,18 +574,14 @@ class TestSourceTransitions:
         assert attributes["isPlaying"] is False
         assert attributes["currentTrack"]["title"] == RESUMABLE["resume"]["title"]
 
-    async def test_a_gap_under_a_source_that_says_nothing_keeps_its_track(
+    async def test_a_gap_under_a_source_that_says_nothing_shows_its_card(
         self, service, registry, apns
     ):
-        """The other half, and the reason the copy of the last card survives.
-
-        Only the four mpv sources publish an idle identity. A receiver whose
-        sender goes — AirPlay disconnecting and coming straight back is the
-        ordinary case — publishes the inert pair alone, so a card rebuilt from
-        that state has every field null, which on the phone is a media card
-        with nothing in it. Blanking through a two-second gap is worse than
-        holding what was there.
-        """
+        """The other half. Only the four mpv sources publish an idle identity;
+        a receiver whose sender goes, or Spotify once its Connect session is
+        gone, publishes the inert pair alone. That rebuilt as a media card with
+        every field null, so the previous track used to be held over instead.
+        The source's own card replaces both: its name, over its dock icon."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
@@ -544,15 +593,16 @@ class TestSourceTransitions:
 
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
         assert attributes["isPlaying"] is False
-        assert attributes["currentTrack"]["title"] == PLAYING["session"]["title"]
+        assert attributes["currentTrack"]["title"] == "Spotify"
+        assert attributes["currentTrack"]["artworkURL"] == "/now-playing/spotify.jpg"
 
     async def test_a_gap_under_ANOTHER_source_does_not_keep_the_track(
         self, service, registry, apns
     ):
-        """What scopes the hold above. Measured 2026-09-20: radio → spotify,
-        and the Lock Screen kept the radio track, paused, under a source that
-        had nothing to play, for the whole grace. A track belonging to a source
-        nobody selected any more is a lie, not a gap."""
+        """Measured 2026-09-20: radio → spotify, and the Lock Screen kept the
+        radio track, paused, under a source that had nothing to play, for the
+        whole grace. A track belonging to a source nobody selected any more is
+        a lie, not a gap."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
@@ -563,17 +613,17 @@ class TestSourceTransitions:
         await service._publish()
 
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
-        assert attributes["currentTrack"]["title"] is None
+        assert attributes["currentTrack"]["title"] == "Webradio"
 
-    async def test_a_source_change_empties_the_card_it_keeps(
+    async def test_a_source_change_shows_the_new_source_on_the_card_it_keeps(
         self, service, registry, apns
     ):
         """The reported failure, and the half of it the grace cannot fix.
         Measured 2026-09-20: radio → spotify, and the Lock Screen kept the radio
         track, paused, offering the transport of a source with nothing to play,
         for the whole five minutes. A track playing nowhere is not this card's
-        track — but ending instead of emptying costs the card until the app is
-        relaunched, which is the worse half of the trade."""
+        track — but ending instead costs the card until the app is relaunched,
+        which is the worse half of the trade. The card names the new source."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         session_id = service._session_id
@@ -588,32 +638,7 @@ class TestSourceTransitions:
         assert sent_events(apns) == ["update"]
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
         assert attributes["isPlaying"] is False
-        assert attributes["currentTrack"]["title"] is None
-
-    async def test_selecting_no_source_takes_the_card_away(
-        self, service, registry, apns
-    ):
-        """`source: none` removes the card rather than emptying it.
-
-        Emptying was the old answer, and it left a Milō card with every field
-        null sitting in Control Center for five minutes — which reads as the
-        appliance still offering something to play. A source nobody selected
-        offers nothing, and the surface should say so by not being there.
-
-        READY is the case this must not swallow: a source IS selected there,
-        it simply has nothing to show yet, and it keeps its grace.
-        """
-        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
-        await service._publish()
-        registry.held["sess"] = tok(
-            PushTokenKind.SESSION, "sess", session_id=service._session_id)
-        service.machine.get_current_state.return_value = dict(STOPPED)
-        apns.send.reset_mock()
-
-        await service._publish()
-
-        assert sent_events(apns) == ["end"]
-        assert service._session_id is None
+        assert attributes["currentTrack"]["title"] == "Webradio"
 
     async def test_the_paused_snapshot_never_says_playing(
         self, service, registry, apns
@@ -673,10 +698,10 @@ class TestSourceTransitions:
     ):
         """The other side of the delay, on the case that still HAS one.
 
-        READY is a source still selected with nothing to show — the gap the
+        READY is a source still selected with nothing playing — the gap the
         grace exists for. It must be ridden out, then ended, or a session that
         outlived playback for good would keep Milō on a Lock Screen it no
-        longer owns. `none` no longer reaches here; it is ended on sight.
+        longer owns. `none` takes the same road, under Milō's card.
         """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
@@ -755,28 +780,27 @@ class TestDeviceReport:
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
         return service._session_id
 
-    async def test_a_source_with_nothing_to_play_closes_the_card(
+    async def test_a_report_on_an_idle_source_holds_its_card_for_the_grace(
         self, service, registry, apns
     ):
-        """The reported failure. The session goes on a source change and the card has nothing behind it, but only Milō can say so —
-        and from the bus alone it must first wait out `SESSION_IDLE_GRACE_S`,
-        because a gap looks the same. A device report is the evidence that
-        licenses closing at once, and it stays that way for a card naming
-        nothing: what the state added is the OTHER kind of idle, pinned by
-        `test_a_report_on_a_stopped_source_does_not_close_what_resumes`.
-        """
-        await self._held(service, registry)
+        """The reported failure. The session goes on a source change, and only
+        Milō can say what the card should show then. A report used to close it
+        at once, because it named nothing; it names the new source now, and a
+        report holding the card for the same grace as the bus is what keeps
+        its lifetime from depending on whether the app happened to be open."""
+        session_id = await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(SWITCHED)
         apns.send.reset_mock()
 
         await service.align_session_to_playback("phone-1")
 
-        assert service._session_id is None
-        assert sent_events(apns) == ["end"]
-        assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
+        assert service._session_id == session_id
+        assert sent_events(apns) == ["update"]
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == "Webradio"
 
-    async def test_no_source_at_all_closes_the_card(self, service, registry, apns):
-        """`source: none` is the other spelling of the same emptiness —
+    async def test_a_report_with_no_source_shows_milos_card(self, service, registry, apns):
+        """`source: none` is the other spelling of the same idleness —
         selecting no source, rather than selecting another one."""
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(STOPPED)
@@ -784,13 +808,17 @@ class TestDeviceReport:
 
         await service.align_session_to_playback("phone-1")
 
-        assert sent_events(apns) == ["end"]
+        assert sent_events(apns) == ["update"]
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == "Milō"
 
     async def test_a_card_is_closed_once(self, service, registry, apns):
         """The app reports every couple of seconds. A second `end` addresses a
         session that no longer exists, and spends budget saying it."""
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(STOPPED)
+        await service.align_session_to_playback("phone-1")
+        past_the_grace(service)
         apns.send.reset_mock()
         await service.align_session_to_playback("phone-1")
         assert sent_events(apns) == ["end"]
@@ -809,7 +837,7 @@ class TestDeviceReport:
         Closing it would put the phone back to the "nothing ever played" this
         state exists to tell apart — so the card is held, showing what a play
         press would bring back, and the grace governs the ending as it does on
-        the bus. The empty card keeps its prompt close, next door.
+        the bus.
         """
         await self._held(service, registry)
         service.machine.get_current_state.return_value = dict(RESUMABLE)

@@ -16,7 +16,7 @@ protocol's envelope. Confirmed against the iOS 27 SDK's NowPlaying.swiftinterfac
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # Two conversions Milō owns, so no client re-implements them:
@@ -27,10 +27,30 @@ from typing import Any, Dict, List, Optional
 # too, and a conversion with one home cannot drift from itself.
 MS_PER_S = 1000.0
 
-# The dock's macOS icon, for a Mac's stream, which names no track: a static
-# file nginx serves from dist/ (frontend/public/now-playing/), rendered once
-# from frontend/src/assets/app-icons/macos.svg, full bleed (iOS rounds it).
-MAC_ARTWORK = "/now-playing/macos.jpg"
+# The card of a source whose state names no track — a Mac's stream, a receiver
+# with no sender, a service selected with nothing playing — and of no source at
+# all: the source's name over its dock icon. Static files nginx serves from
+# dist/ (frontend/public/now-playing/), rendered once at 600 px from
+# frontend/src/assets/app-icons/, full bleed (iOS rounds them).
+#
+# The names are the dock's French labels, fixed rather than read from the
+# language setting: Milo-iOS builds the same card while it runs
+# (`MiloNowPlayingBridge.sourceCards`), and two spellings of one card make the
+# Lock Screen flip between them at every round trip. Change both or neither.
+SOURCE_CARDS: Dict[str, Tuple[str, str]] = {
+    "spotify": ("Spotify", "spotify"),
+    "qobuz": ("Qobuz", "qobuz"),
+    "tidal": ("TIDAL", "tidal"),
+    "airplay": ("AirPlay", "airplay"),
+    "bluetooth": ("Bluetooth", "bluetooth"),
+    "mac": ("Récepteur macOS", "macos"),
+    "radio": ("Webradio", "radio"),
+    "podcast": ("Podcasts", "podcast"),
+    "music_library": ("Bibliothèque", "music-library"),
+    "cd": ("Lecteur CD", "cd"),
+}
+# `none`, and a source this table does not know yet.
+MILO_CARD: Tuple[str, str] = ("Milō", "milo")
 
 
 @dataclass
@@ -66,6 +86,22 @@ def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def source_card(state: Dict[str, Any]) -> Dict[str, Any]:
+    """The card when `shown_track` has nothing: the selected source's name and
+    icon — Milō's when none is selected — and who is sending, when someone is.
+
+    Every idle state now draws something, so a session is never shown empty;
+    it is only ever ended, after `SESSION_IDLE_GRACE_S`.
+    """
+    title, icon = SOURCE_CARDS.get(str(state.get("source") or "none"), MILO_CARD)
+    senders = (state.get("session") or {}).get("senders") or []
+    return {
+        "title": title,
+        "artist": ", ".join(senders) or None,
+        "artwork": f"/now-playing/{icon}.jpg",
+    }
+
+
 def build_attributes(
     session_id: str,
     state: Dict[str, Any],
@@ -83,14 +119,8 @@ def build_attributes(
     """
     session = state.get("session") or {}
     anchor = session.get("position")
-    shown = shown_track(state) or {}
+    shown = shown_track(state) or source_card(state)
     title = shown.get("title")
-    artwork = shown.get("artwork")
-    if state.get("source") == "mac" and session and not title:
-        # A Mac sends a stream, not tracks: the card names who is sending,
-        # under the dock's macOS icon.
-        title = ", ".join(session.get("senders") or []) or None
-        artwork = MAC_ARTWORK
 
     return {
         "id": session_id,
@@ -105,7 +135,7 @@ def build_attributes(
             "artist": shown.get("artist"),
             "album": shown.get("album"),
             "duration": _seconds(shown.get("duration_ms")),
-            "artworkURL": artwork,
+            "artworkURL": shown.get("artwork"),
         },
         "devices": [d.to_dict() for d in devices],
         # What the lock screen may offer: the extension enables a button only
