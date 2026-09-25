@@ -103,6 +103,9 @@ class LibrarySession(MpvSession):
     entries: List[Optional[int]] = field(default_factory=list)
     announced: Optional[int] = None     # the entry whose start went to Navidrome
     failed_in_a_row: int = 0
+    # Where the running series of failed tracks began, (index, seconds): mpv
+    # skips a track it cannot open, so the queue moves on to tracks never heard.
+    failed_from: Optional[Tuple[int, int]] = None
     # Scrobble bookkeeping for the track playing: seconds heard, accumulated
     # from how far the playhead moved (a seek forward hears nothing).
     played_seconds: float = 0.0
@@ -624,11 +627,16 @@ class MusicLibrarySource(MpvAudioSource):
         await super().shutdown()
 
     def _resume_content(self, session: "LibrarySession"):
-        track = session.queue[session.index]
-        return track.get("id") or "", session.position * 1000, {
+        index, position = session.index, session.position
+        if session.failed_from is not None and not session.opened:
+            # The tracks mpv skipped were never heard: come back to the first
+            # of them, not to the last one it tried (E63).
+            index, position = session.failed_from
+        track = session.queue[index]
+        return track.get("id") or "", position * 1000, {
             "queue": list(session.queue),
             "queue_unshuffled": list(session.unshuffled),
-            "queue_index": session.index,
+            "queue_index": index,
             # Without it the restored queue is attributed to no space, and a
             # key leaving would not end it.
             "queue_library_id": session.library_id,
@@ -820,6 +828,8 @@ class MusicLibrarySource(MpvAudioSource):
             return self.mpv_refused(f"switch to track {index + 1}")
         self._move_to_track(session, index)
         session.opened = False
+        # A track the listener picked: the point to come back to from here.
+        session.failed_in_a_row, session.failed_from = 0, None
         self._sync_phase(session, PhaseEvent.TRACK_CHANGE)
         self._publish()
         return self.success_response(f"Playing track {index + 1}")
@@ -1021,6 +1031,14 @@ class MusicLibrarySource(MpvAudioSource):
         if entry not in session.entries or reason not in ("eof", "error"):
             return
         if reason == "error":
+            if session.opened:
+                # This track was heard before it broke: the run starts over here.
+                session.failed_in_a_row = 0
+            if not session.failed_in_a_row:
+                index = session.entries.index(entry)
+                session.failed_from = (
+                    index, session.position if index == session.index else 0
+                )
             session.failed_in_a_row += 1
             self._logger.warning(
                 "Track %s did not play: %s",
@@ -1028,6 +1046,7 @@ class MusicLibrarySource(MpvAudioSource):
             )
         else:
             session.failed_in_a_row = 0
+            session.failed_from = None
         if entry != session.entries[-1]:
             return
         if session.failed_in_a_row:

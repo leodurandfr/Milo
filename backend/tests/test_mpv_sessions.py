@@ -240,6 +240,38 @@ async def test_radio_reroute_mid_play_plays_the_station_again(radio):
     assert state["session"]["phase"] == "playing"
 
 
+async def test_radio_mpv_stopped_by_systemd_ends_without_a_banner(radio):
+    """E71: a backend restart stops the source's mpv unit first (BindsTo +
+    After=), while the backend still runs. Read as a crash, it logged an
+    ERROR and raised a "stream disconnected" banner the kiosk kept after the
+    restart; it is a stop someone asked for (measured 5 times on 2026-09-25)."""
+    radio.systemd.unit_state = AsyncMock(return_value=("deactivating", "success"))
+    await radio.select()
+    await radio.tune(FIP)
+    await radio.tick()
+
+    await radio.mpv.dies()
+    await settle()
+
+    assert radio.session_ends() == ["user_stop"]
+    assert radio.errors() == []
+
+
+async def test_radio_mpv_that_crashes_is_still_a_death_with_a_banner(radio):
+    """The other half of E71: an mpv killed under a session (systemd brings it
+    back: `activating`, Result `signal`) is still a death, reported once."""
+    radio.systemd.unit_state = AsyncMock(return_value=("activating", "signal"))
+    await radio.select()
+    await radio.tune(FIP)
+    await radio.tick()
+
+    await radio.mpv.dies()
+    await settle()
+
+    assert radio.session_ends() == ["daemon_died"]
+    assert radio.errors() == ["stream_disconnected"]
+
+
 # === Podcast ===
 
 class PodcastRig(Rig):
@@ -375,6 +407,28 @@ async def test_podcast_play_starts_at_the_position_it_carries(podcast, monkeypat
     assert podcast.playing()
 
 
+async def test_podcast_play_from_zero_is_not_a_resume(podcast):
+    """E65: a position of 0 read as "no position", so asking for the start of
+    an episode listened to up to 5:00 played it from 5:00."""
+    podcast.data.progress[EPISODE_A["uuid"]] = {"position": 300, "duration": 3600}
+    await podcast.select()
+
+    await podcast.command("play_episode", {"episode_uuid": EPISODE_A["uuid"], "position": 0})
+
+    assert not podcast.loads()[-1][3]
+    assert podcast.state()["session"]["position"]["ms"] == 0
+
+
+async def test_podcast_play_without_a_position_resumes_where_it_was(podcast):
+    """The other half of E65: no position is the resume, from the progress file."""
+    podcast.data.progress[EPISODE_A["uuid"]] = {"position": 300, "duration": 3600}
+    await podcast.select()
+
+    await podcast.command("play_episode", {"episode_uuid": EPISODE_A["uuid"]})
+
+    assert podcast.loads()[-1][3] == 300
+
+
 async def test_podcast_reroute_mid_play_resumes_at_the_same_second(podcast):
     """Decision 2026-09-23: a multiroom toggle mid-play comes back playing, on
     the same episode, at the same second."""
@@ -495,6 +549,52 @@ async def test_library_queue_that_cannot_load_is_reported(library):
     assert not library.active()
     assert "eof" not in library.session_ends()
     assert library.errors() == ["playback_failed"]
+
+
+async def test_library_queue_that_cannot_load_resumes_the_track_chosen(library):
+    """E63: mpv skips a track it cannot open, and the queue followed it, so
+    the resume point offered after the failure named the last track mpv
+    tried (tr-3), never heard, instead of the one the listener chose."""
+    library.mpv.broken["rest/stream"] = "loading failed"
+    await library.select()
+    await library.play_album(start_index=1)
+    await library.tick()
+
+    assert not library.active()
+    assert library.track() == "tr-2"
+
+
+async def test_library_resume_after_failures_is_the_first_track_not_heard(library):
+    """E63, mid-queue: tr-1 played out, then Navidrome went away and tr-2 and
+    tr-3 failed. What was listened to ends at tr-1; the point to come back to
+    is tr-2, the first track the listener never heard."""
+    library.mpv.broken["tr-2"] = "loading failed"
+    library.mpv.broken["tr-3"] = "loading failed"
+    await library.select()
+    await library.play_album()
+    await library.tick()
+    assert library.track() == "tr-1"
+
+    await library.mpv.ends("eof")
+    await settle()
+
+    assert not library.active()
+    assert library.track() == "tr-2"
+
+
+async def test_library_failed_track_then_one_heard_resumes_the_one_heard(library):
+    """The failures are forgotten once a later track is heard: tr-1 failed,
+    tr-2 plays, the listener leaves — tr-2 is what comes back."""
+    library.mpv.broken["tr-1"] = "loading failed"
+    await library.select()
+    await library.play_album()
+    await library.tick()
+    assert library.track() == "tr-2"
+
+    await library.leave()
+    await library.select()
+
+    assert library.track() == "tr-2"
 
 
 async def test_library_play_index_from_the_resume_view_plays(monkeypatch):
@@ -676,3 +776,24 @@ async def test_library_new_queue_mpv_refuses_leaves_nothing_playing(library):
     assert result["success"] is False
     assert library.mpv.current is None
     assert not library.active()
+
+
+async def test_library_track_heard_then_cut_is_the_point_to_come_back_to(library):
+    """Review of E63: tr-1 failed, tr-2 played three minutes and then its
+    stream broke, tr-3 failed. The run of failures began again at tr-2 — the
+    point to come back to is tr-2 where it broke, not tr-1 from the start."""
+    library.mpv.broken["tr-1"] = "loading failed"
+    library.mpv.broken["tr-3"] = "loading failed"
+    await library.select()
+    await library.play_album()
+    await library.tick()
+    assert library.track() == "tr-2"
+    library.mpv.playhead(180.0)
+    await library.tick()
+
+    await library.mpv.fails()
+    await settle()
+
+    assert not library.active()
+    assert library.track() == "tr-2"
+    assert library.state()["resume"]["position_ms"] == 180000

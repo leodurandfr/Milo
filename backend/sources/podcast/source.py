@@ -249,8 +249,9 @@ class PodcastSource(MpvAudioSource):
                 await self._sync_position(self._session)
                 await self._save_progress(self._session)
 
+            # None is "resume where it was"; 0 is the start (E65).
             start_position = params.position or 0
-            if not start_position:
+            if params.position is None:
                 progress = await self._podcast_data.get_playback_progress(episode_uuid)
                 if progress and progress.get('position', 0) > RESUME_MIN_POSITION_S:
                     start_position = progress['position']

@@ -175,6 +175,9 @@ def make_systemd() -> Mock:
         setattr(manager, verb, AsyncMock(return_value=True))
     manager.probe_active = AsyncMock(return_value=False)
     manager.main_pid = AsyncMock(return_value=4242)
+    # A process that exits is a crash systemd brings back, unless a scenario
+    # says the unit was stopped (what a backend restart looks like).
+    manager.unit_state = AsyncMock(return_value=("activating", "signal"))
     return manager
 
 
