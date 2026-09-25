@@ -140,8 +140,29 @@ def build_attributes(
         "devices": [d.to_dict() for d in devices],
         # What the lock screen may offer: the extension enables a button only
         # for a command listed here (Qobuz and a Mac take none, Tidal no seek).
-        "controls": list(state.get("controls") or []),
+        "controls": lock_screen_controls(state),
     }
+
+
+# The commands that bring back what an idle card shows — the one thing a card
+# with no session behind it may still offer.
+RESUME_COMMANDS = ("resume", "resume_playback")
+
+
+def lock_screen_controls(state: Dict[str, Any]) -> List[str]:
+    """The commands the Lock Screen may offer for this state.
+
+    With a session, what the source takes now. Without one, only resuming
+    what the card names: a source's idle `controls` can list more — radio
+    keeps `next`/`prev` to step its favorites while stopped — but the owner
+    asked on 2026-09-25 that a card with nothing playing offer nothing else,
+    so an idle card reads as idle. Milo-iOS filters the same way
+    (`MiloSourceCard.lockScreenControls`).
+    """
+    controls = list(state.get("controls") or [])
+    if state.get("session"):
+        return controls
+    return [c for c in controls if c in RESUME_COMMANDS]
 
 
 def now_playing_payload(

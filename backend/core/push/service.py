@@ -139,6 +139,11 @@ class PushService:
         # The card last sent while nothing plays, so an idle cycle that changes
         # nothing spends no push — see `_publish_paused`.
         self._idle_card: Optional[Dict[str, Any]] = None
+        # The source the idle clock runs under — choosing another restarts it —
+        # and the one whose idle card the grace last closed, which is not
+        # reopened while it stays selected and quiet. See `_may_open_idle`.
+        self._idle_source: Optional[str] = None
+        self._closed_idle_source: Optional[str] = None
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -230,6 +235,11 @@ class PushService:
                     await self._start_session(state)
                 return
 
+            if self._session_id is None:
+                self._lift_closed_guard(state)
+                if self._device_can_be_started(device_id) and self._may_open_idle(state):
+                    await self._open_idle(state)
+                return
             if device_id not in self._session_devices():
                 return
             await self._consider_ending(state)
@@ -318,13 +328,25 @@ class PushService:
         Milō's card, then ends like any other idle state. It was ended on sight
         from 2026-09-22 — a card naming nothing read as Milō still offering
         something to play — and no card names nothing any more.
+
+        And it no longer waits for playback to open: choosing a source opens
+        the card on that source's name and icon, and the track replaces them
+        as soon as playback starts (owner's call, 2026-09-25). See `_open_idle`.
         """
         async with self._session_lock:
             if not self._has_active_source(state):
+                if self._session_id is None:
+                    self._adopt_reported_session()
+                if self._session_id is None:
+                    self._lift_closed_guard(state)
+                    if self._may_open_idle(state):
+                        await self._open_idle(state)
+                    return
                 await self._consider_ending(state)
                 return
 
             self._idle_since = 0.0
+            self._closed_idle_source = None
             self._adopt_reported_session()
 
             if self._session_id is None:
@@ -354,10 +376,12 @@ class PushService:
         something unrelated happened to stir the bus.
 
         Nothing shortens the grace, not even a report from the running app: see
-        `align_session_to_playback`. The clock starts at the first idle cycle
-        and is not restarted by what happens inside it — leaving a quiet source
-        for `none` swaps the card for Milō's, and the session still ends five
-        minutes after the music did.
+        `align_session_to_playback`. The clock starts at the first idle cycle,
+        and only CHOOSING a source restarts it — someone just asked for that
+        source, and five minutes is what an idle card gets from the moment it
+        opens (`_open_idle`). Leaving a quiet source for `none` does not: it
+        swaps the card for Milō's, and the session still ends five minutes
+        after the music did.
         """
         if self._session_id is None:
             return
@@ -365,15 +389,81 @@ class PushService:
             return
 
         now = time.time()
-        if self._idle_since == 0.0:
-            self._idle_since = now
-            self._idle_card = None
-            self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
+        source = str(state.get("source") or "none")
+        chosen = source != "none" and source != self._idle_source
+        self._idle_source = source
+        if self._idle_since == 0.0 or chosen:
+            self._arm_idle_grace(source)
         elif now - self._idle_since >= SESSION_IDLE_GRACE_S:
+            self._closed_idle_source = source
             await self._end_session()
             return
 
         await self._publish_paused(state)
+
+    def _arm_idle_grace(self, source: str) -> None:
+        """Start the idle clock under `source`: the card has five minutes from now.
+
+        The card last sent is forgotten with it — what went out before
+        playback, or under another source, says nothing about what the phone
+        shows now.
+        """
+        self._idle_since = time.time()
+        self._idle_source = source
+        self._idle_card = None
+        self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
+
+    def _lift_closed_guard(self, state: Dict[str, Any]) -> None:
+        """Forget the source the grace last closed, once another is selected.
+
+        See `_may_open_idle`: any other source, `none` included, makes the same
+        source chosen again a fresh choice.
+        """
+        source = str(state.get("source") or "none")
+        if self._closed_idle_source is not None and source != self._closed_idle_source:
+            self._closed_idle_source = None
+
+    def _may_open_idle(self, state: Dict[str, Any]) -> bool:
+        """May a card open for a source that is selected but not playing?
+
+        `none` never opens one: Milō's card only follows a source that was
+        left, for the rest of its grace. A switch in flight opens nothing — the
+        state names neither side yet.
+
+        Nor does the source whose idle card the grace just closed, while it
+        stays selected and quiet. Without that, the next bus event — a volume
+        nudge, a satellite coming back — would reopen the card the grace had
+        closed, and it would never leave the Lock Screen: an idle source is
+        still idle five minutes later. Selecting any other source, `none`
+        included, lifts it (`_lift_closed_guard`), so choosing the same source
+        again opens its card as a fresh choice.
+        """
+        source = str(state.get("source") or "none")
+        return (
+            source != "none"
+            and not state.get("switching")
+            and source != self._closed_idle_source
+        )
+
+    async def _open_idle(self, state: Dict[str, Any]) -> None:
+        """Open the card on a source that is chosen but not playing yet.
+
+        The card is the source's name over its icon (`payloads.source_card`);
+        `isPlaying` is false because no session exists under an idle source.
+        It is an idle card from its first second: the grace is armed at once,
+        and the track replaces it the moment playback starts, through the
+        ordinary `update`.
+
+        Asked for on 2026-09-25, after a first version opened cards only on
+        playback: choosing Podcasts showed nothing until an episode started.
+        """
+        attributes = await self._start_session(state)
+        if attributes is None:
+            return
+        self._arm_idle_grace(str(state.get("source") or "none"))
+        # What the `start` drew is what the phone shows: the first idle cycle
+        # with a token must not send it a second time.
+        self._idle_card = {k: v for k, v in attributes.items() if k != "timestamp"}
 
     async def _publish_paused(self, state: Dict[str, Any]) -> None:
         """Say the music stopped, without saying the session did.
@@ -405,11 +495,19 @@ class PushService:
         measured: a session opened afterwards by a push has never been in the
         foreground, so it cannot ask to be system primary, and nothing comes
         back until the app is relaunched. See `_consider_ending`.
+
+        **No token yet: knock again**, exactly as `_update_session` does and
+        for its reason — only a woken extension can register one, and only a
+        `start` wakes it without a token. A card opened on a chosen source
+        (`_open_idle`) lives on this path from its first second, so without
+        the knock a missed registration left it with no `update` and, at the
+        end of the grace, no `end` to reach it.
         """
         if self._session_id is None:
             return
         targets = self._registry.tokens_for_session(self._session_id)
         if not targets:
+            await self._renew_start(state)
             return
 
         attributes = await self._build_attributes(self._session_id, state)
@@ -487,26 +585,29 @@ class PushService:
         self._session_started_at = newest.registered_at
         self._session_renewed_at = 0.0
 
-    async def _start_session(self, state: Dict[str, Any]) -> None:
+    async def _start_session(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Wake a session on the phone through the push-to-start token.
 
         The id is minted here because the backend is what knows a session began;
         the app learns it from this payload and reports back the session token
         that `update` and `end` then use.
+
+        Returns the attributes the `start` carried, or None when none landed.
         """
         targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         if not targets:
-            return
+            return None
 
         session_id = str(uuid.uuid4())
-        payload = now_playing_payload(
-            "start", session_id, await self._build_attributes(session_id, state)
-        )
-        if await self._send_all(targets, payload, "nowplaying"):
-            self._session_id = session_id
-            self._session_started_at = time.time()
-            self._session_renewed_at = 0.0
-            logger.info(f"Now Playing session {session_id} started")
+        attributes = await self._build_attributes(session_id, state)
+        payload = now_playing_payload("start", session_id, attributes)
+        if not await self._send_all(targets, payload, "nowplaying"):
+            return None
+        self._session_id = session_id
+        self._session_started_at = time.time()
+        self._session_renewed_at = 0.0
+        logger.info(f"Now Playing session {session_id} started")
+        return attributes
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
         targets = self._registry.tokens_for_session(self._session_id)

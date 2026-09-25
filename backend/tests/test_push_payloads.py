@@ -138,6 +138,23 @@ class TestNowPlayingAttributes:
 
         assert build_attributes("sess", state, [], now=NOW)["controls"] == ["pause", "next", "prev"]
 
+    def test_an_idle_card_offers_only_to_resume(self):
+        """Radio keeps `next`/`prev` while stopped, to step its favorites; the
+        Lock Screen card with nothing playing offers only the play press that
+        brings back what it names (owner's call, 2026-09-25)."""
+        state = {"source": "radio", "session": None,
+                 "resume": {"title": "FIP", "artist": None, "album": "FIP", "artwork": None,
+                            "duration_ms": None, "position_ms": None},
+                 "controls": ["resume_playback", "next", "prev"]}
+
+        assert build_attributes("sess", state, [], now=NOW)["controls"] == ["resume_playback"]
+
+    def test_a_source_card_offers_nothing(self):
+        state = {"source": "podcast", "session": None, "resume": None,
+                 "controls": ["set_speed"]}
+
+        assert build_attributes("sess", state, [], now=NOW)["controls"] == []
+
     def test_a_mac_names_its_senders_under_the_macos_icon(self):
         """A Mac sends a stream with no track: the card names the source and
         who is sending, under the dock's macOS icon, and draws no bar."""

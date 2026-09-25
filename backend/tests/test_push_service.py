@@ -640,6 +640,154 @@ class TestSourceTransitions:
         assert attributes["isPlaying"] is False
         assert attributes["currentTrack"]["title"] == "Webradio"
 
+    async def test_choosing_a_source_opens_its_card_before_anything_plays(
+        self, service, registry, apns
+    ):
+        """Asked for on 2026-09-25: choosing Podcasts showed nothing until an
+        episode started. The card opens on the source's name and icon, not
+        playing, and the grace is armed from that moment."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
+        assert attributes["isPlaying"] is False
+        assert attributes["currentTrack"]["title"] == "Spotify"
+        assert attributes["currentTrack"]["artworkURL"] == "/now-playing/spotify.jpg"
+        assert service._idle_since > 0.0
+
+    async def test_the_track_replaces_the_source_card_when_playback_starts(
+        self, service, registry, apns
+    ):
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        session_id = service._session_id
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
+        service.machine.get_current_state.return_value = dict(PLAYING)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == session_id
+        assert sent_events(apns) == ["update"]
+        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
+        assert attributes["isPlaying"] is True
+        assert attributes["currentTrack"]["title"] == "T"
+        assert service._idle_since == 0.0
+
+    async def test_the_start_that_opened_the_card_is_not_repeated_as_an_update(
+        self, service, registry, apns
+    ):
+        """The phone already draws what the `start` carried. The first idle
+        cycle with a token — the app's report, every couple of seconds — sent
+        the same card again and woke the extension for nothing."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        apns.send.reset_mock()
+
+        await service._publish()
+        await service.align_session_to_playback("phone-1")
+
+        assert sent_events(apns) == []
+
+    async def test_a_card_opened_on_a_chosen_source_knocks_again_without_a_token(
+        self, service, registry, apns
+    ):
+        """Only a woken extension registers the session token, and only a
+        `start` wakes it without one. A card opened on a chosen source lives on
+        the idle path from its first second, where a missed registration used
+        to mean no `update` ever, and no `end` at the end of the grace."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        session_id = service._session_id
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+        assert sent_sessions(apns) == [session_id]
+
+    async def test_no_source_opens_nothing(self, service, registry, apns):
+        """Milō's card only follows a source that was left, for the rest of
+        its grace: `none` alone is nobody choosing anything."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(STOPPED)
+
+        await service._publish()
+
+        assert sent_events(apns) == []
+        assert service._session_id is None
+
+    async def test_a_card_the_grace_closed_is_not_reopened_for_the_same_quiet_source(
+        self, service, registry, apns
+    ):
+        """An idle source is still idle five minutes later. Reopening on the
+        next bus event would keep the card on the Lock Screen for ever."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        past_the_grace(service)
+        await service._publish()
+        assert service._session_id is None
+        apns.send.reset_mock()
+
+        await service._publish()
+        await service.align_session_to_playback("phone-1")
+
+        assert sent_events(apns) == []
+
+    async def test_choosing_again_after_the_grace_reopens_the_card(
+        self, service, registry, apns
+    ):
+        """What lifts the guard above: another source, `none` included. The
+        same source chosen again is a fresh choice."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        past_the_grace(service)
+        await service._publish()
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        service.machine.get_current_state.return_value = dict(READY)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+
+    async def test_choosing_another_source_restarts_the_grace(
+        self, service, registry, apns
+    ):
+        """Someone just asked for that source: its card gets its five minutes,
+        whatever was left of the previous one's."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service._idle_since -= SESSION_IDLE_GRACE_S - 5
+        service.machine.get_current_state.return_value = dict(SWITCHED)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["update"]
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == "Webradio"
+        assert time.time() - service._idle_since < 5
+
     async def test_the_paused_snapshot_never_says_playing(
         self, service, registry, apns
     ):
@@ -929,6 +1077,20 @@ class TestDeviceReport:
         await service.align_session_to_playback("phone-1")
 
         assert sent_events(apns) == []
+
+    async def test_a_report_on_a_chosen_quiet_source_opens_its_card(
+        self, service, registry, apns
+    ):
+        """The app open on a selected source with nothing playing: the report
+        opens the card the bus would have, on the source's name and icon."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(READY)
+
+        await service.align_session_to_playback("phone-1")
+
+        assert sent_events(apns) == ["start"]
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == "Spotify"
 
     async def test_a_phone_that_cannot_be_started_starts_nothing(
         self, service, registry, apns
