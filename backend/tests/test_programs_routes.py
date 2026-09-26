@@ -57,7 +57,7 @@ async def test_two_clients_racing_the_same_update_start_only_one(router):
     """The claim must land before the GitHub round-trip, not after it."""
     gate = asyncio.Event()
 
-    async def slow_check(program_key, target):
+    async def slow_check(program_key, target, version):
         await gate.wait()
         return {"can_update": True, "available_version": "1.2.3"}
 
@@ -242,3 +242,26 @@ async def test_an_update_announces_itself_once(router):
 
     # The key is released, so the same program can be updated again.
     assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
+
+
+async def test_a_chosen_version_reaches_the_check_and_the_install(router):
+    """Dropped on either hop, the unit would install upstream's latest instead."""
+    endpoint = _endpoint(router, "/api/programs/{program_key}/update")
+    tasks = BackgroundTasks()
+    payload = ProgramUpdateRequest(target="upstream", version="0.8.1")
+
+    assert (await endpoint("go-librespot", payload, tasks))["status"] == "success"
+    await tasks()
+
+    router.update_service.can_update_program.assert_awaited_once_with(
+        "go-librespot", "upstream", "0.8.1"
+    )
+    router.update_service.update_program.assert_awaited_once_with(
+        "go-librespot", "upstream", "0.8.1"
+    )
+
+
+def test_a_version_is_only_a_trial():
+    """The return to the manifest names no version: the manifest does."""
+    with pytest.raises(ValueError):
+        ProgramUpdateRequest(target="validated", version="0.8.1")

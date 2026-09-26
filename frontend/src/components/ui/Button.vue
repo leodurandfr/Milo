@@ -138,7 +138,7 @@ function handleClick(event) {
 /* === BACKGROUND-STRONG variant === */
 .btn--background-strong.btn--normal {
     background-color: var(--color-background-strong);
-    color: var(--color-text-secondary);
+    color: var(--color-text);
 }
 
 .btn--background-strong.btn--disabled {
@@ -238,7 +238,7 @@ function handleClick(event) {
 
 .btn--background-strong.btn--loading {
     background-color: var(--color-background-strong);
-    color: var(--color-text-secondary);
+    color: var(--color-text);
 }
 
 .btn--background-neutral.btn--loading {

@@ -33,20 +33,34 @@ class UpdateService(VersionService):
         self._satellites = satellite_update_service
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
-    @staticmethod
-    def _select_target(status: Dict[str, Any], target: str) -> Optional[Dict[str, Any]]:
+    @classmethod
+    def _select_target(
+        cls, status: Dict[str, Any], target: str, version: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Point `latest` at the version this update must install.
 
-        Three gestures share one flow and differ only in which release `latest`
+        Four gestures share one flow and differ only in which release `latest`
         names: the ordinary update (the manifest's version), the trial of what
-        upstream published past it, and the return to the manifest that ends
-        such a trial. Every install flow below reads its version from the same
-        place, so none of them knows which gesture it is serving.
+        upstream published past it — its latest, or a chosen `version` between
+        the two — and the return to the manifest that ends such a trial. Every
+        install flow below reads its version from the same place, so none of
+        them knows which gesture it is serving.
 
         `None` means there is nothing to install for that target.
         """
         latest = status.get("latest", {})
         release_keys = ("version", "tag_name", "html_url", "published_at")
+
+        if version is not None:
+            # Only a release the offer listed, and never the one that runs. No
+            # `ahead` check: stepping down from the latest to an earlier trial
+            # is the point.
+            chosen = next(
+                (r for r in latest.get("trials") or [] if r["version"] == version), None
+            )
+            if chosen is None or version == cls.installed_version(status):
+                return None
+            return {**status, "latest": {**latest, **{k: chosen[k] for k in release_keys}}}
 
         if target == "upstream":
             upstream = latest.get("upstream") or {}
@@ -102,19 +116,21 @@ class UpdateService(VersionService):
             )
             await self.settings_service.set_setting("updates.forced_versions", live)
 
-    async def update_program(self, program_key: str, target: str = "validated") -> Dict[str, Any]:
+    async def update_program(
+        self, program_key: str, target: str = "validated", version: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Dispatches a program key to the flow that knows how to update it.
 
         `target` picks the release: "validated" is the version `dependencies.env`
         declares (and, when the unit is off-pin, the return to it), "upstream"
-        the one GitHub published past it.
+        the one GitHub published past it — its latest, or `version` when given.
         """
         if program_key not in self.programs:
             return {"success": False, "error": f"Update not supported for {program_key}"}
 
         try:
             status = await self.get_program_full_status(program_key)
-            selected = self._select_target(status, target)
+            selected = self._select_target(status, target, version)
             if selected is None:
                 return {"success": False, "error": "No update available"}
 
@@ -1568,7 +1584,9 @@ class UpdateService(VersionService):
             except Exception as e:
                 self.update_logger.warning(f"Failed to cleanup {temp_dir}: {e}")
 
-    async def can_update_program(self, program_key: str, target: str = "validated") -> Dict[str, Any]:
+    async def can_update_program(
+        self, program_key: str, target: str = "validated", version: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Checks if a program can be installed at the requested target"""
         if program_key not in self.programs:
             return {"can_update": False, "reason": "Update not supported"}
@@ -1579,7 +1597,7 @@ class UpdateService(VersionService):
             return {"can_update": False, "reason": "Deploy wrapper not accessible"}
 
         status = await self.get_program_full_status(program_key)
-        selected = self._select_target(status, target)
+        selected = self._select_target(status, target, version)
         if selected is None:
             return {"can_update": False, "reason": "No update available"}
 

@@ -177,7 +177,7 @@ export const ENTRIES = [
     id: 'Dropdown',
     group: 'controls',
     file: 'components/ui/Dropdown.vue',
-    summary: 'Select over options. displayOverride shows a computed label while keeping the raw value.',
+    summary: 'Select over options. displayOverride shows a computed label while keeping the raw value. A trigger slot ({ toggle, isOpen, disabled }) replaces the select box with the caller\'s own button, such as an IconButton; the menu is unchanged.',
   },
   {
     id: 'RangeSlider',

@@ -384,7 +384,11 @@
     "dependenciesHint": "安装应用及与之一同验证的程序版本。",
     "clientsHint": "Milō Clients 也会一并更新。",
     "revertTo": "回到 {version}",
-    "revertingTo": "正在回到 {version}…"
+    "revertingTo": "正在回到 {version}…",
+    "changeVersion": "更换版本",
+    "releases": "版本",
+    "validated": "已验证",
+    "installingVersion": "正在安装 {version}…"
   },
   "info": {
     "temperature": "温度",

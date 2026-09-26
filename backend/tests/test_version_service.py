@@ -570,6 +570,118 @@ class TestForcedVersions:
         assert await version_service.get_forced_versions() == {}
 
 
+def _patch_github(latest_tag: str, releases):
+    """Answer `releases/latest` with one tag and `releases` with a list.
+
+    `releases` is the raw GitHub list, or an Exception the request raises.
+    """
+    def respond(url, **_):
+        response = AsyncMock()
+        response.status = 200
+        if url.endswith("/releases/latest"):
+            response.json = AsyncMock(return_value={
+                "tag_name": latest_tag,
+                "published_at": "2026-05-21T00:00:00Z",
+                "html_url": f"https://example.invalid/{latest_tag}",
+                "assets": [],
+            })
+        elif isinstance(releases, Exception):
+            raise releases
+        else:
+            response.json = AsyncMock(return_value=releases)
+        return AsyncMock(
+            __aenter__=AsyncMock(return_value=response),
+            __aexit__=AsyncMock(return_value=False),
+        )
+
+    mock_session = AsyncMock()
+    mock_session.get = MagicMock(side_effect=respond)
+    return patch("aiohttp.ClientSession", return_value=AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_session),
+        __aexit__=AsyncMock(return_value=False),
+    ))
+
+
+def _release(tag, **flags):
+    return {"tag_name": tag, "html_url": f"https://example.invalid/{tag}",
+            "published_at": "2026-05-01T00:00:00Z", **flags}
+
+
+class TestTrialWindow:
+    """The versions the "change version" menu offers: past the manifest, up to latest.
+
+    Below the manifest is outside the window on purpose — a forced version is
+    by definition ahead of it, and `get_forced_versions` would drop anything
+    else, leaving the unit off-pin with nothing recording it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_only_stable_releases_between_the_pin_and_latest(self, version_service):
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        releases = [
+            _release("v0.9.0"),
+            _release("v0.8.1"),
+            _release("v1.0.0-rc1", prerelease=True),
+            _release("v0.9.1", draft=True),
+            _release("v0.7.5-beta"),
+            _release("nightly"),
+            _release("v0.8.0"),
+            _release("v0.7.2"),
+            _release("v0.7.1"),
+        ]
+        with _patch_github("v0.8.1", releases):
+            result = await version_service.get_latest_github_version("go-librespot")
+
+        # 0.9.0 is past what `releases/latest` answers, 0.7.2 is the pin itself.
+        assert [r["version"] for r in result["trials"]] == ["0.8.1", "0.8.0"]
+        assert result["trials"][0]["tag_name"] == "v0.8.1"
+
+    @pytest.mark.asyncio
+    async def test_the_window_is_ordered_by_version_not_by_listing(self, version_service):
+        """GitHub lists by creation date; a backported 0.8.3 would sit above 0.9.0."""
+        version_service.programs["shairport-sync"]["validated_version"] = "5.2"
+        releases = [_release("5.2.3"), _release("5.3"), _release("5.2.10")]
+        with _patch_github("5.3", releases):
+            result = await version_service.get_latest_github_version("shairport-sync")
+
+        assert [r["version"] for r in result["trials"]] == ["5.3", "5.2.10", "5.2.3"]
+        assert result["trials"][0]["tag_name"] == "5.3"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_list_leaves_the_offer_intact(self, version_service):
+        """The list only feeds a menu; the update itself must not depend on it."""
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        with _patch_github("v0.8.1", Exception("rate limited")):
+            result = await version_service.get_latest_github_version("go-librespot")
+
+        assert result["status"] == "success"
+        assert result["upstream"]["ahead"] is True
+        assert result["trials"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_failed_list_is_not_asked_again_on_every_read(self, version_service):
+        """Every status read reaches this; uncached, a failure is paid on each one.
+
+        Offline that is a 10 s timeout per opening of the update screen, and
+        under the anonymous rate limit it spends the requests the offer needs.
+        """
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        with _patch_github("v0.8.1", Exception("rate limited")) as client:
+            await version_service.get_latest_github_version("go-librespot")
+            await version_service.get_latest_github_version("go-librespot")
+
+        session = client.return_value.__aenter__.return_value
+        asked = [c.args[0] for c in session.get.call_args_list if c.args[0].endswith("per_page=30")]
+        assert len(asked) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_app_itself_has_no_window(self, version_service):
+        with _patch_github_release("v9.9.9"):
+            result = await version_service.get_latest_github_version("milo")
+
+        assert "trials" not in result
+
+
 class TestOffPinByAccident:
     """A unit running a version ABOVE the pin, with nothing recording a trial.
 

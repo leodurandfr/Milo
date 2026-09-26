@@ -14,6 +14,10 @@ from typing import Any, Dict, List, Optional
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.helpers import compare_versions, is_stable_release
 
+# How long a failed release-list read is remembered before it is tried again.
+RELEASES_RETRY_S = 300
+
+
 class VersionService:
     """Simplified service to manage Milo program versions"""
 
@@ -206,6 +210,14 @@ class VersionService:
         result.update(self._release_at(program_key, fetched["tag_name"], target))
         if forced:
             result["validated"] = self._release_at(program_key, fetched["tag_name"], validated)
+        # The versions a trial may land on: past the manifest, up to what
+        # upstream calls latest. Never below the manifest — a forced version is
+        # by definition ahead of it, and `get_forced_versions` drops anything else.
+        result["trials"] = [
+            release for release in await self._fetch_releases(program_key)
+            if compare_versions(validated, release["version"])
+            and not compare_versions(fetched["version"], release["version"])
+        ]
         return result
 
     async def get_latest_github_version(self, program_key: str) -> Dict[str, Any]:
@@ -290,6 +302,62 @@ class VersionService:
             return {"status": "error", "message": "GitHub API timeout"}
         except Exception as e:
             return {"status": "error", "message": f"GitHub API error: {str(e)}"}
+
+    async def _fetch_releases(self, program_key: str) -> List[Dict[str, Any]]:
+        """The program's recent stable releases, newest first, cached for an hour.
+
+        Only what a trial can pick from, so it never stands in the way of the
+        offer: a failed read is an empty list and a warning, and it is kept for
+        `RELEASES_RETRY_S` — this runs on every status read, so an uncached
+        failure would cost each opening of the screen a 10 s timeout offline, and
+        under the anonymous rate limit spend the requests the offer itself needs.
+        A tag counts only
+        when it is the bare version, optionally "v"-prefixed — `version_regex`
+        searches, so "v0.10.2-rc1" would otherwise read as 0.10.2.
+        """
+        cache_key = f"github_releases_{program_key}"
+        now = time.time()
+        if (cache_key in self._github_cache and
+                now - self._last_github_fetch.get(cache_key, 0) < self._cache_timeout):
+            return self._github_cache[cache_key]
+
+        repo = self.programs[program_key]["repo"]
+        url = f"https://api.github.com/repos/{repo}/releases?per_page=30"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self._get_github_headers(),
+                                       timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        raise ValueError(f"GitHub API error: {response.status}")
+                    data = await response.json()
+            if not isinstance(data, list):
+                raise ValueError("GitHub API answered no release list")
+        except Exception as e:
+            self.logger.warning(f"Release list for {program_key} unavailable: {e}")
+            self._github_cache[cache_key] = []
+            # Expires RELEASES_RETRY_S from now rather than a full cache period.
+            self._last_github_fetch[cache_key] = now - self._cache_timeout + RELEASES_RETRY_S
+            return []
+
+        version_regex = self.programs[program_key]["version_regex"]
+        releases = []
+        for release in data:
+            tag_name = release.get("tag_name") or ""
+            match = re.search(version_regex, tag_name)
+            if (release.get("draft") or release.get("prerelease") or not match
+                    or tag_name.removeprefix("v") != match.group(1)):
+                continue
+            releases.append({
+                "version": match.group(1),
+                "tag_name": tag_name,
+                "html_url": release.get("html_url"),
+                "published_at": release.get("published_at"),
+            })
+        releases.sort(key=lambda r: [int(p) for p in r["version"].split(".")], reverse=True)
+
+        self._github_cache[cache_key] = releases
+        self._last_github_fetch[cache_key] = now
+        return releases
 
     async def get_all_program_status(self) -> Dict[str, Any]:
         """Gets the status of all programs"""

@@ -384,7 +384,11 @@
     "dependenciesHint": "Installiert die App und die damit validierten Programmversionen.",
     "clientsHint": "Die Milō Clients erhalten sie ebenfalls.",
     "revertTo": "Zurück zu {version}",
-    "revertingTo": "Zurück zu {version}…"
+    "revertingTo": "Zurück zu {version}…",
+    "changeVersion": "Version wechseln",
+    "releases": "Versionen",
+    "validated": "Validiert",
+    "installingVersion": "{version} wird installiert…"
   },
   "info": {
     "temperature": "Temperatur",

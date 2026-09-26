@@ -102,6 +102,7 @@ import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
+import TriggerSample from './samples/TriggerSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
 import SourceStage from './SourceStage.vue';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
@@ -331,7 +332,13 @@ export const REGISTRY = {
   Dropdown: {
     component: Dropdown,
     args: { modelValue: 'medium', options: SELECT_OPTIONS },
-    overrides: { modelValue: { kind: 'enum', options: SELECT_OPTIONS.map(option => option.value) } }
+    overrides: { modelValue: { kind: 'enum', options: SELECT_OPTIONS.map(option => option.value) } },
+    slots: {
+      trigger: {
+        none: null,
+        'IconButton — the Update Manager version menu': { component: TriggerSample, scoped: true }
+      }
+    }
   },
 
   RangeSlider: {

@@ -722,9 +722,18 @@ class ProgramUpdateRequest(BaseModel):
 
     "validated" is the version `dependencies.env` declares, and — when the unit
     was moved past it — the return to that version. "upstream" is what GitHub
-    published beyond the manifest, installed to try it before the set is bumped.
+    published beyond the manifest, installed to try it before the set is bumped:
+    its latest release, or `version` — one of the offer's `trials`, the only
+    list it is checked against.
     """
     target: Literal['validated', 'upstream']
+    version: Optional[str] = None
+
+    @model_validator(mode="after")
+    def version_is_a_trial(self):
+        if self.version is not None and self.target != 'upstream':
+            raise ValueError("version applies to the upstream target only")
+        return self
 
 
 # =============================================================================

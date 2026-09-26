@@ -31,8 +31,11 @@
       v-bind="bound"
       v-on="listeners"
     >
-      <template v-for="(content, name) in slotContent" :key="name" #[name]>
-        <component :is="content.component" v-if="content.component" v-bind="content.props" />
+      <template v-for="(content, name) in slotContent" :key="name" #[name]="scope">
+        <!-- `scoped` forwards the slot's own props, for a slot whose content
+             drives the component (Dropdown's trigger calls its `toggle`). -->
+        <component :is="content.component" v-if="content.component"
+          v-bind="content.scoped ? { ...scope, ...content.props } : content.props" />
         <template v-else>{{ content.text }}</template>
       </template>
     </component>

@@ -88,7 +88,7 @@ const iconColor = computed(() => {
     return 'var(--color-text-contrast)';
   } else {
     // background-strong
-    return 'var(--color-text-secondary)';
+    return 'var(--color-text)';
   }
 });
 
@@ -153,7 +153,7 @@ function handleClick(event) {
 /* === VARIANTS === */
 .icon-button--background-strong {
   background: var(--color-background-strong);
-  color: var(--color-text-secondary);
+  color: var(--color-text);
 }
 
 .icon-button--on-dark {
@@ -219,7 +219,7 @@ function handleClick(event) {
 /* === LOADING states (preserves variant styling) === */
 .icon-button--background-strong.icon-button--loading {
   background: var(--color-background-strong);
-  color: var(--color-text-secondary);
+  color: var(--color-text);
 }
 
 .icon-button--on-dark.icon-button--loading {

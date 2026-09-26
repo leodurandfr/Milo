@@ -179,6 +179,23 @@ describe('updatesStore in-flight update state', () => {
     expect(store.localUpdateTarget('shairport-sync')).toBe('validated');
   });
 
+  it('sends the chosen release with a trial and remembers it', async () => {
+    // Dropped from the body, the backend installs upstream's latest instead of
+    // the release picked in the menu.
+    apiCall.get.mockResolvedValue(ok({ programs: { 'go-librespot': {} }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+
+    await store.startLocalUpdate('go-librespot', 'upstream', '0.8.1');
+
+    expect(apiCall.post).toHaveBeenCalledWith(
+      '/api/programs/go-librespot/update',
+      { target: 'upstream', version: '0.8.1' },
+      expect.anything()
+    );
+    expect(store.localUpdateVersion('go-librespot')).toBe('0.8.1');
+  });
+
   it('lets a satellite update run beside anything but the app update', async () => {
     // A satellite is a separate machine: blocking the whole screen while one
     // updates makes a two-speaker house a queue. The app update is the one

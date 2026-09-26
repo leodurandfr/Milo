@@ -117,7 +117,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     // The target rides along so the button that was pressed can say what it is
     // doing. A client that only learned of the update from the server's
     // in-flight set has no target and falls back to the generic label.
-    states.value[id] = { updating: true, target: body?.target };
+    states.value[id] = { updating: true, target: body?.target, version: body?.version };
     const result = await apiCall.post(url, body, {
       category: 'updates',
       message,
@@ -140,12 +140,13 @@ export const useUpdatesStore = defineStore('updates', () => {
   // dependencies.env declares — and, on a unit deliberately moved past it, the
   // return to that version — while 'upstream' is what GitHub published beyond
   // the manifest. The backend decides which are on offer; this only forwards it.
-  async function startLocalUpdate(programKey, target = 'validated') {
+  // `version` names one release of the offer's `trials`, and only with 'upstream'.
+  async function startLocalUpdate(programKey, target = 'validated', version = null) {
     if (!canUpdateLocal(programKey)) return;
     await startUpdate(localUpdateStates, programKey,
       `/api/programs/${programKey}/update`,
       `Error starting update for ${programKey}`,
-      { target });
+      version ? { target, version } : { target });
   }
 
   async function startSatelliteUpdate(macId) {
@@ -173,6 +174,9 @@ export const useUpdatesStore = defineStore('updates', () => {
   }
   function localUpdateTarget(programKey) {
     return localUpdateStates.value[programKey]?.target || null;
+  }
+  function localUpdateVersion(programKey) {
+    return localUpdateStates.value[programKey]?.version || null;
   }
   function isLocalUpdateCompleted(programKey) {
     return localCompletedUpdates.value.has(programKey);
@@ -333,6 +337,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     isSatelliteCamillaUpdateCompleted,
     isSatelliteAwaitingReturn,
     localUpdateTarget,
+    localUpdateVersion,
     isMiloUpdating,
     isLocalUpdateBusy,
     isAnySatelliteUpdating,

@@ -406,7 +406,9 @@ def create_programs_router(
             return _refuse(blocker, program_key)
 
         try:
-            can_update = await update_service.can_update_program(program_key, payload.target)
+            can_update = await update_service.can_update_program(
+                program_key, payload.target, payload.version
+            )
         except Exception:
             active_updates.discard(program_key)
             raise
@@ -425,7 +427,9 @@ def create_programs_router(
 
         do_update = _create_background_update(
             update_key=program_key,
-            update_fn=lambda: update_service.update_program(program_key, payload.target),
+            update_fn=lambda: update_service.update_program(
+                program_key, payload.target, payload.version
+            ),
             progress_event_cls=ProgramUpdateProgress,
             complete_event_cls=ProgramUpdateComplete,
             identifier={"program": program_key},

@@ -3725,7 +3725,8 @@ class TestTheInstallTarget:
     """
 
     @staticmethod
-    def _status(*, version, upstream_version, ahead, validated=None, update_available=False):
+    def _status(*, version, upstream_version, ahead, validated=None, update_available=False,
+                trials=(), installed=None):
         latest = {
             "status": "success",
             "version": version,
@@ -3739,6 +3740,15 @@ class TestTheInstallTarget:
                 "published_at": "2026-05-21T00:00:00Z",
                 "ahead": ahead,
             },
+            "trials": [
+                {
+                    "version": trial,
+                    "tag_name": f"v{trial}",
+                    "html_url": f"https://example.invalid/{trial}",
+                    "published_at": "2026-05-01T00:00:00Z",
+                }
+                for trial in trials
+            ],
         }
         if validated:
             latest["validated"] = {
@@ -3747,7 +3757,10 @@ class TestTheInstallTarget:
                 "html_url": f"https://example.invalid/{validated}",
                 "published_at": None,
             }
-        return {"latest": latest, "update_available": update_available}
+        status = {"latest": latest, "update_available": update_available}
+        if installed:
+            status["installed"] = {"status": "installed", "versions": {"main": installed}}
+        return status
 
     def test_the_upstream_target_installs_what_upstream_published(self):
         """The trial must reach the tag GitHub answered with, not the pinned one.
@@ -3803,6 +3816,39 @@ class TestTheInstallTarget:
             self._status(version="0.9.0", upstream_version="0.9.0", ahead=False), "validated"
         ) is None
 
+    def test_a_chosen_trial_installs_that_release(self):
+        """Stepping down from the latest to an earlier trial: `ahead` is false, and irrelevant."""
+        selected = UpdateService._select_target(
+            self._status(
+                version="0.9.0", upstream_version="0.9.0", ahead=False, validated="0.7.2",
+                trials=("0.9.0", "0.8.1"), installed="0.9.0",
+            ),
+            "upstream", "0.8.1",
+        )
+
+        assert selected["latest"]["version"] == "0.8.1"
+        assert selected["latest"]["tag_name"] == "v0.8.1"
+        assert selected["latest"]["html_url"].endswith("0.8.1")
+
+    def test_a_version_outside_the_window_is_refused(self):
+        """Below the manifest, or anything the offer did not list, installs nothing."""
+        assert UpdateService._select_target(
+            self._status(
+                version="0.7.2", upstream_version="0.9.0", ahead=True,
+                trials=("0.9.0", "0.8.1"), installed="0.7.2",
+            ),
+            "upstream", "0.7.1",
+        ) is None
+
+    def test_the_running_version_is_not_reinstalled(self):
+        assert UpdateService._select_target(
+            self._status(
+                version="0.8.1", upstream_version="0.9.0", ahead=True, validated="0.7.2",
+                trials=("0.9.0", "0.8.1"), installed="0.8.1",
+            ),
+            "upstream", "0.8.1",
+        ) is None
+
 
 class TestForcedVersionBookkeeping:
     """The record of "this unit runs a version past the manifest".
@@ -3820,6 +3866,28 @@ class TestForcedVersionBookkeeping:
         assert mock_settings_service._storage["updates.forced_versions"] == {
             "shairport-sync": "5.2.3"
         }
+
+    @pytest.mark.asyncio
+    async def test_a_chosen_trial_is_recorded_as_the_forced_version(
+            self, update_service, mock_settings_service):
+        """The record must name what was installed, not upstream's latest.
+
+        Recording the latest would have the next Milō update's reconciliation
+        move the unit up to it — undoing the choice behind the user's back.
+        """
+        update_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"go-librespot": "0.9.0"}
+        selected = UpdateService._select_target(
+            TestTheInstallTarget._status(
+                version="0.9.0", upstream_version="0.9.0", ahead=False, validated="0.7.2",
+                trials=("0.9.0", "0.8.1"), installed="0.9.0",
+            ),
+            "upstream", "0.8.1",
+        )
+
+        await update_service._record_forced_version("go-librespot", "upstream", selected)
+
+        assert await update_service.get_forced_versions() == {"go-librespot": "0.8.1"}
 
     @pytest.mark.asyncio
     async def test_returning_to_the_manifest_drops_the_record(self, update_service, mock_settings_service):

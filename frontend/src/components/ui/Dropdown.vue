@@ -1,7 +1,13 @@
 <!-- frontend/src/components/ui/Dropdown.vue -->
 <template>
-  <div ref="dropdownRef" class="dropdown">
-    <button v-press type="button" class="dropdown-trigger"
+  <div ref="dropdownRef" class="dropdown" :class="{ 'dropdown--custom-trigger': $slots.trigger }">
+    <!-- A caller-drawn trigger (an IconButton) replaces the select box; the menu
+         is the same. It must stay the wrapper's first element: the menu is
+         positioned against it. -->
+    <div v-if="$slots.trigger" class="dropdown-custom-trigger">
+      <slot name="trigger" :toggle="toggleDropdown" :is-open="isOpen" :disabled="disabled" />
+    </div>
+    <button v-else v-press type="button" class="dropdown-trigger"
       :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
@@ -15,10 +21,14 @@
           :class="[`dropdown-menu--${size}`, { 'open-upward': openUpward, 'open-leftward': openLeftward }]"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
           @scroll.stop>
+          <div v-if="title" class="dropdown-title text-mono-small">{{ title }}</div>
           <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
             :class="[size === 'small' ? 'heading-4' : 'heading-3', { 'is-selected': option.value === modelValue }]"
             @click="selectOption(option.value)">
-            {{ option.label }}
+            <span class="dropdown-item-label">{{ option.label }}</span>
+            <span v-if="option.icon" class="dropdown-item-icon" role="img" :aria-label="option.iconLabel">
+              <SvgIcon :name="option.icon" :size="20" />
+            </span>
           </div>
         </div>
       </Transition>
@@ -38,7 +48,8 @@ const props = defineProps({
   options: {
     type: Array,
     required: true,
-    // Expected format: [{ label: 'Label', value: 'value' }, ...]
+    // Expected format: [{ label: 'Label', value: 'value' }, ...], plus an
+    // optional `icon` after the label and the `iconLabel` a screen reader says.
   },
   placeholder: {
     type: String,
@@ -61,6 +72,19 @@ const props = defineProps({
   displayOverride: {
     type: String,
     default: null
+  },
+  // Where the menu goes when there is room for it: below the trigger from its
+  // left edge, or above it from its right edge (a trigger at the end of a row).
+  // Either flips when the preferred side lacks the room.
+  // A heading above the options, for a menu whose trigger names nothing (an icon).
+  title: {
+    type: String,
+    default: null
+  },
+  placement: {
+    type: String,
+    default: 'bottom-start',
+    validator: (value) => ['bottom-start', 'top-end'].includes(value)
   }
 });
 
@@ -72,7 +96,6 @@ const isOpen = ref(false);
 const openUpward = ref(false);
 const openLeftward = ref(false);
 const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
-const lastScrollPosition = ref({ x: 0, y: 0 });
 
 const selectedLabel = computed(() => {
   if (props.displayOverride) return props.displayOverride;
@@ -110,7 +133,7 @@ function getUiScale() {
  */
 function getTriggerRestRect() {
   const wrapper = dropdownRef.value;
-  const trigger = wrapper?.querySelector('.dropdown-trigger');
+  const trigger = wrapper?.firstElementChild;
   if (!trigger) return null;
 
   const pressed = trigger.getBoundingClientRect();
@@ -151,59 +174,37 @@ function calculateDropdownDirection() {
   // Get actual menu height if available (after render), otherwise use max
   const actualMenuHeight = (menuRef.value?.offsetHeight || MENU_MAX_HEIGHT) * menuScale;
 
-  // Detect horizontal overflow: align right edge of menu to right edge of trigger
+  // Horizontal: the preferred edge, unless the menu would leave the viewport.
   const MENU_MIN_WIDTH = 200; // CSS min-width of dropdown-menu
   const menuWidth = (menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, menuLayoutWidth)) * menuScale;
-  const spaceRight = window.innerWidth - triggerRect.left;
-  openLeftward.value = spaceRight < menuWidth && triggerRect.right > menuWidth;
+  const fitsRightward = window.innerWidth - triggerRect.left >= menuWidth;
+  const fitsLeftward = triggerRect.right >= menuWidth;
+  openLeftward.value = props.placement === 'top-end'
+    ? fitsLeftward || !fitsRightward
+    : !fitsRightward && fitsLeftward;
 
-  const left = openLeftward.value
-    ? triggerRect.right - menuWidth
-    : triggerRect.left;
-
-  menuPosition.value = {
-    top: `${triggerRect.bottom + GAP}px`,
-    left: `${left}px`,
-    width: `${menuLayoutWidth}px`
-  };
-
-  // Find the scrollable parent container
+  // Vertical: measured against the scrollable parent, or the viewport.
   let scrollableParent = dropdownRef.value.parentElement;
   while (scrollableParent) {
-    const style = window.getComputedStyle(scrollableParent);
-    const overflowY = style.overflowY;
-
-    if (overflowY === 'auto' || overflowY === 'scroll') {
-      break;
-    }
+    const overflowY = window.getComputedStyle(scrollableParent).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') break;
     scrollableParent = scrollableParent.parentElement;
   }
+  const bounds = scrollableParent
+    ? scrollableParent.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight };
+  const spaceBelow = bounds.bottom - triggerRect.bottom;
+  const spaceAbove = triggerRect.top - bounds.top;
+  const needed = actualMenuHeight + BOTTOM_MARGIN;
+  openUpward.value = props.placement === 'top-end'
+    ? spaceAbove >= needed || spaceAbove > spaceBelow
+    : spaceBelow < needed && spaceAbove > spaceBelow;
 
-  // If no scrollable parent found, use viewport
-  if (!scrollableParent) {
-    const spaceBelow = window.innerHeight - triggerRect.bottom;
-    const spaceAbove = triggerRect.top;
-    openUpward.value = spaceBelow < (actualMenuHeight + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
-
-    // Adjust position if opening upward - use actual menu height
-    if (openUpward.value) {
-      menuPosition.value.top = `${triggerRect.top - actualMenuHeight - GAP}px`;
-    }
-    return;
-  }
-
-  // Calculate space relative to scrollable parent
-  const parentRect = scrollableParent.getBoundingClientRect();
-  const spaceBelow = parentRect.bottom - triggerRect.bottom;
-  const spaceAbove = triggerRect.top - parentRect.top;
-
-  // Open upward if not enough space below and more space above than below
-  openUpward.value = spaceBelow < (actualMenuHeight + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
-
-  // Adjust position if opening upward - use actual menu height
-  if (openUpward.value) {
-    menuPosition.value.top = `${triggerRect.top - actualMenuHeight - GAP}px`;
-  }
+  menuPosition.value = {
+    top: `${openUpward.value ? triggerRect.top - actualMenuHeight - GAP : triggerRect.bottom + GAP}px`,
+    left: `${openLeftward.value ? triggerRect.right - menuWidth : triggerRect.left}px`,
+    width: `${menuLayoutWidth}px`
+  };
 }
 
 /**
@@ -229,13 +230,6 @@ async function toggleDropdown() {
     // Reset direction defaults (recalculated after render with actual dimensions)
     openUpward.value = false;
     openLeftward.value = false;
-
-    // Initialize scroll position for detection
-    const target = dropdownRef.value?.parentElement;
-    lastScrollPosition.value = {
-      x: target?.scrollLeft || window.scrollX || 0,
-      y: target?.scrollTop || window.scrollY || 0
-    };
 
     isOpen.value = true;
 
@@ -268,33 +262,12 @@ function handleResize() {
   }
 }
 
+// Any scroll outside the menu closes it: the trigger it hangs from has moved,
+// and a menu chasing it across a scrolling list reads as detached.
 function handleScroll(event) {
   if (!isOpen.value) return;
-
-  // Ignore scroll events from the dropdown menu itself (allows vertical scrolling inside)
   if (menuRef.value?.contains(event.target)) return;
-
-  // Detect if scroll is horizontal or vertical
-  const target = event.target === document ? window : event.target;
-  const currentScrollX = target.scrollLeft || window.scrollX || 0;
-  const currentScrollY = target.scrollTop || window.scrollY || 0;
-
-  const deltaX = Math.abs(currentScrollX - lastScrollPosition.value.x);
-  const deltaY = Math.abs(currentScrollY - lastScrollPosition.value.y);
-
-  // Update position
-  lastScrollPosition.value = { x: currentScrollX, y: currentScrollY };
-
-  // If horizontal scroll detected, close dropdown
-  if (deltaX > 0) {
-    isOpen.value = false;
-    return;
-  }
-
-  // If vertical scroll only, recalculate position
-  if (deltaY > 0) {
-    calculateDropdownDirection();
-  }
+  isOpen.value = false;
 }
 
 onMounted(() => {
@@ -316,6 +289,15 @@ onBeforeUnmount(() => {
   display: flex;
   width: 100%;
   flex: 1;
+}
+
+.dropdown--custom-trigger {
+  width: auto;
+  flex: none;
+}
+
+.dropdown-custom-trigger {
+  display: flex;
 }
 
 .dropdown-trigger {
@@ -437,6 +419,17 @@ onBeforeUnmount(() => {
   right: var(--space-03);
 }
 
+.dropdown-item-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dropdown-title {
+  padding: var(--space-03) var(--space-04) 0;
+  color: var(--color-text-secondary);
+}
+
 .dropdown-item {
   position: relative;
   padding: var(--space-03) var(--space-04);
@@ -445,6 +438,14 @@ onBeforeUnmount(() => {
   transition:
     background-color var(--transition-fast),
     color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-01);
+}
+
+/* The ellipsis lives on the label, so an icon after it keeps its place. */
+.dropdown-item-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
