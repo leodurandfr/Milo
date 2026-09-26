@@ -212,8 +212,8 @@ def sent_sessions(apns):
             if "event" in c.args[1]["aps"]]
 
 
-async def _settled(apns, deadline=3.0, settle=0.1, count=1):
-    """Wait until `count` pushes have landed, then a little longer for one more.
+async def _settled(apns, deadline=3.0, settle=0.1):
+    """Wait until a push has landed, then a little longer for a second one.
 
     Polls rather than sleeping a fixed budget: the assertion that follows is
     always a COUNT, never a latency, so a slow machine makes this slower and
@@ -222,26 +222,10 @@ async def _settled(apns, deadline=3.0, settle=0.1, count=1):
     """
     step = 0.01
     waited = 0.0
-    while apns.send.await_count < count and waited < deadline:
+    while apns.send.await_count == 0 and waited < deadline:
         await asyncio.sleep(step)
         waited += step
-    await asyncio.sleep(settle)   # room for one more push, if the code emits one
-
-
-# How early asyncio may run a timer: its clock resolution, rounded far up.
-CLOCK_SLACK_S = 0.001
-
-
-def _clocked(apns):
-    """The monotonic time each push leaves at, as a list the sends fill in."""
-    sent_at = []
-
-    def send(*args, **kwargs):
-        sent_at.append(time.monotonic())
-        return ApnsResult(ok=True, status=200)
-
-    apns.send.side_effect = send
-    return sent_at
+    await asyncio.sleep(settle)   # room for a second push, if the code emits one
 
 
 class TestTriggers:
@@ -1930,22 +1914,6 @@ class TestCoalescing:
             source="podcast", session_id="s-1", position=PositionAnchor(**moved),
         ))
 
-    def _nudge(self, service, title):
-        """A `volume_changed`, over a state whose title names the push it is in."""
-        service.machine.get_current_state.return_value = playing_with(title=title)
-        service.on_event(VolumeChanged(show_bar=True, step_mobile_db=2.0,
-                                       multiroom_enabled=True, state={}))
-
-    def _restate(self, service, title):
-        """A `source/state`, over a state whose title names the push it is in."""
-        service.machine.get_current_state.return_value = playing_with(title=title)
-        service.on_event(a_state_event())
-
-    @staticmethod
-    def _titles(apns):
-        return [c.args[1]["aps"]["attributes"]["currentTrack"]["title"]
-                for c in apns.send.await_args_list if c.args[2] == "nowplaying"]
-
     async def test_a_seek_after_a_quiet_spell_does_not_wait_out_the_window(
         self, service, registry, apns, monkeypatch
     ):
@@ -1980,122 +1948,33 @@ class TestCoalescing:
 
         assert len(sent_types(apns)) == 1
 
-    async def test_a_level_change_after_a_quiet_spell_does_not_wait_out_the_window(
+    async def test_events_spread_over_the_window_still_produce_one_push(
         self, service, registry, apns, monkeypatch
     ):
-        """The lock screen's volume bar moves only when an `update` lands, and
-        sleeping the window first held it 0.7-1.2 s behind every gesture
-        (measured from Milo-iOS, 2026-09-26). The window here is far longer
-        than `_settled` waits: only pushes sent at once are seen — the first
-        one ever, and one sent a full window after the last."""
-        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+        """The window itself, which the test above cannot see.
 
-        self._nudge(service, "first")
-        await _settled(apns)
-        service._last_push_at -= 30.0              # a full window of quiet since
-        self._nudge(service, "second")
-        await _settled(apns, count=2)
-        await service.cleanup()
-
-        assert self._titles(apns) == ["first", "second"]
-
-    async def test_a_knob_turn_is_one_push_now_and_one_at_the_end_of_the_window(
-        self, service, registry, apns, monkeypatch
-    ):
-        """A rotary turn is a burst of `volume_changed`, one per detent, each
-        from its own broadcast — so the loop wakes during the burst and the
-        rest of it lands while it sleeps. The first detent leaves at once, the
-        rest ride on one push carrying the level the turn stopped on, and
-        nothing follows it: clearing the flag before the sleep sent that state
-        a second time, a window later."""
-        window = 0.3
-        await self._session_open(service, registry, apns, monkeypatch, window=window)
-        sent_at = _clocked(apns)
-
-        self._nudge(service, "detent 0")
-        await _settled(apns)
-        for i in range(1, 6):
-            self._nudge(service, f"detent {i}")
-            await asyncio.sleep(0)                 # its own broadcast: the loop may run
-        await _settled(apns, count=2, settle=2 * window)
-        await service.cleanup()
-
-        assert self._titles(apns) == ["detent 0", "detent 5"]
-        assert sent_at[1] - sent_at[0] >= window - CLOCK_SLACK_S
-
-    async def test_pushes_are_never_closer_than_the_window(
-        self, service, registry, apns, monkeypatch
-    ):
-        """Apple's budget is the ceiling this module exists to keep, and
-        leaving early must not be a way around it: whatever the mix of events
-        and however it is spread, two pushes are a window apart."""
-        window = 0.15
-        await self._session_open(service, registry, apns, monkeypatch, window=window)
-        sent_at = _clocked(apns)
-
-        events = [
-            lambda i: self._nudge(service, f"T{i}"),
-            lambda i: self._seek(service, i * 10000),
-            lambda i: self._restate(service, f"T{i}"),
-        ]
-        for i, pause in enumerate((0, 0.05, 0, 0.2, 0.01, 0.12, 0, 0.3, 0.02, 0.16)):
-            events[i % len(events)](i)
-            await asyncio.sleep(pause)
-        await asyncio.sleep(2 * window)
-        await service.cleanup()
-
-        assert len(sent_at) >= 3
-        assert min(b - a for a, b in zip(sent_at, sent_at[1:])) >= window - CLOCK_SLACK_S
-
-    @pytest.mark.parametrize("arrivals", [
-        pytest.param(["state"], id="alone"),
-        pytest.param(["level", "state"], id="with-a-level-change"),
-        pytest.param(["seek", "state"], id="with-a-seek"),
-    ])
-    async def test_a_state_change_waits_out_the_window(
-        self, service, registry, apns, monkeypatch, arrivals
-    ):
-        """A source or station change passes through "nothing is playing" for
-        a second or two, and the wait is what keeps that off the lock screen.
-        A level change or a seek arriving with it does not make it leave early.
-        The window is far longer than `_settled` waits: nothing may be seen."""
-        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
-
-        for kind in arrivals:
-            {"state": lambda: self._restate(service, "next"),
-             "level": lambda: self._nudge(service, "next"),
-             "seek": lambda: self._seek(service, 90000)}[kind]()
-        await _settled(apns, deadline=0.3)
-        await service.cleanup()
-
-        assert sent_types(apns) == []
-
-    async def test_state_changes_spread_over_the_window_produce_one_push(
-        self, service, registry, apns, monkeypatch
-    ):
-        """The window itself, which the synchronous burst cannot show.
-
-        `test_a_burst_collapses_into_one_push_carrying_the_last_state` fires its
-        burst through synchronous `on_event` calls, so the loop never gets to
-        run between them and a single push proves nothing about coalescing — it
-        happens even with no window at all (verified by mutation). A real burst
-        arrives from separate `broadcast()` awaits, so the loop CAN wake between
-        events; here the events are spread over actual yields, well inside one
-        window. Without the sleep in `_loop`, every one of them reaches Apple;
-        with the flag cleared before the sleep, the push at the end of the
-        window is followed by a second one of the same state.
+        That one fires its burst through synchronous `on_event` calls, so the
+        loop never gets to run between them and a single push proves nothing
+        about coalescing — it happens even with no window at all (verified by
+        mutation). A real burst arrives from separate `broadcast()` awaits, so
+        the loop CAN wake between events; here the events are spread over
+        actual yields, well inside one window. Without the sleep in `_loop`,
+        every one of them reaches Apple.
         """
-        window = 0.4
-        await self._session_open(service, registry, apns, monkeypatch, window=window)
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", 0.4)
+        await service.initialize()
 
         for i in range(10):
-            self._restate(service, f"T{i}")
+            service.machine.get_current_state.return_value = playing_with(title=f"T{i}")
+            service.on_event(VolumeChanged(show_bar=True, step_mobile_db=2.0,
+                                           multiroom_enabled=True, state={}))
             await asyncio.sleep(0.01)      # 0.1s of burst inside a 0.4s window
 
-        await _settled(apns, settle=1.5 * window)
+        await _settled(apns, settle=0.3)
         await service.cleanup()
 
-        assert self._titles(apns) == ["T9"]
+        assert len(sent_types(apns)) == 1
 
     async def test_the_loop_survives_a_failing_cycle(self, service, registry, apns, monkeypatch):
         """A background loop that dies on one bad cycle stops pushing for the

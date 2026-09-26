@@ -20,18 +20,13 @@ WebSocket. Apple throttles frequent pushes and an abused budget degrades
 delivery for the whole app, durably — which is a state no code change here can
 undo. Three rules keep it bounded:
 
-  * Steady playback triggers nothing. Position is sent as the session's
+  * `source/position` triggers nothing. Position is sent as the session's
     anchor (a value plus its instant) inside a push that was going to happen
-    anyway, and iOS extrapolates; `source/position`, a trigger, is sent only
-    for a seek. Streaming it would be several pushes a second.
-  * The Now Playing push is capped at one per second, last-state-wins: two
-    cycles are never closer than `MIN_PUSH_INTERVAL_S`, and whatever arrives
-    inside the window rides on the push that ends it. A level change or a seek
-    on its own leaves as soon as the window since the last push allows — at
-    once after a quiet spell — so a turn of the volume knob is one push at the
-    first detent and one at the end of the window, carrying the level it
-    stopped on. Anything else waits the full window, which is what absorbs the
-    intermediate states of a source change: see `_loop`.
+    anyway, and iOS extrapolates. Streaming it would be several pushes a second.
+  * The Now Playing push is capped at one per second, last-state-wins: a turn
+    of the volume knob emits a burst of `volume_changed`, and the burst
+    collapses into one push carrying the level it ended on. A seek is the one
+    event that does not wait out the window first: see `_loop`.
   * The widget push is rarer still, and is NOT on that one-second cap. It
     fires only when what a widget actually displays changes, which is one
     thing — whether Milō can be driven at all, drawn as the logo's opacity.
@@ -79,11 +74,6 @@ TRIGGERS: Tuple[type, ...] = (VolumeChanged, AudioStateChanged, SourcePosition)
 # move iOS cannot extrapolate — a seek — and the backend sends it only on a
 # discontinuity past 2 s, never per tick; without it the lock screen ran on from
 # the old anchor until the next track (measured 2026-09-25).
-
-# The triggers that need not wait out a full window: a level and a playhead
-# move are final the moment they are sent, while a `source/state` may be one
-# step of a transition. See `_loop`.
-PROMPT_TRIGGERS: Tuple[type, ...] = (VolumeChanged, SourcePosition)
 
 # How long a session Milō just started is trusted before the device has
 # registered its token. Generous on purpose: the round trip is an HTTP call the
@@ -167,10 +157,9 @@ class PushService:
         self._state_machine = None
 
         self._dirty = asyncio.Event()
-        # What is waiting for the next cycle: a `PROMPT_TRIGGERS` event, and
-        # any other trigger. Only the first alone shortens the wait. See `_loop`.
-        self._prompt = False
-        self._held = False
+        # A playhead discontinuity is waiting: the next push is not held back
+        # longer than the one-per-window ceiling requires. See `_loop`.
+        self._seeked = False
         self._last_push_at = float("-inf")
         # Serializes the two seams. The coalescer used to be the only thing that
         # touched the session, and a loop is single file; the device's report is
@@ -224,10 +213,8 @@ class PushService:
         that is best-effort.
         """
         if isinstance(event, TRIGGERS):
-            if isinstance(event, PROMPT_TRIGGERS):
-                self._prompt = True
-            else:
-                self._held = True
+            if isinstance(event, SourcePosition):
+                self._seeked = True
             self._dirty.set()
 
     def session_token_registered(self) -> None:
@@ -337,38 +324,27 @@ class PushService:
         while True:
             try:
                 await self._dirty.wait()
-                # A level change or a seek, and nothing else, waits only for
-                # what is left of the window since the last push — nothing,
-                # after a quiet spell. Sleeping the full window first held the
-                # lock screen ~1.2 s behind a −15/+30 press (measured from
-                # Milo-iOS, 2026-09-25) and 0.7-1.2 s behind every volume
-                # gesture, from Milō or from the phone's own buttons (2026-09-26:
-                # the extension hands the system the new level in ~37 ms, but the
-                # bar only moves when an `update` lands), with nothing to
-                # coalesce either with.
+                self._dirty.clear()
+                # Sleep FIRST, publish after: events arriving inside the window
+                # re-set the flag and are absorbed into the single push at the
+                # end of it. That is what makes this last-state-wins rather
+                # than first-state-wins.
                 #
-                # Anything else sleeps the full window: a source or station
-                # change passes through "nothing is playing" for a second or two,
-                # and the wait absorbs it — as it does for a level change or a
-                # seek that woke the loop together with one. A seek that moves
-                # the phase too (a CD's, which reloads the disc) arrives as a
-                # `source/state`, and waits.
+                # Except after a seek, which waits only for what is left of the
+                # window since the last push: sleeping first put the lock
+                # screen's new anchor ~1.2 s behind the press (measured from
+                # Milo-iOS, 2026-09-25), with nothing to coalesce it with. Two
+                # pushes are still never closer than the window. A seek is
+                # known here by its `source/position` only: one that moves the
+                # phase too (a CD's, which reloads the disc) arrives inside a
+                # `source/state`, like a source switch does, and waits.
                 delay = MIN_PUSH_INTERVAL_S
-                if self._prompt and not self._held:
+                if self._seeked:
+                    self._seeked = False
                     delay = max(0.0, self._last_push_at + MIN_PUSH_INTERVAL_S - time.monotonic())
                 await asyncio.sleep(delay)
-                # Cleared after the sleep, not before it: what arrived during
-                # the sleep rides on this push, which is what makes it
-                # last-state-wins. Cleared before, it woke a second cycle a
-                # window later that pushed the same state again.
-                self._dirty.clear()
-                self._prompt = self._held = False
-                try:
-                    await self._publish()
-                finally:
-                    # When the cycle ENDS: two pushes are then never closer
-                    # than the window, however long the first took to send.
-                    self._last_push_at = time.monotonic()
+                self._last_push_at = time.monotonic()
+                await self._publish()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
