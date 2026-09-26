@@ -675,6 +675,23 @@ class TestTrialWindow:
         assert len(asked) == 1
 
     @pytest.mark.asyncio
+    async def test_a_failed_refresh_keeps_the_last_good_list(self, version_service):
+        """The install re-checks the chosen release against this list.
+
+        Emptied by a refresh that failed (the rate limit, a network blip), it
+        would refuse the version the menu offered a moment ago.
+        """
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        with _patch_github("v0.8.1", [_release("v0.8.1"), _release("v0.8.0")]):
+            await version_service.get_latest_github_version("go-librespot")
+
+        version_service._last_github_fetch["github_releases_go-librespot"] -= version_service._cache_timeout
+        with _patch_github("v0.8.1", Exception("rate limited")):
+            result = await version_service.get_latest_github_version("go-librespot")
+
+        assert [r["version"] for r in result["trials"]] == ["0.8.1", "0.8.0"]
+
+    @pytest.mark.asyncio
     async def test_the_app_itself_has_no_window(self, version_service):
         with _patch_github_release("v9.9.9"):
             result = await version_service.get_latest_github_version("milo")

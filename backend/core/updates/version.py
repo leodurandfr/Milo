@@ -307,7 +307,8 @@ class VersionService:
         """The program's recent stable releases, newest first, cached for an hour.
 
         Only what a trial can pick from, so it never stands in the way of the
-        offer: a failed read is an empty list and a warning, and it is kept for
+        offer: a failed read is a warning and the last good list (empty if there
+        never was one), and it is kept for
         `RELEASES_RETRY_S` — this runs on every status read, so an uncached
         failure would cost each opening of the screen a 10 s timeout offline, and
         under the anonymous rate limit spend the requests the offer itself needs.
@@ -334,10 +335,13 @@ class VersionService:
                 raise ValueError("GitHub API answered no release list")
         except Exception as e:
             self.logger.warning(f"Release list for {program_key} unavailable: {e}")
-            self._github_cache[cache_key] = []
-            # Expires RELEASES_RETRY_S from now rather than a full cache period.
+            # The last good list outlives a failed refresh: the install checks the
+            # chosen version against it, so emptying it would refuse the release
+            # the menu showed a moment ago. Retried RELEASES_RETRY_S from now.
+            stale = self._github_cache.get(cache_key, [])
+            self._github_cache[cache_key] = stale
             self._last_github_fetch[cache_key] = now - self._cache_timeout + RELEASES_RETRY_S
-            return []
+            return stale
 
         version_regex = self.programs[program_key]["version_regex"]
         releases = []
