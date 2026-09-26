@@ -37,7 +37,6 @@
     "network": "网络",
     "system": "系统",
     "updates": "更新",
-    "information": "信息",
     "hardware": "硬件",
     "fan": "风扇",
     "audioPlayback": "音频播放",
@@ -301,12 +300,10 @@
     "rebooting": "正在重启…"
   },
   "fanSettings": {
-    "status": "状态",
     "temperature": "温度",
     "speed": "风扇转速",
     "rpm": "转速",
     "rpmUnit": "RPM",
-    "mode": "模式",
     "modeTarget": "目标",
     "modeManual": "手动",
     "manualSpeed": "风扇转速",

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/InfoSettings.vue -->
+<!-- frontend/src/components/settings/categories/SystemInfoSection.vue -->
 <template>
   <SettingsSection>
     <div class="info-content">

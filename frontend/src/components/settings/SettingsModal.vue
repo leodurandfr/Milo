@@ -17,8 +17,6 @@
           @change="handleBtRemoteToggle" />
         <Toggle v-if="showIrRemoteToggle" :model-value="settingsStore.irRemote.enabled"
           @change="handleIrRemoteToggle" />
-        <Toggle v-if="showFanToggle" :model-value="fanStore.config.enabled"
-          @change="handleFanToggle" />
         <IconButton v-if="stationActionIcon" :icon="stationActionIcon" variant="on-dark"
           @click="toggleStationActionMenu" />
       </template>
@@ -70,8 +68,6 @@
       <NetworkSettings v-else-if="currentView === 'network'" key="network" class="view-content" />
 
       <HardwareSettings v-else-if="currentView === 'hardware'" key="hardware" class="view-content" />
-
-      <FanSettings v-else-if="currentView === 'fan'" key="fan" class="view-content" />
 
       <AudioPlaybackSettings v-else-if="currentView === 'audio-playback'" key="audio-playback" class="view-content" />
 
@@ -141,7 +137,6 @@
 
       <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content" />
 
-      <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
     </Transition>
     </div>
   </div>
@@ -156,7 +151,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useRadioStore } from '@/stores/radioStore';
-import { useFanStore } from '@/stores/fanStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useViewTransition } from '@/composables/useViewTransition';
 import { logger } from '@/services/logger';
@@ -177,7 +171,6 @@ import audioPlaybackIcon from '@/assets/settings-icons/audio-playback.svg';
 import remoteControlsIcon from '@/assets/settings-icons/remote-controls.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
-import informationIcon from '@/assets/settings-icons/information.svg';
 import systemIcon from '@/assets/settings-icons/system.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
@@ -185,7 +178,6 @@ import spotifyIcon from '@/assets/settings-icons/spotify.svg';
 import qobuzIcon from '@/assets/settings-icons/qobuz.svg';
 import musicLibraryIcon from '@/assets/settings-icons/music-library.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
-import fanIcon from '@/assets/settings-icons/fan.svg';
 import networkIcon from '@/assets/settings-icons/network.svg';
 import rebootIcon from '@/assets/settings-icons/reboot.svg';
 import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
@@ -211,9 +203,7 @@ import ManageUsb from '@/components/settings/categories/music-library/ManageUsb.
 import WizardServer from '@/components/settings/categories/music-library/WizardServer.vue';
 import WizardBrowse from '@/components/settings/categories/music-library/WizardBrowse.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
-import FanSettings from '@/components/settings/categories/FanSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
-import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 import SystemSettings from '@/components/settings/categories/SystemSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadNetworkStatus } from '@/composables/useNetwork';
@@ -235,7 +225,6 @@ const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const snapcastStore = useSnapcastStore();
 const radioStore = useRadioStore();
-const fanStore = useFanStore();
 
 // Inject modal refs: the scroller (scroll el) and the navigation height writer.
 const modalContentRef = inject('modalContentRef', null);
@@ -362,11 +351,8 @@ const HOME_SECTIONS = [
     rows: [
       { view: 'network', titleKey: 'settings.network', icon: networkIcon, alt: 'Network' },
       { view: 'hardware', titleKey: 'settings.hardware', icon: hardwareIcon, alt: 'Hardware' },
-      { view: 'fan', titleKey: 'settings.fan', icon: fanIcon, alt: 'Fan',
-        visible: () => fanStore.available },
       { view: 'system', titleKey: 'settings.system', icon: systemIcon, alt: 'System' },
       { view: 'updates', titleKey: 'settings.updates', icon: updatesIcon, alt: 'Updates' },
-      { view: 'info', titleKey: 'settings.information', icon: informationIcon, alt: 'Information' },
     ],
   },
 ];
@@ -683,15 +669,8 @@ async function handleIrRemoteToggle(enabled) {
   await settingsStore.toggleIrRemote(enabled);
 }
 
-// Fan master toggle (nav header) — ON drives the fan (auto/manual), OFF stops it.
-const showFanToggle = computed(() => currentView.value === 'fan' && fanStore.available === true);
-
-async function handleFanToggle(enabled) {
-  await fanStore.updateConfig({ enabled });
-}
-
 // The header slot renders nothing at all unless one of its actions is showing,
-// so its gate used to restate the six conditions below — in two spellings, an
+// so its gate used to restate the five conditions below — in two spellings, an
 // inline `currentView === 'x'` next to a `showXToggle` computed embedding the
 // same test. One shape, declared once, and the gate derives from the list.
 const HEADER_ACTIONS = [
@@ -699,7 +678,6 @@ const HEADER_ACTIONS = [
   showMultiroomToggle,
   showBtRemoteToggle,
   showIrRemoteToggle,
-  showFanToggle,
   stationActionIcon,
 ];
 

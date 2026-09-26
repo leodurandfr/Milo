@@ -37,7 +37,6 @@
     "network": "Rede",
     "system": "Sistema",
     "updates": "Atualizações",
-    "information": "Informações",
     "hardware": "Hardware",
     "fan": "Ventoinha",
     "audioPlayback": "Reprodução de áudio",
@@ -301,12 +300,10 @@
     "rebooting": "A reiniciar…"
   },
   "fanSettings": {
-    "status": "Estado",
     "temperature": "Temperatura",
     "speed": "Velocidade da ventoinha",
     "rpm": "Rotação",
     "rpmUnit": "RPM",
-    "mode": "Modo",
     "modeTarget": "Alvo",
     "modeManual": "Manual",
     "manualSpeed": "Velocidade da ventoinha",

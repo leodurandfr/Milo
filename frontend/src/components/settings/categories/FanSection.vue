@@ -1,61 +1,64 @@
-<!-- frontend/src/components/settings/categories/FanSettings.vue -->
+<!-- frontend/src/components/settings/categories/FanSection.vue -->
 <template>
-  <SettingsContainer>
-    <!-- Live telemetry (InfoSettings-style cards) -->
-    <SettingsSection :title="t('fanSettings.status')">
-      <div class="fan-grid">
-        <div class="fan-item">
-          <span class="fan-label text-mono-medium">{{ t('fanSettings.temperature') }}</span>
-          <span class="fan-value text-mono-medium">{{ tempDisplay }}</span>
+  <!-- Not a ToggleSection: the telemetry and the off-note stay readable while
+       the fan is off, which a collapsing section would hide. -->
+  <SettingsSection>
+    <template #header>
+      <div class="fan-header">
+        <h2 class="heading-2">{{ t('settings.fan') }}</h2>
+        <Toggle :model-value="config.enabled" @change="setEnabled" />
+      </div>
+    </template>
+
+    <div class="fan-grid">
+      <div class="fan-item">
+        <span class="fan-label text-mono-medium">{{ t('fanSettings.temperature') }}</span>
+        <span class="fan-value text-mono-medium">{{ tempDisplay }}</span>
+      </div>
+      <div class="fan-item">
+        <span class="fan-label text-mono-medium">{{ t('fanSettings.rpm') }}</span>
+        <span class="fan-value text-mono-medium">{{ fanStore.status.rpm }} {{ t('fanSettings.rpmUnit') }}</span>
+      </div>
+      <div class="fan-item fan-item-bar">
+        <div class="fan-item-top">
+          <span class="fan-label text-mono-medium">{{ t('fanSettings.speed') }}</span>
+          <span class="fan-value text-mono-medium">{{ fanStore.status.pwm_percent }}%</span>
         </div>
-        <div class="fan-item">
-          <span class="fan-label text-mono-medium">{{ t('fanSettings.rpm') }}</span>
-          <span class="fan-value text-mono-medium">{{ fanStore.status.rpm }} {{ t('fanSettings.rpmUnit') }}</span>
-        </div>
-        <div class="fan-item fan-item-bar">
-          <div class="fan-item-top">
-            <span class="fan-label text-mono-medium">{{ t('fanSettings.speed') }}</span>
-            <span class="fan-value text-mono-medium">{{ fanStore.status.pwm_percent }}%</span>
-          </div>
-          <div class="bar-container">
-            <div class="bar-fill" :style="{ width: fanStore.status.pwm_percent + '%' }"></div>
-          </div>
+        <div class="bar-container">
+          <div class="bar-fill" :style="{ width: fanStore.status.pwm_percent + '%' }"></div>
         </div>
       </div>
-    </SettingsSection>
+    </div>
 
-    <!-- Mode + its value (or disabled message) -->
-    <SettingsSection :title="config.enabled ? t('fanSettings.mode') : ''">
-      <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote') }}</p>
+    <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote') }}</p>
 
-      <template v-else>
-        <ButtonGroup :model-value="config.mode" :options="modeOptions" @change="setMode" />
+    <template v-else>
+      <ButtonGroup :model-value="config.mode" :options="modeOptions" @change="setMode" />
 
-        <SettingItem v-if="config.mode === 'manual'" :label="t('fanSettings.manualSpeed')">
-          <RangeSlider
-            v-model="config.manual_percent"
-            :min="0"
-            :max="100"
-            :step="5"
-            value-unit="%"
-            @input="onManualInput"
-            @change="onManualChange"
-          />
-        </SettingItem>
+      <SettingItem v-if="config.mode === 'manual'" :label="t('fanSettings.manualSpeed')">
+        <RangeSlider
+          v-model="config.manual_percent"
+          :min="0"
+          :max="100"
+          :step="5"
+          value-unit="%"
+          @input="onManualInput"
+          @change="onManualChange"
+        />
+      </SettingItem>
 
-        <SettingItem v-if="config.mode === 'target'" :label="t('fanSettings.targetTemp')">
-          <RangeSlider
-            v-model="config.target_temp_c"
-            :min="55"
-            :max="76"
-            :step="1"
-            value-unit="°C"
-            @change="onTargetChange"
-          />
-        </SettingItem>
-      </template>
-    </SettingsSection>
-  </SettingsContainer>
+      <SettingItem v-if="config.mode === 'target'" :label="t('fanSettings.targetTemp')">
+        <RangeSlider
+          v-model="config.target_temp_c"
+          :min="55"
+          :max="76"
+          :step="1"
+          value-unit="°C"
+          @change="onTargetChange"
+        />
+      </SettingItem>
+    </template>
+  </SettingsSection>
 </template>
 
 <script setup>
@@ -63,11 +66,11 @@ import { reactive, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useFanStore } from '@/stores/fanStore';
 import { useTimer } from '@/composables/useTimer';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 
 const { t } = useI18n();
 const fanStore = useFanStore();
@@ -106,6 +109,13 @@ function save() {
   });
 }
 
+// Applies at once, like every fan control: the fan is driven live and is
+// outside Matériel's apply-and-reboot set.
+function setEnabled(enabled) {
+  config.enabled = enabled;
+  save();
+}
+
 function setMode(mode) {
   config.mode = mode;
   save();
@@ -141,7 +151,7 @@ function onTargetChange(value) {
   save();
 }
 
-// Re-sync when the store config changes (WS event or header toggle).
+// Re-sync when the store config changes (WS event from another client).
 watch(() => fanStore.config, syncFromStore, { deep: true });
 
 onMounted(() => {
@@ -154,7 +164,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* Status grid — mirrors InfoSettings.vue */
+.fan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Status grid — mirrors SystemInfoSection.vue */
 .fan-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

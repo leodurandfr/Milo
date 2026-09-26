@@ -6,6 +6,8 @@
      nobody else. -->
 <template>
   <SettingsContainer>
+    <SystemInfoSection />
+
     <SettingsSection>
       <template #header>
         <div class="system-header">
@@ -107,6 +109,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import SystemInfoSection from '@/components/settings/categories/SystemInfoSection.vue';
 
 const { t } = useI18n();
 const timer = useTimer();

@@ -9,10 +9,15 @@
           <SvgIcon name="network" :size="24" />
           <span class="heading-3">{{ t('network.ethernet') }}</span>
         </div>
-        <span class="connection-badge text-mono-small"
-          :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
-          {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
-        </span>
+        <div class="connection-card__status">
+          <span v-if="miloLocalIface === 'ethernet'" class="connection-card__ip text-mono-small">
+            {{ status.ethernet.ip_address }}
+          </span>
+          <span class="connection-badge text-mono-small"
+            :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
+            {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
+          </span>
+        </div>
       </div>
 
       <!-- WiFi row (expandable, like expanded-clients) -->
@@ -23,9 +28,14 @@
               <WifiSignal :signal="wifiCardSignal" :size="24" />
               <span class="heading-3 connection-card__ssid">{{ wifiDisplaySsid }}</span>
             </div>
-            <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
-              {{ wifiBadgeLabel }}
-            </span>
+            <div class="connection-card__status">
+              <span v-if="miloLocalIface === 'wifi'" class="connection-card__ip text-mono-small">
+                {{ status.wifi.ip_address }}
+              </span>
+              <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
+                {{ wifiBadgeLabel }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -178,6 +188,15 @@ const wifiBadgeClass = computed(() =>
 const wifiBadgeLabel = computed(() =>
   status.value.wifi.connected ? t('network.connected') : t('network.notConnected')
 );
+
+// The row whose address milo.local answers on. Avahi publishes on one
+// interface only, and 90-milo-network picks it: ethernet whenever it holds an
+// IPv4 (which `connected` requires), else wifi. Same rule, read the same way.
+const miloLocalIface = computed(() => {
+  if (status.value.ethernet.connected && status.value.ethernet.ip_address) return 'ethernet';
+  if (status.value.wifi.connected && status.value.wifi.ip_address) return 'wifi';
+  return null;
+});
 
 // === WiFi row expand/collapse (MultiroomItem pattern) ===
 const wifiWrapperRef = ref(null);
@@ -342,6 +361,17 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--space-03);
   min-width: 0;
+}
+
+.connection-card__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  flex-shrink: 0;
+}
+
+.connection-card__ip {
+  color: var(--color-text-secondary);
 }
 
 .connection-card__ssid {

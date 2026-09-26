@@ -402,7 +402,7 @@ export const ENTRIES = [
     id: 'SettingsContainer',
     group: 'settings',
     file: 'components/settings/SettingsContainer.vue',
-    summary: '14 lines and 23 consumers: a flex column that puts one gap between settings sections. It carries nothing else, and that is the entry — the alternative was 23 copies of the same two declarations.',
+    summary: '14 lines and 22 consumers: a flex column that puts one gap between settings sections. It carries nothing else, and that is the entry — the alternative was 22 copies of the same two declarations.',
   },
   {
     id: 'SettingsSection',

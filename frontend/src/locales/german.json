@@ -37,7 +37,6 @@
     "network": "Netzwerk",
     "system": "System",
     "updates": "Aktualisierungen",
-    "information": "Informationen",
     "hardware": "Hardware",
     "fan": "Lüfter",
     "audioPlayback": "Audiowiedergabe",
@@ -301,12 +300,10 @@
     "rebooting": "Neustart…"
   },
   "fanSettings": {
-    "status": "Status",
     "temperature": "Temperatur",
     "speed": "Lüftergeschwindigkeit",
     "rpm": "Drehzahl",
     "rpmUnit": "U/min",
-    "mode": "Modus",
     "modeTarget": "Ziel",
     "modeManual": "Manuell",
     "manualSpeed": "Lüftergeschwindigkeit",

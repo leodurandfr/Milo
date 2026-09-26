@@ -37,7 +37,6 @@
     "network": "Réseau",
     "system": "Système",
     "updates": "Mises à jour",
-    "information": "Informations",
     "hardware": "Matériel",
     "fan": "Ventilateur",
     "audioPlayback": "Lecture audio",
@@ -301,12 +300,10 @@
     "rebooting": "Redémarrage…"
   },
   "fanSettings": {
-    "status": "État",
     "temperature": "Température",
     "speed": "Vitesse du ventilateur",
     "rpm": "Rotation",
     "rpmUnit": "tr/min",
-    "mode": "Mode",
     "modeTarget": "Cible",
     "modeManual": "Manuel",
     "manualSpeed": "Vitesse du ventilateur",
