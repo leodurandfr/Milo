@@ -179,11 +179,29 @@ ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
 ROC_FRAME_LENGTHS = Literal[2, 4, 6, 8, 10, 12]
 ALLOWED_LATENCY_PROFILES = frozenset(get_args(ROC_LATENCY_PROFILES))
 ALLOWED_FRAME_LENGTHS = frozenset(get_args(ROC_FRAME_LENGTHS))
+ROC_TARGET_LATENCY_RANGE = (20, 500)
+
+# The sender half, applied by Milo-Mac to its roc-vad device. The FEC scheme is
+# not among them: roc-recv's `rtp+rs8m` endpoint fixes it, and a sender on any
+# other scheme is refused at connect. Nor is the device buffer: roc-vad drains it
+# on every I/O cycle, so it adds no latency, and one smaller than CoreAudio's
+# I/O buffer overruns roc-vad's ring — Milo-Mac leaves roc-vad's default.
+ROC_PACKET_LENGTHS = Literal[2, 3, 4, 5, 6, 8, 10]
+ALLOWED_PACKET_LENGTHS = frozenset(get_args(ROC_PACKET_LENGTHS))
+ROC_FEC_SOURCE_RANGE = (10, 50)
+ROC_FEC_REPAIR_RANGE = (5, 30)
+
+# What roc-recv reads from mac.env; the other keys are the Mac's.
+ROC_RECEIVER_KEYS = ("target_latency_ms", "latency_profile", "frame_length_ms")
 
 DEFAULT_ROC_CONFIG = {
     "target_latency_ms": 50,
     "latency_profile": "responsive",
     "frame_length_ms": 4,
+    "packet_length_ms": 3,
+    "fec_block_source": 10,
+    "fec_block_repair": 5,
+    "packet_interleaving": False,
 }
 
 # =============================================================================

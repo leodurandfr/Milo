@@ -15,6 +15,7 @@ from typing import Dict, Any
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
     ALLOWED_LATENCY_PROFILES,
+    ALLOWED_PACKET_LENGTHS,
     AUDIO_SOURCE_APPS,
     DEFAULT_DOCK_APPS,
     DEFAULT_ROC_CONFIG,
@@ -138,8 +139,8 @@ class SettingsService:
                 # unit runs. `VersionService.get_forced_versions` resolves it.
                 "forced_versions": {}
             },
-            # The `mac` section is the macOS/ROC sender's tuning, not a MAC
-            # address. It used to be the one section with defaults that
+            # The `mac` section is the macOS/ROC link's tuning — roc-recv here and
+            # the Mac's roc-vad sender, applied by Milo-Mac — not a MAC address. It used to be the one section with defaults that
             # `_validate_and_merge` emitted conditionally, which is why it was
             # absent from every settings.json until someone opened the Mac panel
             # — and why GET /bulk needed fallbacks at all.
@@ -316,10 +317,17 @@ class SettingsService:
         mac_d = d['mac']
         profile = mac_input.get('latency_profile', mac_d['latency_profile'])
         frame_length = mac_input.get('frame_length_ms', mac_d['frame_length_ms'])
+        packet_length = mac_input.get('packet_length_ms', mac_d['packet_length_ms'])
+        # roc's RS8M block holds 255 packets in all, source and repair together.
+        fec_source = max(1, min(254, int(mac_input.get('fec_block_source', mac_d['fec_block_source']))))
         validated['mac'] = {
             'target_latency_ms': max(20, min(500, int(mac_input.get('target_latency_ms', mac_d['target_latency_ms'])))),
             'latency_profile': profile if profile in ALLOWED_LATENCY_PROFILES else mac_d['latency_profile'],
-            'frame_length_ms': frame_length if frame_length in ALLOWED_FRAME_LENGTHS else mac_d['frame_length_ms']
+            'frame_length_ms': frame_length if frame_length in ALLOWED_FRAME_LENGTHS else mac_d['frame_length_ms'],
+            'packet_length_ms': packet_length if packet_length in ALLOWED_PACKET_LENGTHS else mac_d['packet_length_ms'],
+            'fec_block_source': fec_source,
+            'fec_block_repair': max(1, min(255 - fec_source, int(mac_input.get('fec_block_repair', mac_d['fec_block_repair'])))),
+            'packet_interleaving': bool(mac_input.get('packet_interleaving', mac_d['packet_interleaving'])),
         }
 
         # Audio (auto-stop on pause)

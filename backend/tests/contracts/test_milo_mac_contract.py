@@ -350,7 +350,9 @@ def test_invariant_volume_changed():
             )
 
 
-@pytest.mark.parametrize("pair_key", ["settings/volume_limits_changed", "settings/dock_apps_changed"])
+@pytest.mark.parametrize("pair_key", [
+    "settings/volume_limits_changed", "settings/dock_apps_changed", "settings/mac_roc_changed",
+])
 def test_invariant_settings_payloads(pair_key):
     """Settings payload sub-models must keep the fields Milo-Mac reads."""
     inv = _INVARIANTS[pair_key]
@@ -377,6 +379,7 @@ def test_all_payload_invariants_are_verified():
         "volume_changed",
         "settings/volume_limits_changed",
         "settings/dock_apps_changed",
+        "settings/mac_roc_changed",
         "routing/multiroom_error",
         "multiroom/client_state_changed",
         "multiroom/zone_changed",

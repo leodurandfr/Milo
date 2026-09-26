@@ -192,7 +192,7 @@ class MacSource(BaseAudioSource):
         try:
             async for entry in follow_unit(
                 self.service_name,
-                consequence="Mac connection detection is down",
+                consequence="Mac connection detection is down until the source is restarted",
                 output="json",
                 logger=self._logger,
                 **bound,
@@ -309,6 +309,26 @@ class MacSource(BaseAudioSource):
         session — unless the last named one simply left."""
         if reason is not EndReason.SENDER_LEFT:
             self._naming.clear()
+
+    @property
+    def streaming_macs(self) -> Dict[str, str]:
+        """IP -> name of each Mac streaming now, one entry per Mac however many
+        streams it opened: who the link analysis pings. A Mac still being named
+        is there under its address — it is streaming all the same."""
+        macs = {ip: name for (ip, _port), name in self._named_streams().items()}
+        for ip, _port in self._naming:
+            macs.setdefault(ip, ip)
+        return macs
+
+    @property
+    def stream_count(self) -> int:
+        """Streams roc-recv holds now: more than the Macs when one reopened its
+        stream before the old one ended."""
+        return len(self._named_streams()) + len(self._naming)
+
+    def _named_streams(self) -> Dict[Tuple[str, Optional[int]], str]:
+        session = self._session
+        return session.senders if isinstance(session, MacSession) else {}
 
     def _session_fields(self, session: MacSession) -> Dict[str, Any]:
         """The Macs attached, by name — one entry per Mac, however many

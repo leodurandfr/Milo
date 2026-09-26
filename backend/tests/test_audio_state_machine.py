@@ -1092,6 +1092,47 @@ class TestRerouteActiveSource:
 
         mock_source.acquire_after_reroute.assert_awaited_once()
 
+    async def test_restarting_one_source_leaves_any_other_alone(self, state_machine, mock_source):
+        """The Mac panel's Apply reroutes only Mac. Carried while Radio played,
+        the Mac settings would have released and restarted Radio for nothing;
+        started by hand, roc-recv put a second stream into CamillaDSP. The new
+        values are still written — the receiver reads them at its next start."""
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        applied = []
+
+        async def write_env():
+            applied.append(True)
+
+        carried = await state_machine.restart_source_if_active(AudioSource.MAC, write_env)
+
+        assert carried is None
+        assert applied == [True]
+        mock_source.release_for_reroute.assert_not_awaited()
+        mock_source.acquire_after_reroute.assert_not_awaited()
+
+    async def test_restarting_the_active_source_carries_it_under_switching(self, state_machine, mock_source):
+        """No multiroom toggle holds `switching` around the Mac link's Apply, so
+        the restart holds it: without it clients saw the Mac session end and
+        drew the idle card for the second roc-recv took to return."""
+        sent = recorded(state_machine)
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        state_machine.register_source(AudioSource.MAC, mock_source)
+        state_machine.system_state.active_source = AudioSource.MAC
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+
+        async def write_env():
+            assert state_machine.get_current_state()["switching"] is True
+
+        assert await state_machine.restart_source_if_active(AudioSource.MAC, write_env) is True
+        mock_source.release_for_reroute.assert_awaited_once()
+        mock_source.acquire_after_reroute.assert_awaited_once()
+        switching = [e["data"]["switching"] for e in envelopes(sent, "source", "state")]
+        assert switching[0] is True and switching[-1] is False
+
     async def test_what_the_source_publishes_meanwhile_reaches_the_ui_live(
         self, state_machine, mock_source
     ):

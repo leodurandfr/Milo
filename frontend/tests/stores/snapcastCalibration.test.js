@@ -350,4 +350,11 @@ describe('snapcastStore — the apply button only means a real change', () => {
 
     expect(store.hasServerConfigChanges).toBe(true);
   });
+
+  it('a finished run leaves no start time for the next one to inherit', () => {
+    store.handleCalibrationEvent(event('calibration_progress', { stage: 'probing', expected_seconds: 32 }));
+    store.handleCalibrationEvent(event('calibration_result', PROPOSAL));
+    expect(store.calibration.startedAt).toBe(0);
+  });
 });
+

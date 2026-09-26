@@ -150,6 +150,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
+import { useMacLinkStore } from '@/stores/macLinkStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useViewTransition } from '@/composables/useViewTransition';
@@ -224,6 +225,7 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const snapcastStore = useSnapcastStore();
+const macLinkStore = useMacLinkStore();
 const radioStore = useRadioStore();
 
 // Inject modal refs: the scroller (scroll el) and the navigation height writer.
@@ -408,12 +410,18 @@ watch(currentView, (view, previous) => {
   if (isMultiroomView(previous) && !isMultiroomView(view)) {
     snapcastStore.discardUnappliedTuning();
   }
+  // The Mac link's edits and proposal live in macLinkStore the same way.
+  if (previous === 'macos' && view !== 'macos') {
+    macLinkStore.discardUnapplied();
+  }
 });
 
-// Closing the modal is leaving too, from whichever view was on screen — and
-// unconditionally, because with nothing staged the discard is a no-op.
+// Closing the modal is leaving too — but only the panel on screen. Every client
+// receives every analysis's result, so a modal closed from any other view
+// discarded, backend included, a proposal someone else was still weighing.
 onBeforeUnmount(() => {
-  snapcastStore.discardUnappliedTuning();
+  if (isMultiroomView(currentView.value)) snapcastStore.discardUnappliedTuning();
+  if (currentView.value === 'macos') macLinkStore.discardUnapplied();
 });
 
 // Navigate away from volume view when no device manages volume anymore

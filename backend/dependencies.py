@@ -243,6 +243,14 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
+        # Reads only, like the Snapcast analysis: it proposes both halves of the
+        # Mac link and PUT /api/settings/mac-roc stays their one writer.
+        "mac_link_calibration_service": lambda: _import("backend.core.mac_link.calibration_service", "MacLinkCalibrationService")(
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager"),
+            mac_source=get_service("mac_source"),
+        ),
         "bluetooth_source": lambda: _import("backend.sources.bluetooth", "BluetoothSource")(
             config={
                 "bluetooth_service": "bluetooth.service",

@@ -90,10 +90,16 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // === MAC ROC ===
+  // Both halves of the link: roc-recv's three, then the four Milo-Mac applies
+  // to its roc-vad sender.
   const macRocSettings = ref({
     target_latency_ms: 50,
     latency_profile: 'responsive',
-    frame_length_ms: 4
+    frame_length_ms: 4,
+    packet_length_ms: 3,
+    fec_block_source: 10,
+    fec_block_repair: 5,
+    packet_interleaving: false
   });
 
   // === BT REMOTE ===

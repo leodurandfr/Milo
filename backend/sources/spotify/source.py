@@ -825,7 +825,7 @@ class SpotifySource(BaseAudioSource):
         try:
             async for line in follow_unit(
                 "milo-spotify",
-                consequence="go-librespot error reporting is down",
+                consequence="go-librespot error reporting is down until the source is restarted",
                 logger=self._logger,
             ):
                 # Per background-loop doctrine: a transient parse/broadcast

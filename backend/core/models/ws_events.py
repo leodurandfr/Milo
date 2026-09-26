@@ -378,9 +378,45 @@ class ScreenColorFilterChanged(SettingsEvent):
 
 
 class MacRocChanged(SettingsEvent):
-    """App.vue settings listener (Mac ROC latency form sync)."""
+    """App.vue settings listener (the Mac panel's form sync) and Milo-Mac, which
+    applies the sender half of `config` to its roc-vad device."""
     TYPE = "mac_roc_changed"
     config: MacRocConfig
+
+
+class MacCalibrationProgress(SettingsEvent):
+    """macLinkStore.handleCalibrationEvent — drives the Mac analysis's bar.
+
+    `stage` is a key the frontend localizes ("measuring" | "computing").
+    """
+    TYPE = "mac_calibration_progress"
+    stage: str
+    expected_seconds: float = 0.0
+
+
+class MacCalibrationResult(SettingsEvent):
+    """macLinkStore.handleCalibrationEvent — both halves of the link, proposed.
+
+    Not applied by the analysis: the panel stages `config` on its controls and
+    the write happens on Apply, through PUT /api/settings/mac-roc. `assumed`
+    names what stood in for a measurement; the reasoning is logged, not sent.
+    """
+    TYPE = "mac_calibration_result"
+    config: Dict[str, Any]
+    predicted_latency_ms: Dict[str, int]
+    measurements: Dict[str, Any]
+    assumed: List[str] = Field(default_factory=list)
+
+
+class MacCalibrationFailed(SettingsEvent):
+    """macLinkStore.handleCalibrationEvent — the Mac analysis reached no verdict.
+
+    `reason` is a localization key ("no_mac" | "several_macs" |
+    "too_few_samples" | "probe_failed"); `detail` names what did not answer.
+    """
+    TYPE = "mac_calibration_failed"
+    reason: str
+    detail: Optional[str] = None
 
 
 class RadioSettingsChanged(SettingsEvent):
@@ -593,7 +629,7 @@ class RoutingMultiroomError(WsEvent):
 
 
 class RoutingCalibrationProgress(WsEvent):
-    """multiroomStore.handleCalibrationEvent — drives the analysis progress bar.
+    """snapcastStore.handleCalibrationEvent — drives the analysis progress bar.
 
     The analysis takes tens of seconds and grows with the fleet, so it runs in
     the background and reports here rather than holding an HTTP request open.
@@ -611,7 +647,7 @@ class RoutingCalibrationProgress(WsEvent):
 
 
 class RoutingCalibrationResult(WsEvent):
-    """multiroomStore.handleCalibrationEvent — the proposal the user confirms.
+    """snapcastStore.handleCalibrationEvent — the proposal the user confirms.
 
     Deliberately NOT applied by the analysis: `config` is offered, and the write
     only happens when the user presses apply, through the existing
@@ -635,7 +671,7 @@ class RoutingCalibrationResult(WsEvent):
 
 
 class RoutingCalibrationFailed(WsEvent):
-    """multiroomStore.handleCalibrationEvent — the analysis reached no verdict.
+    """snapcastStore.handleCalibrationEvent — the analysis reached no verdict.
 
     A speaker that is online but could not be measured stops the whole run,
     because the buffer is one value sized by the worst link and an unweighed

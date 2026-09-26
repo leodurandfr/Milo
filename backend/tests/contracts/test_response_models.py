@@ -285,7 +285,9 @@ def test_bulk_settings_full_key_set():
         "music_library_settings": {"separate_storages": True},
         "qobuz_settings": {"allow_app_volume": False},
         "spotify_settings": {"crossfade_duration": 6000, "allow_app_volume": False},
-        "mac_roc": {"target_latency_ms": 130, "latency_profile": "responsive", "frame_length_ms": 10},
+        "mac_roc": {"target_latency_ms": 130, "latency_profile": "responsive", "frame_length_ms": 10,
+                    "packet_length_ms": 5, "fec_block_source": 12, "fec_block_repair": 6,
+                    "packet_interleaving": True},
     }
     out = emit(R.BulkSettingsResponse, data)
     assert set(out) == set(data)
@@ -295,4 +297,5 @@ def test_bulk_settings_full_key_set():
     # int fields stay int (no float coercion), db fields stay float.
     assert out["screen_brightness"]["brightness_on"] == 6
     assert isinstance(out["mac_roc"]["target_latency_ms"], int)
+    assert out["mac_roc"]["packet_interleaving"] is True
     assert isinstance(out["volume_limits"]["min_db"], float)

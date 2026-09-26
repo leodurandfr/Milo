@@ -7,11 +7,14 @@ from typing import Annotated, Optional, Dict, Any, List, Literal
 
 from backend.config.constants import (
     BT_REMOTE_ACTIONS,
-    DEFAULT_ROC_CONFIG,
     GPIO_MAX_PIN,
     GPIO_MIN_PIN,
+    ROC_FEC_REPAIR_RANGE,
+    ROC_FEC_SOURCE_RANGE,
     ROC_FRAME_LENGTHS,
     ROC_LATENCY_PROFILES,
+    ROC_PACKET_LENGTHS,
+    ROC_TARGET_LATENCY_RANGE,
 )
 
 
@@ -612,10 +615,18 @@ class HardwareConfigRequest(BaseModel):
 
 
 class MacRocConfigRequest(BaseModel):
-    """Mac ROC streaming configuration request"""
-    target_latency_ms: int = Field(default=DEFAULT_ROC_CONFIG['target_latency_ms'], ge=20, le=500, description="Target latency in milliseconds")
-    latency_profile: ROC_LATENCY_PROFILES = Field(default=DEFAULT_ROC_CONFIG['latency_profile'], description="Latency tuning profile")
-    frame_length_ms: ROC_FRAME_LENGTHS = Field(default=DEFAULT_ROC_CONFIG['frame_length_ms'], description="Internal frame length in milliseconds")
+    """Both halves of the Mac ROC link: roc-recv's three, then roc-vad's four.
+
+    Every field is required. A PUT replaces the whole link, and a default here
+    would quietly reset the Mac's half whenever a client sent only the Pi's.
+    """
+    target_latency_ms: int = Field(ge=ROC_TARGET_LATENCY_RANGE[0], le=ROC_TARGET_LATENCY_RANGE[1])
+    latency_profile: ROC_LATENCY_PROFILES
+    frame_length_ms: ROC_FRAME_LENGTHS
+    packet_length_ms: ROC_PACKET_LENGTHS
+    fec_block_source: int = Field(ge=ROC_FEC_SOURCE_RANGE[0], le=ROC_FEC_SOURCE_RANGE[1])
+    fec_block_repair: int = Field(ge=ROC_FEC_REPAIR_RANGE[0], le=ROC_FEC_REPAIR_RANGE[1])
+    packet_interleaving: bool
 
 
 # =============================================================================

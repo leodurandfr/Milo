@@ -44,13 +44,13 @@ def _probe_payload(kind="ethernet", speed=1000, sched_max=0.4):
 
 @pytest.fixture
 def fast_local_sample():
-    with patch.object(probe_module, "_sample_local_scheduling", new=AsyncMock(return_value=0.2)):
+    with patch.object(probe_module, "sample_local_scheduling", new=AsyncMock(return_value=0.2)):
         yield
 
 
 @pytest.fixture
 def healthy_ping():
-    with patch.object(probe_module, "_ping", new=AsyncMock(return_value=(0.3, 1.2, 0.0))):
+    with patch.object(probe_module, "ping", new=AsyncMock(return_value=probe_module.PingReading(0.3, 1.2, 0.0, 0))):
         yield
 
 
@@ -147,9 +147,9 @@ async def test_a_host_that_answers_no_probe_is_an_error_not_a_hundred_percent_lo
     with patch.object(probe_module.asyncio, "create_subprocess_exec", new=AsyncMock(
             return_value=SimpleNamespace(
                 communicate=AsyncMock(return_value=(b"0 packets received", b"")),
-                kill=lambda: None))):
+                kill=lambda: None, returncode=0))):
         with pytest.raises(CalibrationProbeError, match="no ICMP reply"):
-            await probe_module._ping("10.0.0.9")
+            await probe_module.ping("10.0.0.9")
 
 
 async def test_a_fast_failure_cancels_the_slow_probe_beside_it():
@@ -173,7 +173,7 @@ async def test_a_fast_failure_cancels_the_slow_probe_beside_it():
 
     slow_coro = slow()
     with pytest.raises(CalibrationProbeError):
-        await probe_module._first_failure_cancels(slow_coro, fails_fast())
+        await probe_module.first_failure_cancels(slow_coro, fails_fast())
 
     # Nothing is left pending: a survivor would raise its own exception later,
     # into a run that has already ended.
@@ -241,3 +241,62 @@ class TestTheServiceLifecycle:
 
         assert progress["expected_seconds"] > 0
         assert progress["elapsed_seconds"] >= 0
+
+
+async def test_a_burst_of_consecutive_losses_is_told_apart_from_scattered_ones():
+    """The Mac link turns sender interleaving on only for losses that come in
+    runs: two scattered losses and two back-to-back are the same percentage
+    and opposite answers. Parsed from iputils' own reply lines."""
+    replies = [1, 2, 4, 5, 8, 9, 10]  # 3 lost alone, 6 and 7 lost together
+    stdout = "".join(
+        f"64 bytes from 10.0.0.9: icmp_seq={seq} ttl=64 time=0.{seq}0 ms\n" for seq in replies
+    ).encode()
+    with patch.object(probe_module.asyncio, "create_subprocess_exec", new=AsyncMock(
+            return_value=SimpleNamespace(communicate=AsyncMock(return_value=(stdout, b"")),
+                                         kill=lambda: None, returncode=0))):
+        reading = await probe_module.ping("10.0.0.9", count=10)
+
+    assert reading.loss_pct == 30.0
+    assert reading.longest_loss_run == 2
+    assert reading.max_ms == 0.9
+
+
+async def test_a_canceled_run_cancels_every_probe_it_started():
+    """A backend shutdown cancels an analysis mid-minute. `asyncio.wait` leaves
+    its tasks running when it is itself canceled, and each holds a process — a
+    300-probe ping, a journalctl follow — that outlived the backend."""
+    started = asyncio.Event()
+    canceled = []
+
+    async def probe(name):
+        try:
+            started.set()
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            canceled.append(name)
+            raise
+
+    run = asyncio.create_task(probe_module.first_failure_cancels(probe("ping"), probe("journal")))
+    await started.wait()
+    await asyncio.sleep(0)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert sorted(canceled) == ["journal", "ping"]
+
+
+async def test_a_canceled_ping_kills_its_process():
+    killed = []
+    hung = asyncio.Event()
+
+    async def communicate():
+        await hung.wait()
+
+    proc = SimpleNamespace(communicate=communicate, returncode=None, kill=lambda: killed.append(True))
+    with patch.object(probe_module.asyncio, "create_subprocess_exec", new=AsyncMock(return_value=proc)):
+        task = asyncio.create_task(probe_module.ping("10.0.0.9", count=300))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert killed == [True]

@@ -441,3 +441,31 @@ async def test_a_session_whose_death_is_heard_late_ends_at_the_next_roc_recv(wor
     await world.systemd_restarts_it()
     assert world.names() == [AIR_NAME]
     assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+# === Who the link analysis measures ===
+
+async def test_a_mac_still_being_named_is_streaming_for_the_link_analysis(world):
+    """The analysis asks the source who streams. Inside a Mac's naming second
+    the answer was nobody, and the panel told its owner no Mac was sending."""
+    await world.select()
+    gate = world.name_is_slow(MINI_IP)
+    try:
+        await world.mac_streams(MINI_IP)
+        assert world.source.streaming_macs == {MINI_IP: MINI_IP}
+    finally:
+        gate.set()
+    await settle()
+    assert world.source.streaming_macs == {MINI_IP: MINI_NAME}
+    assert world.source.stream_count == 1
+
+
+async def test_a_mac_reopening_its_stream_counts_two_streams_for_one_mac(world):
+    """roc-recv's statistics carry no session: two streams at once would land
+    in one reading, so the analysis must see them even from one Mac."""
+    await world.select()
+    await world.mac_streams(MINI_IP)
+    await world.mac_streams(MINI_IP, port=PORT + 1)
+
+    assert world.source.streaming_macs == {MINI_IP: MINI_NAME}
+    assert world.source.stream_count == 2

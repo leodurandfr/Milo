@@ -284,7 +284,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
     if (!result.ok) {
       calibration.value = {
-        ...calibration.value, running: false, stage: null, error: 'start_failed',
+        ...calibration.value, running: false, stage: null, error: 'start_failed', startedAt: 0,
       };
       return false;
     }
@@ -305,12 +305,14 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         startedAt: calibration.value.startedAt || Date.now(),
       };
     } else if (event?.type === 'calibration_result') {
+      // No start time left behind: the next run's progress event would take
+      // it as its own, and draw this bar at its ceiling from the first second.
       calibration.value = {
-        ...calibration.value, running: false, stage: null, result: data, error: null,
+        ...calibration.value, running: false, stage: null, result: data, error: null, startedAt: 0,
       };
     } else if (event?.type === 'calibration_failed') {
       calibration.value = {
-        ...calibration.value, running: false, stage: null, result: null,
+        ...calibration.value, running: false, stage: null, result: null, startedAt: 0,
         error: data.reason || 'probe_failed', detail: data.detail || null,
       };
     }

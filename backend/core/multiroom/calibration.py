@@ -163,14 +163,24 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _one_way_jitter_ms(reading: ClientReading) -> float:
-    """This client's round-trip spread, halved and widened.
+def one_way_jitter_ms(rtt_p50_ms: float, rtt_max_ms: float) -> float:
+    """A round-trip spread, halved and widened — the network term of both
+    analyses (this one and the Mac link's), which must read a ping alike.
 
     Halved because a chunk travels one way. Widened by ``JITTER_TAIL_FACTOR``
     because the sample lasts a minute and the buffer has to cover an evening.
     """
-    spread = max(0.0, reading.rtt_max_ms - reading.rtt_p50_ms)
+    spread = max(0.0, rtt_max_ms - rtt_p50_ms)
     return spread / 2.0 * JITTER_TAIL_FACTOR
+
+
+def grid_up(value: float, grid: int) -> float:
+    """`value` rounded up to a multiple of `grid`."""
+    return grid * -(-value // grid)
+
+
+def _one_way_jitter_ms(reading: ClientReading) -> float:
+    return one_way_jitter_ms(reading.rtt_p50_ms, reading.rtt_max_ms)
 
 
 def _is_clean(worst_jitter_ms: float, worst_loss_pct: float) -> bool:
@@ -228,7 +238,7 @@ def _pick_chunk_ms(worst_jitter_ms: float, worst_loss_pct: float) -> Tuple[int, 
 def _pick_buffer_time_ms(worst_sched_ms: float) -> Tuple[int, Tuple[str, Dict]]:
     low, high = SNAPCLIENT_LIMITS["buffer_time"]
     needed = SCHED_TAIL_FACTOR * worst_sched_ms
-    rounded = BUFFER_TIME_GRID_MS * -(-needed // BUFFER_TIME_GRID_MS)
+    rounded = grid_up(needed, BUFFER_TIME_GRID_MS)
     value = int(_clamp(rounded, low, high))
     return value, ("client_alsa_buffer", {"value": value, "sched": round(worst_sched_ms, 2)})
 
@@ -262,7 +272,7 @@ def compute_configuration(
     raw = structural + worst_jitter + retransmit_ms + SYNC_RESIDUAL_MS
 
     buffer_ms = SAFETY_FACTOR * raw
-    buffer_ms = BUFFER_GRID_MS * -(-buffer_ms // BUFFER_GRID_MS)
+    buffer_ms = grid_up(buffer_ms, BUFFER_GRID_MS)
     buffer_ms = max(buffer_ms, structural + FLOOR_MARGIN_MS, VERIFIED_FLOOR_MS)
     buffer_ms = int(_clamp(buffer_ms, *BUFFER_MS_RANGE))
 

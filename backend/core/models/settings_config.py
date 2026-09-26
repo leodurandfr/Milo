@@ -76,9 +76,16 @@ class ScreenColorFilterConfig(BaseModel):
 
 
 class MacRocConfig(BaseModel):
+    """Both halves of the ROC link: roc-recv here (the first three), the Mac's
+    roc-vad sender (the other four). Milo-Mac reads the sender half from
+    `/bulk` and from `settings/mac_roc_changed`, and applies it."""
     target_latency_ms: int
     latency_profile: str
     frame_length_ms: int
+    packet_length_ms: int
+    fec_block_source: int
+    fec_block_repair: int
+    packet_interleaving: bool
 
 
 class RadioSettingsConfig(BaseModel):

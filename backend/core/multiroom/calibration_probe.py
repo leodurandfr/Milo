@@ -18,10 +18,12 @@ be the weak one. Skipping it and reporting the rest is the shape of a false
 green, which is the one outcome this feature cannot afford.
 """
 import asyncio
+import contextlib
 import logging
 import re
 import sys
-from typing import Dict, List, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Set, Tuple
 
 import aiohttp
 
@@ -36,7 +38,6 @@ logger = logging.getLogger(__name__)
 PING_COUNT = 150
 PING_INTERVAL_S = 0.2
 PING_TIMEOUT_S = 1
-PING_BUDGET_S = PING_COUNT * PING_INTERVAL_S + 20
 
 # What the UI tells the user to expect. Derived from the probe that dominates
 # the run — everything else happens alongside it — and never guessed on the
@@ -51,7 +52,7 @@ PROBE_TIMEOUT_S = 10
 # satellite's copy cannot be imported -- duplicating the arithmetic is the cost
 # of that separation, not an oversight. The satellite runs its copy in-process
 # because its API is idle by construction; this one cannot, see
-# `_sample_local_scheduling`.
+# `sample_local_scheduling`.
 LOCAL_SCHED_SAMPLES = 400
 LOCAL_SCHED_INTERVAL_S = 0.002
 LOCAL_SCHED_BUDGET_S = LOCAL_SCHED_SAMPLES * LOCAL_SCHED_INTERVAL_S + 15
@@ -63,7 +64,7 @@ LOCAL_SCHED_BUDGET_S = LOCAL_SCHED_SAMPLES * LOCAL_SCHED_INTERVAL_S + 15
 ASSUMED_LINK = "wifi"
 ASSUMED_LINK_SPEED_MBPS = 72.0
 
-_PING_TIME = re.compile(r"time=([\d.]+)\s*ms")
+_PING_REPLY = re.compile(r"icmp_seq=(\d+).*?time=([\d.]+)\s*ms")
 
 
 class NoRemoteClientError(RuntimeError):
@@ -92,7 +93,15 @@ def _percentiles(values: List[float]) -> Tuple[float, float]:
     return ordered[last // 2], ordered[last]
 
 
-async def _sample_local_scheduling() -> float:
+def _kill_if_running(proc) -> None:
+    """A probe canceled mid-run (the analysis canceled with it) must not
+    leave its process behind: a 300-probe ping outlives a shutdown by a minute."""
+    if proc.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+
+
+async def sample_local_scheduling() -> float:
     """Worst overshoot of a fixed interval on this machine, in milliseconds.
 
     Runs in a separate interpreter, not in a thread here, and that is the whole
@@ -126,6 +135,8 @@ async def _sample_local_scheduling() -> float:
     except asyncio.TimeoutError:
         proc.kill()
         raise CalibrationProbeError("the server's scheduling sample did not finish") from None
+    finally:
+        _kill_if_running(proc)
 
     try:
         return float(stdout.decode().strip())
@@ -133,32 +144,54 @@ async def _sample_local_scheduling() -> float:
         raise CalibrationProbeError("the server's scheduling sample was unreadable") from exc
 
 
-async def _ping(ip: str) -> Tuple[float, float, float]:
-    """(p50, max, loss_pct) of `PING_COUNT` probes to `ip`.
+@dataclass(frozen=True)
+class PingReading:
+    """What `ping` measured: the round trip's median and worst, the share of
+    probes lost, and the longest run of consecutive losses — one lost probe in
+    a row is noise, several are a link that drops bursts."""
+    p50_ms: float
+    max_ms: float
+    loss_pct: float
+    longest_loss_run: int
+
+
+def _longest_loss_run(answered: Set[int], count: int) -> int:
+    longest = run = 0
+    for seq in range(1, count + 1):
+        run = 0 if seq in answered else run + 1
+        longest = max(longest, run)
+    return longest
+
+
+async def ping(ip: str, count: int = PING_COUNT) -> PingReading:
+    """`count` probes to `ip`, one every `PING_INTERVAL_S`.
 
     Raises CalibrationProbeError when nothing came back: a host that answers no
     probe at all has not been measured, and a 100% loss reading fed to the model
     would be treated as a very bad link rather than as an absent one.
     """
     proc = await asyncio.create_subprocess_exec(
-        "ping", "-n", "-c", str(PING_COUNT),
+        "ping", "-n", "-c", str(count),
         "-i", str(PING_INTERVAL_S), "-W", str(PING_TIMEOUT_S), ip,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), PING_BUDGET_S)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), count * PING_INTERVAL_S + 20)
     except asyncio.TimeoutError:
         proc.kill()
         raise CalibrationProbeError(f"ping to {ip} did not finish") from None
+    finally:
+        _kill_if_running(proc)
 
-    times = [float(m) for m in _PING_TIME.findall(stdout.decode("utf-8", errors="ignore"))]
-    if not times:
+    replies = {int(seq): float(ms)
+               for seq, ms in _PING_REPLY.findall(stdout.decode("utf-8", errors="ignore"))}
+    if not replies:
         raise CalibrationProbeError(f"no ICMP reply from {ip}")
 
-    p50, worst = _percentiles(times)
-    loss = 100.0 * (PING_COUNT - len(times)) / PING_COUNT
-    return p50, worst, loss
+    p50, worst = _percentiles(list(replies.values()))
+    loss = 100.0 * (count - len(replies)) / count
+    return PingReading(p50, worst, loss, _longest_loss_run(set(replies), count))
 
 
 async def _fetch_probe(session: aiohttp.ClientSession, ip: str) -> Dict:
@@ -169,7 +202,7 @@ async def _fetch_probe(session: aiohttp.ClientSession, ip: str) -> Dict:
         return await response.json()
 
 
-async def _first_failure_cancels(*coros):
+async def first_failure_cancels(*coros):
     """Run `coros` together; on the first failure cancel the rest, then raise.
 
     `asyncio.gather` propagates the first exception but leaves its siblings
@@ -181,7 +214,15 @@ async def _first_failure_cancels(*coros):
     after the screen had moved on.
     """
     tasks = [asyncio.ensure_future(coro) for coro in coros]
-    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    except asyncio.CancelledError:
+        # The run itself was canceled (a backend shutdown mid-analysis):
+        # `asyncio.wait` leaves its tasks running, and each holds a subprocess.
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     for task in pending:
         task.cancel()
     if pending:
@@ -196,8 +237,8 @@ async def _measure_remote(session: aiohttp.ClientSession, client) -> Tuple[Clien
     """One remote client's reading, plus the fields that had to be assumed."""
     assumed: List[str] = []
     try:
-        (p50, worst, loss), probe = await _first_failure_cancels(
-            _ping(client.ip), _fetch_probe(session, client.ip)
+        reading, probe = await first_failure_cancels(
+            ping(client.ip), _fetch_probe(session, client.ip)
         )
     except CalibrationProbeError as exc:
         # Re-raised with the speaker's name attached: the probes below know an
@@ -233,9 +274,9 @@ async def _measure_remote(session: aiohttp.ClientSession, client) -> Tuple[Clien
         link=kind,
         signal_percent=float(signal) if isinstance(signal, (int, float)) else None,
         link_speed_mbps=float(speed),
-        rtt_p50_ms=p50,
-        rtt_max_ms=worst,
-        loss_pct=loss,
+        rtt_p50_ms=reading.p50_ms,
+        rtt_max_ms=reading.max_ms,
+        loss_pct=reading.loss_pct,
         sched_max_ms=float(sched_max),
         is_local=False,
     ), assumed
@@ -263,7 +304,7 @@ class CalibrationProbeService:
 
         async with aiohttp.ClientSession() as session:
             results = await asyncio.gather(
-                _sample_local_scheduling(),
+                sample_local_scheduling(),
                 *[_measure_remote(session, c) for c in remote],
                 return_exceptions=True,
             )

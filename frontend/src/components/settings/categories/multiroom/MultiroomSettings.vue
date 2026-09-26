@@ -196,7 +196,7 @@
 
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
-import { useTimer } from '@/composables/useTimer';
+import { useAnalysisRun, PROGRESS_TICK_MS } from '@/composables/useAnalysisRun';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -408,43 +408,15 @@ const showsMeasuredValues = computed(() => {
     Object.keys(config).every(key => snapcastStore.serverConfig[key] === config[key]);
 });
 
-// === PROGRESS ===
+// === PROGRESS AND STAGING ===
 
-const elapsedMs = ref(0);
-const timer = useTimer();
-let progressTicker = null;
-
-// Capped: the bar may approach the end but only the result event completes it.
-const PROGRESS_CEILING = 95;
-
-// One second, matched by the strip's CSS transition. A shorter tick with the
-// same transition is what made the bar advance in visible steps: the animation
-// finished long before the next value arrived and the fill sat still between.
-const PROGRESS_TICK_MS = 1000;
-
-const progressPercent = computed(() => {
-  const expected = calibration.value.expectedSeconds * 1000;
-  if (!expected) return 0;
-  return Math.min(PROGRESS_CEILING, (elapsedMs.value / expected) * 100);
+// A measured result lands in the sliders, which is where every other setting is
+// read. Staging is not writing — the sticky Apply is, so snapserver.conf keeps
+// exactly one writer.
+const { progressPercent, remainingSeconds, startAnalysis } = useAnalysisRun(calibration, {
+  start: () => snapcastStore.startCalibration('lossless'),
+  stage: () => snapcastStore.stageCalibrationResult(),
 });
-
-const remainingSeconds = computed(() => {
-  const expected = calibration.value.expectedSeconds;
-  if (!expected) return 0;
-  return Math.max(0, Math.round(expected - elapsedMs.value / 1000));
-});
-
-watch(() => calibration.value.running, (running) => {
-  if (progressTicker) {
-    timer.clear(progressTicker);
-    progressTicker = null;
-  }
-  if (!running) return;
-  elapsedMs.value = Date.now() - (calibration.value.startedAt || Date.now());
-  progressTicker = timer.setInterval(() => {
-    elapsedMs.value = Date.now() - (calibration.value.startedAt || Date.now());
-  }, PROGRESS_TICK_MS);
-}, { immediate: true });
 
 // Numbers, not a verdict. "Sets the limit" singled out whichever speaker had
 // the marginally worse jitter — 1.02 ms against 0.36 ms on two gigabit links —
@@ -456,35 +428,6 @@ const ANALYSIS_STAGE_KEYS = { probing: 'stageProbing', computing: 'stageComputin
 const stageLabel = computed(() =>
   t(`multiroomSettings.${ANALYSIS_STAGE_KEYS[calibration.value.stage] || 'stageProbing'}`)
 );
-
-async function startAnalysis() {
-  // Armed only once the run actually began. Set before the request, a refused
-  // POST left it armed and the next result the store saw — a restored one from
-  // some later reload — was staged as though the user had asked for it.
-  awaitingResult.value = await snapcastStore.startCalibration('lossless');
-}
-
-// A measured result lands in the sliders, which is where every other setting is
-// read. Staging is not writing — the sticky Apply is, so snapserver.conf keeps
-// exactly one writer.
-// Only a run started here. Without the flag, opening the panel restored the
-// last stored proposal and staged it — the same trap the tab switch had, back
-// through the reload path: an hours-old measurement on the sliders and an
-// Apply button for a change nobody asked for.
-const awaitingResult = ref(false);
-
-watch(() => calibration.value.result, (result) => {
-  if (result && awaitingResult.value) {
-    awaitingResult.value = false;
-    snapcastStore.stageCalibrationResult();
-  }
-});
-
-// A run that ends without a proposal must disarm too, or the flag outlives it
-// and claims the next result as this user's request.
-watch(() => calibration.value.error, (error) => {
-  if (error) awaitingResult.value = false;
-});
 
 // Codec options for ButtonGroup — the list comes from the backend
 // capabilities; only the display casing is presentation-side.

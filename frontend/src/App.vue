@@ -102,6 +102,7 @@ import { usePodcastStore } from '@/stores/podcastStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
+import { useMacLinkStore } from '@/stores/macLinkStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
@@ -145,6 +146,7 @@ const podcastStore = usePodcastStore();
 const radioStore = useRadioStore();
 const musicLibraryStore = useMusicLibraryStore();
 const snapcastStore = useSnapcastStore();
+const macLinkStore = useMacLinkStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
@@ -199,7 +201,7 @@ function processInitialState(event) {
 const deltaStores = [
   unifiedStore, multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
-  musicLibraryStore, snapcastStore,
+  musicLibraryStore, snapcastStore, macLinkStore,
 ];
 
 async function resyncStores() {
@@ -519,6 +521,10 @@ const RAW_EVENTS = [
   ['routing', 'calibration_progress', snapcastStore.handleCalibrationEvent],
   ['routing', 'calibration_result', snapcastStore.handleCalibrationEvent],
   ['routing', 'calibration_failed', snapcastStore.handleCalibrationEvent],
+  // The Mac link analysis, the same three steps for the ROC link.
+  ['settings', 'mac_calibration_progress', macLinkStore.handleCalibrationEvent],
+  ['settings', 'mac_calibration_result', macLinkStore.handleCalibrationEvent],
+  ['settings', 'mac_calibration_failed', macLinkStore.handleCalibrationEvent],
   ['multiroom', 'client_state_changed', multiroomStore.handleMultiroomEvent],
   ['multiroom', 'zone_changed', multiroomStore.handleMultiroomEvent],
   ['equalizer', 'enabled_changed', equalizerStore.handleEnabledChanged],

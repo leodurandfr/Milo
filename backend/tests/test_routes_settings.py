@@ -10,7 +10,20 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.api.models import HardwareConfigRequest
 from backend.api.responses import BulkSettingsResponse
 from backend.api.settings import create_settings_router
+from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsService
+
+# A PUT /mac-roc carries the whole link: roc-recv's three values, then the
+# four Milo-Mac applies to its roc-vad sender.
+MAC_ROC_BODY = {
+    "target_latency_ms": 100,
+    "latency_profile": "responsive",
+    "frame_length_ms": 6,
+    "packet_length_ms": 3,
+    "fec_block_source": 10,
+    "fec_block_repair": 5,
+    "packet_interleaving": False,
+}
 
 
 class TestSettingsRoutes:
@@ -34,6 +47,7 @@ class TestSettingsRoutes:
         sm.system_state.active_source = Mock()
         sm.system_state.active_source.value = "none"
         sm.transition_to_source = AsyncMock(return_value=True)
+        sm.restart_source_if_active = AsyncMock(return_value=None)
         sm.get_current_state = Mock(return_value={"active_source": "none"})
         sm.get_source = Mock(return_value=None)
         sm.broadcast = AsyncMock()
@@ -130,7 +144,8 @@ class TestSettingsRoutes:
             routing_service=mock_routing_service,
             hardware_service=mock_hardware_service,
             settings_service=mock_settings,
-            multiroom_equalizer_service=mock_multiroom_equalizer_service
+            multiroom_equalizer_service=mock_multiroom_equalizer_service,
+            mac_link_calibration=Mock(),
         )
 
         app.include_router(router, prefix="/api/settings")
@@ -483,20 +498,12 @@ class TestSettingsRoutes:
         """Test PUT /mac-roc with valid values"""
         # MacEnv.regenerate() writes mac.env to /var/lib/milo — mock it for hermeticity
         with patch("backend.api.settings.MacEnv.regenerate"):
-            response = client.put("/api/settings/mac-roc", json={
-                "target_latency_ms": 100,
-                "latency_profile": "responsive",
-                "frame_length_ms": 6
-            })
+            response = client.put("/api/settings/mac-roc", json=MAC_ROC_BODY)
         assert response.status_code == 200
 
     def test_set_mac_roc_latency_out_of_range(self, client):
         """Test PUT /mac-roc with latency > 500 - should return 422"""
-        response = client.put("/api/settings/mac-roc", json={
-            "target_latency_ms": 1000,
-            "latency_profile": "responsive",
-            "frame_length_ms": 6
-        })
+        response = client.put("/api/settings/mac-roc", json={**MAC_ROC_BODY, "target_latency_ms": 1000})
         assert response.status_code == 422
 
     # ===================
@@ -530,37 +537,64 @@ class TestSettingsRoutes:
     # MAC ROC EFFECTS
     # ===================
 
+    @staticmethod
+    def _reroute(client, carried=True):
+        """The state machine's restart as the route drives it: the env written
+        between RELEASE and ACQUIRE, answering whether Mac came back."""
+        async def restart(source, apply):
+            await apply()
+            return carried
+        client._mock_state_machine.restart_source_if_active = AsyncMock(side_effect=restart)
+        return client._mock_state_machine.restart_source_if_active
+
     def test_set_mac_roc_applies_the_four_effects_it_documents(self, client, mock_systemd_manager):
         """PUT /mac-roc's whole body is unobserved by a status-code assertion.
 
-        The route persists the three ROC values, regenerates mac.env, restarts
-        the ROC receiver and broadcasts the new config; emptying it entirely
-        leaves FastAPI answering 200 with a null body, which
-        `test_set_mac_roc_valid` accepts. Each effect is the only thing that
-        makes the sender's latency setting reach the sender at all.
+        The route persists the link, writes mac.env, has the Mac source carry
+        roc-recv across a restart onto it, and broadcasts the link Milo-Mac
+        applies its half of. Each effect is the only thing that makes one half
+        of the setting reach its end at all.
         """
+        reroute = self._reroute(client)
         with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()) as regenerate:
-            response = client.put("/api/settings/mac-roc", json={
-                "target_latency_ms": 100,
-                "latency_profile": "responsive",
-                "frame_length_ms": 6,
-            })
+            response = client.put("/api/settings/mac-roc", json=MAC_ROC_BODY)
 
-        expected = {
-            "target_latency_ms": 100,
-            "latency_profile": "responsive",
-            "frame_length_ms": 6,
-        }
+        expected = dict(MAC_ROC_BODY)
         assert response.json() == {
             "status": "success", "config": expected, "service_restarted": True
         }
         client._mock_settings.set_setting.assert_awaited_once_with("mac", expected)
         regenerate.assert_awaited_once_with(expected)
-        mock_systemd_manager.restart.assert_awaited_once_with("milo-mac.service")
+        assert reroute.await_args.args[0] is AudioSource.MAC
 
         broadcast = client._mock_state_machine.broadcast.call_args.args[0]
         assert broadcast.TYPE == "mac_roc_changed"
         assert broadcast.config.model_dump() == expected
+
+    def test_set_mac_roc_never_restarts_the_receiver_behind_the_sources_back(self, client, mock_systemd_manager):
+        """Restarted by systemd directly, roc-recv's exit under a live session
+        read as the daemon dying: an error banner on every Apply, measured
+        2026-09-26. The restart belongs to the source, through the reroute."""
+        self._reroute(client)
+        with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()):
+            client.put("/api/settings/mac-roc", json=MAC_ROC_BODY)
+
+        mock_systemd_manager.restart.assert_not_awaited()
+        mock_systemd_manager.start.assert_not_awaited()
+
+    def test_set_mac_roc_leaves_roc_recv_alone_when_only_the_macs_half_changed(self, client):
+        """roc-recv reads the target, profile and frame; toggling interleaving
+        restarted it anyway and cut the sound for a change it never reads."""
+        client._mock_settings.get_setting = AsyncMock(return_value={**MAC_ROC_BODY, "packet_interleaving": True})
+        restart = self._reroute(client)
+
+        with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()) as regenerate:
+            response = client.put("/api/settings/mac-roc", json=MAC_ROC_BODY)
+
+        assert response.json()["service_restarted"] is False
+        restart.assert_not_awaited()
+        regenerate.assert_awaited_once()
+        client._mock_state_machine.broadcast.assert_awaited_once()
 
     def test_set_mac_roc_refuses_when_the_save_fails(self, client):
         """A 200 on a save that did not happen leaves the Mac panel showing a
@@ -568,61 +602,27 @@ class TestSettingsRoutes:
         Nothing after the save may run either — mac.env must not describe a
         configuration settings.json does not hold."""
         client._mock_settings.set_setting = AsyncMock(return_value=False)
+        reroute = self._reroute(client)
 
         with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()) as regenerate:
-            response = client.put("/api/settings/mac-roc", json={
-                "target_latency_ms": 100,
-                "latency_profile": "responsive",
-                "frame_length_ms": 6,
-            })
+            response = client.put("/api/settings/mac-roc", json=MAC_ROC_BODY)
 
         assert response.status_code == 500
         regenerate.assert_not_awaited()
+        reroute.assert_not_awaited()
 
-    def test_set_mac_roc_reports_a_receiver_that_did_not_restart(self, client, mock_systemd_manager):
-        """The settings ARE saved and mac.env IS written when the restart fails,
-        so this is a 200 — but `service_restarted` is the only thing telling the
-        panel the running daemon is still on the old frame length."""
-        mock_systemd_manager.restart = AsyncMock(return_value=False)
-
-        with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()):
-            response = client.put("/api/settings/mac-roc", json={
-                "target_latency_ms": 100,
-                "latency_profile": "responsive",
-                "frame_length_ms": 6,
-            })
-
-        assert response.status_code == 200
-        assert response.json()["service_restarted"] is False
-        client._mock_state_machine.broadcast.assert_awaited_once()
-
-    @pytest.mark.parametrize("probe", [False, None], ids=["stopped", "unreadable"])
-    def test_set_mac_roc_never_starts_a_receiver_that_was_not_running(
-        self, client, mock_systemd_manager, probe
-    ):
-        """`systemctl restart` on a stopped unit STARTS it, and roc-recv is the
-        audio path itself. Applying a latency change while Spotify played opened
-        a second stream into CamillaDSP, then left the Mac audible with no active
-        source once Spotify stopped: the state machine never ran MacSource's
-        _do_start, so nothing in the UI reported a receiver at all. mac.env must
-        still be written — it is re-read at the next start.
-
-        None is the probe that could not look, and it must not authorize a start
-        either: nothing distinguishes it from a stopped unit here.
-        """
-        mock_systemd_manager.probe_active = AsyncMock(return_value=probe)
+    @pytest.mark.parametrize("carried", [None, False], ids=["not_playing", "did_not_come_back"])
+    def test_set_mac_roc_reports_a_receiver_it_did_not_restart(self, client, carried):
+        """mac.env IS written when Mac is not playing (or did not come back), so
+        this is a 200 — `service_restarted` is what tells the panel the running
+        receiver, if any, is still on the old values."""
+        self._reroute(client, carried=carried)
 
         with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()) as regenerate:
-            response = client.put("/api/settings/mac-roc", json={
-                "target_latency_ms": 100,
-                "latency_profile": "responsive",
-                "frame_length_ms": 6,
-            })
+            response = client.put("/api/settings/mac-roc", json=MAC_ROC_BODY)
 
         assert response.status_code == 200
         assert response.json()["service_restarted"] is False
-        mock_systemd_manager.restart.assert_not_awaited()
-        mock_systemd_manager.start.assert_not_awaited()
         regenerate.assert_awaited_once()
         client._mock_state_machine.broadcast.assert_awaited_once()
 
@@ -937,6 +937,10 @@ class TestBulkSettings:
         ("mac_roc", "target_latency_ms"): ("mac", "target_latency_ms"),
         ("mac_roc", "latency_profile"): ("mac", "latency_profile"),
         ("mac_roc", "frame_length_ms"): ("mac", "frame_length_ms"),
+        ("mac_roc", "packet_length_ms"): ("mac", "packet_length_ms"),
+        ("mac_roc", "fec_block_source"): ("mac", "fec_block_source"),
+        ("mac_roc", "fec_block_repair"): ("mac", "fec_block_repair"),
+        ("mac_roc", "packet_interleaving"): ("mac", "packet_interleaving"),
     }
 
     @staticmethod
@@ -962,6 +966,7 @@ class TestBulkSettings:
                 hardware_service=Mock(),
                 settings_service=settings,
                 multiroom_equalizer_service=Mock(),
+                mac_link_calibration=Mock(),
             ),
             prefix="/api/settings",
         )
@@ -1073,3 +1078,80 @@ class TestBulkSettings:
 
         with pytest.raises(KeyError):
             self._client(stored).get("/api/settings/bulk")
+
+
+class TestMacLink:
+    """The Mac panel's two reads beside PUT /mac-roc: what it may offer, and
+    the analysis that proposes both halves of the link."""
+
+    def _client(self, calibration=None):
+        calibration = calibration or Mock()
+        settings = Mock()
+        settings.set_setting = AsyncMock(return_value=True)
+        settings.get_setting = AsyncMock(return_value=dict(MAC_ROC_BODY))
+        app = FastAPI()
+        app.include_router(
+            create_settings_router(
+                volume_service=Mock(),
+                state_machine=Mock(broadcast=AsyncMock(), restart_source_if_active=AsyncMock(return_value=None)),
+                screen_controller=Mock(),
+                systemd_manager=Mock(probe_active=AsyncMock(return_value=False)),
+                routing_service=Mock(), hardware_service=Mock(), settings_service=settings,
+                multiroom_equalizer_service=Mock(), mac_link_calibration=calibration,
+            ),
+            prefix="/api/settings",
+        )
+        return TestClient(app)
+
+    def test_every_capability_bound_is_the_one_the_put_enforces(self):
+        """The panel draws its sliders from these; a bound wider than the PUT's
+        is a value the user can pick and never apply."""
+        client = self._client()
+        caps = client.get("/api/settings/mac-roc/capabilities").json()
+        assert caps["status"] == "success"
+
+        with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()):
+            for key, caps_key in (("target_latency_ms", "target_latency_ms"),
+                                  ("fec_block_source", "fec_block_source"),
+                                  ("fec_block_repair", "fec_block_repair")):
+                bounds = caps[caps_key]
+                for inside in (bounds["min"], bounds["max"]):
+                    assert client.put("/api/settings/mac-roc", json={**MAC_ROC_BODY, key: inside}).status_code == 200
+                for outside in (bounds["min"] - 1, bounds["max"] + 1):
+                    assert client.put("/api/settings/mac-roc", json={**MAC_ROC_BODY, key: outside}).status_code == 422
+            for key, caps_key in (("latency_profile", "latency_profiles"),
+                                  ("frame_length_ms", "frame_lengths"),
+                                  ("packet_length_ms", "packet_lengths")):
+                assert len(caps[caps_key]) >= 3, caps_key
+                for value in caps[caps_key]:
+                    assert client.put("/api/settings/mac-roc", json={**MAC_ROC_BODY, key: value}).status_code == 200
+
+    def test_a_put_without_the_senders_half_is_refused_not_defaulted(self):
+        """Defaulted, the four missing keys would reset the Mac's roc-vad device
+        to factory values behind the back of whoever sent the other three."""
+        pi_half = {k: MAC_ROC_BODY[k] for k in ("target_latency_ms", "latency_profile", "frame_length_ms")}
+        assert self._client().put("/api/settings/mac-roc", json=pi_half).status_code == 422
+
+    def test_the_analysis_answers_409_while_running(self):
+        busy = Mock(start=Mock(return_value=False))
+        assert self._client(busy).post("/api/settings/mac-roc/calibration").status_code == 409
+
+        idle = Mock(start=Mock(return_value=True))
+        response = self._client(idle).post("/api/settings/mac-roc/calibration")
+        assert response.json()["status"] == "success"
+        idle.start.assert_called_once_with()
+
+    def test_the_refetch_carries_the_run_the_proposal_and_the_progress(self):
+        """Progress and result are WS deltas, never replayed: a tab backgrounded
+        across the minute of measuring reads them back from here."""
+        result = {"config": dict(MAC_ROC_BODY)}
+        calibration = Mock(running=True, last_result=result,
+                           progress={"expected_seconds": 62, "elapsed_seconds": 10.0})
+        body = self._client(calibration).get("/api/settings/mac-roc/calibration").json()
+        assert body == {"status": "success", "running": True, "result": result,
+                        "expected_seconds": 62, "elapsed_seconds": 10.0}
+
+    def test_forgetting_reaches_the_service(self):
+        calibration = Mock()
+        assert self._client(calibration).delete("/api/settings/mac-roc/calibration").json() == {"status": "success"}
+        calibration.forget.assert_called_once_with()

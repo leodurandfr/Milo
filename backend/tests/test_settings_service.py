@@ -167,6 +167,12 @@ class TestSettingsService:
             saved = json.load(f)
             assert saved['language'] == 'spanish'
 
+    def test_a_stored_fec_block_never_exceeds_what_rs8m_holds(self, service):
+        """roc's RS8M block is 255 packets, source and repair together: a stored
+        200 + 200 would reach the Mac as a block roc cannot build."""
+        mac = service._validate_and_merge({'mac': {'fec_block_source': 200, 'fec_block_repair': 200}})['mac']
+        assert mac['fec_block_source'] + mac['fec_block_repair'] <= 255
+
     def test_validate_and_merge_language(self, service):
         """Language validation test"""
         # Valid language

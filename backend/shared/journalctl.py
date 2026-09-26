@@ -5,7 +5,8 @@ Two audio sources tail a systemd unit's journal to derive state: Spotify
 (go-librespot auth/track errors) and Mac (ROC connect/disconnect). Both spawned
 an identical `journalctl -f -u <unit>` subprocess + readline loop with their own
 hand-rolled teardown; `follow_unit` owns that skeleton so each source keeps only
-its per-line parsing.
+its per-line parsing. The Mac link analysis reads roc-recv's statistics through
+it too, for one minute at a time.
 
 The rule a dying feed follows, here and in every other one Milō reads
 (`sources/bluetooth/monitor.py::_report_lost` is the other implementation):
@@ -40,10 +41,10 @@ async def follow_unit(
     when the consumer's task is cancelled or the generator is closed. Decoding
     uses errors='ignore'.
 
-    `consequence` names what stops working when the feed dies, in the caller's
-    own terms — the primitive is shared by two sources that lose two different
-    things, and a generic line would tell the owner a process ended without
-    telling them what it cost. Required and keyword-only, so a third consumer
+    `consequence` names what stops working when the feed dies, and for how
+    long, in the caller's own terms — the primitive is shared by consumers that
+    lose different things for different spans, and a generic line would tell
+    the owner a process ended without telling them what it cost. Required and keyword-only, so a third consumer
     cannot be added without answering the question.
 
     `tail` lines already written are replayed first (`"all"` for every one),
@@ -85,8 +86,7 @@ async def follow_unit(
                 # CancelledError/GeneratorExit into the finally below.
                 if proc.returncode != -signal.SIGTERM:
                     (logger or logging.getLogger(__name__)).error(
-                        "journalctl follow for %s ended (exit=%s) — %s until the "
-                        "source is restarted",
+                        "journalctl follow for %s ended (exit=%s) — %s",
                         unit, proc.returncode, consequence,
                     )
                 break

@@ -18,8 +18,9 @@ playing. A progress bar the user can watch is the difference between a feature
 and a frozen screen.
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+from backend.core.background_analysis import BackgroundAnalysis
 from backend.core.models.ws_events import (
     RoutingCalibrationFailed,
     RoutingCalibrationProgress,
@@ -31,79 +32,23 @@ from backend.core.multiroom.calibration_probe import (
     EXPECTED_DURATION_S,
     NoRemoteClientError,
 )
-import time
-from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
 
 
-class CalibrationService:
+class CalibrationService(BackgroundAnalysis):
     """Owns the lifecycle of one Snapcast analysis at a time."""
 
     def __init__(self, state_machine, probe_service):
+        super().__init__(logger, "calibration", EXPECTED_DURATION_S)
         self._state_machine = state_machine
         self._probe = probe_service
-        self._bg = BackgroundTaskSet(logger, "calibration")
-        self._running = False
-        self._last_result: Optional[Dict[str, Any]] = None
-        self._started_at: float = 0.0
-
-    @property
-    def running(self) -> bool:
-        return self._running
-
-    @property
-    def last_result(self) -> Optional[Dict[str, Any]]:
-        """The most recent proposal, for the refetch after a backgrounded tab.
-
-        Progress and result arrive as WS deltas and deltas are never replayed,
-        so a client that reconnects mid-run would otherwise show an idle screen
-        while an analysis was still going.
-        """
-        return self._last_result
-
-    @property
-    def progress(self) -> Dict[str, float]:
-        """What the UI needs to draw the bar after a refetch.
-
-        Elapsed rather than a start timestamp: the browser would have to trust
-        its own clock against this one to turn a timestamp into a position, and
-        the two are only as close as whoever set them.
-        """
-        elapsed = (time.monotonic() - self._started_at) if self._running else 0.0
-        return {"expected_seconds": EXPECTED_DURATION_S, "elapsed_seconds": round(elapsed, 1)}
 
     def start(self, quality: str = "lossless") -> bool:
         """Begin an analysis. False when one is already running."""
-        if self._running:
-            return False
-        # Dropped now, not when the new one lands. Held through the run, a
-        # refetch mid-analysis answered `running: true` beside the *previous*
-        # proposal, and the panel staged that stale configuration -- spending
-        # the one staging the fresh result was waiting for.
-        self._last_result = None
-        self._running = True
-        self._started_at = time.monotonic()
-        self._bg.spawn(self._run(quality), label="run")
-        return True
+        return super().start(quality)
 
-    def forget(self) -> None:
-        """Drop the last proposal: whoever asked for it left it unapplied.
-
-        Kept, it comes back on the next refetch as a table of measurements over
-        a configuration the unit does not run — the panel's own state said the
-        proposal was gone while this one still answered with it.
-
-        A run in progress is not touched. One client walking away is not a
-        reason to stop measuring for the others, and its result is dropped the
-        same way by whoever leaves it unapplied.
-        """
-        self._last_result = None
-
-    async def cleanup(self) -> None:
-        await self._bg.cancel_all()
-
-    async def _run(self, quality: str) -> None:
+    async def _analyze(self, quality: str) -> None:
         try:
             await self._state_machine.broadcast(
                 RoutingCalibrationProgress(
@@ -136,29 +81,24 @@ class CalibrationService:
                 "measurements": [_reading_payload(r) for r in readings],
                 "assumed": assumed,
             }
-            self._last_result = payload
+            self._propose(payload)
             await self._state_machine.broadcast(RoutingCalibrationResult(**payload))
 
         except (NoRemoteClientError, ValueError) as exc:
             logger.info("Calibration has nothing to measure: %s", exc)
-            self._last_result = None
             await self._state_machine.broadcast(
                 RoutingCalibrationFailed(reason="no_remote_client", detail=None)
             )
         except CalibrationProbeError as exc:
             logger.error("Calibration could not measure the fleet: %s", exc)
-            self._last_result = None
             await self._state_machine.broadcast(
                 RoutingCalibrationFailed(reason="probe_failed", detail=str(exc))
             )
         except Exception:
             logger.error("Calibration failed unexpectedly", exc_info=True)
-            self._last_result = None
             await self._state_machine.broadcast(
                 RoutingCalibrationFailed(reason="probe_failed", detail=None)
             )
-        finally:
-            self._running = False
 
 
 def _reading_payload(reading) -> Dict[str, Any]:

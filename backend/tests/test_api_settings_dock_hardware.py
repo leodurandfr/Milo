@@ -110,6 +110,7 @@ def client(state_machine, systemd, routing, equalizer, hardware, settings):
             hardware_service=hardware,
             settings_service=settings,
             multiroom_equalizer_service=equalizer,
+            mac_link_calibration=Mock(),
         ),
         prefix="/api/settings",
     )

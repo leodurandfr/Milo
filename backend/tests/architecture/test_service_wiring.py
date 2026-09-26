@@ -147,21 +147,53 @@ def test_no_cross_object_private_access():
 # Background tasks: a service that spawns must drain, and main.py must call it.
 # --------------------------------------------------------------------------- #
 
+def _class_index():
+    """Every class in the backend by name, for walking a class's bases."""
+    return {
+        cls.name: (path, cls)
+        for path, tree in _TREES.items()
+        for cls in ast.walk(tree)
+        if isinstance(cls, ast.ClassDef)
+    }
+
+
+def _lineage(cls, index):
+    """`cls` and the backend classes it inherits from, nearest first. A service
+    whose task set and cleanup live on a shared base (the two analyses on
+    BackgroundAnalysis) is held to the same rules as one declaring them itself:
+    reading its own body alone let both slip past this file."""
+    chain, pending = [], [cls]
+    while pending:
+        current = pending.pop(0)
+        chain.append(current)
+        for base in current.bases:
+            if isinstance(base, ast.Name) and base.id in index:
+                pending.append(index[base.id][1])
+    return chain
+
+
+def _methods(cls, index):
+    return [
+        m for c in _lineage(cls, index) for m in c.body
+        if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+
+
 def _classes_owning_a_task_set():
-    """(module, class) for every class constructing a BackgroundTaskSet."""
+    """(module, class) for every class constructing a BackgroundTaskSet, itself
+    or through a base."""
+    index = _class_index()
     owners = []
-    for path, tree in _TREES.items():
-        for cls in ast.walk(tree):
-            if not isinstance(cls, ast.ClassDef):
-                continue
-            constructs = any(
-                isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Name)
-                and n.func.id == "BackgroundTaskSet"
-                for n in ast.walk(cls)
-            )
-            if constructs:
-                owners.append((path, cls))
+    for path, cls in index.values():
+        constructs = any(
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "BackgroundTaskSet"
+            for c in _lineage(cls, index)
+            for n in ast.walk(c)
+        )
+        if constructs:
+            owners.append((path, cls))
     return owners
 
 
@@ -171,7 +203,9 @@ _TEARDOWN_NAMES = ("cleanup", "shutdown", "stop", "stop_connection", "close")
 def _registry_class_names():
     """Class names `dependencies.py` builds — the ones main.py can tear down."""
     src = (BACKEND_ROOT / "dependencies.py").read_text()
-    names = dict(re.findall(r'"([a-z_]+)": lambda: _import\("[^"]+", "(\w+)"\)', src))
+    # `\s*` between the arguments: a creator wrapped over several lines (the
+    # Snapcast analysis's is) was invisible to both tests below.
+    names = dict(re.findall(r'"([a-z_]+)": lambda: _import\(\s*"[^"]+",\s*"(\w+)"\s*\)', src))
     assert len(names) >= 25, f"service registry extraction looks broken: {names}"
     return names
 
@@ -192,13 +226,11 @@ def test_task_set_owners_drain_where_they_tear_down():
     owners = _classes_owning_a_task_set()
     assert len(owners) >= 10, f"BackgroundTaskSet extraction looks broken: {len(owners)} owners"
 
+    index = _class_index()
     registry_classes = set(_registry_class_names().values())
     violations = []
     for path, cls in owners:
-        teardown = [
-            m for m in cls.body
-            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name in _TEARDOWN_NAMES
-        ]
+        teardown = [m for m in _methods(cls, index) if m.name in _TEARDOWN_NAMES]
         if not teardown:
             if cls.name in registry_classes:
                 violations.append(f"{_rel(path)}::{cls.name} is a registry service with no teardown method")
@@ -231,12 +263,7 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
 
     # Map a registry name to the class it builds, then to its module.
     class_of = _registry_class_names()
-    classes = {
-        cls.name: (path, cls)
-        for path, tree in _TREES.items()
-        for cls in ast.walk(tree)
-        if isinstance(cls, ast.ClassDef)
-    }
+    classes = _class_index()
 
     uncalled = []
     for service_name, cls_name in sorted(class_of.items()):
@@ -246,10 +273,7 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
         path, cls = entry
         if "core/" not in _rel(path):
             continue  # sources and hardware are torn down by their own owners
-        has_cleanup = any(
-            isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name in ("cleanup", "shutdown")
-            for m in cls.body
-        )
+        has_cleanup = any(m.name in ("cleanup", "shutdown") for m in _methods(cls, classes))
         if not has_cleanup:
             continue
         # main.py may hold the service in a local or resolve it inline.

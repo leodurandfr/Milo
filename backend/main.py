@@ -186,6 +186,7 @@ async def lifespan(app: FastAPI):
         ("camilladsp", camilladsp_service.cleanup),
         ("pending_clients", get_service("pending_clients_service").shutdown),
         ("calibration", get_service("calibration_service").cleanup),
+        ("mac_link_calibration", get_service("mac_link_calibration_service").cleanup),
         ("equalizer_proxy", equalizer_proxy_service.cleanup),
         ("levels_monitor", levels_monitor.cleanup),
         ("screen", screen_controller.cleanup),
@@ -299,7 +300,8 @@ settings_router = create_settings_router(
     routing_service,
     hardware_service,
     settings_service,
-    get_service("multiroom_equalizer_service")
+    get_service("multiroom_equalizer_service"),
+    get_service("mac_link_calibration_service"),
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 

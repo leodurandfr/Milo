@@ -295,7 +295,9 @@ class AudioStateMachine:
     async def multiroom_switch(self):
         """Hold `switching` for a whole multiroom toggle (AudioRoutingService):
         from its start to the end of its volume sync. Its end is the first
-        state where `switching` is false again (docs: "le fil", D7)."""
+        state where `switching` is false again (docs: "le fil", D7).
+        `restart_source_if_active` holds it too, around the source it carries:
+        the flag is "a switch is in flight", whichever one it is."""
         async with self._state_lock:
             self.system_state.multiroom_switches += 1
         await self.publish_state()
@@ -335,43 +337,74 @@ class AudioStateMachine:
             if instance is None:
                 await apply_mode()
                 return
+            await self._carry(active, instance, apply_mode)
 
-            # Held across the three steps: a command, a daemon's message or
-            # a stop arriving meanwhile waits for the whole of it, instead of
-            # landing on a released source or being undone by the reacquire.
-            async with instance.hold_mailbox():
-                # The device is freed first: in direct mode the source holds
-                # CamillaDSP's input, in multiroom mode snapclient needs it.
-                logger.info("Releasing source %s to free the ALSA device", active.value)
-                await instance.release_for_reroute()
-                await asyncio.sleep(self.ALSA_RELEASE_SETTLE_S)
+    async def restart_source_if_active(
+        self, source: AudioSource, apply: Callable[[], Awaitable[None]]
+    ) -> Optional[bool]:
+        """Run `apply`, carrying `source` across it when it is the active one.
 
-                switch_failed: Optional[BaseException] = None
-                try:
-                    await apply_mode()
-                except Exception as e:
-                    switch_failed = e
+        The Mac panel's Apply restarts roc-recv on its new settings this way:
+        carried by the source (RELEASE, `apply`, ACQUIRE, as a multiroom toggle
+        does), the restart ends the session as a reroute each Mac reattaches
+        from, where a restart behind the source's back read as the daemon dying.
+        When another source is active `apply` runs alone: a receiver started for
+        a setting while another source played put a second stream into
+        CamillaDSP.
 
-                logger.info("Re-acquiring source %s", active.value)
-                reacquired = False
-                try:
-                    reacquired = await instance.acquire_after_reroute()
-                    if not reacquired:
-                        logger.warning(
-                            "Source %s re-acquire returned False after the reroute "
-                            "(the reroute itself stands)", active.value
-                        )
-                except Exception as e:
+        Unlike `reroute_active_source`, no caller holds `switching` around it,
+        so it holds it itself while the source is carried — without it clients
+        saw the Mac session end and the idle card for the second roc-recv took
+        to come back. Answers whether the source came back; None when it was not
+        the active one.
+        """
+        async with self._transition_lock:
+            instance = self.sources.get(source)
+            if self.system_state.active_source != source or instance is None:
+                await apply()
+                return None
+            async with self.multiroom_switch():
+                return await self._carry(source, instance, apply)
+
+    async def _carry(self, active: AudioSource, instance, apply_mode: Callable[[], Awaitable[None]]) -> bool:
+        """RELEASE, `apply_mode`, ACQUIRE — under the transition lock the caller holds."""
+        # Held across the three steps: a command, a daemon's message or a stop
+        # arriving meanwhile waits for the whole of it, instead of landing on a
+        # released source or being undone by the reacquire.
+        async with instance.hold_mailbox():
+            # The device is freed first: in direct mode the source holds
+            # CamillaDSP's input, in multiroom mode snapclient needs it.
+            logger.info("Releasing source %s to free the ALSA device", active.value)
+            await instance.release_for_reroute()
+            await asyncio.sleep(self.ALSA_RELEASE_SETTLE_S)
+
+            switch_failed: Optional[BaseException] = None
+            try:
+                await apply_mode()
+            except Exception as e:
+                switch_failed = e
+
+            logger.info("Re-acquiring source %s", active.value)
+            reacquired = False
+            try:
+                reacquired = await instance.acquire_after_reroute()
+                if not reacquired:
                     logger.warning(
-                        "Source %s re-acquire failed after the reroute (non-fatal): %s",
-                        active.value, e,
+                        "Source %s re-acquire returned False after the reroute "
+                        "(the reroute itself stands)", active.value
                     )
-                if switch_failed is not None:
-                    raise switch_failed
-            if reacquired and self.system_state.service_error is not None:
-                # The reacquire is a full start that succeeded: the one thing
-                # that lifts a failed start, which no publish of the source's may do.
-                await self._resync_after_start(active, instance)
+            except Exception as e:
+                logger.warning(
+                    "Source %s re-acquire failed after the reroute (non-fatal): %s",
+                    active.value, e,
+                )
+            if switch_failed is not None:
+                raise switch_failed
+        if reacquired and self.system_state.service_error is not None:
+            # The reacquire is a full start that succeeded: the one thing
+            # that lifts a failed start, which no publish of the source's may do.
+            await self._resync_after_start(active, instance)
+        return reacquired
 
     async def _resync_after_start(self, active: AudioSource, instance) -> None:
         """Take the source's own view as the machine's, after a start succeeded."""

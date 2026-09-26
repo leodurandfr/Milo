@@ -13,6 +13,7 @@ from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
     ALLOWED_LATENCY_PROFILES,
     DEFAULT_ROC_CONFIG,
+    ROC_TARGET_LATENCY_RANGE,
 )
 from backend.core.models.ws_events import (
     EqualizerEnabledChanged,
@@ -195,7 +196,7 @@ class MacEnv:
             target_latency = int(target_latency)
         except (TypeError, ValueError):
             target_latency = DEFAULT_ROC_CONFIG["target_latency_ms"]
-        target_latency = max(20, min(500, target_latency))
+        target_latency = max(ROC_TARGET_LATENCY_RANGE[0], min(ROC_TARGET_LATENCY_RANGE[1], target_latency))
 
         if latency_profile not in ALLOWED_LATENCY_PROFILES:
             latency_profile = DEFAULT_ROC_CONFIG["latency_profile"]

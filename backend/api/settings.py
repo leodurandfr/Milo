@@ -3,11 +3,20 @@
 Settings Routes – Version with app deactivation and process stopping
 """
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING, get_args
 from backend.core.models.audio_state import AudioSource
 from backend.api.route_helpers import api_error_handler
 from backend.api.responses import BulkSettingsResponse
-from backend.config.constants import AUDIO_SOURCE_APPS
+from backend.config.constants import (
+    AUDIO_SOURCE_APPS,
+    ROC_FEC_REPAIR_RANGE,
+    ROC_FEC_SOURCE_RANGE,
+    ROC_FRAME_LENGTHS,
+    ROC_LATENCY_PROFILES,
+    ROC_PACKET_LENGTHS,
+    ROC_RECEIVER_KEYS,
+    ROC_TARGET_LATENCY_RANGE,
+)
 from backend.api.models import (
     LanguageRequest,
     VolumeLimitsRequest,
@@ -75,6 +84,7 @@ import logging
 import asyncio
 
 if TYPE_CHECKING:
+    from backend.core.mac_link.calibration_service import MacLinkCalibrationService
     from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
     from backend.core.multiroom.routing import AudioRoutingService
     from backend.core.settings import SettingsService
@@ -95,7 +105,8 @@ def create_settings_router(
     routing_service: "AudioRoutingService",
     hardware_service: "HardwareService",
     settings_service: "SettingsService",
-    multiroom_equalizer_service: "MultiroomEqualizerService"
+    multiroom_equalizer_service: "MultiroomEqualizerService",
+    mac_link_calibration: "MacLinkCalibrationService",
 ):
     """Settings router with proper app deactivation"""
     router = APIRouter()
@@ -218,7 +229,11 @@ def create_settings_router(
             "mac_roc": {
                 "target_latency_ms": mac['target_latency_ms'],
                 "latency_profile": mac['latency_profile'],
-                "frame_length_ms": mac['frame_length_ms']
+                "frame_length_ms": mac['frame_length_ms'],
+                "packet_length_ms": mac['packet_length_ms'],
+                "fec_block_source": mac['fec_block_source'],
+                "fec_block_repair": mac['fec_block_repair'],
+                "packet_interleaving": mac['packet_interleaving']
             }
         }
 
@@ -741,54 +756,69 @@ def create_settings_router(
 
             return {"status": "rebooting"}
 
+    # What the Mac panel may offer. Read here so the page never restates a bound
+    # the validator enforces.
+    @router.get("/mac-roc/capabilities")
+    async def get_mac_roc_capabilities():
+        return {
+            "status": "success",
+            "target_latency_ms": {"min": ROC_TARGET_LATENCY_RANGE[0], "max": ROC_TARGET_LATENCY_RANGE[1]},
+            "latency_profiles": list(get_args(ROC_LATENCY_PROFILES)),
+            "frame_lengths": list(get_args(ROC_FRAME_LENGTHS)),
+            "packet_lengths": list(get_args(ROC_PACKET_LENGTHS)),
+            "fec_block_source": {"min": ROC_FEC_SOURCE_RANGE[0], "max": ROC_FEC_SOURCE_RANGE[1]},
+            "fec_block_repair": {"min": ROC_FEC_REPAIR_RANGE[0], "max": ROC_FEC_REPAIR_RANGE[1]},
+        }
+
     # Mac ROC Streaming configuration
     @router.put("/mac-roc")
     async def set_mac_roc_config(payload: MacRocConfigRequest):
         """
-        Update Mac ROC streaming configuration.
+        Update both halves of the Mac ROC link.
 
         This endpoint:
         1. Saves settings to settings.json
         2. Regenerates mac.env from the saved settings (does NOT touch routing.env)
-        3. Restarts milo-mac.service ONLY if it is already running
+        3. Restarts roc-recv through the Mac source, ONLY if Mac is the active source
+        4. Broadcasts the whole link: Milo-Mac applies the sender half to its
+           roc-vad device when it receives it
 
-        `service_restarted` is False both for a receiver that was not running and
+        `service_restarted` is False both for a receiver that was not playing and
         for one that refused to come back; no consumer distinguishes them, and the
         journal does.
         """
         async with api_error_handler("Error updating Mac ROC config", logger):
-            target_latency_ms = payload.target_latency_ms
-            latency_profile = payload.latency_profile
-            frame_length_ms = payload.frame_length_ms
-
-            mac_config = {
-                'target_latency_ms': target_latency_ms,
-                'latency_profile': latency_profile,
-                'frame_length_ms': frame_length_ms
-            }
+            mac_config = payload.model_dump()
+            previous = await settings.get_setting('mac')
             success = await settings.set_setting('mac', mac_config)
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save Mac ROC settings")
 
-            await MacEnv.regenerate(mac_config)
+            async def write_env() -> None:
+                await MacEnv.regenerate(mac_config)
 
-            # roc-recv IS the audio path, and `restart` on a stopped unit starts
-            # it: applying a latency change while another source played put a
-            # second stream into CamillaDSP and left the Mac audible with no
-            # active source at all — the state machine never ran _do_start, so
-            # nothing in the UI said a receiver was up. mac.env is an
-            # EnvironmentFile, re-read on every start, so a unit left alone here
-            # picks the new values up when the source is next selected.
-            # probe_active, not is_active: this acts on the answer, and a probe
-            # that could not look must not authorize a start.
-            running = await systemd_manager.probe_active("milo-mac.service") is True
-            if not running:
-                logger.info("ROC settings stored; the receiver is stopped, they apply at its next start")
-                restart_success = False
+            # roc-recv reads mac.env when it starts, so a Mac playing now is
+            # carried across a restart by its source — RELEASE, the new env,
+            # ACQUIRE, as a multiroom toggle does. The session then ends as a
+            # reroute each Mac reattaches from; restarted behind the source's
+            # back, the exit read as the daemon dying and raised an error banner
+            # on every Apply. Only when Mac is the active source: `restart` on a
+            # stopped unit starts it, and a receiver started while another
+            # source played put a second stream into CamillaDSP with nothing in
+            # the UI saying one was up. A receiver left stopped reads the new
+            # values at its next start.
+            # A change to the Mac's half alone leaves roc-recv's arguments as
+            # they were: restarting it would cut the sound for nothing.
+            if any(previous.get(key) != mac_config[key] for key in ROC_RECEIVER_KEYS):
+                carried = await state_machine.restart_source_if_active(AudioSource.MAC, write_env)
             else:
-                restart_success = await systemd_manager.restart("milo-mac.service")
-                if not restart_success:
-                    logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
+                await write_env()
+                carried = None
+            if carried is None:
+                logger.info("ROC settings stored; they apply when the receiver next starts")
+            elif not carried:
+                logger.warning("roc-recv did not come back on the new ROC settings")
+            restart_success = bool(carried)
 
             # service_restarted stays in the HTTP response only.
             await state_machine.broadcast(MacRocChanged(config=MacRocConfig(**mac_config)))
@@ -798,6 +828,41 @@ def create_settings_router(
                 "config": mac_config,
                 "service_restarted": restart_success
             }
+
+    # === Mac link analysis ===
+
+    @router.post("/mac-roc/calibration")
+    async def start_mac_calibration():
+        """Measure the Mac's link and propose both halves of its configuration.
+
+        Answers as soon as the run starts; the proposal arrives over WS a minute
+        later. The analysis never writes: the panel applies what it proposes
+        through PUT /mac-roc, the one writer of this resource.
+        """
+        async with api_error_handler("Error starting the Mac link analysis", logger):
+            if not mac_link_calibration.start():
+                logger.warning("Mac link analysis requested while one is running")
+                raise HTTPException(status_code=409, detail="An analysis is already running")
+            return {"status": "success", "message": "Analysis started"}
+
+    @router.get("/mac-roc/calibration")
+    async def get_mac_calibration():
+        """Whether an analysis is running, and the last proposal — the refetch
+        for a tab that missed the WS deltas."""
+        async with api_error_handler("Error reading the Mac link analysis", logger):
+            return {
+                "status": "success",
+                "running": mac_link_calibration.running,
+                "result": mac_link_calibration.last_result,
+                **mac_link_calibration.progress,
+            }
+
+    @router.delete("/mac-roc/calibration")
+    async def forget_mac_calibration():
+        """Forget the last proposal, left unapplied. Idempotent; never stops a run."""
+        async with api_error_handler("Error clearing the Mac link analysis", logger):
+            mac_link_calibration.forget()
+            return {"status": "success"}
 
     # Radio settings (Shazam recognition)
     @router.put("/radio-settings")
