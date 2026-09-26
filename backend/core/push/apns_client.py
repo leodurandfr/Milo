@@ -47,6 +47,15 @@ HOSTS = {
 # 20..60 min satisfies both; 50 leaves room for a slow request at the edge.
 JWT_LIFETIME_S = 50 * 60
 
+# How long an idle connection is kept for the next push. httpx's default is
+# 5 s, and httpcore retires an expired connection at the next request, so every
+# push after a quiet spell paid TCP + TLS before its own round trip: 0.33-0.45 s
+# to APNs' 200 instead of 0.10-0.15 s (measured 2026-09-26). Apple closes an
+# idle connection itself after two hours; half an hour stays well inside that.
+# A connection broken in silence costs one push: httpcore marks it errored on
+# the failed read and opens a fresh one for the next.
+KEEPALIVE_S = 30 * 60
+
 # Reason codes that mean "this token will never work again". Everything else
 # is transient or a bug on this side, and must NOT cost the caller its token.
 DEAD_TOKEN_REASONS = {"Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic", "ExpiredToken"}
@@ -244,11 +253,13 @@ class ApnsClient:
 
         Reusing the connection is the point: APNs expects a provider to hold
         one open, and a fresh TLS handshake per push is both slow and something
-        Apple counts against the connection budget.
+        Apple counts against the connection budget. Hence `KEEPALIVE_S` rather
+        than httpx's five seconds, which reopened it for nearly every push.
         """
         async with self._clients_lock:
             if environment not in self._clients:
                 self._clients[environment] = httpx.AsyncClient(
                     base_url=HOSTS[environment], http2=True, timeout=10.0,
+                    limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S),
                 )
             return self._clients[environment]
