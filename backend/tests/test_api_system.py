@@ -383,6 +383,11 @@ class TestResources:
         assert 0.0 <= data["cpu_percent"] <= 100.0
         assert data["ram"]["total_mb"] > 0
         assert 0 < data["ram"]["used_mb"] < data["ram"]["total_mb"]
+        assert data["disk"]["total_gb"] > 0
+        assert 0 < data["disk"]["used_gb"] < data["disk"]["total_gb"]
+        assert isinstance(data["network"]["rx_bytes_per_s"], int)
+        assert data["network"]["rx_bytes_per_s"] >= 0
+        assert data["network"]["tx_bytes_per_s"] >= 0
 
     def test_the_percentage_is_the_delta_between_two_snapshots(self, client, monkeypatch):
         """Pure arithmetic, on two snapshots shaped like this host's real
@@ -422,13 +427,68 @@ class TestResources:
         assert data["cpu_percent"] == 10.0
         assert data["ram"] == {"used_mb": 1000, "total_mb": 2000}
 
-    def test_a_host_whose_proc_cannot_be_read_still_answers(self, client, monkeypatch):
-        """`InfoSettings.vue` reads `cpu_percent` and `ram` straight off the
-        body. A raised failure there is the error banner, permanently, on a
-        route polled every five seconds.
+    def test_the_throughput_counts_physical_interfaces_only(
+        self, client, monkeypatch, tmp_path
+    ):
+        """Two `/proc/net/dev` snapshots shaped like this host's (captured
+        2026-09-26), 0.5 s apart. Only eth0 and wlan0 have a `device` link in
+        the fake sysfs: `lo` and `tailscale0` carry large deltas that would
+        dominate the answer if they were counted — the tunnel's bytes already
+        crossed eth0, so counting it doubles the rate the screen prints.
 
-        Both readers are refused, not one: they sit in two separate try blocks,
-        and breaking a single one leaves the other filling its half of the body.
+        `tailscale0:71070984` has no space after the colon, as the kernel
+        writes it once the counter is wide enough.
+
+        eth0 +1000 rx / +400 tx, wlan0 +500 rx / +100 tx over 0.5 s →
+        3000 B/s down, 1000 B/s up.
+        """
+        header = (
+            "Inter-|   Receive                                                |  Transmit\n"
+            " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
+        )
+
+        def _snapshot(lo, eth, wlan, ts):
+            return header + (
+                f"    lo: {lo} 1 0 0 0 0 0 0 {lo} 1 0 0 0 0 0 0\n"
+                f"  eth0: {eth[0]} 1 0 0 0 0 0 0 {eth[1]} 1 0 0 0 0 0 0\n"
+                f" wlan0: {wlan[0]} 1 0 0 0 0 0 0 {wlan[1]} 1 0 0 0 0 0 0\n"
+                f"tailscale0:{ts} 1 0 0 0 0 0 0 {ts} 1 0 0 0 0 0 0\n"
+            )
+
+        snapshots = iter([
+            _snapshot(21187490135, (12741930461, 38326590305), (263822103, 11574718), 71070984),
+            _snapshot(21197490135, (12741931461, 38326590705), (263822603, 11574818), 72070984),
+        ])
+        clock = iter([100.0, 100.5])
+        for name in ("eth0", "wlan0"):
+            (tmp_path / name / "device").mkdir(parents=True)
+        for name in ("lo", "tailscale0"):
+            (tmp_path / name).mkdir()
+        monkeypatch.setattr(api_system, "SYSFS_NET", str(tmp_path))
+        monkeypatch.setattr(api_system, "monotonic", lambda: next(clock))
+
+        real_open = builtins.open
+
+        def _fake_proc(file, *args, **kwargs):
+            if str(file) == "/proc/net/dev":
+                return io.StringIO(next(snapshots))
+            return real_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", _fake_proc)
+
+        data = client.get("/api/system/resources").json()
+
+        assert data["network"] == {"rx_bytes_per_s": 3000, "tx_bytes_per_s": 1000}
+
+    def test_a_host_whose_proc_cannot_be_read_still_answers(self, client, monkeypatch):
+        """`InfoSettings.vue` reads `cpu_percent`, `ram`, `disk` and `network`
+        straight off the body. A raised failure there is the error banner,
+        permanently, on a route polled every five seconds.
+
+        All four readers are refused, not some: they sit in separate try
+        blocks, and breaking a single one leaves the others filling their part
+        of the body. The disk comes from `statvfs`, not procfs, so it is
+        refused on its own.
         """
         real_open = builtins.open
 
@@ -437,11 +497,21 @@ class TestResources:
                 raise OSError("procfs is not mounted")
             return real_open(file, *args, **kwargs)
 
+        def _refuse_statvfs(path):
+            raise OSError("no such filesystem")
+
         monkeypatch.setattr(builtins, "open", _refuse_procfs)
+        monkeypatch.setattr(api_system.os, "statvfs", _refuse_statvfs)
 
         data = client.get("/api/system/resources").json()
 
-        assert data == {"status": "success", "cpu_percent": None, "ram": None}
+        assert data == {
+            "status": "success",
+            "cpu_percent": None,
+            "ram": None,
+            "disk": None,
+            "network": None,
+        }
 
 
 # =============================================================================

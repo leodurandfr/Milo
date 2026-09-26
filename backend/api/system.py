@@ -9,6 +9,7 @@ import functools
 import logging
 import os
 import zoneinfo
+from time import monotonic
 from typing import Optional, TYPE_CHECKING
 
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 SSH_UNIT = "ssh.service"
 LOCALTIME_LINK = "/etc/localtime"
 ZONEINFO_PREFIX = "/usr/share/zoneinfo/"
+SYSFS_NET = "/sys/class/net"
 
 # The zone the image ships. Not a location — it is the value that means "nobody
 # has told us yet", which is what lets the first browser to open the UI supply
@@ -210,11 +212,22 @@ def create_system_router(
                 "ip": None
             }
 
-    # System resources (CPU + RAM)
+    # System resources (CPU, RAM, disk, network)
     @router.get("/resources")
     async def get_system_resources():
-        """Retrieve CPU usage percentage and RAM usage"""
-        result = {"status": "success", "cpu_percent": None, "ram": None}
+        """Retrieve CPU, RAM, root-disk and network usage.
+
+        Network throughput counts physical interfaces only (those with a
+        `device` link in sysfs): a tunnel's traffic already crosses eth0/wlan0,
+        and counting both would double it.
+        """
+        result = {
+            "status": "success",
+            "cpu_percent": None,
+            "ram": None,
+            "disk": None,
+            "network": None,
+        }
 
         # CPU usage: read two snapshots of /proc/stat 100ms apart
         def read_cpu_stats():
@@ -235,19 +248,73 @@ def create_system_router(
                     meminfo[key] = int(parts[1])  # Value in kB
             return meminfo
 
+        def read_net_bytes():
+            rx = tx = 0
+            with open("/proc/net/dev", "r") as f:
+                lines = f.readlines()[2:]  # Two header lines
+            for line in lines:
+                name, _, counters = line.partition(":")
+                name = name.strip()
+                if not os.path.exists(os.path.join(SYSFS_NET, name, "device")):
+                    continue
+                fields = counters.split()
+                rx += int(fields[0])
+                tx += int(fields[8])
+            return rx, tx, monotonic()
+
+        def read_disk():
+            # Same split as `df`: the blocks reserved for root are neither used
+            # nor available, so they are left out of the total.
+            st = os.statvfs("/")
+            used = (st.f_blocks - st.f_bfree) * st.f_frsize
+            total = used + st.f_bavail * st.f_frsize
+            return {
+                "used_gb": round(used / 1024 ** 3, 1),
+                "total_gb": round(total / 1024 ** 3, 1),
+            }
+
         loop = asyncio.get_running_loop()
 
+        cpu1 = net1 = None
         try:
-            idle1, total1 = await loop.run_in_executor(None, read_cpu_stats)
-            await asyncio.sleep(0.1)
-            idle2, total2 = await loop.run_in_executor(None, read_cpu_stats)
-
-            total_diff = total2 - total1
-            idle_diff = idle2 - idle1
-            if total_diff > 0:
-                result["cpu_percent"] = round((1 - idle_diff / total_diff) * 100, 1)
+            cpu1 = await loop.run_in_executor(None, read_cpu_stats)
         except Exception as e:
             logger.info(f"Failed to read CPU stats: {e}")
+        try:
+            net1 = await loop.run_in_executor(None, read_net_bytes)
+        except Exception as e:
+            logger.info(f"Failed to read network stats: {e}")
+
+        await asyncio.sleep(0.1)
+
+        if cpu1 is not None:
+            try:
+                idle1, total1 = cpu1
+                idle2, total2 = await loop.run_in_executor(None, read_cpu_stats)
+                total_diff = total2 - total1
+                idle_diff = idle2 - idle1
+                if total_diff > 0:
+                    result["cpu_percent"] = round((1 - idle_diff / total_diff) * 100, 1)
+            except Exception as e:
+                logger.info(f"Failed to read CPU stats: {e}")
+
+        if net1 is not None:
+            try:
+                rx1, tx1, t1 = net1
+                rx2, tx2, t2 = await loop.run_in_executor(None, read_net_bytes)
+                elapsed = t2 - t1
+                if elapsed > 0:
+                    result["network"] = {
+                        "rx_bytes_per_s": max(0, round((rx2 - rx1) / elapsed)),
+                        "tx_bytes_per_s": max(0, round((tx2 - tx1) / elapsed)),
+                    }
+            except Exception as e:
+                logger.info(f"Failed to read network stats: {e}")
+
+        try:
+            result["disk"] = await loop.run_in_executor(None, read_disk)
+        except Exception as e:
+            logger.info(f"Failed to read disk usage: {e}")
 
         try:
             meminfo = await loop.run_in_executor(None, read_meminfo)

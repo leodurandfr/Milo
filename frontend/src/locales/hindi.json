@@ -391,6 +391,8 @@
     "ipAddress": "Milō आईपी",
     "cpu": "CPU",
     "ram": "RAM",
+    "disk": "डिस्क",
+    "network": "नेटवर्क",
     "designedBy": "Milō ऐप की डिज़ाइन:"
   },
   "network": {

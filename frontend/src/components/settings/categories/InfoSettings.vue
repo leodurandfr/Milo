@@ -15,26 +15,8 @@
         </span>
       </div>
 
-      <!-- Info grid: IP + Temperature, CPU + RAM -->
+      <!-- Info grid: CPU + RAM, Temperature + Disk, IP + Network -->
       <div class="info-grid">
-        <div class="info-item">
-          <span class="info-label text-mono-medium">{{ t('info.ipAddress') }}</span>
-          <span class="info-value text-mono-medium">
-            <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
-            <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
-            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
-          </span>
-        </div>
-
-        <div class="info-item">
-          <span class="info-label text-mono-medium">{{ t('info.temperature') }}</span>
-          <span class="info-value text-mono-medium">
-            <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
-            <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
-            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
-          </span>
-        </div>
-
         <div class="info-item info-item-bar">
           <div class="info-item-top">
             <span class="info-label text-mono-medium">{{ t('info.cpu') }}</span>
@@ -61,6 +43,55 @@
           <div class="bar-container">
             <div class="bar-fill" :style="{ width: ramPercent + '%' }"></div>
           </div>
+        </div>
+
+        <div class="info-item info-item-bar">
+          <div class="info-item-top">
+            <span class="info-label text-mono-medium">{{ t('info.temperature') }}</span>
+            <span class="info-value text-mono-medium">
+              <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
+              <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
+              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            </span>
+          </div>
+          <div class="bar-container">
+            <div class="bar-fill" :style="{ width: temperaturePercent + '%' }"></div>
+          </div>
+        </div>
+
+        <div class="info-item info-item-bar">
+          <div class="info-item-top">
+            <span class="info-label text-mono-medium">{{ t('info.disk') }}</span>
+            <span class="info-value text-mono-medium">
+              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
+              <span v-else-if="disk !== null">{{ disk.used_gb }} / {{ disk.total_gb }} GB</span>
+              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            </span>
+          </div>
+          <div class="bar-container">
+            <div class="bar-fill" :style="{ width: diskPercent + '%' }"></div>
+          </div>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label text-mono-medium">{{ t('info.ipAddress') }}</span>
+          <span class="info-value text-mono-medium">
+            <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
+            <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
+            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+          </span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label text-mono-medium">{{ t('info.network') }}</span>
+          <span class="info-value text-mono-medium">
+            <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 140px"></span>
+            <span v-else-if="network !== null" class="network-rates">
+              <span><span class="rate-arrow">↓</span> {{ formatRate(network.rx_bytes_per_s) }}</span>
+              <span class="rate-out"><span class="rate-arrow">↑</span> {{ formatRate(network.tx_bytes_per_s) }}</span>
+            </span>
+            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+          </span>
         </div>
       </div>
 
@@ -91,6 +122,8 @@ const ipAddress = ref(null);
 const ipLoading = ref(false);
 const cpuPercent = ref(null);
 const ram = ref(null);
+const disk = ref(null);
+const network = ref(null);
 const resourcesLoading = ref(false);
 
 const showVersionSkeleton = computed(() => versionLoading.value && miloVersion.value === null);
@@ -102,6 +135,29 @@ const ramPercent = computed(() => {
   if (!ram.value) return 0;
   return Math.round((ram.value.used_mb / ram.value.total_mb) * 100);
 });
+
+// A Pi 5 with its fan idles well above 35 °C (the fan's setpoint defaults to
+// 65 °C). The firmware throttles from 80 °C and holds the SoC near 85 °C, so
+// the last tenth of the bar is only reached while throttling.
+const TEMP_MIN_C = 35;
+const TEMP_MAX_C = 90;
+
+const temperaturePercent = computed(() => {
+  if (systemTemperature.value === null) return 0;
+  const ratio = (systemTemperature.value - TEMP_MIN_C) / (TEMP_MAX_C - TEMP_MIN_C);
+  return Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+});
+
+const diskPercent = computed(() => {
+  if (!disk.value) return 0;
+  return Math.round((disk.value.used_gb / disk.value.total_gb) * 100);
+});
+
+function formatRate(bytesPerSec) {
+  if (bytesPerSec < 1024) return `${bytesPerSec} B/s`;
+  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
+}
 
 async function loadMiloVersion() {
   if (versionLoading.value) return;
@@ -149,6 +205,8 @@ async function loadSystemResources() {
   if (result.ok) {
     cpuPercent.value = result.data.cpu_percent;
     ram.value = result.data.ram;
+    disk.value = result.data.disk;
+    network.value = result.data.network;
   }
   resourcesLoading.value = false;
 }
@@ -231,6 +289,19 @@ onMounted(async () => {
 }
 
 
+
+.network-rates {
+  display: inline-flex;
+  gap: var(--space-03);
+}
+
+.rate-arrow {
+  color: var(--color-text-secondary);
+}
+
+.rate-out {
+  color: var(--color-text-secondary);
+}
 
 .bar-container {
   width: 100%;

@@ -391,6 +391,8 @@
     "ipAddress": "IP Milō",
     "cpu": "CPU",
     "ram": "RAM",
+    "disk": "Disco",
+    "network": "Rete",
     "designedBy": "App Milō progettata da"
   },
   "network": {

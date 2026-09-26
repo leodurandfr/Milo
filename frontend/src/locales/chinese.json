@@ -391,6 +391,8 @@
     "ipAddress": "Milō IP",
     "cpu": "CPU",
     "ram": "RAM",
+    "disk": "磁盘",
+    "network": "网络",
     "designedBy": "Milō 应用设计者"
   },
   "network": {
