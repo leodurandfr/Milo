@@ -119,9 +119,11 @@ class VolumeStateEnvelope(BaseModel):
 
 
 class VolumeAdjustResponse(BaseModel):
-    """POST /api/volume/adjust."""
+    """POST /api/volume/adjust. The applied level on both scales, as
+    `VolumeSetResponse` carries it, plus the delta that was asked."""
     status: str
     volume_db: float
+    volume: float
     delta_db: float
 
 

@@ -362,7 +362,10 @@ class TestVolumeAdjustRoute:
     def mock_volume_service(self):
         service = MagicMock()
         service.adjust_volume_db = AsyncMock(return_value=True)
-        service.get_volume_db = AsyncMock(return_value=-40.0)
+        # Deliberately not what any delta below would reach: the route must
+        # report what the service applied, never what the caller asked.
+        service.get_volume_db = AsyncMock(return_value=-43.0)
+        service.volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
         return service
 
     @pytest.fixture
@@ -383,6 +386,18 @@ class TestVolumeAdjustRoute:
         mock_volume_service.adjust_volume_db.return_value = False
         response = test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
         assert response.status_code == 500
+
+    def test_it_reports_what_the_service_applied(self, test_client, mock_volume_service):
+        """A phone's volume button asks one step and shows the answer at once
+        rather than wait for the push, so the answer must be the level the
+        service applied, on the slider's scale — never the step added to what
+        the phone last displayed, which at the top of the range would show a
+        level the clamp refused."""
+        response = test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
+
+        assert response.json() == {
+            "status": "success", "volume_db": -43.0, "volume": 0.5, "delta_db": 2.0,
+        }
 
 
 # =============================================================================

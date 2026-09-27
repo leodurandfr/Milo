@@ -114,7 +114,7 @@ def test_volume_state_error_omits_data():
 
 
 def test_volume_adjust_keys():
-    data = {"status": "success", "volume_db": -45.0, "delta_db": 2.0}
+    data = {"status": "success", "volume_db": -45.0, "volume": 0.47, "delta_db": 2.0}
     assert set(emit(R.VolumeAdjustResponse, data)) == set(data)
 
 

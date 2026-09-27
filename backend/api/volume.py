@@ -55,13 +55,28 @@ def create_volume_router(
 
     @router.post("/adjust", response_model=VolumeAdjustResponse)
     async def adjust_volume(request: VolumeAdjustRequest):
-        """Adjusts volume by delta in dB"""
+        """Adjusts volume by delta in dB.
+
+        The relative half of `/global`, for a caller holding a gesture rather
+        than a level: the widget's − / + and the phone's volume buttons, one
+        `step_mobile_db` each. The delta applies to the level Milō holds when
+        the request lands, never to one the caller read earlier, so a press
+        cannot undo what the rotary did a second before.
+
+        Answers the applied level on both scales, like `/global`: `volume` is
+        what a phone shows at once instead of waiting for the next push.
+        """
         async with api_error_handler("Failed to adjust volume"):
             success = await volume_service.adjust_volume_db(request.delta_db, show_bar=request.show_bar)
 
             if success:
                 volume_db = await volume_service.get_volume_db()
-                return {"status": "success", "volume_db": volume_db, "delta_db": request.delta_db}
+                return {
+                    "status": "success",
+                    "volume_db": volume_db,
+                    "volume": volume_service.volume_config.normalize(volume_db),
+                    "delta_db": request.delta_db,
+                }
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
 
