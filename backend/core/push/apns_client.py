@@ -260,11 +260,8 @@ class ApnsClient:
             if environment not in self._clients:
                 self._clients[environment] = httpx.AsyncClient(
                     base_url=HOSTS[environment], http2=True, timeout=10.0,
-                    # The two caps are httpx's defaults, restated because a
-                    # Limits built without them sets no cap at all.
-                    limits=httpx.Limits(
-                        max_connections=100, max_keepalive_connections=20,
-                        keepalive_expiry=KEEPALIVE_S,
-                    ),
+                    # Leaves the connection counts uncapped, which is moot:
+                    # a handful of tokens share one HTTP/2 connection per host.
+                    limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S),
                 )
             return self._clients[environment]

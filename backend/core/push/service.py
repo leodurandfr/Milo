@@ -29,8 +29,8 @@ undo. Three rules keep it bounded:
     before a cycle leaves rides on it. So a turn of the volume knob is one push
     at the first detent and one at the end of the window, carrying the level
     it stopped on. A `source/state` also waits a full window from its own
-    arrival, which is what absorbs the intermediate states of a source change:
-    see `_loop`.
+    arrival, which is what absorbs the intermediate states of a source change
+    that settles within it: see `_loop`.
   * The widget push is rarer still, and is NOT on that one-second cap. It
     fires only when what a widget actually displays changes, which is one
     thing — whether Milō can be driven at all, drawn as the logo's opacity.
@@ -132,6 +132,13 @@ END_ATTEMPTS = 5
 # next runs — it reports the session, which is adopted and ended then.
 END_WATCH_S = 300.0
 
+# How late a scheduled re-check wakes past the deadline it serves. Those
+# deadlines are read on the wall clock (`time.time()`) while asyncio sleeps on
+# the monotonic one, and timesyncd slews and steps the first against the second
+# on a unit with no RTC. Waking a second late costs nothing; waking early finds
+# the deadline unmet, with nothing armed to look again.
+WAKE_MARGIN_S = 1.0
+
 
 @dataclass
 class _Ending:
@@ -161,10 +168,11 @@ class PushService:
         self._state_machine = None
 
         self._dirty = asyncio.Event()
-        # When the last cycle ended, whether it sent anything or not, and when
-        # the `source/state` waiting for the next one has been settled for a
-        # window (None while none waits). See `_loop`.
-        self._last_cycle_at = float("-inf")
+        # What the next cycle's window counts from — the end of the last cycle,
+        # whether it sent anything or not, or the last Now Playing push, from
+        # either seam — and when the `source/state` waiting for the next cycle
+        # has been settled for a window (None while none waits). See `_loop`.
+        self._quiet_since = float("-inf")
         self._settle_until: Optional[float] = None
         # Serializes the two seams. The coalescer used to be the only thing that
         # touched the session, and a loop is single file; the device's report is
@@ -361,7 +369,7 @@ class PushService:
                 finally:
                     # When the cycle ENDS: two pushes are then never closer
                     # than the window, however long the first took to send.
-                    self._last_cycle_at = time.monotonic()
+                    self._quiet_since = time.monotonic()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -369,7 +377,7 @@ class PushService:
 
     def _leaves_at(self) -> float:
         """When the next cycle may leave. See `_loop`."""
-        at = self._last_cycle_at + MIN_PUSH_INTERVAL_S
+        at = self._quiet_since + MIN_PUSH_INTERVAL_S
         return at if self._settle_until is None else max(at, self._settle_until)
 
     async def _publish(self) -> None:
@@ -435,10 +443,12 @@ class PushService:
         the app had never asked to be primary, which the system therefore did
         not show. Nothing came back until the app was relaunched.
 
-        `switching` says so precisely but says it too briefly: the coalescer
-        sleeps a second before publishing, and by then the transition is over.
-        It is kept because when it IS visible it is certain, and the delay
-        covers the rest.
+        `switching` says so precisely but says it too briefly: a state change
+        waits a window before its push, and by then the transition is usually
+        over. It is kept because when it IS visible it is certain, and the
+        delay covers the rest. A cycle that did not come from a state change —
+        a re-check, a token landing — can still meet it, and returns: the state
+        change that ends the switch stirs the loop again.
 
         The re-check has to be scheduled. This loop only runs on a bus event,
         and the event that mattered — the source going quiet — has already
@@ -565,8 +575,9 @@ class PushService:
             self._idle_card = card
 
     async def _wake_after(self, delay: float) -> None:
-        """Stir the coalescer once, later. See `_consider_ending`."""
-        await asyncio.sleep(delay)
+        """Stir the coalescer once, `WAKE_MARGIN_S` past `delay`. See
+        `_consider_ending`."""
+        await asyncio.sleep(delay + WAKE_MARGIN_S)
         self._dirty.set()
 
     def _adopt_reported_session(self) -> None:
@@ -758,7 +769,7 @@ class PushService:
         extra cycle. An ended session being knocked on counts too
         (`_send_end`).
         """
-        await asyncio.sleep(START_REPORT_GRACE_S + 1)
+        await asyncio.sleep(START_REPORT_GRACE_S + WAKE_MARGIN_S)
         waiting = session_id == self._session_id or (
             session_id in self._endings and self._endings[session_id].knock
         )
@@ -1098,6 +1109,11 @@ class PushService:
         results = await asyncio.gather(*(
             self._apns.send(t, payload, push_type, priority=priority) for t in targets
         ))
+        if push_type == "nowplaying":
+            # The device's report sends outside the loop: its `start` is what
+            # makes the phone register the token that stirs the next cycle,
+            # which would otherwise leave a fraction of a second behind it.
+            self._quiet_since = time.monotonic()
 
         delivered, dead = [], []
         for target, result in zip(targets, results):

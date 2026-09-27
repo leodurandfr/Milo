@@ -233,14 +233,18 @@ CLOCK_SLACK_S = 0.001
 
 
 class _ShiftedClock:
-    """The `time` module, with a monotonic clock a test can move forward
-    without waiting — asyncio keeps the real one."""
+    """The `time` module, with clocks a test can move without waiting —
+    asyncio keeps the real ones."""
 
     def __init__(self):
         self.shift = 0.0
+        self.wall = 0.0
 
     def monotonic(self):
         return time.monotonic() + self.shift
+
+    def time(self):
+        return time.time() + self.wall
 
     def __getattr__(self, name):
         return getattr(time, name)
@@ -969,6 +973,37 @@ class TestSourceTransitions:
         assert service._session_id is None
         assert sent_events(apns) == ["end"]
 
+    async def test_the_grace_ends_the_card_when_the_wall_clock_steps_back(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The re-check that ends an idle card is slept on the monotonic clock
+        and judged on the wall clock, which timesyncd steps on a unit with no
+        RTC. Woken exactly on time, a clock stepped back a few milliseconds
+        found the grace unmet, sent the paused card again and armed nothing:
+        the card stayed until something else stirred the bus."""
+        monkeypatch.setattr("backend.core.push.service.SESSION_IDLE_GRACE_S", 0.2)
+        monkeypatch.setattr("backend.core.push.service.WAKE_MARGIN_S", 0.1)
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", 0.01)
+        clock = _ShiftedClock()
+        monkeypatch.setattr("backend.core.push.service.time", clock)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(READY)
+        await service.initialize()
+        await service._publish()                   # arms the grace and its re-check
+        clock.wall -= 0.05                         # timesyncd steps the clock back
+
+        for _ in range(100):
+            if service._session_id is None:
+                break
+            await asyncio.sleep(0.01)
+        await service.cleanup()
+
+        assert service._session_id is None
+        assert "end" in sent_events(apns)
+
     async def test_an_ended_session_is_not_adopted_back(self, service, registry, apns):
         """`_end_session` clears the id, and the token it could be adopted from
         outlives it. Following it put every later update on a session this
@@ -1189,6 +1224,27 @@ class TestDeviceReport:
         assert sent_events(apns) == ["update"]
         track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
         assert track["title"] == "Webradio"
+
+    async def test_the_update_after_a_reported_start_waits_out_the_window(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A `start` sent from this seam counts against the one-per-window cap.
+        The phone answers it by registering its session token, which stirs the
+        loop; leaving at once put an `update` a fraction of a second behind the
+        `start`, on every session the app opened. The window here is far longer
+        than `_settled` waits: nothing after the `start` may be seen."""
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", 30.0)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service.initialize()
+
+        await service.align_session_to_playback("phone-1")
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.session_token_registered()
+        await _settled(apns, count=2, deadline=0.3)
+        await service.cleanup()
+
+        assert sent_events(apns) == ["start"]
 
     async def test_no_source_at_all_closes_the_card(self, service, registry, apns):
         """`source: none` is the source being left: the report ends the card
@@ -1929,13 +1985,18 @@ class TestCoalescing:
         ]
 
     async def _session_open(self, service, registry, apns, monkeypatch, window):
+        """A session opened a window ago, the loop running. Returns the clock."""
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", window)
+        clock = _ShiftedClock()
+        monkeypatch.setattr("backend.core.push.service.time", clock)
         await service._publish()                       # open the session
+        clock.shift += window                          # a window ago
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
         apns.send.reset_mock()
         await service.initialize()
+        return clock
 
     def _seek(self, service, ms):
         moved = {"ms": ms, "at": 1700000030.0, "rate": 1.0}
@@ -2002,9 +2063,7 @@ class TestCoalescing:
         first held it ~1.1 s behind (measured 2026-09-26). The window here is
         far longer than `_settled` waits: only pushes sent at once are seen —
         the first one ever, and one sent a full window after the last."""
-        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
-        clock = _ShiftedClock()
-        monkeypatch.setattr("backend.core.push.service.time", clock)
+        clock = await self._session_open(service, registry, apns, monkeypatch, window=30.0)
 
         self._nudge(service, "first")
         await _settled(apns)
@@ -2102,8 +2161,8 @@ class TestCoalescing:
         await _settled(apns)
         self._nudge(service, "level 2")            # waits what is left of the window
         await asyncio.sleep(0.1)
+        arrived_at = time.monotonic()              # before the deadline is stamped
         self._restate(service, "between sources")
-        arrived_at = time.monotonic()
         await _settled(apns, count=2, settle=1.5 * window)
         await service.cleanup()
 
