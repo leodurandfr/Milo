@@ -237,9 +237,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (audioRes.ok) {
       updateSystemState(audioRes.data, 'resync');
     }
-    if (volumeRes.ok && volumeRes.data.status === 'success') {
+    const volumeOk = volumeRes.ok && volumeRes.data.status === 'success';
+    if (volumeOk) {
       handleVolumeEvent({ data: { show_bar: false, state: volumeRes.data.data } });
     }
+    return audioRes.ok && volumeOk;
   }
 
   function updateMobileStep(stepDb) {

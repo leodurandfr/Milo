@@ -138,3 +138,82 @@ describe('showDisconnectedBanner', () => {
     expect(ws.showDisconnectedBanner).toBe(false);
   });
 });
+
+/**
+ * Whether the first connection of a page load triggers App.vue's resyncStores.
+ *
+ * The kiosk's browser loads the page before the backend listens after a reboot:
+ * the boot fetch of every store answers 502 and the socket's first attempt fails.
+ * What breaks if this stops holding: the kiosk comes up in English with no radio
+ * favorites, podcast subscriptions or settings, until someone reloads the page.
+ * Each case imports a fresh module, since the connection history is a singleton.
+ */
+describe('onReconnect on the first connection of a page load', () => {
+  async function freshHost() {
+    vi.resetModules();
+    const { default: freshUseWebSocket } = await import('@/services/websocket');
+    const onReconnect = vi.fn();
+    const host = mount(defineComponent({
+      setup() {
+        freshUseWebSocket().onReconnect(onReconnect);
+      },
+      render: () => null,
+    }));
+    return { host, onReconnect };
+  }
+
+  it('fires when the backend answered only after the page loaded', async () => {
+    const { host, onReconnect } = await freshHost();
+
+    FakeSocket.last.close(); // nginx answers 502: the backend is not up yet
+    deliverClose();
+    vi.advanceTimersByTime(1250); // the first backoff step (1 s, ±25 %) opens a new socket
+    FakeSocket.last.accept();
+
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    host.unmount();
+  });
+
+  it('does not fire when the first attempt connects', async () => {
+    const { host, onReconnect } = await freshHost();
+
+    FakeSocket.last.accept();
+
+    expect(onReconnect).not.toHaveBeenCalled();
+    host.unmount();
+  });
+
+  it('fires once for each later reconnection', async () => {
+    const { host, onReconnect } = await freshHost();
+    FakeSocket.last.accept();
+
+    FakeSocket.last.close(); // a backend restart
+    deliverClose();
+    vi.advanceTimersByTime(1250);
+    FakeSocket.last.accept();
+
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    host.unmount();
+  });
+
+  it('reconnects when the tab returns after a first attempt failed while hidden', async () => {
+    // An iOS app launched then backgrounded at once, or a tab opened behind
+    // another: a close while hidden schedules no retry, so the return to the
+    // tab is the only thing left to reconnect — and it must resync too.
+    const { host, onReconnect } = await freshHost();
+    const failed = FakeSocket.last;
+    setHidden(true);
+    failed.close();
+    deliverClose();
+
+    vi.advanceTimersByTime(60000);
+    expect(FakeSocket.last).toBe(failed);
+
+    setHidden(false);
+    expect(FakeSocket.last).not.toBe(failed);
+    FakeSocket.last.accept();
+
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    host.unmount();
+  });
+});

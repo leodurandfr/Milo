@@ -178,6 +178,32 @@ describe('App.vue deltaStores ↔ stores exposing resync()', () => {
   });
 });
 
+/** The body of a store's `async function resync()`, comments out. */
+function resyncBody(file) {
+  const source = readFileSync(join(STORES_DIR, file), 'utf8');
+  const match = /\n  async function resync\(\) \{\n([\s\S]*?)\n  \}\n/.exec(source);
+  return match ? match[1].replace(/\/\/.*$/gm, '') : null;
+}
+
+describe('every resync() says whether it reached the server', () => {
+  it('extracts a resync() body from every store exposing one', () => {
+    const missing = resyncCapable.filter(file => resyncBody(file) === null);
+    expect(missing).toEqual([]);
+  });
+
+  it('answers on every path, with a value', () => {
+    // serverSync retries only a domain whose resync() did not resolve true. One
+    // that falls off its end, or returns bare, resolves undefined: read as a
+    // failure forever, it would be refetched every 15 s for the life of the page.
+    const silent = resyncCapable.filter((file) => {
+      const body = resyncBody(file);
+      const lines = body.split('\n').map(line => line.trim()).filter(Boolean);
+      return /\breturn\s*;/.test(body) || !lines.at(-1).startsWith('return ');
+    });
+    expect(silent).toEqual([]);
+  });
+});
+
 /**
  * The async half of App.vue's onMounted — everything after the WS subscriptions
  * are registered. That block is the boot path; the subscriptions above it are
@@ -215,11 +241,11 @@ describe('App.vue has one recipe for populating the stores', () => {
   it('extracts a plausible boot block', () => {
     // A mis-sliced block would make the rules below pass on an empty string.
     expect(boot.length).toBeGreaterThan(200);
-    expect(boot).toContain('loadHardwareInfo');
+    expect(boot).toContain('primeFromCache');
   });
 
   it('boot loads the stores by calling resyncStores()', () => {
-    expect(boot).toMatch(/await resyncStores\(\)/);
+    expect(boot).toMatch(/await resyncStores\(/);
   });
 
   it('populates the stores through resyncStores() and nothing else', () => {

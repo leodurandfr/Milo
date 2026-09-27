@@ -220,6 +220,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     hasEverLoaded.value = true;
     filtersLoaded.value = false;
 
+    let loaded = false;
     await apiCall('store', 'Error loading equalizer data', async () => {
       // One GET returns the complete record (state, filters, compressor, loudness,
       // mono, active_preset, enabled, custom_gains) for whatever the target is —
@@ -231,7 +232,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
       // Cancelled or failed, or superseded while the presets were still in
       // flight — the record then describes a target that is no longer shown.
-      if (record === null || loadAbortController !== ctrl) return;
+      // Superseded by a newer load is not failed: that one answers for the
+      // target shown. Aborted by cleanup() (controller nulled) applied nothing.
+      if (loadAbortController !== ctrl) {
+        loaded = loadAbortController !== null;
+        return;
+      }
+      if (record === null) return;
 
       state.value = record.state || 'disconnected';
       isEqualizerEffectsEnabled.value = record.enabled ?? true;
@@ -273,11 +280,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // a preset the gains no longer match: say so rather than print the preset's
       // name over someone else's curve.
       isPresetEdited.value = _gainsDivergeFromPreset();
+      loaded = true;
     });
 
     // Only this call's own controller is ours to drop. Nulling a newer one
     // leaves cleanup() with nothing to abort on the next target switch.
     if (loadAbortController === ctrl) loadAbortController = null;
+    return loaded;
   }
 
   function updateFilterValue(filterId, field, value) {
@@ -548,11 +557,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   async function loadTargets() {
     // availableTargets is a computed delegating to multiroomStore: make sure it
     // has fetched at least once before deriving targets from an empty registry.
-    if (!registryStore.isInitialized) {
-      await registryStore.resync();
-    }
+    if (!registryStore.isInitialized && !(await registryStore.resync())) return false;
 
-    if (availableTargets.value.length === 0) return;
+    if (availableTargets.value.length === 0) return true;
 
     // The selected target survives the modal closing, so it can name a client
     // that has since been forgotten or a zone that was dissolved. Every read and
@@ -570,6 +577,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         selectedTarget.value = localTarget.id;
       }
     }
+    return true;
   }
 
   async function selectTarget(targetId) {
@@ -806,11 +814,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Lazily loaded: EqualizerModal calls loadStatus() when it opens. Refetching
     // a store the user never opened costs two requests on every reconnect and
     // tab return, and heals nothing — same gate as radioStore/musicLibraryStore.
-    if (!hasEverLoaded.value) return;
+    if (!hasEverLoaded.value) return true;
     // Targets first, same order as the modal's own mount: a client forgotten or
     // a zone dissolved while we were away leaves selectedTarget naming something
     // that no longer exists, and every read below is addressed through it.
-    await loadTargets();
+    if (!(await loadTargets())) return false;
     return loadStatus();
   }
 

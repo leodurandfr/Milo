@@ -45,6 +45,7 @@ export const useSystemStore = defineStore('system', () => {
     if (result.ok) {
       applyState(result.data.data);
     }
+    return result.ok;
   }
 
   async function recheckHostname() {

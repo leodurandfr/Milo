@@ -182,6 +182,26 @@ def test_the_readiness_unit_quits_plymouth_even_when_the_script_did_not():
         assert _bounded(line), f"{line!r} is unbounded — a second way to hang the boot"
 
 
+def test_the_readiness_deadline_runs_on_the_monotonic_clock():
+    """The 45 s fail-open must mean 45 s, whatever the wall clock does meanwhile.
+
+    bash's `$SECONDS` follows the wall clock, and a Pi has no RTC: timesyncd's
+    first sync steps it forward by however long the unit was off. Measured
+    2026-09-27, a 46 min step 14 s into the wait expired the deadline at once, and
+    the kiosk loaded a page whose every request answered 502 — a UI in English,
+    with no favorites, until someone reloaded it.
+    """
+    code = "\n".join(
+        line.split("#", 1)[0] for line in WAIT_READY.read_text(encoding="utf-8").splitlines()
+    )
+    assert "DEADLINE" in code, "the readiness script no longer declares a deadline"
+    assert not re.search(r"\bSECONDS\b", code), (
+        "milo-wait-ready.sh reads $SECONDS, which a clock step moves; "
+        "time the deadline from /proc/uptime"
+    )
+    assert "/proc/uptime" in code, "the readiness deadline reads no monotonic clock"
+
+
 # --------------------------------------------------------------------------- #
 # WI-2: the screen does not follow the services it merely waits on.
 # --------------------------------------------------------------------------- #

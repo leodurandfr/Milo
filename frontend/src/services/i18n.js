@@ -145,7 +145,10 @@ class I18nService {
       this.currentLanguage.value = serverLanguage;
     }
     this.applyDocumentLanguage();
-    this.isInitialized = true;
+    // Only once the server answered: a boot that ran before the backend
+    // listened falls back to English, and a later call must still ask. The
+    // settings resync corrects the language on its own meanwhile.
+    this.isInitialized = result.ok;
   }
 
   // Change language via API (automatic WebSocket broadcast)

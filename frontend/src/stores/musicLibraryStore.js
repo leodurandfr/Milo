@@ -156,13 +156,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   }
 
   async function loadStorages({ force = false } = {}) {
-    if (storagesLoaded.value && !force) return;
+    if (storagesLoaded.value && !force) return true;
     const result = await apiCall.get(`${BASE}/storages`, {
       category: 'musicLibrary',
       message: 'Error loading storage spaces',
       logLevel: 'debug',
     });
     if (result.ok) applyStorages(result.data || {});
+    return result.ok;
   }
 
   /** WS: source/storages_changed — a hotplug, a share write, or a scan poll. */
@@ -260,7 +261,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const likedSongsLoaded = ref(false);
 
   async function loadLikedSongs({ force = false } = {}) {
-    if (likedSongsLoaded.value && !force) return;
+    if (likedSongsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
     const result = await apiCall.get(`${BASE}/starred`, {
       category: 'musicLibrary',
@@ -268,12 +269,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       checkStatus: true,
       params: scoped(),
     });
-    if (!inScope(scope)) return;
-    if (result.ok && Array.isArray(result.data?.songs)) {
+    if (!inScope(scope)) return true;  // superseded, not failed
+    const ok = result.ok && Array.isArray(result.data?.songs);
+    if (ok) {
       likedSongs.value = result.data.songs;
       likedSongIds.value = new Set(result.data.songs.map((s) => s.id));
       likedSongsLoaded.value = true;
     }
+    return ok;
   }
 
   const isSongLiked = (id) => likedSongIds.value.has(id);
@@ -367,7 +370,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // change alone — there the albums on screen are another storage's, and holding
   // them would be wrong — and the activeLibraryId watcher does it itself.
   async function loadAlbums({ force = false } = {}) {
-    if (albumsLoaded.value && !force) return;
+    if (albumsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
     albumsLoading.value = true;
     // A revalidation re-reads as many albums as are already displayed: asking
@@ -388,12 +391,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     } finally {
       albumsLoading.value = false;
     }
-    if (!inScope(scope)) return;
-    if (result.ok && Array.isArray(result.data?.albums)) {
+    if (!inScope(scope)) return true;  // superseded, not failed
+    const ok = result.ok && Array.isArray(result.data?.albums);
+    if (ok) {
       albums.value = result.data.albums;
       albumsHasMore.value = result.data.albums.length >= size;
       albumsLoaded.value = true;
     }
+    return ok;
   }
 
   async function loadMoreAlbums() {
@@ -436,7 +441,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const artistsRendered = ref(ARTISTS_RENDER_CHUNK);
 
   async function loadArtists({ force = false } = {}) {
-    if (artistsLoaded.value && !force) return;
+    if (artistsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
     artistsLoading.value = true;
     let result;
@@ -450,12 +455,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     } finally {
       artistsLoading.value = false;
     }
-    if (!inScope(scope)) return;
-    if (result.ok && Array.isArray(result.data?.index)) {
+    if (!inScope(scope)) return true;  // superseded, not failed
+    const ok = result.ok && Array.isArray(result.data?.index);
+    if (ok) {
       artistIndex.value = result.data.index;
       artistsRendered.value = ARTISTS_RENDER_CHUNK;
       artistsLoaded.value = true;
     }
+    return ok;
   }
 
   const artistCount = computed(() =>
@@ -520,7 +527,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const genresLoaded = ref(false);
 
   async function loadGenres({ force = false } = {}) {
-    if (genresLoaded.value && !force) return;
+    if (genresLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
     genresLoading.value = true;
     let result;
@@ -534,14 +541,16 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     } finally {
       genresLoading.value = false;
     }
-    if (!inScope(scope)) return;
-    if (result.ok && Array.isArray(result.data?.genres)) {
+    if (!inScope(scope)) return true;  // superseded, not failed
+    const ok = result.ok && Array.isArray(result.data?.genres);
+    if (ok) {
       // Alphabetical, skipping the empty-name genre Navidrome can emit.
       genres.value = result.data.genres
         .filter((g) => (g.value || '').trim())
         .sort((a, b) => a.value.localeCompare(b.value));
       genresLoaded.value = true;
     }
+    return ok;
   }
 
   // =========================================================================
@@ -552,7 +561,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const playlistsLoaded = ref(false);
 
   async function loadPlaylists({ force = false } = {}) {
-    if (playlistsLoaded.value && !force) return;
+    if (playlistsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
     playlistsLoading.value = true;
     let result;
@@ -566,11 +575,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     } finally {
       playlistsLoading.value = false;
     }
-    if (!inScope(scope)) return;
-    if (result.ok && Array.isArray(result.data?.playlists)) {
+    if (!inScope(scope)) return true;  // superseded, not failed
+    const ok = result.ok && Array.isArray(result.data?.playlists);
+    if (ok) {
       playlists.value = result.data.playlists;
       playlistsLoaded.value = true;
     }
+    return ok;
   }
 
   // =========================================================================
@@ -891,15 +902,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   );
 
   async function loadShares({ force = false } = {}) {
-    if (sharesLoaded.value && !force) return;
+    if (sharesLoaded.value && !force) return true;
     const result = await apiCall.get(`${BASE}/shares`, {
       category: 'musicLibrary',
       message: 'Error loading network shares',
     });
-    if (result.ok && Array.isArray(result.data?.shares)) {
+    const ok = result.ok && Array.isArray(result.data?.shares);
+    if (ok) {
       shareConfigs.value = result.data.shares;
       sharesLoaded.value = true;
     }
+    return ok;
   }
 
   // Adding/updating a share (re)mounts it and kicks a rescan; the storage push
@@ -1036,15 +1049,21 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // them in the same batch would send the old id — those responses land after
     // the switch and write another storage's catalog into the store. It also
     // carries the scan flag, so it heals a scan that started or ended meanwhile.
-    await loadStorages({ force: true });
+    if (!(await loadStorages({ force: true }))) return false;
+    // Shares are Milō's own config, readable whatever Navidrome is doing.
     const tasks = [];
-    if (albumsLoaded.value) tasks.push(loadAlbums({ force: true }));
-    if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
-    if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
-    if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
-    if (likedSongsLoaded.value) tasks.push(loadLikedSongs({ force: true }));
     if (sharesLoaded.value) tasks.push(loadShares({ force: true }));
-    await Promise.allSettled(tasks);
+    // Navidrome down or stopped from the dock: its lists would only fail, and a
+    // failure is retried. The catalogReady watcher reloads them the moment it
+    // answers again.
+    if (catalogReady.value) {
+      if (albumsLoaded.value) tasks.push(loadAlbums({ force: true }));
+      if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
+      if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
+      if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
+      if (likedSongsLoaded.value) tasks.push(loadLikedSongs({ force: true }));
+    }
+    return (await Promise.all(tasks)).every(Boolean);
   }
 
   return {

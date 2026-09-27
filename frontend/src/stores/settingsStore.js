@@ -227,9 +227,9 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(qobuzSettings, d.qobuz_settings);
         setIfChanged(spotifySettings, d.spotify_settings);
         setIfChanged(macRocSettings, d.mac_roc);
+        logger.info('settings', 'All settings loaded successfully');
       }
-
-      logger.info('settings', 'All settings loaded successfully');
+      return d !== null;
     } finally {
       isLoading.value = false;
       loadAllPromise = null;
@@ -316,6 +316,7 @@ export const useSettingsStore = defineStore('settings', () => {
       btRemote.value.enabled = result.data.enabled ?? false;
       updateBtRemoteStatus(result.data);
     }
+    return result.ok;
   }
 
   async function toggleBtRemote(enabled) {
@@ -400,6 +401,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (result.ok) {
       applyIrRemoteStatus(result.data);
     }
+    return result.ok;
   }
 
   async function toggleIrRemote(enabled) {
@@ -511,11 +513,12 @@ export const useSettingsStore = defineStore('settings', () => {
   // btRemote/irRemote sit outside the settings/bulk payload and are delta-fed
   // (bt_remote_*/ir_remote_status_changed), so refetch them explicitly here.
   async function resync() {
-    await Promise.all([
+    const outcomes = await Promise.all([
       loadAllSettings(),
       loadBtRemoteStatus(),
       loadIrRemoteStatus(),
     ]);
+    return outcomes.every(Boolean);
   }
 
   return {

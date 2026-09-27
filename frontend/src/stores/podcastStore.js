@@ -297,7 +297,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   // latest-episodes cache so the next HomeView open refetches with fresh
   // subscription and progress state (lazy: no discovery API call during the resync).
   async function preloadSubscriptionsList({ force = false } = {}) {
-    if (subscriptionsListLoaded.value && !force) return;
+    if (subscriptionsListLoaded.value && !force) return true;
     const result = await apiCall.get('/api/podcast/subscriptions', {
       category: 'store',
       message: 'Error preloading subscriptions list',
@@ -311,6 +311,7 @@ export const usePodcastStore = defineStore('podcast', () => {
         subscriptionsLoaded.value = false;
       }
     }
+    return result.ok;
   }
 
   // Full load - fetches subscriptions list + latest episodes (discovery API call)
@@ -500,7 +501,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   // The now-playing slice is a view of unifiedStore.systemState, which App.vue
   // heals first: only the subscriptions list has deltas of its own to refetch.
   async function resync() {
-    await preloadSubscriptionsList({ force: true });
+    return preloadSubscriptionsList({ force: true });
   }
 
   return {

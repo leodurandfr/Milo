@@ -193,7 +193,7 @@ export const useRadioStore = defineStore('radio', () => {
    * stays true during the refetch so FavoritesView doesn't flash skeletons.
    */
   async function preloadFavorites({ force = false } = {}) {
-    if (favoritesInitialized.value && !force) return;
+    if (favoritesInitialized.value && !force) return true;
     if (preloadPromise) return preloadPromise;
     preloadPromise = (async () => {
       const result = await apiCall.get('/api/radio/stations', {
@@ -206,9 +206,11 @@ export const useRadioStore = defineStore('radio', () => {
         favoritesInitialized.value = true;
         logger.debug('radio', `Preloaded ${favoriteStations.value.length} favorites`);
       }
+      return result.ok;
     })();
-    await preloadPromise;
+    const loaded = await preloadPromise;
     preloadPromise = null;
+    return loaded;
   }
 
   /**
@@ -315,8 +317,9 @@ export const useRadioStore = defineStore('radio', () => {
     hasError.value = true;
     searchResults.value = [];
 
-    // status === null indicates a TCP-level failure (backend unreachable) → keep retrying
-    if (result.error.status === null) {
+    // No answer at all (status null), or nginx answering for a backend that is
+    // down or restarting (502/503/504) → keep retrying
+    if (result.error.status === null || [502, 503, 504].includes(result.error.status)) {
       searchUnavailable.value = true;
       startRetry();
     } else {
@@ -457,8 +460,11 @@ export const useRadioStore = defineStore('radio', () => {
       category: 'radio',
       message: 'Error loading custom stations',
     });
-    customStations.value = result.ok ? (result.data || {}) : {};
+    // A failure keeps what was shown: an empty map would read as "no custom
+    // stations". The flag still flips, so resync() keeps asking for them.
+    if (result.ok) customStations.value = result.data || {};
     customStationsLoaded.value = true;
+    return result.ok;
   }
 
   /**
@@ -529,10 +535,11 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   async function resync() {
-    await Promise.all([
+    const outcomes = await Promise.all([
       preloadFavorites({ force: true }),
-      customStationsLoaded.value ? fetchCustomStations() : Promise.resolve(),
+      customStationsLoaded.value ? fetchCustomStations() : true,
     ]);
+    return outcomes.every(Boolean);
   }
 
   return {

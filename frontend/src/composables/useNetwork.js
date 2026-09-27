@@ -27,7 +27,7 @@ let _countryLoaded = false;
  * so App.vue::resyncStores() calls this on reconnect/tab-visible.
  */
 export async function preloadNetworkStatus({ force = false } = {}) {
-  if (_statusLoaded && !force) return;
+  if (_statusLoaded && !force) return true;
   const result = await apiCall.get('/api/network/status', {
     category: 'network',
     message: 'Failed to preload network status'
@@ -36,6 +36,7 @@ export async function preloadNetworkStatus({ force = false } = {}) {
     _status.value = result.data.data;
     _statusLoaded = true;
   }
+  return result.ok;
 }
 
 /**

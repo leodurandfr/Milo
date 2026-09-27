@@ -45,6 +45,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   const isLoading = ref(false);
   const isInitialized = ref(false);
+  // Whether pendingClients reflects the server, apart from the registry: the two
+  // come from two requests, and either can fail alone.
+  const pendingClientsLoaded = ref(false);
 
   // Routing transition state (centralized for all components)
   // 'idle' | 'enabling' | 'disabling' | 'error'
@@ -173,11 +176,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       zones.value = new Map(Object.entries(zonesData || {}));
 
       saveCache();
+      // Only on success: an empty registry left by a failed fetch must not read
+      // as a real one — consumers seeing false fetch it themselves.
+      isInitialized.value = true;
     }
     isLoading.value = false;
-    // Set even on failure: consumers read it as "the first fetch has been
-    // attempted", to decide whether they must trigger one themselves.
-    isInitialized.value = true;
+    return result.ok;
   }
 
   // === CLIENT QUERIES ===
@@ -614,7 +618,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     if (result.ok) {
       const data = result.data.clients || {};
       pendingClients.value = new Map(Object.entries(data));
+      pendingClientsLoaded.value = true;
     }
+    return result.ok;
   }
 
   /**
@@ -674,7 +680,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   // === RETURN PUBLIC API ===
 
   async function resync() {
-    await Promise.all([fetchState(), fetchPendingClients()]);
+    const outcomes = await Promise.all([fetchState(), fetchPendingClients()]);
+    return outcomes.every(Boolean);
   }
 
   return {
@@ -684,6 +691,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     pendingClients,
     isLoading,
     isInitialized,
+    pendingClientsLoaded,
     transitionState,
     transitionError,
 

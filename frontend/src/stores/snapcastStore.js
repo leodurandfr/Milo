@@ -345,6 +345,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         startedAt: running ? Date.now() - elapsed * 1000 : 0,
       };
     }
+    return Boolean(result.ok && result.data?.status === 'success');
   }
 
   /**
@@ -361,7 +362,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
   /** Delta-fed state healer — see App.vue's deltaStores. */
   async function resync() {
-    await loadCalibration();
+    return loadCalibration();
   }
 
   function selectCodec(codecName) {

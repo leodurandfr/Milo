@@ -63,6 +63,7 @@ export const useFanStore = defineStore('fan', () => {
       applyConfig(result.data);
       applyTelemetry(result.data);
     }
+    return result.ok;
   }
 
   // Page poll: refresh telemetry only, so it never clobbers an edit in progress.

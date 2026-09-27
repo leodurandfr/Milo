@@ -37,6 +37,7 @@ class WebSocketSingleton {
     this.showDisconnectedBanner = ref(false);
     this.disconnectedBannerTimeout = null;
     this.hasEverConnected = false;
+    this.hasEverClosed = false;
     this.eventHandlers = new Map();
     this.subscribers = new Set();
     this.visibilityHandler = null;
@@ -45,6 +46,7 @@ class WebSocketSingleton {
     this.reconnectCallbacks = new Set();
     this.visibilityChangeCallbacks = new Set();
     this.reconnectAttempts = 0;
+    this.reconnectTimer = null;
     this.maxReconnectDelay = 30000; // Max 30 seconds
     this.pingStaleMs = 90000; // 3x the backend keepalive interval (30s)
     this.disconnectedGraceMs = 2500; // see armDisconnectedBanner()
@@ -73,6 +75,13 @@ class WebSocketSingleton {
          this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    this.clearReconnectTimer();
+
+    // Before the first open, not in it: a first attempt that fails while the
+    // document is hidden schedules no retry, and this listener is what
+    // reconnects when the tab comes back — installed only on open, nothing
+    // ever did, and the app sat on "connection unavailable" until a reload.
+    this.setupVisibilityListener();
 
     // Automatic WebSocket URL configuration
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -97,14 +106,16 @@ class WebSocketSingleton {
       if (this.socket !== socket) return;
 
       // isConnected starts false, so it can't distinguish the first connection
-      // of a page load from a real reconnection — hasEverConnected can
-      const wasReconnecting = this.hasEverConnected;
+      // of a page load from a real reconnection — hasEverConnected can. A first
+      // connection that follows a failed attempt counts too, visible or not: the
+      // page loaded before the backend answered (the kiosk after a reboot), and
+      // what App.vue fetched meanwhile is stale or missing.
+      const wasReconnecting = this.hasEverConnected || this.hasEverClosed;
       this.hasEverConnected = true;
       this.isConnected.value = true;
       this.clearDisconnectedBanner();
       this.lastPingTime = Date.now();
       this.reconnectAttempts = 0; // Reset backoff counter on successful connection
-      this.setupVisibilityListener();
       this.startPingCheck();
 
       // Send ready signal to request initial state
@@ -134,26 +145,39 @@ class WebSocketSingleton {
       if (this.socket && this.socket !== socket) return;
 
       this.isConnected.value = false;
+      this.hasEverClosed = true;
       this.socket = null;
       this.armDisconnectedBanner();
       logger.info('websocket', 'Disconnected');
 
       // Auto-reconnect only if the tab is visible
       if (this.subscribers.size > 0 && !document.hidden) {
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, up to 30s max
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, up to 30s max — jittered,
+        // so the clients of a backend that restarts do not all come back on
+        // the same tick.
         this.reconnectAttempts++;
-        const delay = Math.min(
+        const delay = Math.round(Math.min(
           1000 * Math.pow(2, this.reconnectAttempts - 1),
           this.maxReconnectDelay
-        );
+        ) * (0.75 + Math.random() * 0.5));
         logger.info('websocket', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-        setTimeout(() => this.createConnection(), delay);
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.createConnection();
+        }, delay);
       }
     };
 
     socket.onerror = (error) => {
       logger.error('websocket', 'Connection error', { error });
     };
+  }
+
+  clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   closeConnection(fullCleanup = false) {
@@ -166,6 +190,8 @@ class WebSocketSingleton {
 
     // Only clear handlers if this is a full cleanup (no more subscribers)
     if (fullCleanup) {
+      // A pending backoff would open a socket nobody listens to any more
+      this.clearReconnectTimer();
       this.eventHandlers.clear();
       this.removeVisibilityListener();
       this.clearDisconnectedBanner();

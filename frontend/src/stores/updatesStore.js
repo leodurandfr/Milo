@@ -89,6 +89,7 @@ export const useUpdatesStore = defineStore('updates', () => {
       localProgramsError.value = true;
     }
     localProgramsLoading.value = false;
+    return result.ok;
   }
 
   async function loadSatellites() {
@@ -110,6 +111,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     } else {
       satellitesError.value = true;
     }
+    return result.ok;
   }
 
   async function startUpdate(states, id, url, message, body = null) {
@@ -299,10 +301,10 @@ export const useUpdatesStore = defineStore('updates', () => {
   // it means UpdateManager already fetched them, which it only does when multiroom
   // is enabled — no second copy of the condition to keep in step.
   async function resync() {
-    if (!hasEverLoaded.value) return;
+    if (!hasEverLoaded.value) return true;
     const tasks = [loadLocalPrograms()];
     if (satellites.value !== null) tasks.push(loadSatellites());
-    return Promise.all(tasks);
+    return (await Promise.all(tasks)).every(Boolean);
   }
 
   return {

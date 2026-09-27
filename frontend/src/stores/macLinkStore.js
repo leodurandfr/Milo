@@ -53,6 +53,7 @@ export const useMacLinkStore = defineStore('macLink', () => {
     });
     capabilitiesFailed.value = !(result.ok && result.data?.status === 'success');
     if (!capabilitiesFailed.value) capabilities.value = result.data;
+    return !capabilitiesFailed.value;
   }
 
   /** The buffer follows the applied link while nothing is being edited. */
@@ -158,6 +159,7 @@ export const useMacLinkStore = defineStore('macLink', () => {
         startedAt: running ? Date.now() - elapsed * 1000 : 0,
       };
     }
+    return Boolean(result.ok && result.data?.status === 'success');
   }
 
   /** Put the proposal on the controls. Written only by apply(). */
@@ -189,8 +191,9 @@ export const useMacLinkStore = defineStore('macLink', () => {
 
   /** Delta-fed state healer — see App.vue's deltaStores. */
   async function resync() {
-    await loadCalibration();
-    if (!capabilities.value) await loadCapabilities();
+    const calibrated = await loadCalibration();
+    const capable = capabilities.value ? true : await loadCapabilities();
+    return calibrated && capable;
   }
 
   return {

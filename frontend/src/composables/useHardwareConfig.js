@@ -9,13 +9,14 @@ import { useTimer } from '@/composables/useTimer';
  * State is shared across all composable instances (module-level singleton).
  *
  * Two data paths:
- * - loadHardwareInfo()   → GET /hardware-info   (lightweight, used by InputText, App.vue)
+ * - loadHardwareInfo()   → GET /hardware-info   (lightweight, loaded by App.vue's resync)
  * - loadHardwareConfig() → GET /hardware-config  (full config + options, used by HardwareSettings)
  */
 
 // Shared global state — lightweight info (screen type/resolution)
 const hardwareInfo = ref(null);
 const isLoading = ref(false);
+let hardwareInfoRequest = null;
 
 // Shared global state — full hardware config + dropdown options
 const hardwareConfig = ref(null);
@@ -46,42 +47,33 @@ export function useHardwareConfig() {
   const timer = useTimer();
 
   /**
-   * Load lightweight hardware info (screen type/resolution).
-   * Used by InputText.vue, App.vue, etc.
+   * Load lightweight hardware info (screen type/resolution), once: it changes
+   * only with a reboot. Resolves true once it is known. A failure leaves it
+   * null — screenType already reads that as 'none' — rather than caching a
+   * made-up answer that would hide the screen settings until a page reload.
    */
-  async function loadHardwareInfo() {
-    if (hardwareInfo.value) {
-      return hardwareInfo.value;
-    }
-
-    if (isLoading.value) {
-      return new Promise((resolve) => {
-        const checkLoaded = timer.setInterval(() => {
-          if (!isLoading.value) {
-            timer.clear(checkLoaded);
-            resolve(hardwareInfo.value);
-          }
-        }, 50);
-      });
-    }
-
-    isLoading.value = true;
-
-    const result = await apiCall.get('/api/settings/hardware-info', {
-      category: 'hardware',
-      message: 'Error loading hardware info',
-      headers: NO_CACHE_HEADERS,
-      checkStatus: true
-    });
-
-    if (result.ok) {
-      hardwareInfo.value = result.data.hardware;
-      logger.debug('hardware', 'Hardware info loaded', result.data.hardware);
-    } else {
-      hardwareInfo.value = { screen_type: 'none' };
-    }
-    isLoading.value = false;
-    return hardwareInfo.value;
+  function loadHardwareInfo() {
+    if (hardwareInfo.value) return Promise.resolve(true);
+    hardwareInfoRequest ??= (async () => {
+      isLoading.value = true;
+      try {
+        const result = await apiCall.get('/api/settings/hardware-info', {
+          category: 'hardware',
+          message: 'Error loading hardware info',
+          headers: NO_CACHE_HEADERS,
+          checkStatus: true
+        });
+        const hardware = result.ok ? result.data?.hardware : null;
+        if (!hardware) return false;
+        hardwareInfo.value = hardware;
+        logger.debug('hardware', 'Hardware info loaded', hardware);
+        return true;
+      } finally {
+        isLoading.value = false;
+        hardwareInfoRequest = null;
+      }
+    })();
+    return hardwareInfoRequest;
   }
 
   /**

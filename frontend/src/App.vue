@@ -122,6 +122,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/useNetwork';
 import { adoptBrowserTimezone } from '@/composables/useTimezone';
+import { createServerSync } from '@/services/serverSync';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -204,17 +205,34 @@ const deltaStores = [
   musicLibraryStore, snapcastStore, macLinkStore,
 ];
 
-async function resyncStores() {
+// Every resync goes through serverSync, which retries what failed and folds
+// requests that overlap: a boot that ran while the backend was still down is
+// completed as soon as it answers, whoever asks first.
+const serverSync = createServerSync([
   // The central mirror first and ALONE. Every source store's now-playing slice
   // is a view of unifiedStore.systemState, so it heals with the mirror; no
   // store's own resync() may run against the pre-resync one.
-  await unifiedStore.resync();
-  await Promise.allSettled([
-    ...deltaStores.filter((store) => store !== unifiedStore).map((store) => store.resync()),
+  [{ name: unifiedStore.$id, resync: () => unifiedStore.resync() }],
+  [
+    ...deltaStores
+      .filter((store) => store !== unifiedStore)
+      .map((store) => ({ name: store.$id, resync: () => store.resync() })),
     // Network status is a module-level singleton (useNetwork), not a store, but
     // its `status_changed` deltas are equally missable — heal it alongside.
-    preloadNetworkStatus({ force: true }),
-  ]);
+    { name: 'network', resync: () => preloadNetworkStatus({ force: true }) },
+    // Fixed until a reboot, so a no-op once loaded — here so a boot that could
+    // not read it does not hide the screen settings for the whole session.
+    { name: 'hardware', resync: () => loadHardwareInfo() },
+  ],
+]);
+
+function resyncStores(reason) {
+  return serverSync.request(reason);
+}
+
+// A network that comes back is as good a sign as a socket accepted.
+function handleOnline() {
+  resyncStores('online');
 }
 
 // === Boot timeout handling ===
@@ -666,13 +684,14 @@ onMounted(async () => {
       }
     }),
     on('multiroom', 'pending_client_changed', (event) => {
-      // isInitialized gates the classification, not the store update: the
+      // pendingClientsLoaded gates the classification, not the store update: the
       // subscription is installed before the first fetch (deliberately — it is
       // what stops events being missed during boot), so until it lands the map
       // is empty and every heartbeat of a long-known satellite reads as a brand
       // new one. A satellite re-registers every 15 s, so that window reliably
-      // wakes the screen and opens Settings as the boot animation ends.
-      const isNew = multiroomStore.isInitialized &&
+      // wakes the screen and opens Settings as the boot animation ends — and a
+      // failed fetch holds it open, which is why the flag is set on success only.
+      const isNew = multiroomStore.pendingClientsLoaded &&
         event.data?.action === 'registered' &&
         !multiroomStore.pendingClients.has(event.data?.client?.mac_id);
       multiroomStore.handleMultiroomEvent(event);
@@ -714,18 +733,19 @@ onMounted(async () => {
 
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
-      resyncStores();
+      resyncStores('reconnect');
     }),
     onVisibilityChange(() => {
       // Tab back to foreground with a live socket: refetch delta-based stores
-      resyncStores();
+      resyncStores('visible');
     })
   );
 
-  // Now perform async initialization
-  await loadHardwareInfo();
+  window.addEventListener('online', handleOnline);
 
-  // Show the last known client registry before any request lands
+  // Show the last known client registry before any request lands — and before
+  // any await, so a resync the socket triggers meanwhile cannot land first and
+  // be overwritten by the cache.
   multiroomStore.primeFromCache();
 
   // Boot goes through the same recipe as a reconnect and a tab return: one
@@ -733,7 +753,7 @@ onMounted(async () => {
   // hand-written boot list is how `pendingClients` ended up loaded on every
   // path except the first one — a store added here and forgotten there (or
   // the reverse) fails silently, since both look like they populate the app.
-  await resyncStores();
+  await resyncStores('boot');
 
   adoptBrowserTimezone();
 
@@ -751,6 +771,8 @@ onUnmounted(() => {
   // All component timers (boot, sleep-shield, connection-lost, command-error)
   // are auto-cleared by useTimer.
   cleanupFunctions.forEach(cleanup => cleanup());
+  window.removeEventListener('online', handleOnline);
+  serverSync.dispose();
 });
 </script>
 

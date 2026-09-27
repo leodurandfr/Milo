@@ -24,11 +24,19 @@ set -u
 
 BACKEND_URL="http://localhost:8000/api/health"
 FRONTEND_URL="http://localhost/"
-DEADLINE=$((SECONDS + 45))     # fail open: show the UI even if a service never answers
 TICK=0.25
 TICKS_PER_S=4
 
 log() { echo "[readiness] $1"; }
+
+# Whole seconds since boot, into NOW. Never $SECONDS: bash derives it from the
+# wall clock, and this Pi has no RTC — timesyncd stepped the clock 46 min forward
+# 14 s into the wait and the 45 s deadline expired on the spot, handing the screen
+# to a kiosk whose backend was still 14 s from listening (measured 2026-09-27).
+now() { local up _; read -r up _ < /proc/uptime; NOW=${up%.*}; }
+
+now
+DEADLINE=$((NOW + 45))         # fail open: show the UI even if a service never answers
 
 # No-op when Plymouth is not up (a manual `systemctl restart milo-kiosk` — the
 # waits below still run, so the kiosk keeps starting after the backend).
@@ -42,12 +50,13 @@ progress() { timeout 1 plymouth system-update --progress="$1" 2>/dev/null || tru
 ramp_until() {
     local from=$1 to=$2 expected=$3 label=$4
     shift 4
-    local span=$((to - from - 1)) ticks=0 pct started=$SECONDS
+    local span=$((to - from - 1)) ticks=0 pct started
+    now; started=$NOW
 
-    while (( SECONDS < DEADLINE )); do
+    while now; (( NOW < DEADLINE )); do
         if "$@"; then
             progress "$to"
-            log "$label ready after $((SECONDS - started))s"
+            log "$label ready after $((NOW - started))s"
             return 0
         fi
         pct=$(( from + span * ticks / (expected * TICKS_PER_S) ))
@@ -85,7 +94,7 @@ ramp_until 25 95 13 "backend" responds "$BACKEND_URL"
 # there never reaches `plymouth quit`, and plymouth-quit.service is masked, so that
 # is a splash frozen for good. Past the deadline the screen goes to the kiosk and
 # the read finishes behind it.
-while kill -0 "$prewarm" 2>/dev/null && (( SECONDS < DEADLINE )); do
+while kill -0 "$prewarm" 2>/dev/null && now && (( NOW < DEADLINE )); do
     sleep "$TICK"
 done
 
