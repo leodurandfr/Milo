@@ -14,7 +14,7 @@ Architecture:
 import asyncio
 import contextlib
 import logging
-from typing import Callable, Optional, Dict, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -66,7 +66,6 @@ class VolumeService:
         self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
         self._bg = BackgroundTaskSet(self.logger, "volume")
-        self._volume_lock = asyncio.Lock()
         self._push_lock = asyncio.Lock()
 
         # Volume configuration (loaded from settings in _load_volume_config)
@@ -77,7 +76,10 @@ class VolumeService:
 
         # VolumeStateStore (SSOT) + EqualizerController (hardware abstraction)
         self._state_store = VolumeStateStore(self.settings_service)
-        self._equalizer_controller = EqualizerController(equalizer_router=equalizer_router)
+        self._equalizer_controller = EqualizerController(
+            equalizer_router=equalizer_router,
+            clamp=lambda volume_db: self._volume_config.clamp(volume_db),
+        )
 
         # Injected via setters to resolve circular dependencies
         self._snapcast_websocket_service = None
@@ -139,141 +141,119 @@ class VolumeService:
             return []
         return self._client_registry.get_online_client_ids()
 
-    def _get_controllable_client_ids(self) -> list:
-        """Online client IDs that have volume control (excludes DAC clients)."""
-        client_ids = self._online_client_ids() if self._is_multiroom_enabled() else []
-        return [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
+    def _global_members(self) -> Optional[Tuple[List[str], List[str]]]:
+        """(members, reachable) of a global move, or None when there is nothing to move.
 
-    @staticmethod
-    def _split_on_verdict(updates: Dict[str, float], reachable: Dict[str, float],
-                          results: Dict[str, bool]) -> Tuple[Dict[str, float], list]:
-        """Split a fan-out's updates into what the store keeps and what it drops.
-
-        One rule, shared by the zone delta and the global one: a client the
-        fan-out reached is written only if it accepted the level, while a client
-        it never reached has no verdict to wait for and is written
-        unconditionally — offline is a skip, not a failure, the same rule as
-        _refused. That unconditional write is the whole mechanism by which a
-        relative adjustment reaches a client that was absent when it was made.
-
-        Returns:
-            (to_commit, refused) — refused holds only reachable clients that
-            answered False.
+        Multiroom: every client with volume control, and the reachable ones
+        among them. Direct: the local speaker alone, always reachable — a
+        CamillaDSP that is not up yet is handled by `_move`, not here. None only
+        when the local speaker is not known at all (no MAC to key a level on).
         """
-        to_commit, refused = {}, []
-        for mac_id, volume_db in updates.items():
-            if mac_id not in reachable or results.get(mac_id, False):
-                to_commit[mac_id] = volume_db
-            else:
-                refused.append(mac_id)
-        return to_commit, refused
-
-    async def _compute_multiroom_updates(self, target_db: float,
-                                         client_ids: list) -> Optional[Dict[str, float]]:
-        """Compute per-client volume updates for multiroom mode.
-
-        Must be called with _volume_lock held. The two modes commit at
-        different moments, on purpose:
-
-        - multiroom: nothing is written here. Each client's volume is committed
-          in _apply_volume_to_hardware, per client, only once its hardware call
-          succeeded (set_client_volume).
-        - direct: the local target is written here, *before* the CamillaDSP
-          call. It is the record-intent half of the record-intent + reconcile
-          pattern _apply_volume_to_hardware documents — a volume set while the
-          daemon is disconnected must survive to be replayed by the reconnect
-          callback.
-
-        The shift is computed for every known client with volume control, not
-        only the reachable ones: the operation is relative, so an absent client
-        keeps its place in the room by having its stored level moved too.
-        _apply_volume_to_hardware still fans out to the online ones alone.
-
-        A client held at a limit absorbs less than the full shift, so the
-        resulting average lands slightly off the target. That is accepted and
-        not redistributed — correcting it would move speakers nobody touched.
-
-        Args:
-            target_db: Target global volume in dB.
-            client_ids: Online client IDs (fetched before lock acquisition).
-                Empty means nothing is reachable, and the global average the
-                shift is measured against would then be a fabricated default —
-                so nothing is computed at all.
-
-        Returns:
-            Dict of {mac_id: volume_db} for multiroom, None for direct mode.
-        """
-        if not self._is_multiroom_enabled():
-            self._state_store.set_local_volume(target_db)
-            return None
-
-        if not client_ids:
-            return {}
-
-        volume_state = await self._state_store.get_complete_state()
-        delta = target_db - volume_state.global_volume_db
-        return {
-            cid: self._volume_config.clamp(client.volume_db + delta)
-            for cid, client in volume_state.clients.items()
-            if self._state_store.has_volume_control(cid)
-        }
-
-    async def _apply_volume_to_hardware(self, target_db: float, updates: Optional[Dict[str, float]],
-                                        online_ids: list) -> bool:
-        """Apply volume to hardware outside the lock.
-
-        Args:
-            target_db: Target volume in dB (used for direct mode CamillaDSP call).
-            updates: Per-client updates from _compute_multiroom_updates, or None for direct mode.
-            online_ids: The clients the fan-out may reach. An update for a client
-                absent from it is stored without any hardware call.
-        """
-        if updates is None:
-            # Direct mode: record-intent + reconcile. The state store already holds
-            # the target (set in _compute_multiroom_updates). If CamillaDSP is not
-            # connected yet (cold boot / reconnect window — e.g. the wizard reboot
-            # just applied the DAC overlay), the apply is *deferred*, not failed:
-            # the reconnect callback (reapply_current_volume) pushes the stored
-            # volume once the daemon is back. Fail open instead of returning 500.
-            if not self._is_equalizer_available():  # also covers _camilladsp_service is None
-                # Only report success if the intent was durably recorded — i.e. the
-                # local client is known, so the reconnect restore has a target to
-                # apply. Otherwise (local MAC unresolved — e.g. no eth0/wlan0)
-                # surface a failure rather than a false success.
-                if self._state_store.local_mac_id is None:
-                    self.logger.warning(
-                        f"Direct mode: CamillaDSP not ready and local client unknown — "
-                        f"volume {target_db:.1f}dB not recorded"
-                    )
-                    return False
-                self.logger.info(
-                    f"Direct mode: CamillaDSP not ready — volume {target_db:.1f}dB recorded, "
-                    "will apply on reconnect"
-                )
-                return True
-            # Connected: a False here is a genuine command failure, surface it.
-            success = await self._camilladsp_service.set_volume(target_db)
-            if not success:
-                self.logger.warning(f"Direct mode: CamillaDSP set_volume({target_db:.1f}dB) failed — audio may be silent")
-            return success
-        if not updates:
-            return True
-        # Multiroom: fan out to the reachable clients, commit state on the rule
-        online = set(online_ids)
-        reachable = {cid: volume for cid, volume in updates.items() if cid in online}
-        results = await self._equalizer_controller.apply_volumes_parallel(reachable)
-        committed, failed = self._split_on_verdict(updates, reachable, results)
-        for hostname, volume in committed.items():
-            await self._state_store.set_client_volume(hostname, volume)
-        if failed:
-            self.logger.warning(f"Multiroom volume update failed for {len(failed)}/{len(reachable)} clients: {failed}")
-        # Local client failure is critical — server audio may be silent
+        if self._is_multiroom_enabled():
+            members = [
+                mac_id for mac_id in self._state_store.client_ids()
+                if self._state_store.has_volume_control(mac_id)
+            ]
+            return members, self._reachable(members)
         local_mac = self._state_store.local_mac_id
-        local_failed = local_mac is not None and local_mac in failed
-        if local_failed:
+        if local_mac is None:
+            self.logger.warning("Direct mode: local client unknown — volume not recorded")
+            return None
+        if not self._state_store.has_client(local_mac):
+            # Known by MAC, with no level yet: seeded at the startup level, as a
+            # client the registry announces for the first time is.
+            self._state_store.set_local_volume(self._volume_config.startup_volume_db)
+        return [local_mac], [local_mac]
+
+    def _reachable(self, members: List[str]) -> List[str]:
+        """The members a move counts as reachable: available in the volume state.
+
+        The same flag the averages every screen shows are computed over, so a
+        level aimed at a zone's slider is measured against the average under
+        the thumb. A member the router then finds offline is skipped at the
+        door, and stored like any absent room.
+        """
+        return [m for m in members if self._state_store.is_client_available(m)]
+
+    def _submit_levels(self, mac_ids: List[str]) -> Optional[asyncio.Future]:
+        """Send each speaker its stored level, through the door; answer the local one's future.
+
+        A local CamillaDSP that is not up yet gets nothing: the reconnect
+        callback puts the stored level on it, so that is not a failure.
+        """
+        local_mac = self._state_store.local_mac_id
+        local_future = None
+        for mac_id in mac_ids:
+            level = self._state_store.get_client_volume(mac_id)
+            if level is None:
+                continue
+            if mac_id == local_mac:
+                if not self._is_equalizer_available():
+                    self.logger.info(
+                        f"CamillaDSP not ready — local volume {level:.1f}dB recorded, "
+                        "will apply on reconnect"
+                    )
+                    continue
+                local_future = self._equalizer_controller.submit_volume(mac_id, level)
+            else:
+                self._equalizer_controller.submit_volume(mac_id, level)
+        return local_future
+
+    async def _move(self, members: List[str], reachable: List[str],
+                    resolve: Callable[[Optional[float]], Optional[float]]) -> Tuple[bool, Optional[float]]:
+        """Move a group of rooms together — the one primitive behind every volume move.
+
+        Global and zone, relative and absolute, direct and multiroom. `resolve`
+        receives the average level of the reachable members (None when there is
+        none) and answers the delta, or None to move nothing: a relative move
+        ignores the average, an absolute one needs it.
+
+        Everything up to the submissions is one synchronous step: read the
+        levels, bound the delta, write them, submit them. With no await in it,
+        no other move can read a level this one has not written yet, which is
+        how ten +2 dB steps in flight together used to land as one — the store
+        was written only after the hardware answered. The speakers are
+        submitted in that same step, so the order of submissions is the order
+        of writes, and the last level each speaker receives is its stored one.
+
+        The group moves as a block (`VolumeConfig.bound_block_delta`): it stops
+        when its loudest reachable room reaches the maximum or its quietest the
+        minimum, so the rooms keep their distances and no level is ever stored
+        outside the limits. A room that is away moves by the same delta, and so
+        comes back where its room went; it does not bound the block (a speaker
+        unplugged at -10 would freeze the whole house), so it is clamped to the
+        limits instead, and stored only. With no room reachable at all, the
+        block is bounded by all of them.
+
+        A room that refuses keeps the level asked for, like a satellite does
+        with its own cache and the local unit with `reapply_current_volume`. The
+        local speaker is the only one awaited: a slow satellite converges on its
+        own and delays nobody. A local CamillaDSP that is not up yet is not a
+        failure: the reconnect callback puts the stored level on it.
+
+        Returns:
+            (ok, delta) — ok is False only when the local speaker refused; delta
+            is None when nothing moved.
+        """
+        levels = {m: self._state_store.get_client_volume(m) for m in members}
+        levels = {m: level for m, level in levels.items() if level is not None}
+        reach = [m for m in reachable if m in levels]
+        average = sum(levels[m] for m in reach) / len(reach) if reach else None
+        delta = resolve(average)
+        if delta is None:
+            return True, None
+        # Bounded by the reachable rooms; a group with none reachable (every
+        # speaker away) still moves as a block, bounded by all its rooms.
+        bounding = [levels[m] for m in (reach or levels)]
+        if bounding:
+            delta = self._volume_config.bound_block_delta(delta, max(bounding), min(bounding))
+        self._state_store.set_levels({m: level + delta for m, level in levels.items()})
+        local_future = self._submit_levels(reach)
+
+        if local_future is not None and not await local_future:
             self.logger.error("LOCAL server volume update failed — server audio may be silent")
-            return False
-        return True  # Remote failures degrade gracefully: clients will sync on reconnect
+            return False, delta
+        return True, delta
 
     # ============================================================================
     # EXPOSED SUB-SERVICES
@@ -350,11 +330,12 @@ class VolumeService:
         # DAC mode makes no CamillaDSP call at all here: reapply_current_volume
         # pins it at 0 dB and unmuted, and the external amp owns the rest.
         if self._volume_control and not multiroom_enabled:
-            try:
-                await self._camilladsp_service.set_mute(False)
+            # Through the door, ordered after any mute still in flight to it.
+            local_mac = self._state_store.local_mac_id
+            if await self._equalizer_controller.set_equalizer_mute(local_mac, False, force=True):
                 self.logger.info("Switched to direct: CamillaDSP unmuted, no level changed")
-            except Exception as e:
-                self.logger.warning(f"Failed to unmute CamillaDSP: {e}")
+            else:
+                self.logger.warning("Failed to unmute CamillaDSP on the way to direct mode")
 
         await self.broadcast_volume_state(show_bar=False)
 
@@ -423,41 +404,27 @@ class VolumeService:
         +39 dB on a speaker set to -78. Now the two quiet rooms go to -70 and
         -40 stays where it is.
 
-        A room that is away gets the new level in the store only, the same rule
-        as a zone move (`_split_on_verdict`).
+        Only the rooms that moved are sent anything, and only the reachable
+        ones; an absent room gets its new level at its next admission.
         """
-        updates = {}
+        moved = {}
         for mac_id in self._state_store.client_ids():
-            if not self._state_store.has_volume_control(mac_id):
-                continue
+            # DAC clients too: their level is only a record while the amp owns
+            # it, but it is a record a later switch back to managed would play.
             level = self._state_store.get_client_volume(mac_id)
             nearest = self._volume_config.clamp(level)
             if nearest != level:
-                updates[mac_id] = nearest
-        if not updates:
-            return
+                moved[mac_id] = nearest
+        self._state_store.set_levels(moved)
 
-        if not self._is_multiroom_enabled():
-            # Direct: only the local speaker plays. It goes through the same
-            # record-then-apply path as a direct volume set, and the others are
-            # stored for the day multiroom comes back.
+        if self._is_multiroom_enabled():
+            reachable = [m for m in self._reachable(list(moved)) if self._state_store.has_volume_control(m)]
+        else:
             local_mac = self._state_store.local_mac_id
-            for mac_id, volume_db in updates.items():
-                if mac_id == local_mac and self._volume_control:
-                    self._state_store.set_local_volume(volume_db)
-                    await self._apply_volume_to_hardware(volume_db, None, [])
-                else:
-                    await self._state_store.set_client_volume(mac_id, volume_db)
-            return
-
-        online = set(self._online_client_ids())
-        reachable = {cid: volume for cid, volume in updates.items() if cid in online}
-        results = await self._equalizer_controller.apply_volumes_parallel(reachable)
-        committed, refused = self._split_on_verdict(updates, reachable, results)
-        for mac_id, volume_db in committed.items():
-            await self._state_store.set_client_volume(mac_id, volume_db)
-        if refused:
-            self.logger.error(f"Volume limits not applied to {refused} — their stored level is unchanged")
+            reachable = [local_mac] if local_mac in moved and self._volume_control else []
+        local_future = self._submit_levels(reachable)
+        if local_future is not None and not await local_future:
+            self.logger.error("LOCAL server volume update failed — server audio may be silent")
 
     # ============================================================================
     # STARTUP VOLUME AUTO-UPDATE
@@ -669,13 +636,19 @@ class VolumeService:
         if not updates:
             return True
 
-        results = await self._equalizer_controller.apply_volumes_parallel(updates)
+        # Stored, then sent, in one step — the order every move follows. Writing
+        # after the answer put back the level read before it, over a move that
+        # had landed in between, while the speaker kept the move's level.
+        self._state_store.set_levels(updates)
+        answers = {
+            cid: self._equalizer_controller.submit_volume(
+                cid, self._state_store.get_client_volume(cid) if self._state_store.has_client(cid) else volume
+            )
+            for cid, volume in updates.items()
+        }
+        results = dict(zip(answers, await asyncio.gather(*answers.values())))
         succeeded = [h for h, ok in results.items() if ok]
         failures = [h for h, ok in results.items() if not ok]
-
-        for hostname, volume in updates.items():
-            if results.get(hostname, False):
-                await self._state_store.set_client_volume(hostname, volume)
 
         if succeeded:
             self.logger.info(f"PUSH_VOLUME: Succeeded for {len(succeeded)} clients: {succeeded}")
@@ -705,7 +678,7 @@ class VolumeService:
         await self.broadcast_volume_state(show_bar=False)
         return len(failures) == 0
 
-    def _refused(self, client_id: str, applied: bool, what: str) -> bool:
+    def _refused(self, client_id: str, applied: bool) -> bool:
         """Did a client that is *still online* refuse the command?
 
         EqualizerController answers False for two opposite reasons: the router
@@ -716,42 +689,42 @@ class VolumeService:
         one nothing will ever replay it to, and the only one the operator has to
         be told about. The level is error, so the banner fires.
 
-        What becomes of the stored value afterwards is not this decision's
-        business: the reconnect replays both the stored mute and the stored
-        volume. Neither makes this call a failure.
+        The stored value keeps what was asked either way: the reconnect
+        replays both the stored mute and the stored volume, and a satellite that
+        refused has cached it for its own reconnect. The refusal itself is
+        logged once by EqualizerController, so nothing is logged here.
         """
         if applied or not self._client_registry:
             return False
-        if not self._client_registry.is_client_online(client_id):
-            return False
-        self.logger.error(f"{what} not applied to {client_id} — the stored value is unchanged")
-        return True
+        return self._client_registry.is_client_online(client_id)
 
     @handle_errors(default=False)
     async def update_client_volume_db(self, client_id: str, volume_db: float, broadcast: bool = True) -> bool:
         """Update client volume in dB (called from API routes).
 
-        False when an online client refused the level. The store is written
-        only for a client that holds it, so the broadcast — and the UI reading
-        it — keeps agreeing with the hardware rather than with the request.
+        The level is stored, then sent — the same order as every other write,
+        so no move can read a level older than the one this sends. False when
+        an online client refused it; the store keeps the level asked for, as
+        the satellite's own cache does, and the reconnect applies it.
         """
+        await self._state_store.set_client_volume(client_id, volume_db)
         applied = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
-        refused = self._refused(client_id, applied, f"Volume {volume_db:.1f}dB")
+        refused = self._refused(client_id, applied)
 
-        if not refused:
-            await self._state_store.set_client_volume(client_id, volume_db)
         if broadcast and self._is_multiroom_enabled():
             await self.broadcast_volume_state(show_bar=False)
         return not refused
 
     @handle_errors(default=False)
     async def set_client_mute(self, client_id: str, mute: bool, broadcast: bool = True) -> bool:
-        """Set mute state for a client. False when an online client refused it."""
-        applied = await self._equalizer_controller.set_equalizer_mute(client_id, mute)
-        refused = self._refused(client_id, applied, f"Mute {mute}")
+        """Set mute state for a client. False when an online client refused it.
 
-        if not refused:
-            await self._state_store.set_client_mute(client_id, mute)
+        Stored, then sent, like a level; the store keeps the mute asked for.
+        """
+        await self._state_store.set_client_mute(client_id, mute)
+        applied = await self._equalizer_controller.set_equalizer_mute(client_id, mute)
+        refused = self._refused(client_id, applied)
+
         if broadcast:
             await self.broadcast_volume_state(show_bar=False)
         return not refused
@@ -760,27 +733,29 @@ class VolumeService:
     # ATOMIC ZONE OPERATIONS
     # ============================================================================
 
-    async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> float:
-        """Apply volume delta to entire zone atomically. Returns new zone average in dB.
+    async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> Tuple[float, float]:
+        """Move a whole zone by `delta_db`. Returns (new zone average, delta applied).
 
         Every member's stored level moves; only the reachable ones are pushed to
         hardware. A member that was away during the adjustment therefore comes
         back at the level its room moved to, not the one it left. An entirely
-        offline zone therefore moves too: a delta needs no average.
+        offline zone therefore moves too: a delta needs no average. The delta
+        applied is less than the one asked when the zone's loudest room meets a
+        limit first.
         """
-        new_avg, _ = await self._move_zone(zone_id, lambda average: delta_db)
-        return new_avg
+        return await self._move_zone(zone_id, lambda average: delta_db)
 
     async def set_zone_volume(self, zone_id: str, target_db: float) -> Tuple[float, float]:
         """Move a zone so its average lands on `target_db`. Returns (average, delta).
 
-        The delta is measured under `_volume_lock`, against the average the
-        store holds at that moment, and never by the caller: the web slider used
-        to subtract an average it had captured itself, and each send made while
-        the previous one was in flight reused that stale base, so a drag added
-        its deltas up. A zone with no member online has no average to aim at,
-        and moves nothing.
+        The delta is measured by `_move`, against the average the store holds at
+        that moment, and never by the caller: the web slider used to subtract
+        an average it had captured itself, and each send made while the
+        previous one was in flight reused that stale base, so a drag added its
+        deltas up. A zone with no member online has no average to aim at, and
+        moves nothing.
         """
+        target_db = self._volume_config.clamp(target_db)
         return await self._move_zone(
             zone_id,
             lambda average: None if average is None else target_db - average,
@@ -788,56 +763,27 @@ class VolumeService:
 
     async def _move_zone(self, zone_id: str,
                          resolve: Callable[[Optional[float]], Optional[float]]) -> Tuple[float, float]:
-        """Move every member of a zone by the delta `resolve` derives from its average.
+        """Move a zone's members by the delta `resolve` derives from their average.
 
-        `resolve` receives the average of the zone's available members (None
-        when there is none) and answers the delta, or None to move nothing.
         Returns (new average, delta applied).
 
         Raises:
-            ValueError: unknown zone, for a delta (a level asked of an unknown
-                zone has no average, so it moves nothing).
+            ValueError: unknown zone.
         """
-        # Phase A: compute updates under lock (no hardware I/O)
-        try:
-            async with asyncio.timeout(2.0):
-                async with self._volume_lock:
-                    delta_db = resolve(self._state_store.zone_average_or_none(zone_id))
-                    if delta_db is None:
-                        return self._state_store.compute_zone_average(zone_id), 0.0
-                    updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
-        except asyncio.TimeoutError:
-            self.logger.warning("Timeout waiting for volume lock (>2s) for zone delta")
-            return self._state_store.compute_zone_average(zone_id), 0.0
-
-        if not updates:
-            self.logger.warning(f"No clients to update in zone {zone_id}")
-            return self._state_store.compute_zone_average(zone_id), 0.0
-
-        # Phase B: hardware fan-out outside lock, reachable members only
-        reachable = {h: v for h, v in updates.items()
-                     if self._state_store.is_client_available(h)}
-        self.logger.info(
-            f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients "
-            f"({len(reachable)} reachable)"
-        )
-        results = await self._equalizer_controller.apply_volumes_parallel(reachable)
-
-        committed, failures = self._split_on_verdict(updates, reachable, results)
-        await self._state_store.apply_zone_updates(committed)
-
-        if failures:
-            self.logger.warning(f"Failed to update clients: {failures}")
-
-        # Startup-volume tracking + broadcast
-        local_mac_id = self._state_store.local_mac_id
-        local_volume = updates.get(local_mac_id) if local_mac_id else None
-        local_volume = local_volume or self._state_store.local_volume_db
-        await self._update_startup_volume_if_needed(local_volume)
-        await self.broadcast_volume_state(show_bar=False)
-
+        members = self._state_store.zone_members(zone_id)
+        reachable = self._reachable(members)
+        _, delta_db = await self._move(members, reachable, resolve)
         new_avg = self._state_store.compute_zone_average(zone_id)
-        self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(committed)}/{len(updates)} stored)")
+        if delta_db is None:
+            return new_avg, 0.0
+
+        self.logger.debug(
+            f"Zone {zone_id} moved {delta_db:+.1f}dB -> {new_avg:.1f}dB "
+            f"({len(reachable)}/{len(members)} reachable)"
+        )
+        # Startup-volume tracking + broadcast
+        await self._update_startup_volume_if_needed(self._state_store.local_volume_db)
+        await self.broadcast_volume_state(show_bar=False)
         return new_avg, delta_db
 
     # ============================================================================
@@ -907,7 +853,11 @@ class VolumeService:
         # Apply volume change to CamillaDSP immediately
         if self._camilladsp_service:
             if not enabled:
-                # DAC mode: pin CamillaDSP at 0dB (external amp manages volume)
+                # DAC mode: pin CamillaDSP at 0dB (external amp manages volume).
+                # A command still in flight to it would land after the pin
+                # otherwise, and attenuate a path the amp now owns.
+                if self._state_store.local_mac_id:
+                    await self._equalizer_controller.idle(self._state_store.local_mac_id)
                 await self._camilladsp_service.set_volume(0.0)
                 await self._camilladsp_service.set_mute(False)
                 self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
@@ -999,8 +949,10 @@ class VolumeService:
             return
         volume_db = self._state_store.local_volume_db
         local_mute = self._state_store.get_client_mute(local_mac_id)
-        await self._camilladsp_service.set_volume(volume_db)
-        await self._camilladsp_service.set_mute(local_mute)
+        # Through the door like every other write: clamped to the limits, and
+        # ordered after any level a move already has in flight to this daemon.
+        await self._equalizer_controller.set_equalizer_volume(local_mac_id, volume_db, force=True)
+        await self._equalizer_controller.set_equalizer_mute(local_mac_id, local_mute, force=True)
         self.logger.info(f"Re-applied volume after CamillaDSP reconnect: {volume_db:.1f}dB, mute={local_mute}")
         # The daemon came back with the graph its config file holds, which carries
         # no trim — see sync_local_gain for why nothing else covers this event.
@@ -1052,10 +1004,17 @@ class VolumeService:
         # Get persisted mute state from local client (False if no client registered yet)
         local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
 
-        # Apply directly to local CamillaDSP (at startup, registry not yet populated)
+        # Through the door, which clamps: startup_volume_db is checked against the
+        # limits only when it is saved, and a later change of limits leaves it
+        # wherever it was. The router reaches the local daemon even before the
+        # registry knows the local client. Keyed by the local MAC, like every
+        # later command to that daemon, so they stay ordered; on a first boot
+        # whose MAC is not resolved yet the key is None, and the fallback to the
+        # startup level matters more than ordering against moves that cannot
+        # have started.
         if target_volume is not None and self._camilladsp_service:
-            await self._camilladsp_service.set_volume(target_volume)
-            await self._camilladsp_service.set_mute(local_mute)
+            await self._equalizer_controller.set_equalizer_volume(local_mac_id, target_volume, force=True)
+            await self._equalizer_controller.set_equalizer_mute(local_mac_id, local_mute, force=True)
             self.logger.info(f"Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}")
         elif self._camilladsp_service:
             await self._camilladsp_service.set_mute(False)
@@ -1092,56 +1051,50 @@ class VolumeService:
     # ============================================================================
 
     async def get_volume_db(self) -> float:
-        """Get current volume in dB (average of non-muted clients in multiroom mode)."""
+        """Get current volume in dB (average of the reachable clients in multiroom mode)."""
         volume_state = await self._state_store.get_complete_state()
         return volume_state.global_volume_db
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
-        """Set volume to specific level in dB (-80 to 0)."""
+        """Move the whole house so its average lands on `volume_db`."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
-        target_db = self._volume_config.clamp(volume_db)
-        client_ids = self._get_controllable_client_ids()
-        try:
-            async with asyncio.timeout(2.0):
-                async with self._volume_lock:
-                    updates = await self._compute_multiroom_updates(target_db, client_ids)
-        except asyncio.TimeoutError:
-            self.logger.warning("Timeout waiting for volume lock (>2s)")
+        group = self._global_members()
+        if group is None:
             return False
-
-        success = await self._apply_volume_to_hardware(target_db, updates, client_ids)
-        if success:
-            await self._update_startup_volume_if_needed(target_db)
-            await self.broadcast_volume_state(show_bar)
+        target_db = self._volume_config.clamp(volume_db)
+        success, _ = await self._move(
+            *group, lambda average: None if average is None else target_db - average
+        )
+        await self._after_global_move(show_bar)
         return success
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
-        """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
+        """Move the whole house by `delta_db` (positive = louder, negative = quieter)."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
-        client_ids = self._get_controllable_client_ids()
-        try:
-            async with asyncio.timeout(2.0):
-                async with self._volume_lock:
-                    volume_state = await self._state_store.get_complete_state()
-                    target_db = self._volume_config.clamp(volume_state.global_volume_db + delta_db)
-                    updates = await self._compute_multiroom_updates(target_db, client_ids)
-        except asyncio.TimeoutError:
-            self.logger.warning("Timeout waiting for volume lock (>2s)")
+        group = self._global_members()
+        if group is None:
             return False
-
-        success = await self._apply_volume_to_hardware(target_db, updates, client_ids)
-        if success:
-            self._schedule_post_volume_tasks(target_db, show_bar)
+        success, _ = await self._move(*group, lambda average: delta_db)
+        # In the background: the rotary's accumulator awaits this call before
+        # sending its next batch, and the snapshot a broadcast builds has no
+        # business pacing the knob.
+        self._bg.spawn(self._after_global_move(show_bar), label="post_volume_update")
         return success
 
-    def _schedule_post_volume_tasks(self, target_db: float, show_bar: bool) -> None:
-        """Schedule the startup-volume tracking check and the broadcast in the background."""
-        async def _post_update():
-            await self._update_startup_volume_if_needed(target_db)
-            await self.broadcast_volume_state(show_bar)
-        self._bg.spawn(_post_update(), label="post_volume_update")
+    async def _after_global_move(self, show_bar: bool) -> None:
+        """Startup-volume tracking and the broadcast, once a global move is done.
+
+        Even when the local speaker refused: the levels were written and the
+        satellites were sent theirs, and every screen must show them. One
+        snapshot serves both. With no client available the global average is a
+        placeholder, and nothing is tracked from it.
+        """
+        volume_state = await self.get_volume_state()
+        if any(client.available for client in volume_state.clients.values()):
+            await self._update_startup_volume_if_needed(volume_state.global_volume_db)
+        await self.broadcast_volume_state(show_bar, volume_state)
 
     # ============================================================================
     # WEBSOCKET BROADCASTING
@@ -1162,10 +1115,11 @@ class VolumeService:
             await self._state_store.set_client_availability(mac_id, True)
         self.logger.info(f"Initialized availability for {len(client_ids)} online clients")
 
-    async def broadcast_volume_state(self, show_bar: bool = True) -> None:
+    async def broadcast_volume_state(self, show_bar: bool = True,
+                                     volume_state: Optional[VolumeState] = None) -> None:
         """Broadcast volume state immediately to WebSocket clients."""
         try:
-            volume_state = await self.get_volume_state()
+            volume_state = volume_state or await self.get_volume_state()
 
             await self.state_machine.broadcast(VolumeChanged(
                 show_bar=show_bar,
@@ -1208,5 +1162,6 @@ class VolumeService:
         """Clean up resources. Flushes pending volume state to disk."""
         await self._flush_startup_volume()
         await self._bg.cancel_all()
+        await self._equalizer_controller.cleanup()
         await self._state_store.cleanup()
         self.logger.info("VolumeService cleanup completed")

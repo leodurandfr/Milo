@@ -92,6 +92,25 @@ class VolumeConfig:
         clamped = max(self.limit_min_db, min(self.limit_max_db, volume_db))
         return max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, clamped))
 
+    def bound_block_delta(self, delta_db: float, loudest_db: float, quietest_db: float) -> float:
+        """The part of `delta_db` a group of rooms can move by together.
+
+        A zone or the whole house moves as a block, so its rooms keep their
+        distances: going up it stops when its loudest room reaches the maximum,
+        going down when its quietest reaches the minimum. Clamping each room
+        instead let the block keep moving past a limit while the rooms at it
+        stayed put, and the distances were gone for good (measured on the unit:
+        a zone pushed down this way was stored at -78 / -77.95 / -78).
+
+        Never reverses a gesture: a room already past the limit a move is
+        heading for gives 0, not a move the other way.
+        """
+        if delta_db > 0:
+            return max(0.0, min(delta_db, self.limit_max_db - loudest_db))
+        if delta_db < 0:
+            return min(0.0, max(delta_db, self.limit_min_db - quietest_db))
+        return 0.0
+
     def normalize(self, volume_db: float) -> float:
         """dB → 0..1 over this config's own limits."""
         return normalize_volume(volume_db, self.limit_min_db, self.limit_max_db)

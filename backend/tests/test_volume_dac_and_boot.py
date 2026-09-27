@@ -31,8 +31,10 @@ import pytest
 
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
+from backend.core.models.volume_state import ClientVolume
 from backend.core.settings import SettingsService
 from backend.core.multiroom.models import RegistryEventType
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.volume import VolumeService, VolumeStateStore
 
 
@@ -85,6 +87,11 @@ def service(state_machine, camilladsp, tmp_path, monkeypatch):
         settings_service=settings,
         camilladsp_service=camilladsp,
         equalizer_client_proxy_service=Mock(),
+        # The real door over the mocked daemon: with no registry, the router
+        # sends every level to the local CamillaDSP, as in production direct mode.
+        equalizer_router=EqualizerRouter(
+            client_registry=None, camilladsp_service=camilladsp, proxy_service=Mock()
+        ),
     )
     return svc
 
@@ -146,7 +153,7 @@ class TestDacMode:
 
         assert camilladsp.set_volume.await_args_list == [((0.0,), {})]
 
-    async def test_setting_a_level_in_direct_dac_mode_is_accepted_and_ignored(self, service):
+    async def test_setting_a_level_in_direct_dac_mode_is_accepted_and_ignored(self, service, camilladsp):
         """Direct + DAC has no client to control, and the API must not 500.
 
         The rotary encoder is disabled in this mode but the mobile UI slider is
@@ -155,12 +162,13 @@ class TestDacMode:
         service._volume_control = False
         service._routing_service = Mock()
         service._routing_service.get_state = Mock(return_value={"multiroom_enabled": False})
-        service._apply_volume_to_hardware = AsyncMock()
+        service._state_store.ensure_local_client("aa:bb:cc:dd:ee:ff", -60.0)
 
         assert await service.set_volume_db(-30.0) is True
         assert await service.adjust_volume_db(+2.0) is True
 
-        service._apply_volume_to_hardware.assert_not_awaited()
+        camilladsp.set_volume.assert_not_awaited()
+        assert service._state_store.local_volume_db == -60.0
 
     async def test_multiroom_dac_still_controls_its_satellites(self, service):
         """The early return is `not volume_control AND not multiroom`.
@@ -172,15 +180,25 @@ class TestDacMode:
         service._volume_control = False
         service._routing_service = Mock()
         service._routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
-        service._get_controllable_client_ids = Mock(return_value=["aa:bb"])
-        service._compute_multiroom_updates = AsyncMock(return_value={"aa:bb": -30.0})
-        service._apply_volume_to_hardware = AsyncMock(return_value=True)
+        service._client_registry = Mock(get_online_client_ids=Mock(return_value=["aa:bb"]))
+        service._state_store._clients["aa:bb"] = ClientVolume(
+            volume_db=-40.0, offset_db=0.0, mute=False, available=True
+        )
+        sent = []
+
+        async def set_volume(mac_id, volume_db, force=False):
+            sent.append((mac_id, volume_db))
+            return {"status": "success"}
+
+        service._equalizer_controller._router = Mock(set_volume=set_volume)
         service.broadcast_volume_state = AsyncMock()
         service._update_startup_volume_if_needed = AsyncMock()
 
         assert await service.set_volume_db(-30.0) is True
+        for _ in range(5):
+            await asyncio.sleep(0)
 
-        service._apply_volume_to_hardware.assert_awaited_once()
+        assert sent == [("aa:bb", -30.0)]
 
     async def test_initialize_takes_the_dac_flag_from_hardware(self, service, caplog):
         """`hardware.json` is the authority; the wizard writes it.
@@ -411,8 +429,17 @@ class TestBootPush:
 
     @pytest.fixture
     def pushable(self, service):
-        service._equalizer_controller = Mock()
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
+        """`pushed` records the level each speaker was sent; `answers` is what
+        it says back (True unless set)."""
+        service.pushed, service.answers = {}, {}
+
+        def submit(mac_id, volume_db, force=False):
+            service.pushed[mac_id] = volume_db
+            answer = asyncio.get_running_loop().create_future()
+            answer.set_result(service.answers.get(mac_id, True))
+            return answer
+
+        service._equalizer_controller = Mock(submit_volume=Mock(side_effect=submit))
         service._equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
         service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
         service.broadcast_volume_state = AsyncMock()
@@ -429,7 +456,7 @@ class TestBootPush:
         with caplog.at_level(logging.INFO):
             assert await pushable._do_push_volume_to_all_clients() is True
 
-        pushable._equalizer_controller.apply_volumes_parallel.assert_not_awaited()
+        pushable._equalizer_controller.submit_volume.assert_not_called()
         assert "No online clients yet" in caplog.text
 
     async def test_each_client_gets_its_own_persisted_level(self, pushable):
@@ -438,14 +465,10 @@ class TestBootPush:
         pushable._online_client_ids = Mock(return_value=["aa:bb", "cc:dd"])
         pushable._state_store.ensure_local_client("aa:bb", -30.0)
         await pushable._state_store.register_client("cc:dd", volume_db=-50.0)
-        pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"aa:bb": True, "cc:dd": True}
-        )
 
         await pushable._do_push_volume_to_all_clients()
 
-        pushed = pushable._equalizer_controller.apply_volumes_parallel.await_args.args[0]
-        assert pushed == {"aa:bb": -30.0, "cc:dd": -50.0}
+        assert pushable.pushed == {"aa:bb": -30.0, "cc:dd": -50.0}
 
     async def test_a_client_with_nothing_persisted_joins_at_the_startup_level(
         self, pushable, camilladsp
@@ -459,29 +482,25 @@ class TestBootPush:
         """
         pushable._volume_config.startup_volume_db = -20.0
         pushable._online_client_ids = Mock(return_value=["new:client"])
-        pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"new:client": True}
-        )
 
         await pushable._do_push_volume_to_all_clients()
 
-        pushed = pushable._equalizer_controller.apply_volumes_parallel.await_args.args[0]
-        assert pushed == {"new:client": -20.0}
+        assert pushable.pushed == {"new:client": -20.0}
         camilladsp.get_volume.assert_not_awaited()
 
-    async def test_only_the_clients_that_took_the_level_have_it_stored(self, pushable):
-        """Storing a level the speaker refused makes the store lie, and the next
-        boot restores the lie instead of retrying."""
+    async def test_a_refusal_fails_the_push_and_rewrites_no_level(self, pushable):
+        """A speaker that refused is reported, and every level stays the one the
+        store holds: a satellite that answers a refusal has cached it for its
+        own reconnect, and nothing here may put an older value back."""
         pushable._online_client_ids = Mock(return_value=["ok:client", "bad:client"])
         pushable._state_store.ensure_local_client("ok:client", -30.0)
         await pushable._state_store.register_client("bad:client", volume_db=-50.0)
-        pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"ok:client": True, "bad:client": False}
-        )
+        pushable.answers["bad:client"] = False
 
         assert await pushable._do_push_volume_to_all_clients() is False
 
         assert pushable._state_store.get_client_volume("ok:client") == -30.0
+        assert pushable._state_store.get_client_volume("bad:client") == -50.0
 
     async def test_a_client_that_refuses_its_mute_does_not_stop_the_others(
         self, pushable, caplog
@@ -494,9 +513,6 @@ class TestBootPush:
         pushable._online_client_ids = Mock(return_value=["aa:bb", "cc:dd"])
         pushable._state_store.ensure_local_client("aa:bb", -30.0)
         await pushable._state_store.register_client("cc:dd", volume_db=-30.0)
-        pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"aa:bb": True, "cc:dd": True}
-        )
         pushable._equalizer_controller.set_equalizer_mute = AsyncMock(
             side_effect=[Exception("unreachable"), True]
         )
@@ -564,6 +580,8 @@ class TestLocalLevelTrim:
         service._client_registry = registry
         service._equalizer_controller = Mock()
         service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
+        service._equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        service._equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
         return service
 
     async def test_multiroom_applies_the_recorded_trim(self, trimmed):
@@ -1011,42 +1029,9 @@ class TestZoneDelta:
     @pytest.fixture
     def zoned(self, service):
         service._equalizer_controller = Mock()
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
         service.broadcast_volume_state = AsyncMock()
         service._update_startup_volume_if_needed = AsyncMock()
         return service
-
-    async def test_a_contended_zone_delta_answers_the_current_average(
-        self, zoned, caplog
-    ):
-        """The route returns this float to the UI slider.
-
-        A raise would 500 the slider; a fabricated default would snap every
-        speaker in the room to a level nobody asked for. Answering the average
-        that already holds makes the gesture a no-op the user simply repeats.
-        """
-        zoned._state_store.compute_zone_average = Mock(return_value=-33.0)
-        real_timeout = asyncio.timeout
-
-        async def _hold():
-            async with zoned._volume_lock:
-                await asyncio.sleep(3600)
-
-        holder = asyncio.create_task(_hold())
-        await asyncio.sleep(0)
-        try:
-            with caplog.at_level(logging.WARNING):
-                with pytest.MonkeyPatch.context() as mp:
-                    mp.setattr(
-                        "backend.core.volume.service.asyncio.timeout",
-                        lambda _: real_timeout(0.01),
-                    )
-                    assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == -33.0
-        finally:
-            holder.cancel()
-
-        assert "Timeout waiting for volume lock" in caplog.text
-        zoned._equalizer_controller.apply_volumes_parallel.assert_not_awaited()
 
     async def test_an_empty_zone_answers_its_average_without_a_fan_out(
         self, zoned, caplog
@@ -1054,14 +1039,13 @@ class TestZoneDelta:
         """A zone whose members were all removed still exists until the registry
         deletes it; the slider must not send an empty fan-out and must not raise.
         """
-        zoned._state_store.apply_zone_delta = AsyncMock(return_value={})
+        from backend.core.volume.state import ZoneConfig
+        zoned._state_store._zones["zone-1"] = ZoneConfig(zone_id="zone-1", name="Empty", client_ids=[])
         zoned._state_store.compute_zone_average = Mock(return_value=-40.0)
 
-        with caplog.at_level(logging.WARNING):
-            assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == -40.0
+        assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == (-40.0, 2.0)
 
-        assert "No clients to update in zone zone-1" in caplog.text
-        zoned._equalizer_controller.apply_volumes_parallel.assert_not_awaited()
+        zoned._equalizer_controller.submit_volume.assert_not_called()
 
 
 class TestBootPushCarriesTheTrim:
@@ -1076,10 +1060,12 @@ class TestBootPushCarriesTheTrim:
     def pushable(self, service):
         from backend.core.multiroom.models import Client
 
-        service._equalizer_controller = Mock()
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"aa:bb": True, "cc:dd": True}
-        )
+        def submit(mac_id, volume_db, force=False):
+            answer = asyncio.get_running_loop().create_future()
+            answer.set_result(True)
+            return answer
+
+        service._equalizer_controller = Mock(submit_volume=Mock(side_effect=submit))
         service._equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
         service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
         service.broadcast_volume_state = AsyncMock()

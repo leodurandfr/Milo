@@ -283,7 +283,8 @@ class TestZoneVolumeDelta:
     def mock_volume_service(self):
         """Create a mock VolumeService for zone tests."""
         service = MagicMock()
-        service.apply_zone_volume_delta = AsyncMock(return_value=-35.0)  # Returns new average
+        # (new average, delta applied): 3 of the 5 asked, the loudest room at the ceiling
+        service.apply_zone_volume_delta = AsyncMock(return_value=(-35.0, 3.0))
         service.get_volume_state = AsyncMock()
         return service
 
@@ -322,7 +323,7 @@ class TestZoneVolumeDelta:
         data = response.json()
         assert data["status"] == "success"
         assert data["zone_id"] == "zone-uuid-123"
-        assert data["delta_db"] == 5.0
+        assert data["delta_db"] == 3.0  # what was applied, not what was asked
         assert data["new_average_db"] == -35.0
         assert "applied_to" in data
         assert "offline_clients" in data

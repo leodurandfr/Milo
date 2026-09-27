@@ -8,7 +8,7 @@ failure the operator can see and one that reads as success.
 
 The two that matter most:
 
-* `_apply_volume_to_hardware`'s LOCAL arm. A remote client that refuses degrades
+* `VolumeService._move`'s LOCAL arm. A remote client that refuses degrades
   gracefully — it re-syncs on reconnect — but the local one failing means the
   server's own audio may be silent, and it is the only refusal reported at
   error and answered False.
@@ -61,12 +61,26 @@ class TestVolumeFanOutVerdict:
     """Which refusal is fatal, and which one degrades."""
 
     @pytest.fixture
-    def multiroom(self, volume):
+    def multiroom(self, volume, camilladsp):
+        """Multiroom, the local unit plus one satellite, both online.
+
+        `answers` is what each speaker says to the level it is sent.
+        """
         volume._routing_service = Mock()
         volume._routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
-        volume._equalizer_controller = Mock()
-        volume._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
+        volume._client_registry = Mock(get_online_client_ids=Mock(return_value=["local:mac", "sat:mac"]))
+        volume.answers = {"local:mac": True, "sat:mac": True}
+        volume.submitted = {}
+
+        def submit(mac_id, volume_db, force=False):
+            volume.submitted[mac_id] = volume_db
+            answer = asyncio.get_running_loop().create_future()
+            answer.set_result(volume.answers[mac_id])
+            return answer
+
+        volume._equalizer_controller = Mock(submit_volume=Mock(side_effect=submit))
         volume.broadcast_volume_state = AsyncMock()
+        volume._update_startup_volume_if_needed = AsyncMock()
         return volume
 
     async def test_the_local_client_refusing_is_the_one_fatal_failure(
@@ -79,56 +93,47 @@ class TestVolumeFanOutVerdict:
         anywhere says so.
         """
         multiroom._state_store.ensure_local_client("local:mac", -30.0)
-        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0)
-        multiroom._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"local:mac": False, "sat:mac": True}
-        )
-        multiroom._refused = Mock(side_effect=lambda cid, applied, what: not applied)
+        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0, available=True)
+        multiroom.answers["local:mac"] = False
 
         with caplog.at_level(logging.ERROR):
-            result = await multiroom._apply_volume_to_hardware(
-                -25.0, {"local:mac": -25.0, "sat:mac": -25.0}, ["local:mac", "sat:mac"]
-            )
+            result = await multiroom.adjust_volume_db(5.0)
 
         assert result is False
         assert "LOCAL server volume update failed" in caplog.text
 
-    async def test_a_remote_refusal_alone_degrades_gracefully(self, multiroom, caplog):
+    async def test_a_remote_refusal_alone_degrades_gracefully(self, multiroom):
         """The control. A speaker that was away comes back through the
         reconnection sync, so failing the whole gesture would make every volume
         change in a house with one sleeping speaker report an error.
         """
         multiroom._state_store.ensure_local_client("local:mac", -30.0)
-        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0)
-        multiroom._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"local:mac": True, "sat:mac": False}
-        )
-        multiroom._refused = Mock(side_effect=lambda cid, applied, what: not applied)
+        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0, available=True)
+        multiroom.answers["sat:mac"] = False
 
-        with caplog.at_level(logging.WARNING):
-            result = await multiroom._apply_volume_to_hardware(
-                -25.0, {"local:mac": -25.0, "sat:mac": -25.0}, ["local:mac", "sat:mac"]
-            )
-
-        assert result is True
-        assert "Multiroom volume update failed for 1/2" in caplog.text
+        assert await multiroom.adjust_volume_db(5.0) is True
+        assert multiroom.submitted == {"local:mac": -25.0, "sat:mac": -25.0}
 
     async def test_an_empty_update_set_is_a_success_without_a_fan_out(self, multiroom):
-        """Every client is at the target already, or every one is a DAC that owns
-        its own level. Answered False, the slider would report a failure for a
-        change that had nothing to do."""
-        assert await multiroom._apply_volume_to_hardware(-25.0, {}, []) is True
+        """Every client is a DAC that owns its own level, or none is known yet.
+        Answered False, the slider would report a failure for a change that had
+        nothing to do."""
+        assert await multiroom.set_volume_db(-25.0) is True
 
-        multiroom._equalizer_controller.apply_volumes_parallel.assert_not_awaited()
+        multiroom._equalizer_controller.submit_volume.assert_not_called()
 
-    async def test_a_multiroom_shift_with_nothing_online_computes_nothing(
+    async def test_a_multiroom_level_with_nothing_online_moves_nothing(
         self, multiroom
     ):
-        """The shift is relative, measured against the global average. With no
-        client reachable that average is a fabricated default, and applying a
-        delta to it would move every speaker to a level derived from nothing.
+        """A level is measured against the average of the reachable clients. With
+        none reachable there is no average, and measuring against a default would
+        move every speaker to a level derived from nothing.
         """
-        assert await multiroom._compute_multiroom_updates(-25.0, []) == {}
+        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0, available=False)
+
+        assert await multiroom.set_volume_db(-25.0) is True
+        assert multiroom._state_store.get_client_volume("sat:mac") == -30.0
+        multiroom._equalizer_controller.submit_volume.assert_not_called()
 
 
 class TestVolumeGuardsFailOpen:

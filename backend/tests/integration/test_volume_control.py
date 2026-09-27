@@ -18,6 +18,7 @@ import json
 from unittest.mock import Mock, AsyncMock, patch
 
 from backend.core.settings import SettingsService
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.volume import VolumeService
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
 from backend.core.models.volume import VolumeConfig
@@ -157,7 +158,12 @@ async def volume_service(
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings_service,
             camilladsp_service=mock_camilladsp_service,
-            equalizer_client_proxy_service=None
+            equalizer_client_proxy_service=None,
+            equalizer_router=EqualizerRouter(
+                client_registry=None,
+                camilladsp_service=mock_camilladsp_service,
+                proxy_service=None,
+            ),
         )
 
         # Initialize service
@@ -687,7 +693,12 @@ class TestVolumePersistence:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
             await service.initialize()
 
@@ -818,7 +829,12 @@ class TestVolumePersistence:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
             await service.initialize()
 
@@ -1098,12 +1114,38 @@ class TestClientVolumeAPI:
 # ==============================================================================
 
 
+async def _moved(store, zone_id, delta_db):
+    """Move a zone through VolumeService over `store`; answer (stored levels of
+    its members, what each reachable speaker was sent)."""
+    service = VolumeService(state_machine=Mock(broadcast=AsyncMock()), snapcast_service=Mock(),
+                            settings_service=Mock(get_setting=AsyncMock(return_value=None)))
+    service._volume_config = store._volume_config
+    service._state_store = store
+    service._client_registry = Mock(get_online_client_ids=Mock(
+        return_value=[mac for mac, client in store._clients.items() if client.available]
+    ))
+    service._update_startup_volume_if_needed = AsyncMock()
+    service.broadcast_volume_state = AsyncMock()
+    sent = {}
+
+    def submit(mac_id, volume_db, force=False):
+        sent[mac_id] = volume_db
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(True)
+        return done
+
+    service._equalizer_controller.submit_volume = submit
+    await service.apply_zone_volume_delta(zone_id, delta_db)
+    members = store._zones[zone_id].client_ids
+    return {mac: store.get_client_volume(mac) for mac in members}, sent
+
+
 class TestZoneVolumeDeltaIntegration:
     """Integration Tests for Zone Volume Delta.
 
-    Note: These tests use the VolumeStateStore directly to avoid issues with
-    the registry reloading zones on get_complete_state(). The unit tests in
-    test_volume_state.py cover the same functionality through the store directly.
+    Note: These tests plant zones in the VolumeStateStore directly to avoid the
+    registry reloading them on get_complete_state(). The unit tests in
+    test_volume_state.py cover the same functionality.
     """
 
     @pytest.fixture
@@ -1148,7 +1190,7 @@ class TestZoneVolumeDeltaIntegration:
         assert initial_diff == 5.0
 
         # Action: apply +3dB delta
-        updates = await store.apply_zone_delta('zone_1', 3.0)
+        updates, _ = await _moved(store, 'zone_1', 3.0)
 
         # Assert: volumes changed, difference preserved
         assert updates['client_a'] - updates['client_b'] == 5.0  # Same 5dB difference
@@ -1156,16 +1198,16 @@ class TestZoneVolumeDeltaIntegration:
         assert updates['client_b'] == -27.0  # -30 + 3
 
     @pytest.mark.asyncio
-    async def test_zone_delta_covers_offline_clients_but_does_not_commit_them(
+    async def test_zone_delta_covers_offline_clients_but_sends_them_nothing(
         self,
         zone_state_store: VolumeStateStore
     ):
         """
-        Zone delta computes for every member, and commits nothing by itself.
+        Zone delta moves every member, and sends only to the reachable ones.
 
         Validates:
-        - ONLINE and OFFLINE members both receive the delta in the updates
-        - apply_zone_delta is pure: the store is untouched until apply_zone_updates
+        - ONLINE and OFFLINE members both receive the delta in the store
+        - Only the ONLINE member is sent a command
         """
         store = zone_state_store
 
@@ -1183,15 +1225,14 @@ class TestZoneVolumeDeltaIntegration:
         }
 
         # Action: apply delta
-        updates = await store.apply_zone_delta('zone_1', 5.0)
+        updates, sent = await _moved(store, 'zone_1', 5.0)
 
-        # Assert: both members in updates
+        # Assert: both members moved
         assert updates['online_client'] == -25.0  # -30 + 5
         assert updates['offline_client'] == -25.0  # -30 + 5
 
-        # Verify nothing is written before apply_zone_updates
-        assert store._clients['online_client'].volume_db == -30.0
-        assert store._clients['offline_client'].volume_db == -30.0
+        # Only the reachable one was sent anything
+        assert sent == {'online_client': -25.0}
 
     def test_zone_average_readonly_computed(
         self,
@@ -1256,7 +1297,7 @@ class TestZoneVolumeDeltaIntegration:
         }
 
         # Action: apply delta that would exceed max (-25 + 10 = -15 > -21)
-        updates = await store.apply_zone_delta('zone_1', 10.0)
+        updates, _ = await _moved(store, 'zone_1', 10.0)
 
         # Assert: clamped to maximum
         assert updates['client_a'] == -21.0
@@ -1290,9 +1331,8 @@ class TestZoneVolumeDeltaIntegration:
         # Verify initial average
         assert store.compute_zone_average('zone_1') == pytest.approx(-30.0, rel=1e-6)
 
-        # Action: apply +10dB delta and apply updates
-        updates = await store.apply_zone_delta('zone_1', 10.0)
-        await store.apply_zone_updates(updates)
+        # Action: apply +10dB delta
+        await _moved(store, 'zone_1', 10.0)
 
         # Assert: average updated
         assert store.compute_zone_average('zone_1') == pytest.approx(-20.0, rel=1e-6)
@@ -1303,10 +1343,10 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        apply_zone_delta returns dict of client updates.
+        A zone delta moves each member by the delta.
 
         Validates:
-        - Method returns dict mapping client_id -> new_volume_db
+        - Each member's stored level is its old one plus the delta
         """
         store = zone_state_store
 
@@ -1324,9 +1364,9 @@ class TestZoneVolumeDeltaIntegration:
         }
 
         # Action: apply delta
-        updates = await store.apply_zone_delta('zone_1', 5.0)
+        updates, _ = await _moved(store, 'zone_1', 5.0)
 
-        # Assert: returns updates dict with new volumes
+        # Assert: the members' new volumes
         assert 'client_a' in updates
         assert 'client_b' in updates
         assert updates['client_a'] == -25.0  # -30 + 5
@@ -1359,9 +1399,10 @@ class TestZoneVolumeDeltaIntegration:
         }
 
         # Action: apply delta
-        updates = await store.apply_zone_delta('zone_1', 5.0)
+        updates, sent = await _moved(store, 'zone_1', 5.0)
 
-        # Assert: every member moved
+        # Assert: every member moved, and nothing was sent
+        assert sent == {}
         assert updates == {'offline_a': -25.0, 'offline_b': -25.0}
 
     @pytest.mark.asyncio
@@ -1461,7 +1502,12 @@ class TestStartupVolumeIntegration:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
             await service.initialize()
             websocket_collector.clear()
@@ -1534,7 +1580,12 @@ class TestStartupVolumeIntegration:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
             await service.initialize()
             websocket_collector.clear()
@@ -1610,7 +1661,12 @@ class TestStartupVolumeIntegration:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
 
             # Action: Initialize service (triggers _apply_startup_volume)
@@ -1685,7 +1741,12 @@ class TestStartupVolumeIntegration:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
 
             # Action: Initialize service
@@ -1748,7 +1809,7 @@ class TestVolumeApiEndpointsIntegration:
         Zone delta applies to every member and returns correct data.
 
         Validates:
-        - apply_zone_delta moves each member with volume control by the delta
+        - a zone move moves each member with volume control by the delta
         - Returns dict with affected clients and new volumes
         - An offline member is included, so the delta is in its level on return
         """
@@ -1771,18 +1832,11 @@ class TestVolumeApiEndpointsIntegration:
         }
 
         # Apply zone delta
-        updates = await store.apply_zone_delta('test-zone', 5.0)
+        updates, sent = await _moved(store, 'test-zone', 5.0)
 
-        # Assert: every member is in updates, offline one included
+        # Assert: every member moved, offline one included; only the online sent
         assert set(updates) == {'client-a', 'client-b', 'client-c'}
-
-        # Assert: Correct new volumes
-        assert updates['client-a'] == -25.0  # -30 + 5
-        assert updates['client-b'] == -30.0  # -35 + 5
-        assert updates['client-c'] == -35.0  # -40 + 5, applied while away
-
-        # Apply updates to verify state change
-        await store.apply_zone_updates(updates)
+        assert sent == {'client-a': -25.0, 'client-b': -30.0}
 
         # Assert: State updated
         assert store._clients['client-a'].volume_db == -25.0
@@ -1875,7 +1929,12 @@ class TestVolumeApiEndpointsIntegration:
                 snapcast_service=mock_snapcast_service,
                 settings_service=settings,
                 camilladsp_service=mock_camilladsp_service,
-                equalizer_client_proxy_service=None
+                equalizer_client_proxy_service=None,
+                equalizer_router=EqualizerRouter(
+                    client_registry=None,
+                    camilladsp_service=mock_camilladsp_service,
+                    proxy_service=None,
+                ),
             )
             await service.initialize()
 
@@ -1921,9 +1980,8 @@ class TestVolumeApiEndpointsIntegration:
         # Initial average: (-30 + -40) / 2 = -35
         assert store.compute_zone_average('test-zone') == pytest.approx(-35.0, rel=1e-6)
 
-        # Apply delta and updates
-        updates = await store.apply_zone_delta('test-zone', 10.0)
-        await store.apply_zone_updates(updates)
+        # Apply delta
+        await _moved(store, 'test-zone', 10.0)
 
         # New average: (-20 + -30) / 2 = -25
         new_average = store.compute_zone_average('test-zone')

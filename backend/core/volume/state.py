@@ -561,60 +561,35 @@ class VolumeStateStore:
         client = self._registry.get_client(mac_id)
         return client.volume_control if client else True
 
-    async def apply_zone_delta(self, zone_id: str, delta_db: float) -> Dict[str, float]:
-        """
-        Calculate volume updates for every member of a zone.
-
-        This is ATOMIC: calculates delta and returns all updates at once.
-        Caller must apply these to hardware in parallel.
-
-        An unavailable member is included. A delta is relative, so applying it
-        to the stored level needs no hardware and no queue: the value is simply
-        right when the client comes back, at the level its room moved to rather
-        than the one it left. The caller splits this dict on
-        is_client_available() — hardware for the reachable ones, store for all.
-
-        Args:
-            zone_id: Zone identifier
-            delta_db: Volume change in dB
-
-        Returns:
-            Dict mapping mac_id -> new_volume_db for every member with volume
-            control, available or not
+    def zone_members(self, zone_id: str) -> List[str]:
+        """The zone's members the volume state holds a level for, with volume control.
 
         Raises:
             ValueError: If zone not found
         """
-        async with self._lock:
-            if zone_id not in self._zones:
-                raise ValueError(f"Unknown zone: {zone_id}")
+        zone = self._zones.get(zone_id)
+        if zone is None:
+            raise ValueError(f"Unknown zone: {zone_id}")
+        return [
+            client_id for client_id in zone.client_ids
+            if client_id in self._clients and self.has_volume_control(client_id)
+        ]
 
-            zone = self._zones[zone_id]
-            updates = {}
+    def set_levels(self, levels: Dict[str, float]) -> None:
+        """Write the levels of several known clients in one step.
 
-            # Every member with volume control (skip DAC clients), reachable or not
-            for client_id in zone.client_ids:
-                if client_id in self._clients and self.has_volume_control(client_id):
-                    client = self._clients[client_id]
-                    updates[client_id] = self._clamp_db(client.volume_db + delta_db)
-
-            self.logger.debug(f"Zone delta: {zone_id} +{delta_db:+.1f}dB -> {len(updates)} clients")
-            return updates
-
-    async def apply_zone_updates(self, updates: Dict[str, float]) -> None:
+        Synchronous, and that is the point: a volume move reads the levels,
+        computes, and writes here with no await in between, so a second move
+        can never read what the first has not written yet. The previous shape
+        wrote after the hardware fan-out, and ten +2 dB steps in flight together
+        landed as one.
         """
-        Apply volume updates after hardware changes succeed.
-
-        Args:
-            updates: Dict mapping mac_id -> volume_db
-        """
-        async with self._lock:
-            for mac_id, volume_db in updates.items():
-                if mac_id in self._clients:
-                    self._clients[mac_id].volume_db = volume_db
-
+        for mac_id, volume_db in levels.items():
+            client = self._clients.get(mac_id)
+            if client is not None:
+                client.volume_db = self._clamp_db(volume_db)
+        if levels:
             self._schedule_persist()
-            self.logger.debug(f"Applied {len(updates)} volume updates")
 
     def client_ids(self) -> List[str]:
         """Every client the volume state holds a level for, reachable or not."""

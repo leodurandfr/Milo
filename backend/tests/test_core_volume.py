@@ -5,12 +5,12 @@ Unit tests for core.volume module.
 Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
-import contextlib
 import logging
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, call
 import asyncio
 
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.volume import (
     VolumeService,
     VolumeStateStore,
@@ -208,25 +208,6 @@ class TestEqualizerController:
 
         assert result is True
         mock_router.set_mute.assert_called_once_with("local", True, force=False)
-
-    @pytest.mark.asyncio
-    async def test_apply_volumes_parallel(self, controller):
-        """Test parallel volume updates."""
-        updates = {
-            "local": -25.0,
-            "milo-client-01": -27.0
-        }
-
-        results = await controller.apply_volumes_parallel(updates)
-
-        assert "local" in results
-        assert results["local"] is True
-
-    @pytest.mark.asyncio
-    async def test_apply_volumes_parallel_empty(self, controller):
-        """Test parallel updates with empty dict."""
-        results = await controller.apply_volumes_parallel({})
-        assert results == {}
 
     @pytest.mark.asyncio
     async def test_is_success_helper(self):
@@ -646,13 +627,23 @@ class TestVolumeService:
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
                 mock_camilladsp_service, mock_proxy_service):
-        """Create VolumeService with mocks."""
+        """Create VolumeService with mocks.
+
+        The router is the real one over the mocked daemon, as in production:
+        every level reaches a speaker through it, and with no registry it sends
+        everything to the local CamillaDSP.
+        """
         return VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
             camilladsp_service=mock_camilladsp_service,
-            equalizer_client_proxy_service=mock_proxy_service
+            equalizer_client_proxy_service=mock_proxy_service,
+            equalizer_router=EqualizerRouter(
+                client_registry=None,
+                camilladsp_service=mock_camilladsp_service,
+                proxy_service=mock_proxy_service,
+            ),
         )
 
     def test_initialization(self, service, mock_state_machine, mock_snapcast_service):
@@ -681,42 +672,45 @@ class TestVolumeService:
         assert service._is_equalizer_available() is False
 
     @pytest.mark.asyncio
-    async def test_apply_volume_direct_deferred_when_camilladsp_not_ready(self, service, mock_camilladsp_service):
-        """Direct mode defers (does not fail) when CamillaDSP is not yet connected.
+    async def test_a_multiroom_local_speaker_whose_dsp_is_down_is_deferred_too(
+        self, service, mock_camilladsp_service
+    ):
+        """The local CamillaDSP not being up is not a failure, in either mode.
 
-        Cold-boot / reconnect window (e.g. the post-wizard reboot): the apply is
-        deferred — reapply_current_volume pushes the stored volume on reconnect —
-        so _apply_volume_to_hardware returns True WITHOUT touching the daemon.
+        Cold-boot / reconnect window (e.g. the post-wizard reboot): the level is
+        stored and reapply_current_volume puts it on the daemon once it is back.
+        Direct mode always did this; multiroom answered 500 instead, and kept
+        the old level in the store, so the reconnect restored the old one.
         """
         mock_camilladsp_service.is_volume_control_available.return_value = False
-        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"  # intent recordable
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
+        service._state_store._local_mac_id = "aa:bb"
+        service._state_store._clients["aa:bb"] = ClientVolume(
+            volume_db=-40.0, offset_db=0.0, mute=False, available=True
+        )
 
-        result = await service._apply_volume_to_hardware(-40.0, None, [])
-
-        assert result is True  # deferred, not failed → no HTTP 500
-        mock_camilladsp_service.set_volume.assert_not_called()  # nothing pushed while down
-
-    @pytest.mark.asyncio
-    async def test_apply_volume_direct_deferred_fails_when_local_unknown(self, service, mock_camilladsp_service):
-        """Deferred apply reports failure (not false success) if the local client
-        isn't known yet, so the intent could not be recorded for reconnect."""
-        mock_camilladsp_service.is_volume_control_available.return_value = False
-        service._state_store._local_mac_id = None  # truly-fresh first boot
-
-        result = await service._apply_volume_to_hardware(-40.0, None, [])
-
-        assert result is False  # honest failure — nothing was recorded to reconcile
+        assert await service.adjust_volume_db(2.0) is True
+        assert service._state_store.get_client_volume("aa:bb") == -38.0
         mock_camilladsp_service.set_volume.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_apply_volume_direct_genuine_failure_surfaces(self, service, mock_camilladsp_service):
+    async def test_a_direct_set_with_the_local_client_unknown_fails(self, service, mock_camilladsp_service):
+        """Reports failure (not false success) if the local client isn't known,
+        since there is no level to record and nothing for the reconnect to apply."""
+        service._state_store._local_mac_id = None  # truly-fresh first boot
+
+        assert await service.set_volume_db(-40.0) is False
+        mock_camilladsp_service.set_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_direct_set_the_daemon_refuses_surfaces(self, service, mock_camilladsp_service):
         """When CamillaDSP IS connected, a set_volume failure is a genuine error."""
         mock_camilladsp_service.is_volume_control_available.return_value = True
         mock_camilladsp_service.set_volume = AsyncMock(return_value=False)
+        service._state_store.ensure_local_client("aa:bb", -50.0)
 
-        result = await service._apply_volume_to_hardware(-40.0, None, [])
-
-        assert result is False  # real failure is surfaced (route → 500)
+        assert await service.set_volume_db(-40.0) is False  # route → 500
         mock_camilladsp_service.set_volume.assert_called_once()
 
     @pytest.mark.asyncio
@@ -962,23 +956,24 @@ class TestVolumeService:
     async def test_set_volume_db_direct_mode(self, service, mock_camilladsp_service, mock_state_machine):
         """Test setting volume in direct mode."""
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service._state_store.ensure_local_client("aa:bb", -50.0)
 
         result = await service.set_volume_db(-25.0)
 
         assert result is True
-        mock_camilladsp_service.set_volume.assert_called()
+        mock_camilladsp_service.set_volume.assert_awaited_once_with(-25.0)
 
     @pytest.mark.asyncio
     async def test_adjust_volume_db(self, service, mock_camilladsp_service, mock_state_machine, mock_settings):
         """Test adjusting volume by delta."""
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
         mock_settings.get_setting = AsyncMock(return_value=False)
-        service._state_store.set_local_volume(-30.0)
+        service._state_store.ensure_local_client("aa:bb", -30.0)
 
         result = await service.adjust_volume_db(3.0)
 
         assert result is True
-        mock_camilladsp_service.set_volume.assert_called()
+        mock_camilladsp_service.set_volume.assert_awaited_once_with(-27.0)
 
     def test_volume_config_clamp(self, service):
         """Test volume clamping via config."""
@@ -1007,16 +1002,29 @@ class TestVolumeService:
         return section
 
     @staticmethod
-    def _multiroom(service, online):
-        """Multiroom on, `online` reachable, every fan-out accepted."""
+    def _multiroom(service, online, latency=0.0):
+        """Multiroom on, `online` reachable; `service.sent` records what each
+        speaker was sent last, as the router received it."""
         service._routing_service = Mock()
         service._routing_service.get_state.return_value = {'multiroom_enabled': True}
         service._client_registry = Mock()
         service._client_registry.get_online_client_ids.return_value = list(online)
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            side_effect=lambda updates: {mac: True for mac in updates}
-        )
+        service.sent = {}
+
+        async def set_volume(mac_id, volume_db, force=False):
+            if latency:
+                await asyncio.sleep(latency)
+            service.sent[mac_id] = volume_db
+            return {"status": "success"}
+
+        service._equalizer_controller._router = Mock(set_volume=set_volume)
         service.broadcast_volume_state = AsyncMock()
+
+    @staticmethod
+    async def _settle():
+        """Let the per-speaker senders drain (they run as their own tasks)."""
+        for _ in range(5):
+            await asyncio.sleep(0)
 
     async def test_a_raised_minimum_lifts_each_quiet_room_to_it_and_no_further(
         self, service, mock_settings
@@ -1027,7 +1035,7 @@ class TestVolumeService:
         limits -78..-8 and rooms at -78/-75/-40: the reload used to recentre on
         the middle of the range, -39 dB, a +39 dB jump on a room set to -78.
         Fails if a room is sent anywhere but the nearest limit, or if a room the
-        limits still allow moves.
+        limits still allow is sent anything.
         """
         service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
         service._state_store.set_volume_config(service._volume_config)
@@ -1041,10 +1049,9 @@ class TestVolumeService:
         )
 
         assert await service.reload_volume_limits() is True
+        await self._settle()
 
-        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once_with(
-            {"a": -70.0, "b": -70.0}
-        )
+        assert service.sent == {"a": -70.0, "b": -70.0}
         levels = {mac: service._state_store.get_client_volume(mac) for mac in "abc"}
         assert levels == {"a": -70.0, "b": -70.0, "c": -40.0}
         service.broadcast_volume_state.assert_awaited_once()
@@ -1078,31 +1085,31 @@ class TestVolumeService:
     async def test_a_room_that_is_away_gets_the_new_limit_in_the_store_only(
         self, service, mock_settings
     ):
-        """An offline room is brought into the limits without a hardware call.
+        """An offline room above a lowered ceiling is brought to it without a hardware call.
 
         Consumer: the reconnection sync, which puts the stored level back on the
         speaker. Sending it now would reach nothing; not storing it would bring
-        the room back below the floor the operator just raised. Fails either way.
+        the room back louder than the ceiling the operator just lowered. Fails
+        either way.
         """
         service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
         service._state_store.set_volume_config(service._volume_config)
         service._state_store._clients["here"] = ClientVolume(
-            volume_db=-78.0, offset_db=0.0, mute=False, available=True
+            volume_db=-10.0, offset_db=0.0, mute=False, available=True
         )
         service._state_store._clients["away"] = ClientVolume(
-            volume_db=-78.0, offset_db=0.0, mute=False, available=False
+            volume_db=-10.0, offset_db=0.0, mute=False, available=False
         )
         self._multiroom(service, online=["here"])
         mock_settings.get_setting = AsyncMock(
-            return_value=self._volume_section(limit_min_db=-70.0, limit_max_db=-8.0)
+            return_value=self._volume_section(limit_min_db=-78.0, limit_max_db=-20.0)
         )
 
         assert await service.reload_volume_limits() is True
+        await self._settle()
 
-        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once_with(
-            {"here": -70.0}
-        )
-        assert service._state_store.get_client_volume("away") == -70.0
+        assert service.sent == {"here": -20.0}
+        assert service._state_store.get_client_volume("away") == -20.0
 
     @staticmethod
     def _zone(service, levels, online):
@@ -1124,8 +1131,10 @@ class TestVolumeService:
         self._multiroom(service, online=["a", "b"])
 
         average, delta = await service.set_zone_volume("z", -30.0)
+        await self._settle()
 
         assert (average, delta) == (-30.0, 15.0)
+        assert service.sent == {"a": -25.0, "b": -35.0}
         assert service._state_store.get_client_volume("a") == -25.0
         assert service._state_store.get_client_volume("b") == -35.0
 
@@ -1138,12 +1147,7 @@ class TestVolumeService:
         one level leave the zone anywhere but that level.
         """
         self._zone(service, {"a": -40.0, "b": -50.0}, online=["a", "b"])
-        self._multiroom(service, online=["a", "b"])
-
-        async def slow_fan_out(updates):
-            await asyncio.sleep(0.01)
-            return {mac: True for mac in updates}
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(side_effect=slow_fan_out)
+        self._multiroom(service, online=["a", "b"], latency=0.01)
 
         await asyncio.gather(service.set_zone_volume("z", -30.0), service.set_zone_volume("z", -30.0))
         _, repeated = await service.set_zone_volume("z", -30.0)
@@ -1164,8 +1168,9 @@ class TestVolumeService:
 
         _, delta = await service.set_zone_volume("z", -30.0)
 
+        await self._settle()
         assert delta == 0.0
-        service._equalizer_controller.apply_volumes_parallel.assert_not_called()
+        assert service.sent == {}
         assert service._state_store.get_client_volume("a") == -40.0
         assert service._state_store.get_client_volume("b") == -50.0
 
@@ -1199,40 +1204,40 @@ class TestVolumeService:
         service.broadcast_volume_state.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_liveness_comes_from_the_registry_not_snapserver(
+    async def test_a_move_reaches_the_clients_the_screens_count(
         self, service, mock_snapcast_service
     ):
-        """One authority answers "is this client reachable", and it is the registry.
+        """Reachable means available in the volume state — the set every average
+        on screen is computed over — and snapserver is never asked.
 
-        EqualizerRouter short-circuits on `client.online`, so a volume fan-out
-        built from a snapserver round-trip listed clients the router then
-        refused — and the store was written for them anyway. Asserting the
-        snapserver is not consulted is the half that keeps the second authority
-        from growing back.
+        A level aimed at a slider is measured against the average under the
+        thumb; measuring it over another set of clients moved the rooms by a
+        delta nobody asked for.
         """
         service.set_routing_service(
             Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
         )
-        registry = Mock()
-        registry.get_online_client_ids = Mock(return_value=["aa:bb", "cc:dd"])
-        service.attach_registry(registry)
-        service._state_store._clients = {}  # no DAC exclusions recorded
+        for mac, available in (("aa:bb", True), ("cc:dd", True), ("ee:ff", False)):
+            service._state_store._clients[mac] = ClientVolume(
+                volume_db=-40.0, offset_db=0.0, mute=False, available=available
+            )
 
-        assert service._get_controllable_client_ids() == ["aa:bb", "cc:dd"]
+        members, reachable = service._global_members()
+
+        assert members == ["aa:bb", "cc:dd", "ee:ff"]
+        assert reachable == ["aa:bb", "cc:dd"]
         mock_snapcast_service.get_clients.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_registry_means_no_client_to_drive(self, service):
-        """Without a registry there is no authority, so the fan-out is empty.
-
-        It must not silently fall back to a second source: an empty list makes
-        the push a logged no-op, where a snapserver-derived list would resume
-        writing state for clients nothing can reach.
-        """
+    async def test_a_client_that_is_not_available_is_not_driven(self, service):
+        """An unavailable client moves in the store only; nothing is sent to it."""
         service.set_routing_service(
             Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
         )
-        assert service._get_controllable_client_ids() == []
+        service._state_store._clients["aa:bb"] = ClientVolume(
+            volume_db=-40.0, offset_db=0.0, mute=False, available=False
+        )
+        assert service._global_members() == (["aa:bb"], [])
 
     # ------------------------------------------------------------------
     # Boot sync, availability handshake, DAC mode
@@ -1256,8 +1261,15 @@ class TestVolumeService:
         )
         service._client_registry = Mock()
         service._client_registry.get_online_client_ids = Mock(return_value=[mac])
-        service._equalizer_controller = Mock()
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={mac: True})
+        sent = {}
+
+        def submit(mac_id, volume_db, force=False):
+            sent[mac_id] = volume_db
+            answer = asyncio.get_running_loop().create_future()
+            answer.set_result(True)
+            return answer
+
+        service._equalizer_controller = Mock(submit_volume=Mock(side_effect=submit))
         service._equalizer_controller.set_equalizer_mute = AsyncMock()
         service.broadcast_volume_state = AsyncMock()
         mock_settings.get_setting = AsyncMock(return_value=True)  # routing.multiroom_enabled
@@ -1270,17 +1282,17 @@ class TestVolumeService:
         await service._startup_broadcast_after_websocket_ready()
 
         assert service._state_store._clients[mac].available is True
-        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once_with({mac: -42.0})
+        assert sent == {mac: -42.0}
 
     @pytest.mark.asyncio
-    async def test_push_stores_only_the_levels_the_clients_actually_took(self, service):
-        """A client that refused the boot push keeps its stored level.
+    async def test_a_refused_boot_push_fails_and_keeps_the_level_asked_for(self, service):
+        """A client that refused the boot push is reported, and stored at the
+        level it was sent — the level its own cache will apply at its reconnect.
 
-        Consumer: the multiroom boot sync. Writing the store for a client whose
-        hardware refused is how Milō, the WS event and the UI come to agree on a
-        level only the speaker disagrees with — the collective twin of the bug
-        TestPerClientApplyVerdict pins on the single-client path. Fails if the
-        push stops splitting on the per-client verdict.
+        Consumer: the multiroom boot sync. The store is written before the send,
+        as every move does, so a move landing while the push is in flight is
+        never overwritten with the push's older value. Fails if a refusal stops
+        failing the push.
         """
         took, refused = "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"
         service._volume_config = VolumeConfig(restore_last_volume=False, startup_volume_db=-30.0)
@@ -1291,10 +1303,12 @@ class TestVolumeService:
             )
         service._client_registry = Mock()
         service._client_registry.get_online_client_ids = Mock(return_value=[took, refused])
-        service._equalizer_controller = Mock()
-        service._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={took: True, refused: False}
-        )
+        def submit(mac_id, volume_db, force=False):
+            answer = asyncio.get_running_loop().create_future()
+            answer.set_result(mac_id == took)
+            return answer
+
+        service._equalizer_controller = Mock(submit_volume=Mock(side_effect=submit))
         service._equalizer_controller.set_equalizer_mute = AsyncMock()
         service.broadcast_volume_state = AsyncMock()
 
@@ -1302,10 +1316,10 @@ class TestVolumeService:
 
         # Non-triviality first: @handle_errors(default=False) makes False the crash
         # value too, so the refusal below is only meaningful once the push has run.
-        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once()
+        assert service._equalizer_controller.submit_volume.call_count == 2
         assert result is False                                            # one client refused
         assert service._state_store.get_client_volume(took) == -30.0      # took the push
-        assert service._state_store.get_client_volume(refused) == -50.0   # kept, not clobbered
+        assert service._state_store.get_client_volume(refused) == -30.0   # kept as asked
 
     @pytest.mark.asyncio
     async def test_wait_for_availability_returns_true_once_signalled(self, service):
@@ -1442,8 +1456,14 @@ class TestStartupVolumeAutoUpdate:
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
             camilladsp_service=mock_camilladsp_service,
-            equalizer_client_proxy_service=mock_proxy_service
+            equalizer_client_proxy_service=mock_proxy_service,
+            equalizer_router=EqualizerRouter(
+                client_registry=None,
+                camilladsp_service=mock_camilladsp_service,
+                proxy_service=mock_proxy_service,
+            ),
         )
+        svc._state_store.ensure_local_client("aa:bb:cc:dd:ee:ff", -60.0)
         # Set initial config with restore_last_volume=True (active)
         svc._volume_config = VolumeConfig(
             limit_min_db=-80.0,
@@ -1600,13 +1620,6 @@ class TestStartupVolumeAutoUpdate:
             )
         }
 
-        # Mock zone delta method to return updates
-        async def mock_apply_zone_delta(zone_id, delta):
-            # Simulate updating local client to -45dB
-            return {'local': -45.0}
-
-        service._state_store.apply_zone_delta = mock_apply_zone_delta
-        service._state_store.apply_zone_updates = AsyncMock()
         service._state_store.compute_zone_average = Mock(return_value=-45.0)
 
         # Act
@@ -1644,11 +1657,10 @@ class TestStartupVolumeAutoUpdate:
     ):
         """…and when it settles, exactly one write, with where the knob stopped."""
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-        service.STARTUP_VOLUME_DEBOUNCE_S = 0
 
         for target in range(-60, -50):
             await service.set_volume_db(float(target))
-        await self._settled(service)
+        await service._flush_startup_volume()
 
         assert mock_settings.set_setting.call_args_list == [
             call('volume.startup_volume_db', -51.0)
@@ -1711,17 +1723,23 @@ class TestStartupVolumeOnRestart:
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
                 mock_camilladsp_service, mock_proxy_service, mock_equalizer_controller):
-        """Create VolumeService with mocks, including mocked Equalizer controller."""
-        svc = VolumeService(
+        """Create VolumeService with mocks.
+
+        The startup level reaches the daemon through the real controller and
+        router, as in production, so these tests watch the daemon itself.
+        """
+        return VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
             camilladsp_service=mock_camilladsp_service,
-            equalizer_client_proxy_service=mock_proxy_service
+            equalizer_client_proxy_service=mock_proxy_service,
+            equalizer_router=EqualizerRouter(
+                client_registry=None,
+                camilladsp_service=mock_camilladsp_service,
+                proxy_service=mock_proxy_service,
+            ),
         )
-        # Replace the real Equalizer controller with our mock
-        svc._equalizer_controller = mock_equalizer_controller
-        return svc
 
     @pytest.mark.asyncio
     async def test_startup_applies_startup_volume_when_restore_false(
@@ -1852,225 +1870,152 @@ class TestStartupVolumeOnRestart:
 
 
 # ============================================================================
-# Volume Lock Regression Tests
+# Concurrent Moves
 # ============================================================================
 
-class _FanOutGate:
-    """Holds the satellite fan-out open until every expected caller is inside it.
+class TestConcurrentMovesKeepEveryStep:
+    """Moves in flight together all land, and none of them waits on a satellite.
 
-    This is what makes "the lock is released before the fan-out" observable
-    without a clock: several callers can only be inside apply_volumes_parallel
-    at the same moment if each of them let go of _volume_lock on its way there.
-    `peak` is the assertion. RENDEZVOUS_TIMEOUT_S is a liveness guard, never an
-    assertion — a fan-out that serialised under the lock never reaches the
-    rendezvous, and the guard is what turns that into a failed assert instead
-    of a hung test.
-    """
+    Scenario: BT remote presses, the rotary and a phone at once in multiroom,
+    with a satellite that is slow to answer. The store used to be written only
+    after the fan-out answered, outside the lock, so every move in flight read
+    the same levels: ten +2 dB steps together landed as one. And each move
+    waited for the slowest satellite before returning, so the rotary's next
+    batch did too.
 
-    RENDEZVOUS_TIMEOUT_S = 5.0
-
-    def __init__(self, expected: int):
-        self.expected = expected
-        self.inside = 0
-        self.peak = 0
-        self._all_inside = asyncio.Event()
-        self._release = asyncio.Event()
-
-    async def enter(self) -> None:
-        """Called from inside the mocked fan-out; blocks until the gate opens."""
-        self.inside += 1
-        self.peak = max(self.peak, self.inside)
-        if self.inside >= self.expected:
-            self._all_inside.set()
-        await self._release.wait()
-        self.inside -= 1
-
-    async def open_when_full(self) -> None:
-        """Gathered alongside the volume calls; opens once they have all arrived."""
-        with contextlib.suppress(asyncio.TimeoutError):
-            async with asyncio.timeout(self.RENDEZVOUS_TIMEOUT_S):
-                await self._all_inside.wait()
-        self._release.set()
-
-
-class TestVolumeLockNoTimeout:
-    """The volume lock is not held across the satellite HTTP fan-out.
-
-    Scenario: rapid BT remote presses in multiroom mode with a slow satellite.
-    Before the fix, _apply_global_volume ran the fan-out inside the lock, so the
-    next caller sat on `asyncio.timeout(2.0)` and gave up with
-    "Timeout waiting for volume lock (>2s)".
-
-    Every test here drives its callers concurrently and asserts they were all
-    inside the fan-out at once — the only way that happens is if each released
-    the lock before getting there. What the callers must NOT do is reach the
-    fan-out one at a time: that is the regression, and `peak` is what states it.
+    The satellite here never answers until the moves have all returned — that
+    they return at all is the second half of the assertion.
     """
 
     LOCAL = "local-mac"
     SATELLITE = "satellite-mac"
 
     @pytest.fixture
-    def mock_state_machine(self):
-        sm = Mock()
-        sm.broadcast = AsyncMock()
-        sm.routing_service = Mock()
-        sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
-        return sm
-
-    @pytest.fixture
-    def mock_settings(self):
-        settings = Mock()
-        settings.invalidate_cache = Mock()
-        settings.get_setting = AsyncMock(return_value=None)
-        settings.set_setting = AsyncMock()
-        return settings
-
-    @pytest.fixture
     def mock_registry(self):
-        """The registry answers "which clients are online".
-
-        _get_controllable_client_ids() reads it, and nothing else does — with no
-        registry attached it returns [], _compute_multiroom_updates returns {}
-        and _apply_volume_to_hardware leaves on `if not updates` without ever
-        reaching the satellite. That is what made two of these three tests inert.
-        """
         registry = Mock()
         registry.get_online_client_ids = Mock(
-            return_value=[TestVolumeLockNoTimeout.LOCAL, TestVolumeLockNoTimeout.SATELLITE]
+            return_value=[TestConcurrentMovesKeepEveryStep.LOCAL, TestConcurrentMovesKeepEveryStep.SATELLITE]
         )
         registry.get_client = Mock(return_value=Mock(volume_control=True))
+        registry.is_client_online = Mock(return_value=True)
         registry.get_all_zones = Mock(return_value={})
         registry.subscribe = Mock()
         return registry
 
     @pytest.fixture
-    def service(self, mock_state_machine, mock_settings, mock_registry):
+    def satellite_gate(self):
+        return asyncio.Event()
+
+    @pytest.fixture
+    def service(self, mock_registry, satellite_gate):
+        settings = Mock()
+        settings.invalidate_cache = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
         svc = VolumeService(
-            state_machine=mock_state_machine,
+            state_machine=Mock(broadcast=AsyncMock()),
             snapcast_service=Mock(),
-            settings_service=mock_settings,
-            camilladsp_service=Mock(
-                set_volume=AsyncMock(return_value=True),
-                is_volume_control_available=Mock(return_value=True),
-            ),
+            settings_service=settings,
+            camilladsp_service=Mock(is_volume_control_available=Mock(return_value=True)),
         )
         svc._volume_config = VolumeConfig(
             limit_min_db=-80.0, limit_max_db=0.0,
             startup_volume_db=-40.0, restore_last_volume=False,
         )
         svc._state_store.set_volume_config(svc._volume_config)
-        svc._routing_service = mock_state_machine.routing_service
-        svc._equalizer_controller = Mock()
+        svc._routing_service = Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
         svc._client_registry = mock_registry
         svc._state_store.set_registry(mock_registry)
-        svc._state_store._mode = "multiroom"
+        svc._equalizer_controller.set_registry(mock_registry)
+        svc._state_store._local_mac_id = self.LOCAL
         svc._state_store._clients = {
             self.LOCAL: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
             self.SATELLITE: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
         }
+        svc.satellite_received = []
+
+        async def set_volume(mac_id, volume_db, force=False):
+            if mac_id == self.SATELLITE:
+                await satellite_gate.wait()
+                svc.satellite_received.append(volume_db)
+            return {"status": "success"}
+
+        svc._equalizer_controller._router = Mock(set_volume=set_volume)
         return svc
 
-    @pytest.fixture
-    def fan_out_gate(self, service):
-        """Factory: make the satellite fan-out block until `expected` callers are in it."""
-        def _install(expected: int) -> _FanOutGate:
-            gate = _FanOutGate(expected)
-
-            async def gated_apply(updates):
-                await gate.enter()
-                return {mac_id: True for mac_id in updates}
-
-            service._equalizer_controller.apply_volumes_parallel = AsyncMock(
-                side_effect=gated_apply
-            )
-            return gate
-        return _install
+    async def _release(self, service, gate):
+        gate.set()
+        for _ in range(10):
+            await asyncio.sleep(0)
 
     @pytest.mark.asyncio
-    async def test_rapid_volume_changes_no_lock_timeout(self, service, fan_out_gate):
-        """Five BT-remote presses in flight at once all get through the lock.
+    async def test_rapid_volume_changes_keep_every_step(self, service, satellite_gate):
+        """Five BT-remote presses in flight at once move the house by five steps.
 
-        Launched concurrently on purpose: five sequential `await`s cannot
-        contend for a lock at all, so the sequential version this replaces could
-        not fail on the regression its own docstring names.
+        Launched concurrently on purpose: five sequential `await`s cannot overlap
+        at all, so they could not fail on the regression.
         """
-        gate = fan_out_gate(5)
+        results = await asyncio.gather(*[service.adjust_volume_db(2.0) for _ in range(5)])
 
-        results = await asyncio.gather(
-            *[service.adjust_volume_db(2.0) for _ in range(5)],
-            gate.open_when_full(),
-        )
+        assert all(results), f"Expected all True, got {results}"
+        assert service._state_store.get_client_volume(self.LOCAL) == -30.0
+        assert service._state_store.get_client_volume(self.SATELLITE) == -30.0
 
-        assert all(results[:5]), f"Expected all True, got {results[:5]}"
-        assert gate.peak == 5, (
-            f"only {gate.peak} of 5 callers reached the satellite fan-out at once — "
-            "the volume lock is being held across it"
-        )
+        await self._release(service, satellite_gate)
+        assert service.satellite_received[-1] == -30.0
+        assert len(service.satellite_received) <= 2, "a burst reaches a speaker as at most two commands"
 
     @pytest.mark.asyncio
-    async def test_concurrent_volume_sources_no_lock_timeout(self, service, fan_out_gate):
-        """BT remote + rotary + frontend slider, all three in flight together."""
-        gate = fan_out_gate(3)
-
+    async def test_concurrent_volume_sources_keep_every_step(self, service, satellite_gate):
+        """BT remote + rotary + a phone step, all three in flight together."""
         results = await asyncio.gather(
             service.adjust_volume_db(2.0),
-            service.adjust_volume_db(2.0),
-            service.set_volume_db(-35.0),
-            gate.open_when_full(),
+            service.adjust_volume_db(1.0),
+            service.adjust_volume_db(-1.0),
         )
 
-        assert all(results[:3]), f"Expected all True, got {results[:3]}"
-        assert gate.peak == 3, (
-            f"only {gate.peak} of 3 callers reached the satellite fan-out at once — "
-            "the volume lock is being held across it"
-        )
+        assert all(results), f"Expected all True, got {results}"
+        assert service._state_store.get_client_volume(self.SATELLITE) == -38.0
+
+        await self._release(service, satellite_gate)
+        assert service.satellite_received[-1] == -38.0
 
     @pytest.mark.asyncio
-    async def test_zone_delta_no_lock_timeout(self, service, mock_registry, fan_out_gate):
-        """A zone delta and a global adjust reach the satellites together.
+    async def test_a_zone_move_and_a_global_move_both_land(self, service, mock_registry, satellite_gate):
+        """A zone delta and a global adjust in flight together both count.
 
-        apply_zone_volume_delta once took the lock with no timeout at all, so it
-        could block every other volume operation for as long as the fan-out ran.
+        Each once measured its delta against levels the other had not written
+        yet, and whichever wrote last erased the other.
         """
         from backend.core.volume.state import ZoneConfig
-        zone = ZoneConfig(
-            zone_id="zone-1", name="Test",
-            client_ids=[self.LOCAL, self.SATELLITE],
-        )
+        zone = ZoneConfig(zone_id="zone-1", name="Test", client_ids=[self.LOCAL, self.SATELLITE])
         service._state_store._zones = {"zone-1": zone}
         # get_complete_state() reloads zones from the registry, wiping any the
-        # test planted directly; the concurrent adjust below goes through it.
+        # test planted directly; the global move's broadcast goes through it.
         mock_registry.get_all_zones.return_value = {"zone-1": zone}
-
-        gate = fan_out_gate(2)
 
         results = await asyncio.gather(
             service.apply_zone_volume_delta("zone-1", 3.0),
             service.adjust_volume_db(2.0),
-            gate.open_when_full(),
         )
 
-        # Zone delta returns float (new average), adjust returns bool
-        assert isinstance(results[0], float)
+        assert isinstance(results[0], tuple)
         assert results[1] is True
-        assert gate.peak == 2, (
-            f"only {gate.peak} of 2 callers reached the satellite fan-out at once — "
-            "the volume lock is being held across it"
-        )
+        assert service._state_store.get_client_volume(self.LOCAL) == -35.0
+        assert service._state_store.get_client_volume(self.SATELLITE) == -35.0
 
-
-# ============================================================================
-# Per-client volume and mute answer for what the speaker did (sweep S4)
-# ============================================================================
+        await self._release(service, satellite_gate)
+        assert service.satellite_received[-1] == -35.0
 
 class TestPerClientApplyVerdict:
-    """A level an online client refused must not be stored, broadcast or reported.
+    """A level an online client refused is reported as refused, and kept as asked.
 
-    When these fail, `PATCH /api/volume/client/mac/{mac}` is back to answering
-    200 with a dB the speaker never took: the store was written before the
-    apply, so Milō, the WS event and the UI all agreed on a value only the
-    hardware disagreed with, and the sole trace was a warning.
+    `PATCH /api/volume/client/mac/{mac}` answers 502 when the speaker refused,
+    never 200. The store keeps the level asked for — which is what the
+    speaker will play: a satellite caches the value before calling its
+    CamillaDSP and applies it when the daemon comes back, and the local unit is
+    re-applied from the store on reconnect. Keeping the old value instead is
+    what made the server show a level the satellite was about to leave.
     """
 
     ACCEPTING = "aa:bb:cc:dd:ee:01"
@@ -2152,25 +2097,23 @@ class TestPerClientApplyVerdict:
         assert caplog.text == ""
 
     @pytest.mark.asyncio
-    async def test_an_online_client_that_refused_keeps_its_stored_volume(self, service, caplog):
-        """The refusal decides the verdict, and the store keeps what the speaker holds."""
-        with caplog.at_level(logging.ERROR):
-            assert await service.update_client_volume_db(self.REFUSING, -25.0) is False
+    async def test_an_online_client_that_refused_keeps_the_level_asked_for(self, service):
+        """The refusal decides the verdict; the store keeps the level asked for."""
+        assert await service.update_client_volume_db(self.REFUSING, -25.0) is False
 
-        assert service.state_store.get_client_volume(self.REFUSING) == -40.0
-        assert self.REFUSING in caplog.text
-        assert self.ACCEPTING not in caplog.text
+        assert service.state_store.get_client_volume(self.REFUSING) == -25.0
+        assert service.state_store.get_client_volume(self.ACCEPTING) == -40.0
 
     @pytest.mark.asyncio
-    async def test_the_broadcast_carries_the_level_the_speaker_holds(
+    async def test_the_broadcast_carries_the_level_the_speaker_will_play(
         self, service, mock_state_machine
     ):
-        """A refused dB must not reach the UI through volume_changed."""
+        """volume_changed shows the level the refusing satellite applies at its reconnect."""
         await service.update_client_volume_db(self.REFUSING, -25.0)
 
         mock_state_machine.broadcast.assert_awaited()
         event = mock_state_machine.broadcast.await_args_list[-1].args[0]
-        assert event.state["clients"][self.REFUSING]["volume_db"] == -40.0
+        assert event.state["clients"][self.REFUSING]["volume_db"] == -25.0
 
     @pytest.mark.asyncio
     async def test_an_offline_client_stores_the_level_for_the_reconnection_replay(
@@ -2191,15 +2134,13 @@ class TestPerClientApplyVerdict:
         assert caplog.text == ""
 
     @pytest.mark.asyncio
-    async def test_an_online_client_that_refused_the_mute_keeps_its_stored_state(
+    async def test_an_online_client_that_refused_the_mute_keeps_the_mute_asked_for(
         self, service, caplog
     ):
         """Mute travels the same path and answers the same way."""
-        with caplog.at_level(logging.ERROR):
-            assert await service.set_client_mute(self.REFUSING, True) is False
+        assert await service.set_client_mute(self.REFUSING, True) is False
 
-        assert service.state_store.get_client_mute(self.REFUSING) is False
-        assert self.REFUSING in caplog.text
+        assert service.state_store.get_client_mute(self.REFUSING) is True
 
     @pytest.mark.asyncio
     async def test_a_client_that_took_the_mute_stores_and_reports_it(self, service, caplog):
@@ -2234,9 +2175,9 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
     When these fail, a satellite that was off during an adjustment comes back at
     the level it left — right in absolute terms, wrong relative to the room it
     plays in, and nothing ever corrects it. The delta is relative, so the store
-    can carry it with no hardware and no replay queue; what must not happen is
-    the store being written for a *reachable* client that refused the level,
-    which is the other half of each test here.
+    can carry it with no hardware and no replay queue. A *reachable* client that
+    refused is sent the level and keeps it as asked, like its own cache does —
+    the other half of each test here.
     """
 
     ONLINE = "aa:bb:cc:dd:ee:01"
@@ -2283,11 +2224,14 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
             attempted[mac_id] = volume
             return mac_id != TestAbsentClientKeepsItsPlaceInTheRoom.REFUSING
 
-        async def apply_parallel(updates):
-            return {cid: await apply(cid, vol) for cid, vol in updates.items()}
+        def submit(mac_id, volume, force=False):
+            attempted[mac_id] = volume
+            answer = asyncio.get_running_loop().create_future()
+            answer.set_result(mac_id != TestAbsentClientKeepsItsPlaceInTheRoom.REFUSING)
+            return answer
 
+        controller.submit_volume = Mock(side_effect=submit)
         controller.set_equalizer_volume = AsyncMock(side_effect=apply)
-        controller.apply_volumes_parallel = AsyncMock(side_effect=apply_parallel)
         controller.attempted = attempted
         return controller
 
@@ -2342,12 +2286,13 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
         assert self.OFFLINE not in zoned.equalizer_controller.attempted
 
     @pytest.mark.asyncio
-    async def test_a_zone_delta_is_still_gated_on_a_reachable_member_s_verdict(self, zoned):
-        """Reaching a speaker and being refused is not the same as not reaching it."""
+    async def test_a_zone_delta_reaches_a_member_that_refuses_and_keeps_its_level(self, zoned):
+        """Reaching a speaker and being refused is not the same as not reaching it:
+        it is sent the level, and keeps it as asked for its reconnect."""
         await zoned.apply_zone_volume_delta('salon', -6.0)
 
         assert zoned.state_store.get_client_volume(self.ONLINE) == -36.0
-        assert zoned.state_store.get_client_volume(self.REFUSING) == -40.0
+        assert zoned.state_store.get_client_volume(self.REFUSING) == -46.0
         assert zoned.equalizer_controller.attempted[self.REFUSING] == -46.0
 
     # ---- 3.2 the global delta ----
@@ -2365,43 +2310,40 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
         assert self.OFFLINE not in service.equalizer_controller.attempted
 
     @pytest.mark.asyncio
-    async def test_a_global_delta_is_still_gated_on_a_reachable_client_s_verdict(self, service):
-        """A client the fan-out reached and that refused keeps its stored level."""
+    async def test_a_global_delta_reaches_a_client_that_refuses_and_keeps_its_level(self, service):
+        """A client the move reached and that refused keeps the level asked for."""
         await service.set_volume_db(-41.0)
 
         assert service.state_store.get_client_volume(self.ONLINE) == -36.0
-        assert service.state_store.get_client_volume(self.REFUSING) == -40.0
+        assert service.state_store.get_client_volume(self.REFUSING) == -46.0
         assert service.equalizer_controller.attempted[self.REFUSING] == -46.0
 
 
 class TestEqualizerControllerRegistryInjection:
     """`EqualizerController.set_registry` — the injection `VolumeService` does.
 
-    Green in the Lot A eviscration sweep, and `test_service_wiring` only proves
-    a production caller exists (`core/volume/service.py:106`), never that the
-    injection lands. Neutralised, the controller keeps no registry and
-    `apply_volumes_parallel` short-circuits: every client of a zone reports
-    False and nothing is dispatched, so a zone volume change does nothing at
-    all while each route still answers.
+    `test_service_wiring` only proves a production caller exists, never that
+    the injection lands. What the registry decides at the door is whether a
+    refusal is news: a speaker that went offline during the call is not
+    refusing anything, and reporting it would put an error banner on screen
+    each time a satellite is switched off mid-gesture.
     """
 
     @pytest.fixture
     def controller(self):
-        return EqualizerController(equalizer_router=Mock())
+        router = Mock(set_volume=AsyncMock(return_value={"status": "error", "message": "refused"}))
+        return EqualizerController(equalizer_router=router)
 
-    async def test_without_a_registry_no_client_is_dispatched_to(self, controller):
-        controller.set_equalizer_volume = AsyncMock(return_value=True)
+    async def test_without_a_registry_a_refusal_is_reported(self, controller, caplog):
+        with caplog.at_level(logging.ERROR):
+            assert await controller.set_equalizer_volume("aa:bb", -20.0) is False
 
-        results = await controller.apply_volumes_parallel({"aa:bb": -20.0, "cc:dd": -25.0})
+        assert "Volume not applied to aa:bb" in caplog.text
 
-        assert results == {"aa:bb": False, "cc:dd": False}
-        controller.set_equalizer_volume.assert_not_awaited()
+    async def test_once_injected_an_offline_speaker_s_refusal_is_not_reported(self, controller, caplog):
+        controller.set_registry(Mock(is_client_online=Mock(return_value=False)))
 
-    async def test_once_injected_every_client_is_dispatched_to(self, controller):
-        controller.set_registry(Mock())
-        controller.set_equalizer_volume = AsyncMock(return_value=True)
+        with caplog.at_level(logging.ERROR):
+            assert await controller.set_equalizer_volume("aa:bb", -20.0) is False
 
-        results = await controller.apply_volumes_parallel({"aa:bb": -20.0, "cc:dd": -25.0})
-
-        assert results == {"aa:bb": True, "cc:dd": True}
-        assert controller.set_equalizer_volume.await_count == 2
+        assert caplog.text == ""

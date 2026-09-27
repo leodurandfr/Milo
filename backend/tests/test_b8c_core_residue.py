@@ -23,8 +23,6 @@ Four clusters, chosen by what they cost rather than by how many lines they are:
   a rollback that did not happen is what leaves a source with no working binary
   and a UI that says it was restored.
 """
-import asyncio
-import contextlib
 import json
 import logging
 from pathlib import Path
@@ -304,68 +302,6 @@ class TestTheSettingsFailOpenReads:
         await service.set_settings_strict({})
 
         assert service._path.read_bytes() == before
-
-
-@contextlib.asynccontextmanager
-async def _expires_at_once(delay):
-    """Stand in for `asyncio.timeout(2.0)`, expired.
-
-    Carried on the primitive the code actually uses: holding the lock and
-    letting the real two seconds elapse would be a wall-clock budget in the
-    suite, and the bound is what is under test, not how long it takes.
-    """
-    assert delay == 2.0, "the volume lock's bound moved"
-    raise asyncio.TimeoutError
-    yield  # pragma: no cover -- unreachable, keeps this an async generator
-
-
-class TestTheVolumeLockTimeouts:
-    """Two seconds, then the command is dropped rather than queued."""
-
-    @pytest.fixture
-    def service(self):
-        from backend.core.volume.service import VolumeService
-
-        from backend.core.models.volume import VolumeConfig
-
-        svc = VolumeService.__new__(VolumeService)
-        svc._volume_lock = asyncio.Lock()
-        svc.logger = logging.getLogger("backend.core.volume.service")
-        svc._volume_control = True
-        svc._volume_config = VolumeConfig()
-        svc._state_store = Mock()
-        svc._is_multiroom_enabled = Mock(return_value=True)
-        svc._get_controllable_client_ids = Mock(return_value=["aa:bb:cc:dd:ee:07"])
-        svc._compute_multiroom_updates = AsyncMock(return_value={})
-        svc._state_store.get_complete_state = AsyncMock(return_value={})
-        return svc
-
-    async def test_a_set_that_cannot_take_the_lock_in_time_is_dropped(
-        self, service, caplog
-    ):
-        """The rotary encoder emits one command per detent. Queueing behind a
-        held lock replays a knob position the user already left — the level
-        walks after the hand stops."""
-        with caplog.at_level(logging.WARNING, logger="backend.core.volume.service"):
-            with patch.object(asyncio, "timeout", _expires_at_once):
-                assert await service.set_volume_db(-20.0) is False
-
-        assert any("Timeout waiting for volume lock" in r.message for r in caplog.records)
-        service._compute_multiroom_updates.assert_not_called()
-
-    async def test_an_adjust_that_cannot_take_the_lock_in_time_is_dropped(
-        self, service, caplog
-    ):
-        """Same bound on the relative path, which is the one the encoder and the
-        IR remote both use."""
-        with caplog.at_level(logging.WARNING, logger="backend.core.volume.service"):
-            with patch.object(asyncio, "timeout", _expires_at_once):
-                assert await service.adjust_volume_db(2.0) is False
-
-        assert any("Timeout waiting for volume lock" in r.message for r in caplog.records)
-        # `get_complete_state` is the first thing the guarded body reaches, so it
-        # is what says the command was dropped rather than queued.
-        service._state_store.get_complete_state.assert_not_called()
 
 
 class TestTheAutoStopReload:

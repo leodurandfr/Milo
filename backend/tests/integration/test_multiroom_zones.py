@@ -127,6 +127,31 @@ async def volume_state_store_with_registry(mock_settings_service, registry_with_
     return store
 
 
+async def _move_zone(store, registry, zone_id, delta_db):
+    """Move a zone through VolumeService over this store and registry; answer
+    what each speaker was sent."""
+    from backend.core.volume import VolumeService
+
+    service = VolumeService(state_machine=Mock(broadcast=AsyncMock()), snapcast_service=Mock(),
+                            settings_service=Mock(get_setting=AsyncMock(return_value=None)))
+    service._volume_config = store._volume_config
+    service._state_store = store
+    service._client_registry = registry
+    service._update_startup_volume_if_needed = AsyncMock()
+    service.broadcast_volume_state = AsyncMock()
+    sent = {}
+
+    def submit(mac_id, volume_db, force=False):
+        sent[mac_id] = volume_db
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(True)
+        return done
+
+    service._equalizer_controller.submit_volume = submit
+    await service.apply_zone_volume_delta(zone_id, delta_db)
+    return sent
+
+
 # ==============================================================================
 # Test Zone Creation
 # ==============================================================================
@@ -342,7 +367,7 @@ class TestZoneVolumeSynchronization:
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test apply_zone_delta calculates updates for all clients.
+        Test a zone delta moves every client of the zone.
 
         Validates:
         - Delta is applied to each client's volume
@@ -360,12 +385,12 @@ class TestZoneVolumeSynchronization:
         )
 
         # Apply +5 dB delta
-        updates = await store.apply_zone_delta("living_room", 5.0)
+        sent = await _move_zone(store, registry_with_clients, "living_room", 5.0)
 
-        # Both clients should have updates
-        assert len(updates) == 2
-        assert updates["local"] == -25.0  # -30 + 5
-        assert updates["bedroom"] == -20.0  # -25 + 5
+        # Both clients moved, and were sent where they moved
+        assert store.get_client_volume("local") == -25.0  # -30 + 5
+        assert store.get_client_volume("bedroom") == -20.0  # -25 + 5
+        assert sent == {"local": -25.0, "bedroom": -20.0}
 
     @pytest.mark.asyncio
     async def test_zone_volume_delta_respects_limits(
@@ -374,10 +399,10 @@ class TestZoneVolumeSynchronization:
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test apply_zone_delta respects volume limits.
+        Test a zone delta respects volume limits.
 
         Validates:
-        - Updates are clamped to min/max limits
+        - The zone moves as a block, stopped by its loudest room at the max
         """
         store = volume_state_store_with_registry
 
@@ -390,11 +415,12 @@ class TestZoneVolumeSynchronization:
             client_ids=["local", "bedroom"]
         )
 
-        # Try to apply delta that would exceed max
-        # bedroom at -25, +10 = -15 should clamp to -21
-        updates = await store.apply_zone_delta("living_room", 10.0)
+        # Try to apply delta that would exceed max: the block stops when its
+        # loudest room (bedroom, -25) reaches -21, so everyone moves +4
+        await _move_zone(store, registry_with_clients, "living_room", 10.0)
 
-        assert updates["bedroom"] == -21.0  # Clamped to max
+        assert store.get_client_volume("bedroom") == -21.0  # at the max
+        assert store.get_client_volume("local") == -26.0  # kept its 5 dB below
 
 
 # ==============================================================================

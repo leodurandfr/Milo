@@ -378,9 +378,9 @@ class Client:
             can sit at the same volume on the multiroom screen. Carried by every
             client Milō attenuates, the local unit included (a DAC client is the
             exception: its external amp owns the level). It is NOT a volume: the
-            fader keeps its own full range, which is what stops the balance from
-            collapsing when a shared level change drives one client into a limit
-            (see VolumeService._compute_multiroom_updates). Applied only while
+            fader keeps its own full range, and a shared level change moves the
+            clients as a block that stops at the limits rather than pushing one
+            into them (see VolumeConfig.bound_block_delta). Applied only while
             multiroom is on — in direct mode there is no rest of the system to
             balance against, so AudioRoutingService clears the local one.
 

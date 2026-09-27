@@ -1024,6 +1024,12 @@ class SnapcastWebSocketService:
 
         for attempt in range(max_retries + 1):
             try:
+                # Resolved again on every attempt: a zone or global move made
+                # while this one waited moved the away room's stored level, and
+                # the room comes back where its room went, not where it stood
+                # when the admission began.
+                if attempt:
+                    target_volume = self._resolve_target_volume(mac_id)
                 volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
                 if volume_synced:
                     # Re-push the client's EQ record now that it's reachable again.

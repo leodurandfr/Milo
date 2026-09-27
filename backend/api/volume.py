@@ -91,8 +91,9 @@ def create_volume_router(
         difference: two round-trips with a window in which the rotary, the
         screen or another client moves the volume in between. The
         read-modify-write still happens in multiroom — `set_volume_db` shifts
-        every client by the same delta — but it happens under `_volume_lock`,
-        which is the only place it can be atomic at all.
+        every client by the same delta — but it happens in one synchronous step
+        of `VolumeService._move`, which is the only place it can be atomic at
+        all.
 
         Milō denormalizes, because only Milō knows the limits and they move. A
         client that converted on its own cached limits is the whole reason this
@@ -201,9 +202,11 @@ def create_volume_router(
             request: `delta_db` or `volume_db`, exactly one
 
         Returns:
-            New zone average, the delta actually applied (0 when a level was
-            asked of a zone with no member online, since there is no average
-            to measure it from), list of affected clients, and offline clients
+            New zone average, the delta actually applied (less than a delta
+            asked when the zone's loudest room meets a limit first; 0 when a
+            level was asked of a zone with no member online, since there is no
+            average to measure it from), list of affected clients, and offline
+            clients
         """
         async with api_error_handler("Error applying zone delta"):
             if client_registry_service:
@@ -217,8 +220,9 @@ def create_volume_router(
                         zone_id, request.volume_db
                     )
                 else:
-                    new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
-                    applied_delta = request.delta_db
+                    new_average, applied_delta = await volume_service.apply_zone_volume_delta(
+                        zone_id, request.delta_db
+                    )
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
 
@@ -297,7 +301,10 @@ def create_volume_router(
               a few microdecibels of float rounding — a slider that springs
               back at its own top end and says nothing.
             - A client that answered and refused the level answers 502, never a
-              200 carrying a dB it is not playing.
+              200 carrying a dB it is not playing. The level is recorded all the
+              same, and the state every screen reads shows it: a satellite
+              caches it before calling its DSP and applies it when the DSP is
+              back, and the local unit is re-applied from the store.
             - An **offline** client also answers 200 — nothing failed — and the
               level is *recorded*, then applied when the client comes back: a
               reconnecting client is brought to its own stored level
@@ -326,7 +333,10 @@ def create_volume_router(
                 logger.error(f"Client {mac_id} did not take volume {volume_db:.1f} dB")
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Volume not applied to client {mac_id}",
+                    detail=(
+                        f"Volume recorded but not applied: client {mac_id} refused it, "
+                        "and applies it when its DSP is back"
+                    ),
                 )
 
             return {
@@ -363,7 +373,10 @@ def create_volume_router(
                 logger.error(f"Client {mac_id} did not take mute={request.mute}")
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Mute not applied to client {mac_id}",
+                    detail=(
+                        f"Mute recorded but not applied: client {mac_id} refused it, "
+                        "and applies it when its DSP is back"
+                    ),
                 )
 
             return {

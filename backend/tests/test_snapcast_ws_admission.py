@@ -716,6 +716,37 @@ class TestTheRemainingAdmissionArms:
         assert registry.get_client(MAC).online is False, "shown online before the sync"
         assert synced == [(MAC, {"set_online_after": True, "snapcast_id": SNAPCAST_ID})]
 
+    async def test_a_retry_takes_the_level_a_move_gave_the_room_while_it_waited(
+        self, service, registry, volume_service
+    ):
+        """An away room moves with its zone, and comes back where its zone went.
+
+        The target used to be resolved once, before the attempts: a zone move
+        landing between a failed attempt and its retry was overwritten with the
+        level the room had when the admission began.
+        """
+        await registry.register_client(MAC, "Canapé", IP)
+        volume_service.volume_config.restore_last_volume = True
+        stored = {MAC: -40.0}
+        volume_service.state_store.get_client_volume = MagicMock(side_effect=stored.get)
+        targets = []
+
+        async def apply(mac_id, target_db):
+            targets.append(target_db)
+            if len(targets) == 1:
+                stored[MAC] = -50.0  # the zone moved while this attempt failed
+                return False
+            return True
+
+        service._apply_target_volume_to_client = apply
+        service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        service._sync_client_gain_to_client = AsyncMock()
+
+        assert await service._do_sync_reconnecting_client_volume(
+            MAC, set_online_after=False, max_retries=1, retry_delay=0.0
+        ) is True
+        assert targets == [-40.0, -50.0]
+
     async def test_a_client_already_online_is_not_re_synced(self, service, registry):
         """This runs on every 30 s sweep. Re-syncing a client that never left
         re-applies its level, EQ and buffer config to a playing speaker."""
