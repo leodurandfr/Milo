@@ -232,6 +232,20 @@ async def _settled(apns, deadline=3.0, settle=0.1, count=1):
 CLOCK_SLACK_S = 0.001
 
 
+class _ShiftedClock:
+    """The `time` module, with a monotonic clock a test can move forward
+    without waiting — asyncio keeps the real one."""
+
+    def __init__(self):
+        self.shift = 0.0
+
+    def monotonic(self):
+        return time.monotonic() + self.shift
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
 def _clocked(apns):
     """The monotonic time each push leaves at, as a list the sends fill in."""
     sent_at = []
@@ -1983,16 +1997,18 @@ class TestCoalescing:
     async def test_a_level_change_after_a_quiet_spell_does_not_wait_out_the_window(
         self, service, registry, apns, monkeypatch
     ):
-        """The lock screen's volume bar moves only when an `update` lands, and
-        sleeping the window first held it 0.7-1.2 s behind every gesture
-        (measured from Milo-iOS, 2026-09-26). The window here is far longer
-        than `_settled` waits: only pushes sent at once are seen — the first
-        one ever, and one sent a full window after the last."""
+        """A level changed on Milō — the knob, the web UI, Milo-Mac — moves a
+        locked phone's bar when its `update` lands, and sleeping the window
+        first held it ~1.1 s behind (measured 2026-09-26). The window here is
+        far longer than `_settled` waits: only pushes sent at once are seen —
+        the first one ever, and one sent a full window after the last."""
         await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+        clock = _ShiftedClock()
+        monkeypatch.setattr("backend.core.push.service.time", clock)
 
         self._nudge(service, "first")
         await _settled(apns)
-        service._last_push_at -= 30.0              # a full window of quiet since
+        clock.shift += 30.0                        # a full window of quiet since
         self._nudge(service, "second")
         await _settled(apns, count=2)
         await service.cleanup()
@@ -2069,6 +2085,48 @@ class TestCoalescing:
         await service.cleanup()
 
         assert sent_types(apns) == []
+
+    async def test_a_state_change_arriving_while_a_level_change_waits_still_waits_its_window(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The window counts from the state change itself, not from whatever
+        woke the loop first. Riding on the level change's shorter wait, a
+        source change's "nothing is playing" beat reached Apple 0.19 s after
+        it arrived instead of a window later. A lower bound the loop keeps by
+        construction: a slow machine only makes the push later."""
+        window = 0.5
+        await self._session_open(service, registry, apns, monkeypatch, window=window)
+        sent_at = _clocked(apns)
+
+        self._nudge(service, "level 1")
+        await _settled(apns)
+        self._nudge(service, "level 2")            # waits what is left of the window
+        await asyncio.sleep(0.1)
+        self._restate(service, "between sources")
+        arrived_at = time.monotonic()
+        await _settled(apns, count=2, settle=1.5 * window)
+        await service.cleanup()
+
+        after = [t for t in sent_at if t > arrived_at]
+        assert after, "the state change was never pushed"
+        assert after[0] - arrived_at >= window - CLOCK_SLACK_S
+
+    async def test_a_stream_of_state_changes_cannot_hold_the_push_back(
+        self, service, registry, apns, monkeypatch
+    ):
+        """Only the first state change of a cycle sets its deadline. Were each
+        one to push it back, a source publishing faster than the window would
+        keep the lock screen on its first state for as long as it published."""
+        window = 0.2
+        await self._session_open(service, registry, apns, monkeypatch, window=window)
+
+        for i in range(16):                        # 0.8 s: four windows
+            self._restate(service, f"T{i}")
+            await asyncio.sleep(window / 4)
+        pushed_during_the_stream = len(sent_types(apns))
+        await service.cleanup()
+
+        assert pushed_during_the_stream >= 2
 
     async def test_state_changes_spread_over_the_window_produce_one_push(
         self, service, registry, apns, monkeypatch
