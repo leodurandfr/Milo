@@ -346,6 +346,45 @@ class TestZoneVolumeDelta:
 
         assert response.status_code == 404
 
+    def test_a_level_reaches_the_service_as_a_level(self, test_client, mock_volume_service):
+        """The web slider's `volume_db` is a level, and the service measures the delta.
+
+        Consumer: MultiroomControl.vue. The slider used to send a delta it had
+        computed against an average of its own, and a drag stacked those deltas.
+        Fails if the level is turned into a delta anywhere but the service, or if
+        the answer carries anything but the delta the service applied.
+        """
+        mock_volume_service.set_zone_volume = AsyncMock(return_value=(-30.0, 5.0))
+
+        response = test_client.patch("/api/volume/zone/zone-uuid-123", json={"volume_db": -30.0})
+
+        assert response.status_code == 200
+        assert response.json()["new_average_db"] == -30.0
+        assert response.json()["delta_db"] == 5.0
+        mock_volume_service.set_zone_volume.assert_awaited_once_with("zone-uuid-123", -30.0)
+        mock_volume_service.apply_zone_volume_delta.assert_not_called()
+
+    @pytest.mark.parametrize("body", [
+        {"delta_db": 5.0, "volume_db": -30.0},
+        {},
+    ], ids=["both", "neither"])
+    def test_a_body_that_is_not_exactly_one_quantity_is_refused(
+        self, test_client, mock_volume_service, body
+    ):
+        """A delta and a level are two quantities, and the route takes one.
+
+        Consumer: Milo-Mac (`delta_db`, pinned by its manifest) and the web UI
+        (`volume_db`). A body naming both, or neither, is a caller that does not
+        know what it asked for. Fails if the route picks one silently.
+        """
+        mock_volume_service.set_zone_volume = AsyncMock()
+
+        response = test_client.patch("/api/volume/zone/zone-uuid-123", json=body)
+
+        assert response.status_code == 422
+        mock_volume_service.apply_zone_volume_delta.assert_not_called()
+        mock_volume_service.set_zone_volume.assert_not_called()
+
 
 # =============================================================================
 # /api/volume/adjust route — deferred-success vs genuine-failure mapping

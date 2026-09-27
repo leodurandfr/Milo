@@ -1006,34 +1006,168 @@ class TestVolumeService:
         section.update(overrides)
         return section
 
-    async def test_reload_volume_limits_moves_a_stranded_volume_into_the_new_window(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """Tightening the limits past the current level must move that level.
-
-        Consumer: PUT /api/settings (volume section) -> reload_volume_limits. The
-        operator lowers the ceiling while the system plays above it; leaving the
-        level untouched would keep the appliance louder than the limit it now
-        declares. Fails if the reload stops loading, or stops recentring.
-        """
-        local_mac = "2c:cf:67:b9:46:6f"
-        service._state_store._local_mac_id = local_mac
-        service._state_store._clients[local_mac] = ClientVolume(
-            volume_db=-70.0, offset_db=0.0, mute=False, available=True
+    @staticmethod
+    def _multiroom(service, online):
+        """Multiroom on, `online` reachable, every fan-out accepted."""
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
+        service._client_registry = Mock()
+        service._client_registry.get_online_client_ids.return_value = list(online)
+        service._equalizer_controller.apply_volumes_parallel = AsyncMock(
+            side_effect=lambda updates: {mac: True for mac in updates}
         )
-        mock_settings.get_setting = AsyncMock(
-            return_value=self._volume_section(limit_min_db=-60.0, limit_max_db=-15.0)
-        )
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-        service.set_volume_db = AsyncMock()
         service.broadcast_volume_state = AsyncMock()
 
-        result = await service.reload_volume_limits()
+    async def test_a_raised_minimum_lifts_each_quiet_room_to_it_and_no_further(
+        self, service, mock_settings
+    ):
+        """Raising the floor moves the rooms under it to the floor, and nothing else.
 
-        assert result is True
-        service.set_volume_db.assert_awaited_once()
-        landed = service.set_volume_db.await_args.args[0]
-        assert -60.0 <= landed <= -15.0, f"recentred to {landed}, outside the new window"
+        Consumer: PUT /api/settings/volume-limits. Measured on the unit with
+        limits -78..-8 and rooms at -78/-75/-40: the reload used to recentre on
+        the middle of the range, -39 dB, a +39 dB jump on a room set to -78.
+        Fails if a room is sent anywhere but the nearest limit, or if a room the
+        limits still allow moves.
+        """
+        service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
+        service._state_store.set_volume_config(service._volume_config)
+        for mac, level in (("a", -78.0), ("b", -75.0), ("c", -40.0)):
+            service._state_store._clients[mac] = ClientVolume(
+                volume_db=level, offset_db=0.0, mute=False, available=True
+            )
+        self._multiroom(service, online=["a", "b", "c"])
+        mock_settings.get_setting = AsyncMock(
+            return_value=self._volume_section(limit_min_db=-70.0, limit_max_db=-8.0)
+        )
+
+        assert await service.reload_volume_limits() is True
+
+        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once_with(
+            {"a": -70.0, "b": -70.0}
+        )
+        levels = {mac: service._state_store.get_client_volume(mac) for mac in "abc"}
+        assert levels == {"a": -70.0, "b": -70.0, "c": -40.0}
+        service.broadcast_volume_state.assert_awaited_once()
+
+    async def test_a_lowered_maximum_brings_the_direct_speaker_down_to_it(
+        self, service, mock_settings, mock_camilladsp_service
+    ):
+        """Direct mode: the local speaker above a lowered ceiling plays at it.
+
+        Consumer: the same PUT, in direct mode, where only the local CamillaDSP
+        plays. Fails if the level leaves the store without reaching the daemon,
+        or reaches it anywhere but the new ceiling.
+        """
+        local_mac = "2c:cf:67:b9:46:6f"
+        service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
+        service._state_store.set_volume_config(service._volume_config)
+        service._state_store._local_mac_id = local_mac
+        service._state_store._clients[local_mac] = ClientVolume(
+            volume_db=-10.0, offset_db=0.0, mute=False, available=True
+        )
+        mock_settings.get_setting = AsyncMock(
+            return_value=self._volume_section(limit_min_db=-78.0, limit_max_db=-20.0)
+        )
+        service.broadcast_volume_state = AsyncMock()
+
+        assert await service.reload_volume_limits() is True
+
+        mock_camilladsp_service.set_volume.assert_awaited_once_with(-20.0)
+        assert service._state_store.local_volume_db == -20.0
+
+    async def test_a_room_that_is_away_gets_the_new_limit_in_the_store_only(
+        self, service, mock_settings
+    ):
+        """An offline room is brought into the limits without a hardware call.
+
+        Consumer: the reconnection sync, which puts the stored level back on the
+        speaker. Sending it now would reach nothing; not storing it would bring
+        the room back below the floor the operator just raised. Fails either way.
+        """
+        service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
+        service._state_store.set_volume_config(service._volume_config)
+        service._state_store._clients["here"] = ClientVolume(
+            volume_db=-78.0, offset_db=0.0, mute=False, available=True
+        )
+        service._state_store._clients["away"] = ClientVolume(
+            volume_db=-78.0, offset_db=0.0, mute=False, available=False
+        )
+        self._multiroom(service, online=["here"])
+        mock_settings.get_setting = AsyncMock(
+            return_value=self._volume_section(limit_min_db=-70.0, limit_max_db=-8.0)
+        )
+
+        assert await service.reload_volume_limits() is True
+
+        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once_with(
+            {"here": -70.0}
+        )
+        assert service._state_store.get_client_volume("away") == -70.0
+
+    @staticmethod
+    def _zone(service, levels, online):
+        """One zone 'z' holding `levels` ({mac: dB}), `online` reachable."""
+        from backend.core.volume.state import ZoneConfig
+        for mac, level in levels.items():
+            service._state_store._clients[mac] = ClientVolume(
+                volume_db=level, offset_db=0.0, mute=False, available=mac in online
+            )
+        service._state_store._zones["z"] = ZoneConfig(zone_id="z", name="Z", client_ids=list(levels))
+
+    async def test_a_zone_level_lands_the_average_on_it(self, service):
+        """A level moves every member by one delta, measured against the average.
+
+        Consumer: PATCH /api/volume/zone/{id} with `volume_db`, the web slider.
+        Fails if the rooms stop moving together or the average misses the level.
+        """
+        self._zone(service, {"a": -40.0, "b": -50.0}, online=["a", "b"])
+        self._multiroom(service, online=["a", "b"])
+
+        average, delta = await service.set_zone_volume("z", -30.0)
+
+        assert (average, delta) == (-30.0, 15.0)
+        assert service._state_store.get_client_volume("a") == -25.0
+        assert service._state_store.get_client_volume("b") == -35.0
+
+    async def test_two_sends_of_one_position_move_the_zone_once(self, service):
+        """A drag re-sends the thumb's level while the first send is in flight.
+
+        Consumer: the web slider, throttled at 80 ms and fire-and-forget. Its
+        deltas were measured against an average it captured itself, so each send
+        in flight added the same delta again. Fails if two concurrent sends of
+        one level leave the zone anywhere but that level.
+        """
+        self._zone(service, {"a": -40.0, "b": -50.0}, online=["a", "b"])
+        self._multiroom(service, online=["a", "b"])
+
+        async def slow_fan_out(updates):
+            await asyncio.sleep(0.01)
+            return {mac: True for mac in updates}
+        service._equalizer_controller.apply_volumes_parallel = AsyncMock(side_effect=slow_fan_out)
+
+        await asyncio.gather(service.set_zone_volume("z", -30.0), service.set_zone_volume("z", -30.0))
+        _, repeated = await service.set_zone_volume("z", -30.0)
+
+        assert repeated == 0.0
+        assert service._state_store.get_client_volume("a") == -25.0
+        assert service._state_store.get_client_volume("b") == -35.0
+
+    async def test_a_level_asked_of_a_zone_with_no_room_online_moves_nothing(self, service):
+        """No member online means no average to aim at, so nothing moves.
+
+        Consumer: the same route. The average of nobody used to read as the
+        -45 default, and a level measured against it would shift every stored
+        level by a number nobody set. Fails if anything is written or sent.
+        """
+        self._zone(service, {"a": -40.0, "b": -50.0}, online=[])
+        self._multiroom(service, online=[])
+
+        _, delta = await service.set_zone_volume("z", -30.0)
+
+        assert delta == 0.0
+        service._equalizer_controller.apply_volumes_parallel.assert_not_called()
+        assert service._state_store.get_client_volume("a") == -40.0
+        assert service._state_store.get_client_volume("b") == -50.0
 
     async def test_reload_volume_limits_is_silent_when_the_limits_did_not_move(
         self, service, mock_settings, mock_state_machine

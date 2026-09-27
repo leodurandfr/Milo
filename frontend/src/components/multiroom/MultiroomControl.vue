@@ -97,42 +97,6 @@ function getZoneMuted(zone) {
   return zone.client_ids.every(macId => unifiedStore.getClientMute(macId));
 }
 
-// Track starting state when zone slider drag begins
-// Structure: { zoneId: { startAvg, clientStarts: { macId: volume } } }
-const zoneSliderState = ref({});
-
-// Get or initialize zone slider state (called on first slider input)
-function getZoneSliderState(zone) {
-  const zoneId = zone.id || zone.client_ids.join('-');
-  if (!zoneSliderState.value[zoneId]) {
-    // Filter to only online clients with volume control (exclude DAC clients)
-    const onlineClientIds = zone.client_ids.filter(macId =>
-      snapcastStore.clients.some(c => c.mac_id === macId && c.online && c.volume_control !== false)
-    );
-
-    // Handle edge case: no online clients
-    if (onlineClientIds.length === 0) {
-      zoneSliderState.value[zoneId] = { startAvg: -30, clientStarts: {} };
-      return zoneSliderState.value[zoneId];
-    }
-
-    // Capture starting volumes for online clients only
-    const clientStarts = {};
-    onlineClientIds.forEach(macId => {
-      clientStarts[macId] = unifiedStore.getClientVolume(macId);
-    });
-    const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / onlineClientIds.length;
-    zoneSliderState.value[zoneId] = { startAvg, clientStarts };
-  }
-  return zoneSliderState.value[zoneId];
-}
-
-// Clear zone slider state after drag ends
-function clearZoneSliderState(zone) {
-  const zoneId = zone.id || zone.client_ids.join('-');
-  delete zoneSliderState.value[zoneId];
-}
-
 const showMessage = computed(() => {
   // Show message when:
   // - Error state
@@ -355,22 +319,11 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
   if (isZone) {
     const zone = getZoneForClient(client);
     if (zone && zone.client_ids.length > 1) {
-      // Zone volume change: apply DELTA atomically to entire zone
-      // Get starting state (captures volumes at start of slider drag)
-      const state = getZoneSliderState(zone);
-      const delta = volumeDb - state.startAvg;
-
-      // Single atomic API call for entire zone
-      // This eliminates race condition - updates all clients in parallel, broadcasts once
       try {
-        await unifiedStore.applyZoneVolumeDelta(zone.id, delta);
-        // Volume state updated via single WebSocket broadcast from backend
+        await unifiedStore.setZoneVolume(zone.id, volumeDb);
       } catch (error) {
-        logger.error('multiroom', 'Failed to apply zone volume delta', error);
+        logger.error('multiroom', 'Failed to set zone volume', error);
       }
-
-      // Clear state after change completes (slider drag ended)
-      clearZoneSliderState(zone);
     }
   } else {
     // Standalone client - always use direct update

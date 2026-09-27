@@ -6,12 +6,11 @@
  * instead of waiting out the trailing timer.
  *
  * The invariant these cases pin: **the value a gesture ends on is emitted
- * exactly once**. It is not a preference — the zone slider's consumer
- * (MultiroomControl.handleVolumeChange) reads a zone change as a DELTA against
- * the average captured when the drag began, and clears that capture only after
- * `applyZoneVolumeDelta` has awaited. A second synchronous emit therefore reads
- * the same `startAvg` and applies the same delta again: a zone dragged from
- * -30 dB to -20 dB lands at -10 dB, audibly.
+ * exactly once**. The zone slider now sends a level, so a second emit no longer
+ * moves the zone twice (it used to be a delta against an average captured when
+ * the drag began: a zone dragged from -30 dB to -20 dB landed at -10 dB). It
+ * would still be one more request, one more fan-out to every speaker and one
+ * more broadcast to every screen, for nothing.
  *
  * That second emit came from `lastArgs` surviving the immediate branch — the
  * trailing timer and `flush()` were its only clears. So it fired whenever the

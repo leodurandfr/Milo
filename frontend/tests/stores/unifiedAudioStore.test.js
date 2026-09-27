@@ -488,16 +488,16 @@ describe('unifiedAudioStore', () => {
     });
   });
 
-  describe('applyZoneVolumeDelta', () => {
-    it('sends one atomic delta for the whole zone', async () => {
+  describe('setZoneVolume', () => {
+    it('sends the level the slider sits on, not a delta', async () => {
       setMultiroom(true);
       apiCall.patch.mockResolvedValueOnce(ok({ status: 'success', new_average_db: -25 }));
 
-      const result = await store.applyZoneVolumeDelta('z1', 5);
+      const result = await store.setZoneVolume('z1', -25);
 
       expect(apiCall.patch).toHaveBeenCalledWith(
         '/api/volume/zone/z1',
-        { delta_db: 5 },
+        { volume_db: -25 },
         expect.objectContaining({ rethrow: true }),
       );
       expect(result.new_average_db).toBe(-25);
@@ -506,7 +506,7 @@ describe('unifiedAudioStore', () => {
     it('refuses while multiroom is off', async () => {
       setMultiroom(false);
 
-      const result = await store.applyZoneVolumeDelta('z1', 5);
+      const result = await store.setZoneVolume('z1', -25);
 
       expect(result.status).toBe('error');
       expect(apiCall.patch).not.toHaveBeenCalled();

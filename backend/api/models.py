@@ -79,6 +79,26 @@ class ClientVolumeRequest(BaseModel):
         return self
 
 
+class ZoneVolumeRequest(BaseModel):
+    """Zone volume request: a delta or a level, exactly one.
+
+    Milo-Mac sends `delta_db` (its manifest pins that body) and the web UI's zone
+    slider sends `volume_db`, the level the thumb sits on. The slider used to
+    send a delta against an average it captured itself, and while one request
+    was in flight the next reused the same base, so the deltas added up. A level
+    carries no base: the service measures the delta against the average it holds
+    when the request lands, and a repeated level moves nothing.
+    """
+    delta_db: Optional[float] = Field(default=None, ge=-60, le=60, description="Zone delta in dB")
+    volume_db: Optional[float] = Field(default=None, ge=-80, le=0, description="Zone average to reach, in dB")
+
+    @model_validator(mode="after")
+    def _exactly_one_quantity(self):
+        if (self.delta_db is None) == (self.volume_db is None):
+            raise ValueError("exactly one of 'delta_db' or 'volume_db' is required")
+        return self
+
+
 class ClientMuteRequest(BaseModel):
     """Client mute request"""
     mute: bool = Field(..., description="Mute state")

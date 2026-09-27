@@ -14,7 +14,7 @@ Architecture:
 import asyncio
 import contextlib
 import logging
-from typing import Optional, Dict, Tuple
+from typing import Callable, Optional, Dict, Tuple
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -396,29 +396,68 @@ class VolumeService:
 
     @handle_errors(default=False)
     async def reload_volume_limits(self) -> bool:
-        """Reload volume limits from settings and adjust current volume if needed."""
-        volume_state = await self._state_store.get_complete_state()
-        current_db = volume_state.global_volume_db
-        old_min = self._volume_config.limit_min_db
-        old_max = self._volume_config.limit_max_db
+        """Reload the volume limits and bring every level they now exclude to them.
+
+        Silent when the limits did not move: this runs on every save of the
+        volume settings, and a step-size edit must not push a volume frame.
+        """
+        old_limits = (self._volume_config.limit_min_db, self._volume_config.limit_max_db)
 
         await self._load_volume_config()
 
-        new_min = self._volume_config.limit_min_db
-        new_max = self._volume_config.limit_max_db
-
-        if old_min == new_min and old_max == new_max:
+        if (self._volume_config.limit_min_db, self._volume_config.limit_max_db) == old_limits:
             return True
 
-        # Check if current volume is outside new limits
-        if current_db < new_min or current_db > new_max:
-            # Move to center of new range
-            center_db = (new_min + new_max) / 2.0
-            await self.set_volume_db(center_db, show_bar=False)
-        else:
-            await self.broadcast_volume_state(show_bar=False)
-
+        await self._bring_levels_into_limits()
+        await self.broadcast_volume_state(show_bar=False)
         return True
+
+    async def _bring_levels_into_limits(self) -> None:
+        """Move each level the limits exclude to the nearest limit, room by room.
+
+        Never through the average. Measured on the unit: limits -78..-8, rooms
+        at -78/-75/-40, the minimum raised to -70. The average (-64.3) sat
+        inside the new window, so nothing moved and the two quiet rooms were
+        clamped on their next write only. When the average fell outside, the
+        whole house was sent to the middle of the range, -39 dB, a jump of
+        +39 dB on a speaker set to -78. Now the two quiet rooms go to -70 and
+        -40 stays where it is.
+
+        A room that is away gets the new level in the store only, the same rule
+        as a zone move (`_split_on_verdict`).
+        """
+        updates = {}
+        for mac_id in self._state_store.client_ids():
+            if not self._state_store.has_volume_control(mac_id):
+                continue
+            level = self._state_store.get_client_volume(mac_id)
+            nearest = self._volume_config.clamp(level)
+            if nearest != level:
+                updates[mac_id] = nearest
+        if not updates:
+            return
+
+        if not self._is_multiroom_enabled():
+            # Direct: only the local speaker plays. It goes through the same
+            # record-then-apply path as a direct volume set, and the others are
+            # stored for the day multiroom comes back.
+            local_mac = self._state_store.local_mac_id
+            for mac_id, volume_db in updates.items():
+                if mac_id == local_mac and self._volume_control:
+                    self._state_store.set_local_volume(volume_db)
+                    await self._apply_volume_to_hardware(volume_db, None, [])
+                else:
+                    await self._state_store.set_client_volume(mac_id, volume_db)
+            return
+
+        online = set(self._online_client_ids())
+        reachable = {cid: volume for cid, volume in updates.items() if cid in online}
+        results = await self._equalizer_controller.apply_volumes_parallel(reachable)
+        committed, refused = self._split_on_verdict(updates, reachable, results)
+        for mac_id, volume_db in committed.items():
+            await self._state_store.set_client_volume(mac_id, volume_db)
+        if refused:
+            self.logger.error(f"Volume limits not applied to {refused} — their stored level is unchanged")
 
     # ============================================================================
     # STARTUP VOLUME AUTO-UPDATE
@@ -726,20 +765,54 @@ class VolumeService:
 
         Every member's stored level moves; only the reachable ones are pushed to
         hardware. A member that was away during the adjustment therefore comes
-        back at the level its room moved to, not the one it left.
+        back at the level its room moved to, not the one it left. An entirely
+        offline zone therefore moves too: a delta needs no average.
+        """
+        new_avg, _ = await self._move_zone(zone_id, lambda average: delta_db)
+        return new_avg
+
+    async def set_zone_volume(self, zone_id: str, target_db: float) -> Tuple[float, float]:
+        """Move a zone so its average lands on `target_db`. Returns (average, delta).
+
+        The delta is measured under `_volume_lock`, against the average the
+        store holds at that moment, and never by the caller: the web slider used
+        to subtract an average it had captured itself, and each send made while
+        the previous one was in flight reused that stale base, so a drag added
+        its deltas up. A zone with no member online has no average to aim at,
+        and moves nothing.
+        """
+        return await self._move_zone(
+            zone_id,
+            lambda average: None if average is None else target_db - average,
+        )
+
+    async def _move_zone(self, zone_id: str,
+                         resolve: Callable[[Optional[float]], Optional[float]]) -> Tuple[float, float]:
+        """Move every member of a zone by the delta `resolve` derives from its average.
+
+        `resolve` receives the average of the zone's available members (None
+        when there is none) and answers the delta, or None to move nothing.
+        Returns (new average, delta applied).
+
+        Raises:
+            ValueError: unknown zone, for a delta (a level asked of an unknown
+                zone has no average, so it moves nothing).
         """
         # Phase A: compute updates under lock (no hardware I/O)
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
+                    delta_db = resolve(self._state_store.zone_average_or_none(zone_id))
+                    if delta_db is None:
+                        return self._state_store.compute_zone_average(zone_id), 0.0
                     updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
         except asyncio.TimeoutError:
             self.logger.warning("Timeout waiting for volume lock (>2s) for zone delta")
-            return self._state_store.compute_zone_average(zone_id)
+            return self._state_store.compute_zone_average(zone_id), 0.0
 
         if not updates:
             self.logger.warning(f"No clients to update in zone {zone_id}")
-            return self._state_store.compute_zone_average(zone_id)
+            return self._state_store.compute_zone_average(zone_id), 0.0
 
         # Phase B: hardware fan-out outside lock, reachable members only
         reachable = {h: v for h, v in updates.items()
@@ -765,7 +838,7 @@ class VolumeService:
 
         new_avg = self._state_store.compute_zone_average(zone_id)
         self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(committed)}/{len(updates)} stored)")
-        return new_avg
+        return new_avg, delta_db
 
     # ============================================================================
     # SERVICE INITIALIZATION

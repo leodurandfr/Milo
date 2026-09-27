@@ -19,6 +19,7 @@ from backend.api.models import (
     ClientVolumeRequest,
     ClientMuteRequest,
     VolumeControlRequest,
+    ZoneVolumeRequest,
 )
 from backend.api.responses import (
     ClientMuteSetResponse,
@@ -185,21 +186,24 @@ def create_volume_router(
     # ============================================================================
 
     @router.patch("/zone/{zone_id}", response_model=ZoneVolumeDeltaResponse)
-    async def apply_zone_delta_patch(zone_id: str, request: VolumeAdjustRequest):
+    async def apply_zone_delta_patch(zone_id: str, request: ZoneVolumeRequest):
         """
-        Apply volume delta to entire zone atomically (PATCH method per architecture).
+        Move a whole zone, by a delta or to a level, in one request.
 
-        This endpoint solves the race condition by:
-        1. Calculating updates for ALL clients in the zone
-        2. Applying them in parallel via EqualizerController
-        3. Broadcasting complete state ONCE after all updates succeed
+        Every member moves by the same delta, so the rooms keep their balance,
+        and the state is broadcast once. `delta_db` is Milo-Mac's body.
+        `volume_db` is the web slider's: the delta is measured against the
+        average the service holds when the request lands, so two sends of one
+        position during a drag move the zone once, not twice.
 
         Args:
             zone_id: Zone identifier (UUID)
-            request: Delta in dB to apply to zone
+            request: `delta_db` or `volume_db`, exactly one
 
         Returns:
-            New zone average, list of affected clients, and offline clients
+            New zone average, the delta actually applied (0 when a level was
+            asked of a zone with no member online, since there is no average
+            to measure it from), list of affected clients, and offline clients
         """
         async with api_error_handler("Error applying zone delta"):
             if client_registry_service:
@@ -208,7 +212,13 @@ def create_volume_router(
                     raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
 
             try:
-                new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+                if request.volume_db is not None:
+                    new_average, applied_delta = await volume_service.set_zone_volume(
+                        zone_id, request.volume_db
+                    )
+                else:
+                    new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+                    applied_delta = request.delta_db
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
 
@@ -227,7 +237,7 @@ def create_volume_router(
                 "status": "success",
                 "zone_id": zone_id,
                 "new_average_db": new_average,
-                "delta_db": request.delta_db,
+                "delta_db": applied_delta,
                 "applied_to": applied_to,
                 "offline_clients": offline_clients
             }

@@ -57,9 +57,8 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
     if (now - lastCallTime >= config.throttle) {
       // Execute immediately. Clearing lastArgs is what makes "the value a
       // gesture ends on is emitted exactly once" true: a release calls flush()
-      // in the same tick as the last move, and a zone volume emit is a DELTA
-      // against a capture the parent only clears after its await — so a second
-      // emit applies the same delta twice, audibly.
+      // in the same tick as the last move, and a second emit of the same value
+      // would be one more fan-out to every speaker for nothing.
       lastArgs = null;
       lastCallTime = now;
       callback(...args);

@@ -300,21 +300,22 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   /**
-   * Apply a volume delta to a whole zone in one request.
+   * Move a whole zone to a level, in one request.
    *
-   * Eliminates a race: N parallel per-client requests produce N stale broadcasts
-   * and a flickering slider; one request produces one correct broadcast.
+   * A level, not a delta: the server measures the delta against the average it
+   * holds when the request lands. A delta computed here, against an average read
+   * before the previous send had been applied, stacked on every send of a drag.
    * @returns {Promise<object>} {status, zone_id, new_average_db, delta_db, applied_to, offline_clients}
    */
-  async function applyZoneVolumeDelta(zoneId, deltaDb) {
+  async function setZoneVolume(zoneId, volumeDb) {
     if (!systemState.value.multiroom_enabled) {
-      logger.warn('store', 'Skipping zone delta - multiroom disabled');
+      logger.warn('store', 'Skipping zone volume - multiroom disabled');
       return { status: 'error', message: 'Multiroom disabled' };
     }
 
-    const result = await apiCall.patch(`/api/volume/zone/${zoneId}`, { delta_db: deltaDb }, {
+    const result = await apiCall.patch(`/api/volume/zone/${zoneId}`, { volume_db: volumeDb }, {
       category: 'store',
-      message: `Error applying zone delta for ${zoneId}`,
+      message: `Error setting zone volume for ${zoneId}`,
       rethrow: true,
     });
     return result.data;
@@ -400,6 +401,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     getClientMute,
     setClientVolume,
     setClientMute,
-    applyZoneVolumeDelta,
+    setZoneVolume,
   };
 });

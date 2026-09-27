@@ -616,6 +616,29 @@ class VolumeStateStore:
             self._schedule_persist()
             self.logger.debug(f"Applied {len(updates)} volume updates")
 
+    def client_ids(self) -> List[str]:
+        """Every client the volume state holds a level for, reachable or not."""
+        return list(self._clients)
+
+    def zone_average_or_none(self, zone_id: str) -> Optional[float]:
+        """Average level of a zone's available members with volume control.
+
+        None when there is none (or the zone is unknown): a level asked of such
+        a zone has nothing to be measured against, and answering a default here
+        would move every member off a number nobody set.
+        """
+        zone = self._zones.get(zone_id)
+        if zone is None:
+            return None
+        volumes = [
+            self._clients[client_id].volume_db
+            for client_id in zone.client_ids
+            if client_id in self._clients
+            and self._clients[client_id].available
+            and self.has_volume_control(client_id)
+        ]
+        return sum(volumes) / len(volumes) if volumes else None
+
     def compute_zone_average(self, zone_id: str) -> float:
         """
         Compute average volume for a zone (all available clients).
@@ -626,26 +649,8 @@ class VolumeStateStore:
         Returns:
             Average volume in dB (or DEFAULT_VOLUME if no available clients)
         """
-        if zone_id not in self._zones:
-            self.logger.warning(f"Cannot compute average for unknown zone: {zone_id}")
-            return DEFAULT_VOLUME_DB
-
-        zone = self._zones[zone_id]
-        volumes = []
-
-        for client_id in zone.client_ids:
-            if client_id in self._clients:
-                client = self._clients[client_id]
-                if client.available and self.has_volume_control(client_id):
-                    volumes.append(client.volume_db)
-
-        if volumes:
-            average = sum(volumes) / len(volumes)
-            self.logger.debug(f"Zone {zone_id} average: {average:.1f}dB from {len(volumes)} clients")
-            return average
-
-        self.logger.debug(f"Zone {zone_id} has no available clients, returning default {DEFAULT_VOLUME_DB}dB")
-        return DEFAULT_VOLUME_DB
+        average = self.zone_average_or_none(zone_id)
+        return DEFAULT_VOLUME_DB if average is None else average
 
     # ========== State Retrieval ==========
 
