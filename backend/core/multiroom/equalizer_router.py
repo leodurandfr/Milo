@@ -13,7 +13,7 @@ Architecture:
 import logging
 from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
 
-from backend.config.constants import DEFAULT_VOLUME_DB, MAX_VOLUME_DB
+from backend.config.constants import DEFAULT_VOLUME_DB, LOUDNESS_REFERENCE_DB, MAX_VOLUME_DB
 
 if TYPE_CHECKING:
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
@@ -251,8 +251,9 @@ class EqualizerRouter:
             return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/equalizer/loudness", settings)
-            return result
+            # The reference is Milō's, declared once; the satellite takes it as sent.
+            body = {**settings, "reference_level": LOUDNESS_REFERENCE_DB}
+            return await self._proxy_service.request(ip, "PUT", "/equalizer/loudness", body)
 
         return await self._route(mac_id, local, remote, "set_loudness")
 

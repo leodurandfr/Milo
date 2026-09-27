@@ -62,6 +62,9 @@ def connected_camilladsp_with_effects(mock_settings_service, mock_state_machine,
     service._client = mock_camilla_client
     service._connected = True
     service._state = CamillaDspState.RUNNING
+    # Effects on, as AudioRoutingService loads them from settings before any
+    # restore/bypass: they gate what an edit may put in the pipeline.
+    service._effects_enabled = True
 
     # Set up EQ filters with gains
     service._filters = [
@@ -183,13 +186,12 @@ class TestBypassEffects:
         """Should remove loudness filter references from pipeline; cache enabled flag stays True"""
         daemon_config = {
             "filters": {
-                "loudness_low": {"type": "Biquad", "parameters": {"type": "Lowshelf", "freq": 100, "gain": 10, "slope": 6}},
-                "loudness_high": {"type": "Biquad", "parameters": {"type": "Highshelf", "freq": 8000, "gain": 8, "slope": 6}},
+                "loudness": {"type": "Loudness", "parameters": {"fader": "Main", "reference_level": -20.0, "high_boost": 8, "low_boost": 10}},
             },
             "processors": {},
             "pipeline": [
-                {"type": "Filter", "channels": [0], "names": ["loudness_low", "loudness_high"]},
-                {"type": "Filter", "channels": [1], "names": ["loudness_low", "loudness_high"]},
+                {"type": "Filter", "channels": [0], "names": ["loudness"]},
+                {"type": "Filter", "channels": [1], "names": ["loudness"]},
             ],
         }
 
@@ -199,8 +201,7 @@ class TestBypassEffects:
 
         assert result is True
         pipeline_names = _pipeline_filter_names(camilla_daemon.last_pushed)
-        assert "loudness_low" not in pipeline_names
-        assert "loudness_high" not in pipeline_names
+        assert "loudness" not in pipeline_names
         # Cache untouched
         assert connected_camilladsp_with_effects._loudness["enabled"] is True
 
@@ -301,11 +302,10 @@ class TestRestoreEffects:
         result = await connected_camilladsp_with_effects.restore_effects()
 
         assert result is True
-        assert camilla_daemon.last_pushed["filters"]["loudness_low"]["parameters"]["gain"] == 10
-        assert camilla_daemon.last_pushed["filters"]["loudness_high"]["parameters"]["gain"] == 8
+        assert camilla_daemon.last_pushed["filters"]["loudness"]["parameters"]["low_boost"] == 10
+        assert camilla_daemon.last_pushed["filters"]["loudness"]["parameters"]["high_boost"] == 8
         pipeline_names = _pipeline_filter_names(camilla_daemon.last_pushed)
-        assert "loudness_low" in pipeline_names
-        assert "loudness_high" in pipeline_names
+        assert "loudness" in pipeline_names
 
     @pytest.mark.asyncio
     async def test_bypass_then_restore_preserves_preset_gains(self, connected_camilladsp_with_effects, camilla_daemon):
@@ -501,7 +501,7 @@ class TestCachePreservedAcrossBypass:
     async def test_bypass_does_not_overwrite_saved_loudness_settings(self, connected_camilladsp_with_effects, mock_settings_service, camilla_daemon):
         """Bypass should NOT call set_setting for eq.loudness (persist=False)"""
         daemon_config = {
-            "filters": {"loudness_low": {}, "loudness_high": {}},
+            "filters": {"loudness": {}},
             "processors": {},
             "pipeline": []
         }

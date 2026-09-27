@@ -799,6 +799,21 @@ class TestRemoteRecordPush:
 
         assert "enabled" not in router.update_filter.await_args.kwargs["filter_data"]
 
+    @pytest.mark.asyncio
+    async def test_a_band_edit_carries_the_headroom_of_the_whole_curve(
+        self, service, mock_registry, remote_client
+    ):
+        """Dragging one band changes the whole curve's peak, and the satellite is
+        sent the attenuation it now needs with the band — it computes nothing."""
+        router = Mock()
+        router.update_filter = AsyncMock(return_value={"status": "success"})
+        service._equalizer_router = router
+        mock_registry.get_client.return_value = remote_client
+
+        await service.update_filter("client", "milo-client-1", "eq_band_00", gain=5.0)
+
+        assert router.update_filter.await_args.kwargs["filter_data"]["headroom_db"] == -5.0
+
 
 # =============================================================================
 # Partial update methods (per-member persistence + targeted broadcast)

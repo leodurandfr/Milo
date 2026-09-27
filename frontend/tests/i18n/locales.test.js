@@ -203,8 +203,6 @@ const DIVERGENCE_ALLOWED = {
   // an English label with a loudness control is not that control, and renaming
   // it would break the family.
   'Loudness': 'the EQ preset catalogue is a naming family of its own',
-  'Bass boost': 'the EQ preset catalogue is a naming family of its own',
-  'Treble boost': 'the EQ preset catalogue is a naming family of its own',
   'Electronic': 'EQ preset catalogue vs the radio-browser genre taxonomy',
 };
 

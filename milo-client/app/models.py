@@ -15,6 +15,9 @@ class FilterUpdate(BaseModel):
     freq: Optional[float] = None
     q: Optional[float] = None
     filter_type: Optional[str] = None
+    # The attenuation the whole curve needs, computed by the server from every
+    # band (backend/core/equalizer/eq_response.py) and sent with each one.
+    headroom_db: Optional[float] = None
 
 
 class CompressorUpdate(BaseModel):
@@ -32,6 +35,9 @@ class LoudnessUpdate(BaseModel):
     enabled: Optional[bool] = None
     high_boost: Optional[float] = None
     low_boost: Optional[float] = None
+    # The main-fader level where the native Loudness filter stops correcting;
+    # the server declares it (LOUDNESS_REFERENCE_DB) and sends it every time.
+    reference_level: Optional[float] = None
 
 
 class MonoUpdate(BaseModel):
@@ -73,6 +79,7 @@ class LowpassUpdate(BaseModel):
 class FiltersBatchUpdate(BaseModel):
     """Model for batch filter update request."""
     filters: List[dict]  # [{id: "eq_band_00", gain: 5.0, freq: 31, q: 1.41}, ...]
+    headroom_db: Optional[float] = None  # see FilterUpdate.headroom_db
 
 
 class EqualizerEnabledUpdate(BaseModel):

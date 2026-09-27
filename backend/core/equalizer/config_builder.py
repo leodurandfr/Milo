@@ -2,7 +2,7 @@
 """Pure builders for CamillaDSP config fragments.
 
 Single source of truth for the daemon dict shapes (EQ biquad, compressor
-processor, loudness shelves). Both the live-apply paths (set_filter /
+processor, native loudness, EQ headroom). Both the live-apply paths (set_filter /
 _apply_compressor_config / _apply_loudness_config) and restore_effects build
 these via the functions here, so the ms->s / ratio->factor mapping can never
 drift between the two. Stateless and side-effect free.
@@ -36,28 +36,28 @@ def compressor_processor_def(compressor: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def loudness_filter_defs(loudness: Dict[str, Any]) -> Dict[str, Any]:
-    """Build the low/high shelf filter definitions for loudness compensation.
+def loudness_filter_def(loudness: Dict[str, Any], reference_level: float) -> Dict[str, Any]:
+    """Build CamillaDSP's native Loudness filter, following the main fader.
 
-    Returns a dict keyed by filter name, ready to merge into config["filters"].
+    It boosts below 70 Hz and above 3.5 kHz by an amount that grows as the
+    volume falls: none at `reference_level` and above, the full `low_boost` /
+    `high_boost` 20 dB below it, linear in between. The two static shelves it
+    replaces boosted the same at every level, loud included. Its boost can never
+    push the output past `reference_level` (the boost rises at most 1 dB per dB
+    of fader), so it needs no headroom of its own.
     """
     return {
-        "loudness_low": {
-            "type": "Biquad",
-            "parameters": {
-                "type": "Lowshelf",
-                "freq": 100,
-                "gain": loudness["low_boost"],
-                "slope": 6.0,
-            },
-        },
-        "loudness_high": {
-            "type": "Biquad",
-            "parameters": {
-                "type": "Highshelf",
-                "freq": 8000,
-                "gain": loudness["high_boost"],
-                "slope": 6.0,
-            },
+        "type": "Loudness",
+        "parameters": {
+            "fader": "Main",
+            "reference_level": reference_level,
+            "high_boost": loudness["high_boost"],
+            "low_boost": loudness["low_boost"],
+            "attenuate_mid": False,
         },
     }
+
+
+def headroom_filter_def(gain_db: float) -> Dict[str, Any]:
+    """Build the Gain stage that keeps the EQ curve's peak at 0 dB (see eq_response)."""
+    return {"type": "Gain", "parameters": {"gain": gain_db, "inverted": False, "mute": False}}

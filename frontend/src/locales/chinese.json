@@ -197,8 +197,8 @@
     },
     "loudness": {
       "title": "响度",
-      "lowBoost": "低频增强",
-      "highBoost": "高频增强"
+      "lowBoost": "低音量时低频增强",
+      "highBoost": "低音量时高频增强"
     },
     "mono": {
       "title": "单声道"

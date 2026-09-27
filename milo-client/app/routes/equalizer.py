@@ -62,6 +62,7 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
                 freq=update.freq,
                 q=update.q,
                 filter_type=update.filter_type,
+                headroom_db=update.headroom_db,
             )
             if success:
                 return {"status": "success", "filter_id": filter_id}
@@ -77,7 +78,7 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
     async def update_equalizer_filters_batch(update: FiltersBatchUpdate):
         """Update multiple EQ filter bands in one request (single disk save)."""
         try:
-            result = await equalizer_service.set_filters_batch(update.filters)
+            result = await equalizer_service.set_filters_batch(update.filters, update.headroom_db)
             if result.get("success"):
                 return {"status": "success", "applied": result["applied"]}
             else:
@@ -158,7 +159,8 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             success = await equalizer_service.set_loudness(
                 enabled=update.enabled,
                 high_boost=update.high_boost,
-                low_boost=update.low_boost
+                low_boost=update.low_boost,
+                reference_level=update.reference_level,
             )
             if success:
                 return {"status": "success", **equalizer_service.loudness}

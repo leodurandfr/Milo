@@ -121,12 +121,17 @@ class TestEqualizerServiceLoudness:
 
     @pytest.mark.asyncio
     async def test_set_loudness_enabled(self, equalizer_service, mock_camilla_client):
-        """Should enable loudness and add filters to pipeline."""
-        result = await equalizer_service.set_loudness(enabled=True, low_boost=10.0, high_boost=6.0)
+        """Should enable CamillaDSP's native Loudness filter on the main fader."""
+        config = mock_camilla_client.get_config.return_value
+        result = await equalizer_service.set_loudness(enabled=True, low_boost=10.0, high_boost=6.0,
+                                                      reference_level=-20.0)
         assert result is True
         assert equalizer_service.loudness["enabled"] is True
         assert equalizer_service.loudness["low_boost"] == 10.0
         assert equalizer_service.loudness["high_boost"] == 6.0
+        assert config["filters"]["loudness"]["type"] == "Loudness"
+        assert config["filters"]["loudness"]["parameters"]["fader"] == "Main"
+        assert "loudness" in config["pipeline"][0]["names"]
 
 
 class TestEqualizerServiceCrossover:
@@ -474,6 +479,87 @@ class TestEqualizerServiceStatusPayload:
         status = await equalizer_service.get_status()
         assert status["mono"] is True
         assert status["equalizer_enabled"] is False
+
+
+class TestEqualizerServiceHeadroomAndLoudness:
+    """What the server computes, the satellite applies: the EQ headroom and the
+    native loudness. The satellite keeps them in its config file, so they hold
+    across its restarts before any server push."""
+
+    @staticmethod
+    def _heads(config):
+        return [step["names"][0] for step in config["pipeline"] if step.get("type") == "Filter"]
+
+    @pytest.mark.asyncio
+    async def test_the_headroom_sent_with_a_band_lands_first_and_on_disk(
+        self, equalizer_service, mock_camilla_client, tmp_path
+    ):
+        """First in the chain, so it attenuates before anything that boosts; in
+        the file, so a satellite that restarts plays the same curve."""
+        config = mock_camilla_client.get_config.return_value
+
+        assert await equalizer_service.set_filter("eq_band_1", 6.0, headroom_db=-6.0) is True
+
+        assert config["filters"]["headroom"]["parameters"]["gain"] == -6.0
+        assert self._heads(config) == ["headroom"]
+        assert "headroom" in (tmp_path / "config.yml").read_text()
+
+    @pytest.mark.asyncio
+    async def test_the_headroom_follows_the_master_toggle(self, equalizer_service, mock_camilla_client):
+        """A bypassed EQ boosts nothing, so it is attenuated by nothing."""
+        config = mock_camilla_client.get_config.return_value
+        await equalizer_service.set_filters_batch([{"id": "eq_band_1", "gain": 6.0}], headroom_db=-6.0)
+
+        await equalizer_service.set_equalizer_enabled(False)
+        assert "headroom" not in config["pipeline"][0]["names"]
+
+        await equalizer_service.set_equalizer_enabled(True)
+        assert self._heads(config) == ["headroom"]
+
+    @pytest.mark.asyncio
+    async def test_loudness_without_a_reference_is_refused_not_faked(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """The satellite declares no reference of its own; until the server sent
+        one, enabling loudness is an error, never a success that plays nothing."""
+        config = mock_camilla_client.get_config.return_value
+
+        assert await equalizer_service.set_loudness(enabled=True) is False
+
+        assert equalizer_service.loudness["enabled"] is False
+        assert "loudness" not in config["filters"]
+
+    @pytest.mark.asyncio
+    async def test_a_satellite_restarted_bypassed_still_has_its_headroom(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """Bypassed, the headroom is out of the pipeline but kept in the file: a
+        restart then finds it, and re-enabling the EQ (a bare enabled flag from
+        the server) brings it back with the bands instead of leaving them to clip."""
+        config = mock_camilla_client.get_config.return_value
+        await equalizer_service.set_filters_batch([{"id": "eq_band_1", "gain": 6.0}], headroom_db=-6.0)
+        await equalizer_service.set_equalizer_enabled(False)
+        assert config["filters"]["headroom"]["parameters"]["gain"] == -6.0
+
+        equalizer_service._headroom_db = 0.0  # a fresh process
+        await equalizer_service._load_state_from_config()
+        await equalizer_service.set_equalizer_enabled(True)
+
+        assert self._heads(config) == ["headroom"]
+
+    @pytest.mark.asyncio
+    async def test_a_restart_reads_both_back_from_the_config(self, equalizer_service, mock_camilla_client):
+        config = mock_camilla_client.get_config.return_value
+        config["filters"]["headroom"] = {"type": "Gain", "parameters": {"gain": -3.5}}
+        config["filters"]["loudness"] = {"type": "Loudness", "parameters": {
+            "fader": "Main", "reference_level": -20.0, "high_boost": 4.0, "low_boost": 9.0}}
+
+        await equalizer_service._load_state_from_config()
+
+        assert equalizer_service._headroom_db == -3.5
+        assert equalizer_service.loudness == {
+            "enabled": True, "high_boost": 4.0, "low_boost": 9.0, "reference_level": -20.0
+        }
 
 
 class TestEqualizerServiceMasterBypass:

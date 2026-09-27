@@ -14,6 +14,7 @@ import aiohttp
 import pytest
 from unittest.mock import Mock, AsyncMock
 
+from backend.config.constants import LOUDNESS_REFERENCE_DB
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.equalizer import (
     CamillaDSPService,
@@ -420,7 +421,11 @@ class TestApplyRecord:
         assert sent["/equalizer/enabled"] == {"enabled": False}
         assert sent["/equalizer/mono"] == {"enabled": True}
         assert sent["/equalizer/compressor"] == record.compressor.to_dict()
-        assert sent["/equalizer/loudness"] == record.loudness.to_dict()
+        # The satellite builds its native Loudness filter from what it is sent,
+        # the reference included: Milō declares it once, the satellite does not.
+        assert sent["/equalizer/loudness"] == {
+            **record.loudness.to_dict(), "reference_level": LOUDNESS_REFERENCE_DB
+        }
 
     @pytest.mark.asyncio
     async def test_bands_carry_tuning_only(self, proxy_service, record):
@@ -841,7 +846,7 @@ class TestCamillaDSPService:
         cfg = camilla_daemon.last_pushed
         assert cfg["filters"]["eq_band_09"]["parameters"]["gain"] == 9.0
         assert "compressor" in cfg["processors"]
-        assert "loudness_low" in cfg["filters"]
+        assert cfg["filters"]["loudness"]["type"] == "Loudness"
         assert camilladsp_service._active_preset == "custom"
 
     @pytest.mark.asyncio

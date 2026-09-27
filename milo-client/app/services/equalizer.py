@@ -93,9 +93,11 @@ class EqualizerService:
         self._loudness = {
             "enabled": False,
             "high_boost": 5.0,
-            "low_boost": 8.0
+            "low_boost": 8.0,
+            "reference_level": None,  # sent by the server with every loudness push
         }
         self._gain_db: float = 0.0
+        self._headroom_db: float = 0.0
         self._volume = {"main": STARTUP_GAIN_DB, "mute": True}  # Matches CamillaDSP's -m + --gain start
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
@@ -354,20 +356,22 @@ class EqualizerService:
             else:
                 self._compressor["enabled"] = False
 
-            # Check for loudness filters
+            # The native Loudness filter (absent filter == loudness off)
             if "filters" in config:
-                has_loudness_low = "loudness_low" in config["filters"]
-                has_loudness_high = "loudness_high" in config["filters"]
-
-                if has_loudness_low and has_loudness_high:
+                loudness = config["filters"].get("loudness")
+                if loudness and loudness.get("type") == "Loudness":
+                    params = loudness.get("parameters", {})
                     self._loudness["enabled"] = True
-                    low_params = config["filters"]["loudness_low"].get("parameters", {})
-                    high_params = config["filters"]["loudness_high"].get("parameters", {})
-                    self._loudness["low_boost"] = low_params.get("gain", 8.0)
-                    self._loudness["high_boost"] = high_params.get("gain", 5.0)
+                    self._loudness["low_boost"] = params.get("low_boost", self._loudness["low_boost"])
+                    self._loudness["high_boost"] = params.get("high_boost", self._loudness["high_boost"])
+                    self._loudness["reference_level"] = params.get("reference_level")
                     self.logger.info("Loaded loudness state from config")
                 else:
                     self._loudness["enabled"] = False
+
+                # The EQ headroom (absent filter == none)
+                headroom = config["filters"].get("headroom", {})
+                self._headroom_db = headroom.get("parameters", {}).get("gain", 0.0)
 
             # Check for the level trim (absent filter == no trim)
             if "filters" in config:
@@ -498,12 +502,14 @@ class EqualizerService:
     @serialised_config_write
     async def set_filter(self, filter_id: str, gain: float,
                          freq: float = None, q: float = None,
-                         filter_type: str = None) -> bool:
-        """Update a filter band's tuning.
+                         filter_type: str = None, headroom_db: float = None) -> bool:
+        """Update a filter band's tuning, and the headroom the whole curve needs.
 
         Mutates the Biquad parameters only — the band's presence in the pipeline
         is owned by set_equalizer_enabled(), so editing a band never un-bypasses
         a bypassed client. Mirrors the server's CamillaDSPService.set_filter().
+        The headroom is computed by the server from every band and sent with
+        each one; None leaves it as it is.
         """
         try:
             config = await self._get_config()
@@ -521,15 +527,19 @@ class EqualizerService:
                 params["q"] = q
             if filter_type is not None:
                 params["type"] = filter_type
+            if headroom_db is not None:
+                self._config_apply_headroom(config, headroom_db, self._equalizer_enabled)
 
             await self._apply_config(config)
+            if headroom_db is not None:
+                self._headroom_db = headroom_db
             return True
         except Exception as e:
             self.logger.error(f"Error setting filter {filter_id}: {e}")
             return False
 
     @serialised_config_write
-    async def set_filters_batch(self, filters: List[dict]) -> dict:
+    async def set_filters_batch(self, filters: List[dict], headroom_db: float = None) -> dict:
         """
         Update multiple filters in one operation with a single disk save.
 
@@ -562,8 +572,12 @@ class EqualizerService:
                     if f.get("filter_type") is not None:
                         params["type"] = f["filter_type"]
                     applied += 1
+            if headroom_db is not None:
+                self._config_apply_headroom(config, headroom_db, self._equalizer_enabled)
 
             await self._apply_config(config)
+            if headroom_db is not None:
+                self._headroom_db = headroom_db
             return {"success": True, "applied": applied}
         except Exception as e:
             self.logger.error(f"Error in batch filter update: {e}")
@@ -595,6 +609,7 @@ class EqualizerService:
             if not config.get("processors"):
                 config["processors"] = {}
 
+            self._remove_processor_from_pipeline(config, "compressor")
             if self._compressor["enabled"]:
                 config["processors"]["compressor"] = {
                     "type": "Compressor",
@@ -607,11 +622,12 @@ class EqualizerService:
                         "makeup_gain": self._compressor["makeup_gain"]
                     }
                 }
-                self._add_processor_to_pipeline(config, "compressor")
+                # Piped only while the EQ is, like the loudness and the headroom.
+                if self._equalizer_enabled:
+                    self._add_processor_to_pipeline(config, "compressor")
             else:
                 if "compressor" in config.get("processors", {}):
                     del config["processors"]["compressor"]
-                self._remove_processor_from_pipeline(config, "compressor")
 
             await self._apply_config(config)
             return True
@@ -621,8 +637,17 @@ class EqualizerService:
 
     @serialised_config_write
     async def set_loudness(self, enabled: bool = None,
-                           high_boost: float = None, low_boost: float = None) -> bool:
-        """Update loudness settings."""
+                           high_boost: float = None, low_boost: float = None,
+                           reference_level: float = None) -> bool:
+        """Update loudness settings: CamillaDSP's native Loudness filter, on the
+        main fader, flat from `reference_level` up and full 20 dB below it."""
+        if reference_level is not None:
+            self._loudness["reference_level"] = reference_level
+        if enabled and self._loudness.get("reference_level") is None:
+            # The reference is the server's to give. Answering success without
+            # a filter would show loudness on while nothing plays it.
+            self.logger.error("Loudness refused: no reference_level has been sent")
+            return False
         if enabled is not None:
             self._loudness["enabled"] = enabled
         if high_boost is not None:
@@ -638,32 +663,24 @@ class EqualizerService:
             if "filters" not in config:
                 config["filters"] = {}
 
+            self._remove_filter_from_pipeline(config, "loudness")
             if self._loudness["enabled"]:
-                config["filters"]["loudness_low"] = {
-                    "type": "Biquad",
+                config["filters"]["loudness"] = {
+                    "type": "Loudness",
                     "parameters": {
-                        "type": "Lowshelf",
-                        "freq": 100,
-                        "gain": self._loudness["low_boost"],
-                        "slope": 6.0
+                        "fader": "Main",
+                        "reference_level": self._loudness["reference_level"],
+                        "high_boost": self._loudness["high_boost"],
+                        "low_boost": self._loudness["low_boost"],
+                        "attenuate_mid": False,
                     }
                 }
-                config["filters"]["loudness_high"] = {
-                    "type": "Biquad",
-                    "parameters": {
-                        "type": "Highshelf",
-                        "freq": 8000,
-                        "gain": self._loudness["high_boost"],
-                        "slope": 6.0
-                    }
-                }
-                self._add_filter_to_pipeline(config, "loudness_low")
-                self._add_filter_to_pipeline(config, "loudness_high")
+                # Piped only while the EQ is: a loudness edit made during a
+                # bypass must not make the loudness audible on its own.
+                if self._equalizer_enabled:
+                    self._add_filter_to_pipeline(config, "loudness")
             else:
-                for name in ["loudness_low", "loudness_high"]:
-                    if name in config.get("filters", {}):
-                        del config["filters"][name]
-                    self._remove_filter_from_pipeline(config, name)
+                config["filters"].pop("loudness", None)
 
             await self._apply_config(config)
             return True
@@ -925,9 +942,28 @@ class EqualizerService:
             self.logger.error(f"Error setting lowpass: {e}")
             return False
 
+    def _config_apply_headroom(self, config: Dict, headroom_db: float, enabled: bool) -> None:
+        """Keep the EQ curve's peak at 0 dB with a Gain stage at the head of the chain.
+
+        Defined whenever it attenuates — in the file too, so a satellite that
+        restarts bypassed finds it when the EQ comes back — and piped only while
+        the master toggle is on; first in each channel's filters. Mirrors the
+        server's CamillaDSPService._config_apply_headroom.
+        """
+        self._remove_filter_from_pipeline(config, "headroom")
+        if headroom_db < 0:
+            config.setdefault("filters", {})["headroom"] = {
+                "type": "Gain",
+                "parameters": {"gain": headroom_db, "inverted": False, "mute": False},
+            }
+            if enabled:
+                self._add_filter_to_pipeline(config, "headroom", head=True)
+        else:
+            config.get("filters", {}).pop("headroom", None)
+
     def _add_filter_to_pipeline(self, config: Dict, filter_name: str,
-                                channels: List[int] = None) -> None:
-        """Add a filter to the pipeline."""
+                                channels: List[int] = None, head: bool = False) -> None:
+        """Add a filter to each channel's first Filter step, last — or first with `head`."""
         if "pipeline" not in config:
             config["pipeline"] = []
 
@@ -938,7 +974,7 @@ class EqualizerService:
             for step in config["pipeline"]:
                 if step.get("type") == "Filter" and channel in step.get("channels", []):
                     if filter_name not in step.get("names", []):
-                        step["names"].append(filter_name)
+                        step["names"].insert(0 if head else len(step["names"]), filter_name)
                     break  # Continue to next channel, not return
 
     def _remove_filter_from_pipeline(self, config: Dict, filter_name: str) -> None:
@@ -996,15 +1032,14 @@ class EqualizerService:
                 # preserving the user's per-effect choice across a master toggle.
                 if self._compressor["enabled"]:
                     self._add_processor_to_pipeline(config, "compressor")
-                if self._loudness["enabled"]:
-                    self._add_filter_to_pipeline(config, "loudness_low")
-                    self._add_filter_to_pipeline(config, "loudness_high")
+                if self._loudness["enabled"] and "loudness" in config.get("filters", {}):
+                    self._add_filter_to_pipeline(config, "loudness")
             else:
                 for name in eq_bands:
                     self._remove_filter_from_pipeline(config, name)
                 self._remove_processor_from_pipeline(config, "compressor")
-                self._remove_filter_from_pipeline(config, "loudness_low")
-                self._remove_filter_from_pipeline(config, "loudness_high")
+                self._remove_filter_from_pipeline(config, "loudness")
+            self._config_apply_headroom(config, self._headroom_db, enabled)
 
             await self._apply_config(config)
             self._equalizer_enabled = enabled

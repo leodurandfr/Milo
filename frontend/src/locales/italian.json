@@ -197,8 +197,8 @@
     },
     "loudness": {
       "title": "Loudness",
-      "lowBoost": "Potenziamento bassi",
-      "highBoost": "Potenziamento alti"
+      "lowBoost": "Potenziamento bassi a basso volume",
+      "highBoost": "Potenziamento alti a basso volume"
     },
     "mono": {
       "title": "Mono"

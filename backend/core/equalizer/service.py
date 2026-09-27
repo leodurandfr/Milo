@@ -11,13 +11,15 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
-from backend.config.constants import STARTUP_GAIN_DB
+from backend.config.constants import LOUDNESS_REFERENCE_DB, STARTUP_GAIN_DB
 from backend.core.equalizer.camilladsp_client import CamillaDspClient
 from backend.core.equalizer.config_builder import (
     compressor_processor_def,
     eq_filter_def,
-    loudness_filter_defs,
+    headroom_filter_def,
+    loudness_filter_def,
 )
+from backend.core.equalizer.eq_response import headroom_db
 from backend.core.equalizer.presets import get_builtin_presets, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 from backend.core.models.ws_events import (
     EqualizerStateChanged,
@@ -131,6 +133,7 @@ class CamillaDSPService:
             "high_boost": 5.0,
             "low_boost": 8.0
         }
+
         self._mono: bool = False
         # Same arrangement for the subwoofer split: the zone record owns it
         # (CrossoverService derives it from the members' speaker types), these are
@@ -159,7 +162,10 @@ class CamillaDSPService:
         # Owned state: equalizer effects on/off. Loaded from
         # routing.equalizer_effects_enabled in settings.json. Read by
         # AudioStateMachine.state() when composing the audio state, and by
-        # AudioRoutingService via property.
+        # AudioRoutingService via property. It also gates what an edit may put
+        # in the pipeline: a compressor, loudness or headroom edited during a
+        # bypass is defined but not piped (AudioRoutingService sets this before
+        # calling restore_effects, and rolls it back if that fails).
         self._effects_enabled: bool = False
 
     def set_state_machine(self, state_machine) -> None:
@@ -543,25 +549,51 @@ class CamillaDSPService:
             config["processors"] = {}
         if self._compressor["enabled"]:
             config["processors"]["compressor"] = compressor_processor_def(self._compressor)
-            self._add_processor_to_pipeline(config, "compressor")
+            if self._effects_enabled:
+                self._add_processor_to_pipeline(config, "compressor")
+            else:
+                self._remove_processor_from_pipeline(config, "compressor")
         else:
             if "compressor" in config.get("processors", {}):
                 del config["processors"]["compressor"]
             self._remove_processor_from_pipeline(config, "compressor")
 
     def _config_apply_loudness(self, config: Dict) -> None:
-        """Add or remove the loudness shelves + pipeline refs per cache state."""
+        """Define or drop the native Loudness filter per cache state; pipe it only
+        while the EQ is not bypassed, like the headroom — a loudness edit made
+        during a bypass must not make the loudness audible on its own."""
+        self._remove_filter_from_pipeline(config, "loudness")
         if self._loudness["enabled"]:
-            config["filters"].update(loudness_filter_defs(self._loudness))
-            self._add_filter_to_pipeline(config, "loudness_low")
-            self._add_filter_to_pipeline(config, "loudness_high")
+            config["filters"]["loudness"] = loudness_filter_def(self._loudness, LOUDNESS_REFERENCE_DB)
+            if self._effects_enabled:
+                self._add_filter_to_pipeline(config, "loudness")
         else:
-            if "loudness_low" in config["filters"]:
-                del config["filters"]["loudness_low"]
-            if "loudness_high" in config["filters"]:
-                del config["filters"]["loudness_high"]
-            self._remove_filter_from_pipeline(config, "loudness_low")
-            self._remove_filter_from_pipeline(config, "loudness_high")
+            config["filters"].pop("loudness", None)
+
+    def _config_apply_headroom(self, config: Dict) -> None:
+        """Keep the EQ curve's peak at 0 dB with a Gain stage at the head of the chain.
+
+        Computed from the bands as they are in the cache, and present only while
+        the effects are live and the bands are piped: a bypassed EQ boosts
+        nothing, and a curve that only cuts needs no attenuation. First in each channel's filters, so
+        it attenuates before anything that boosts.
+        """
+        self._remove_filter_from_pipeline(config, "headroom")
+        attenuation = headroom_db(
+            (f.get("type", "Peaking"), f["freq"], f.get("gain", 0), f.get("q", 1.0))
+            for f in self._filters
+        )
+        bands_piped = any(
+            f["id"] in step.get("names", [])
+            for step in config.get("pipeline", []) if step.get("type") == "Filter"
+            for f in self._filters
+        )
+        if attenuation < 0:
+            config["filters"]["headroom"] = headroom_filter_def(attenuation)
+            if self._effects_enabled and bands_piped:
+                self._add_filter_to_pipeline(config, "headroom", head=True)
+        else:
+            config["filters"].pop("headroom", None)
 
     def _config_apply_mono(self, config: Dict) -> None:
         """Swap the pipeline Mixer step between stereo passthrough and mono sum."""
@@ -629,17 +661,21 @@ class CamillaDSPService:
         async with self._config_lock:
             config = await self._get_config()
             self._config_set_eq_filter(config, filter_id, freq, gain, q, filter_type)
-            await self._set_config(config)
-
-            for f in self._filters:
-                if f["id"] == filter_id:
-                    f.update({
-                        "type": filter_type,
-                        "freq": freq,
-                        "gain": gain,
-                        "q": q,
-                    })
-                    break
+            # The cache takes the band before the write, since the headroom is
+            # computed from it, and gives it back if the daemon refuses: the
+            # cache is what get_filters and the next persist report.
+            band = next((f for f in self._filters if f["id"] == filter_id), None)
+            before = dict(band) if band else None
+            if band:
+                band.update({"type": filter_type, "freq": freq, "gain": gain, "q": q})
+            try:
+                self._config_apply_headroom(config)
+                await self._set_config(config)
+            except Exception:
+                if band:
+                    band.clear()
+                    band.update(before)
+                raise
 
         # Persist filters to settings (skip during bypass operations)
         if persist:
@@ -684,13 +720,15 @@ class CamillaDSPService:
 
     # === Pipeline Management ===
 
-    def _add_filter_to_pipeline(self, config: Dict, name: str, channels: List[int] = None) -> None:
+    def _add_filter_to_pipeline(self, config: Dict, name: str, channels: List[int] = None,
+                                head: bool = False) -> None:
+        """Add `name` to the first Filter step of each channel, last — or first with `head`."""
         pipeline = config.setdefault("pipeline", [])
         for ch in (channels or [0, 1]):
             step = next((s for s in pipeline if s.get("type") == "Filter" and ch in s.get("channels", [])), None)
             if step:
                 if name not in step.get("names", []):
-                    step["names"].append(name)
+                    step["names"].insert(0 if head else len(step["names"]), name)
             else:
                 pipeline.append({"type": "Filter", "channels": [ch], "names": [name]})
 
@@ -953,7 +991,7 @@ class CamillaDSPService:
         """
         Bypass all equalizer effects while keeping volume control active.
 
-        Pipeline-only bypass: removes EQ / compressor / loudness references
+        Pipeline-only bypass: removes EQ / headroom / compressor / loudness references
         from CamillaDSP's pipeline so the daemon stops applying them. The
         in-memory cache (`self._filters`, `self._compressor`, `self._loudness`)
         is the source of truth for user intent and is **never** mutated here —
@@ -978,8 +1016,8 @@ class CamillaDSPService:
                 self._remove_filter_from_pipeline(config, f["id"])
 
             self._remove_processor_from_pipeline(config, "compressor")
-            self._remove_filter_from_pipeline(config, "loudness_low")
-            self._remove_filter_from_pipeline(config, "loudness_high")
+            self._remove_filter_from_pipeline(config, "loudness")
+            self._remove_filter_from_pipeline(config, "headroom")
 
             await self._set_config(config)
 
@@ -1017,6 +1055,7 @@ class CamillaDSPService:
                 )
                 self._add_filter_to_pipeline(config, f["id"])
 
+            self._config_apply_headroom(config)
             self._config_apply_compressor(config)
             self._config_apply_loudness(config)
 
@@ -1078,6 +1117,7 @@ class CamillaDSPService:
                     self._config_set_eq_filter(
                         config, f["id"], f["freq"], f["gain"], f["q"], f["type"]
                     )
+                self._config_apply_headroom(config)
                 self._config_apply_compressor(config)
                 self._config_apply_loudness(config)
                 self._config_apply_mono(config)

@@ -197,8 +197,8 @@
     },
     "loudness": {
       "title": "लाउडनेस",
-      "lowBoost": "लो बूस्ट",
-      "highBoost": "हाई बूस्ट"
+      "lowBoost": "कम वॉल्यूम पर लो बूस्ट",
+      "highBoost": "कम वॉल्यूम पर हाई बूस्ट"
     },
     "mono": {
       "title": "मोनो"

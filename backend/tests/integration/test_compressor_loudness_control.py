@@ -5,7 +5,7 @@ Integration Tests for Compressor & Loudness Control
 Tests cover:
 - Compressor enable/disable with WebSocket broadcast
 - Compressor parameter validation and application
-- Loudness enable/disable with shelf filters
+- Loudness enable/disable with CamillaDSP's native Loudness filter
 - Loudness boost adjustment with WebSocket broadcast
 - Zone propagation for compressor/loudness (tested at API level)
 - Preset auto-switch on manual modification (investigation)
@@ -21,6 +21,7 @@ daemon holds — seed it with `load()`, read the write back with `last_pushed`.
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
+from backend.config.constants import LOUDNESS_REFERENCE_DB
 from backend.core.equalizer import (
     CamillaDSPService,
     CamillaDspState,
@@ -61,6 +62,9 @@ def connected_camilladsp_service(mock_settings_service, mock_state_machine, mock
     service._client = mock_camilla_client
     service._connected = True
     service._state = CamillaDspState.RUNNING
+    # Effects on, as AudioRoutingService loads them from settings before any
+    # restore/bypass: they gate what an edit may put in the pipeline.
+    service._effects_enabled = True
     return service
 
 
@@ -240,39 +244,38 @@ class TestCompressorParameterValidation:
 # =============================================================================
 
 class TestLoudnessEnableDisable:
-    """Loudness enable/disable with shelf filters"""
+    """Loudness enable/disable with CamillaDSP's native Loudness filter"""
 
     @pytest.mark.asyncio
-    async def test_enable_loudness_creates_shelf_filters(self, connected_camilladsp_service, camilla_daemon):
-        """Should create loudness_low and loudness_high shelf filters when enabled"""
+    async def test_enable_loudness_creates_the_native_filter_on_the_main_fader(
+        self, connected_camilladsp_service, camilla_daemon
+    ):
+        """Loudness is CamillaDSP's own filter, following the main volume.
+
+        The two static shelves it replaces boosted the same at every level; the
+        native filter's boost grows as the Main fader falls below the reference.
+        Fails if the filter stops following the fader, or its reference drifts
+        from the one Milō declares.
+        """
         camilla_daemon.load({"filters": {}, "pipeline": []})
 
         result = await connected_camilladsp_service.set_loudness(enabled=True)
 
         assert result is True
-        pushed_filters = camilla_daemon.last_pushed["filters"]
-
-        # Verify loudness_low filter (Lowshelf at 100Hz)
-        assert "loudness_low" in pushed_filters
-        assert pushed_filters["loudness_low"]["type"] == "Biquad"
-        assert pushed_filters["loudness_low"]["parameters"]["type"] == "Lowshelf"
-        assert pushed_filters["loudness_low"]["parameters"]["freq"] == 100
-
-        # Verify loudness_high filter (Highshelf at 8000Hz)
-        assert "loudness_high" in pushed_filters
-        assert pushed_filters["loudness_high"]["type"] == "Biquad"
-        assert pushed_filters["loudness_high"]["parameters"]["type"] == "Highshelf"
-        assert pushed_filters["loudness_high"]["parameters"]["freq"] == 8000
+        pushed = camilla_daemon.last_pushed["filters"]["loudness"]
+        assert pushed["type"] == "Loudness"
+        assert pushed["parameters"]["fader"] == "Main"
+        assert pushed["parameters"]["reference_level"] == LOUDNESS_REFERENCE_DB
 
     @pytest.mark.asyncio
-    async def test_disable_loudness_removes_shelf_filters(self, connected_camilladsp_service, camilla_daemon):
-        """Should remove loudness shelf filters when disabled"""
+    async def test_disable_loudness_removes_the_filter(self, connected_camilladsp_service, camilla_daemon):
+        """Should remove the loudness filter and its pipeline ref when disabled"""
         daemon_config = {
             "filters": {
-                "loudness_low": {"type": "Biquad", "parameters": {"type": "Lowshelf", "freq": 100, "gain": 5, "slope": 6}},
-                "loudness_high": {"type": "Biquad", "parameters": {"type": "Highshelf", "freq": 8000, "gain": 5, "slope": 6}}
+                "loudness": {"type": "Loudness", "parameters": {"fader": "Main", "reference_level": -20.0,
+                                                                "high_boost": 5, "low_boost": 5}},
             },
-            "pipeline": [{"type": "Filter", "names": ["loudness_low", "loudness_high"]}]
+            "pipeline": [{"type": "Filter", "channels": [0, 1], "names": ["loudness"]}]
         }
 
         connected_camilladsp_service._loudness["enabled"] = True  # Was enabled
@@ -282,8 +285,8 @@ class TestLoudnessEnableDisable:
         result = await connected_camilladsp_service.set_loudness(enabled=False)
 
         assert result is True
-        assert "loudness_low" not in camilla_daemon.last_pushed["filters"]
-        assert "loudness_high" not in camilla_daemon.last_pushed["filters"]
+        assert "loudness" not in camilla_daemon.last_pushed["filters"]
+        assert "loudness" not in camilla_daemon.last_pushed["pipeline"][0]["names"]
 
     @pytest.mark.asyncio
     async def test_loudness_persists_to_settings(self, connected_camilladsp_service, camilla_daemon):
@@ -325,14 +328,14 @@ class TestLoudnessParameterAdjustment:
 
     @pytest.mark.asyncio
     async def test_loudness_boost_updates_filter_gain(self, connected_camilladsp_service, camilla_daemon):
-        """Should update shelf filter gains when boost values change"""
+        """Should update the filter's boosts when they change"""
         camilla_daemon.load({"filters": {}, "pipeline": []})
 
         await connected_camilladsp_service.set_loudness(enabled=True, low_boost=10, high_boost=8)
 
-        # Verify filter gains match boost values
-        assert camilla_daemon.last_pushed["filters"]["loudness_low"]["parameters"]["gain"] == 10
-        assert camilla_daemon.last_pushed["filters"]["loudness_high"]["parameters"]["gain"] == 8
+        params = camilla_daemon.last_pushed["filters"]["loudness"]["parameters"]
+        assert params["low_boost"] == 10
+        assert params["high_boost"] == 8
 
     @pytest.mark.asyncio
     async def test_loudness_partial_update(self, connected_camilladsp_service, camilla_daemon):
@@ -380,6 +383,9 @@ class TestZonePropagationCompressorLoudness:
         service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
+        # Effects on, as AudioRoutingService loads them from settings before any
+        # restore/bypass: they gate what an edit may put in the pipeline.
+        service._effects_enabled = True
         service._active_preset = "rock"  # Active preset
         return service
 
@@ -444,6 +450,9 @@ class TestPresetAutoSwitchOnManualEdit:
         service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
+        # Effects on, as AudioRoutingService loads them from settings before any
+        # restore/bypass: they gate what an edit may put in the pipeline.
+        service._effects_enabled = True
         service._active_preset = "rock"  # Simulate active preset
         return service
 
@@ -617,6 +626,9 @@ class TestEffectsBypassRestore:
         service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
+        # Effects on, as AudioRoutingService loads them from settings before any
+        # restore/bypass: they gate what an edit may put in the pipeline.
+        service._effects_enabled = True
 
         # Enable effects
         service._compressor = {
@@ -668,11 +680,11 @@ class TestEffectsBypassRestore:
     async def test_bypass_removes_loudness_from_pipeline_without_touching_cache(self, connected_camilladsp_with_effects, mock_settings_service, camilla_daemon):
         """Bypass should remove loudness from pipeline while leaving cache enabled flag intact."""
         daemon_config = {
-            "filters": {"loudness_low": {}, "loudness_high": {}},
+            "filters": {"loudness": {}},
             "processors": {},
             "pipeline": [
-                {"type": "Filter", "channels": [0], "names": ["loudness_low", "loudness_high"]},
-                {"type": "Filter", "channels": [1], "names": ["loudness_low", "loudness_high"]},
+                {"type": "Filter", "channels": [0], "names": ["loudness"]},
+                {"type": "Filter", "channels": [1], "names": ["loudness"]},
             ],
         }
 
@@ -687,8 +699,7 @@ class TestEffectsBypassRestore:
         for step in camilla_daemon.last_pushed["pipeline"]:
             if step.get("type") == "Filter":
                 pipeline_names.extend(step.get("names", []))
-        assert "loudness_low" not in pipeline_names
-        assert "loudness_high" not in pipeline_names
+        assert "loudness" not in pipeline_names
 
         # Cache untouched
         assert connected_camilladsp_with_effects._loudness["enabled"] is True
@@ -740,14 +751,13 @@ class TestEffectsBypassRestore:
         await connected_camilladsp_with_effects.restore_effects()
 
         # Loudness defs written from cache and added to pipeline
-        assert camilla_daemon.last_pushed["filters"]["loudness_low"]["parameters"]["gain"] == 10
-        assert camilla_daemon.last_pushed["filters"]["loudness_high"]["parameters"]["gain"] == 8
+        assert camilla_daemon.last_pushed["filters"]["loudness"]["parameters"]["low_boost"] == 10
+        assert camilla_daemon.last_pushed["filters"]["loudness"]["parameters"]["high_boost"] == 8
         pipeline_names = []
         for step in camilla_daemon.last_pushed["pipeline"]:
             if step.get("type") == "Filter":
                 pipeline_names.extend(step.get("names", []))
-        assert "loudness_low" in pipeline_names
-        assert "loudness_high" in pipeline_names
+        assert "loudness" in pipeline_names
 
         # Cache values unchanged
         assert connected_camilladsp_with_effects._loudness["enabled"] is True

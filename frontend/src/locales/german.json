@@ -197,8 +197,8 @@
     },
     "loudness": {
       "title": "Loudness",
-      "lowBoost": "Bassverstärkung",
-      "highBoost": "Höhenverstärkung"
+      "lowBoost": "Bassverstärkung bei geringer Lautstärke",
+      "highBoost": "Höhenverstärkung bei geringer Lautstärke"
     },
     "mono": {
       "title": "Mono"

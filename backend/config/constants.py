@@ -149,6 +149,15 @@ MAX_VOLUME_DB = 0.0             # Technical maximum
 # declarations equal.
 STARTUP_GAIN_DB = MIN_VOLUME_DB
 
+# The main-fader level at which CamillaDSP's native Loudness filter stops
+# correcting: flat above it, full correction 20 dB below it, linear in between.
+# The fader is digital attenuation, not a sound level, so no value is exact for
+# every installation; this is the loud end of Milō's default volume range
+# (SettingsService.defaults volume.limit_max_db), where no one needs the bass and
+# treble lifted. Sent to every satellite with its loudness settings, so it is
+# declared once, here.
+LOUDNESS_REFERENCE_DB = -20.0
+
 # =============================================================================
 # DOCK APPS & AUDIO SOURCES
 # =============================================================================

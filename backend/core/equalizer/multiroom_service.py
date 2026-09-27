@@ -22,6 +22,7 @@ import asyncio
 import logging
 from typing import Optional
 
+from backend.core.equalizer.eq_response import record_headroom_db
 from backend.core.models.ws_events import (
     EqualizerZoneEnabledChanged,
     MultiroomEqualizerChanged,
@@ -643,6 +644,18 @@ class MultiroomEqualizerService:
 
         return True
 
+    def _headroom_for(self, target_type: str, target_id: str, current) -> dict:
+        """`{"headroom_db": …}` for a band edit a satellite will receive, else {}.
+
+        The whole curve's, not the band's: the headroom follows every band, and
+        a satellite is sent it with each one. The local unit computes its own
+        from its cache, so an edit aimed at it alone skips the computation —
+        a band drag runs this on every step, on the event loop.
+        """
+        if target_type == "client" and self._registry and self._registry.is_local_client(target_id):
+            return {}
+        return {"headroom_db": record_headroom_db(current.filters)}
+
     async def update_filter(
         self,
         target_type: str,
@@ -707,6 +720,7 @@ class MultiroomEqualizerService:
                     "gain": updated_filter.gain,
                     "q": updated_filter.q,
                     "filter_type": updated_filter.filter_type.value,
+                    **self._headroom_for(target_type, target_id, current),
                 },
             },
             broadcast_settings={

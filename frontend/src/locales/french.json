@@ -197,8 +197,8 @@
     },
     "loudness": {
       "title": "Loudness",
-      "lowBoost": "Boost graves",
-      "highBoost": "Boost aigus"
+      "lowBoost": "Boost graves à bas volume",
+      "highBoost": "Boost aigus à bas volume"
     },
     "mono": {
       "title": "Mono"

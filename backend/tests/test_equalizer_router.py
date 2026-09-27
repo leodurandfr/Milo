@@ -16,6 +16,7 @@ exercised, and the local closures of the six setting methods were dark with it.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+from backend.config.constants import LOUDNESS_REFERENCE_DB
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client
 from backend.config.constants import MAX_VOLUME_DB
@@ -192,7 +193,7 @@ REMOTE_SETTINGS = [
     ("set_compressor", {"settings": {"enabled": True, "threshold": -25.0}},
      "/equalizer/compressor", {"enabled": True, "threshold": -25.0}),
     ("set_loudness", {"settings": {"enabled": True, "high_boost": 6.0}},
-     "/equalizer/loudness", {"enabled": True, "high_boost": 6.0}),
+     "/equalizer/loudness", {"enabled": True, "high_boost": 6.0, "reference_level": LOUDNESS_REFERENCE_DB}),
     ("set_mono", {"settings": {"enabled": False}}, "/equalizer/mono", {"enabled": False}),
 ]
 

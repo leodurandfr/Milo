@@ -53,9 +53,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     makeup_gain: 0
   });
 
+  // Same defaults as the backend's LoudnessSettings and the satellite's cache.
   const loudness = ref({
     enabled: false,
-    low_boost: 5,
+    low_boost: 8,
     high_boost: 5
   });
 
@@ -750,7 +751,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     for (const filter of filters.value) {
       filter.gain = 0;
     }
-    loudness.value = { enabled: false, low_boost: 5, high_boost: 5 };
+    loudness.value = { enabled: false, low_boost: 8, high_boost: 5 };
     compressor.value = { enabled: false, threshold: -20, ratio: 4, attack: 10, release: 100, makeup_gain: 0 };
     mono.value = false;
     activePreset.value = 'flat';

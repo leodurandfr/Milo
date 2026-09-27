@@ -305,7 +305,7 @@ class TestLevelTrim:
             "filters": {"gain_trim": {"type": "Gain", "parameters": {"gain": -4.5}}},
             "pipeline": [
                 {"type": "Filter", "channels": [0], "names": ["eq_band_00", "gain_trim"]},
-                {"type": "Filter", "channels": [1], "names": ["gain_trim", "loudness_low"]},
+                {"type": "Filter", "channels": [1], "names": ["gain_trim", "loudness"]},
             ],
         })
 
@@ -313,7 +313,7 @@ class TestLevelTrim:
 
         names = [n for s in camilla_daemon.last_pushed["pipeline"] for n in s.get("names", [])]
         assert "gain_trim" not in names
-        assert "eq_band_00" in names and "loudness_low" in names
+        assert "eq_band_00" in names and "loudness" in names
 
     async def test_the_master_bypass_does_not_strip_the_trim(self, service, camilla_daemon):
         """Bypassing the equalizer must not unbalance the room. The trim is named

@@ -275,6 +275,19 @@ class TestEqualizerRoutes:
         assert response.status_code == 200
         mock_equalizer_service.set_mute.assert_called_once_with(True)
 
+    def test_the_headroom_the_server_computed_reaches_the_batch(self, client, mock_equalizer_service):
+        """PUT /equalizer/filters carries the whole curve's headroom beside its bands."""
+        mock_equalizer_service.set_filters_batch = AsyncMock(return_value={"success": True, "applied": 1})
+
+        response = client.put("/equalizer/filters", json={
+            "filters": [{"id": "eq_band_09", "gain": 6.0}], "headroom_db": -6.0,
+        })
+
+        assert response.status_code == 200
+        mock_equalizer_service.set_filters_batch.assert_awaited_once_with(
+            [{"id": "eq_band_09", "gain": 6.0}], -6.0
+        )
+
     def test_every_compressor_field_reaches_the_service_under_its_own_name(
         self, client, mock_equalizer_service
     ):

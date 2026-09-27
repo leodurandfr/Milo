@@ -15,7 +15,8 @@ from typing import Optional, Dict, Any
 
 import aiohttp
 
-from backend.config.constants import CLIENT_API_PORT
+from backend.config.constants import CLIENT_API_PORT, LOUDNESS_REFERENCE_DB
+from backend.core.equalizer.eq_response import record_headroom_db
 
 
 class SatelliteUnreachable(Exception):
@@ -246,7 +247,7 @@ class EqualizerClientProxyService:
         gates. Returns False if any leg failed; callers own the retry policy.
         """
         try:
-            await self.request(hostname, "PUT", "/equalizer/filters", {
+            bands = {
                 "filters": [
                     {
                         "id": f.id,
@@ -257,11 +258,16 @@ class EqualizerClientProxyService:
                     }
                     for f in settings.filters
                 ],
-            })
+            }
+            if settings.filters:
+                # With the bands it is computed from, never without: a record
+                # carrying none would reset the headroom of bands left in place.
+                bands["headroom_db"] = record_headroom_db(settings.filters)
+            await self.request(hostname, "PUT", "/equalizer/filters", bands)
             await self.request(hostname, "PUT", "/equalizer/compressor",
                                settings.compressor.to_dict())
             await self.request(hostname, "PUT", "/equalizer/loudness",
-                               settings.loudness.to_dict())
+                               {**settings.loudness.to_dict(), "reference_level": LOUDNESS_REFERENCE_DB})
             await self.request(hostname, "PUT", "/equalizer/mono",
                                {"enabled": settings.mono})
             await self.request(hostname, "PUT", "/equalizer/enabled",
