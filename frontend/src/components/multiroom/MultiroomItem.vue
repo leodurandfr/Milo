@@ -267,6 +267,15 @@ const expandedContentRef = ref(null);
 // Explicit height for the wrapper — px both ways, since a spring needs two numbers.
 const expandedWrapperHeight = ref('0px');
 
+// A released value waits for the server to confirm it — unless a gesture that
+// moves it came after: a zone move shifts every client, a client move shifts
+// the zone's average (never another client's level). The echo that would
+// confirm it then never comes, and the slider stayed pinned until the 2s
+// fallback. Superseded, it gives way to the first level the server announces
+// for it.
+let zoneSuperseded = false;
+const clientsSuperseded = new Set();
+
 // Clear local volume when backend confirms the update (via WebSocket)
 watch(
   () => props.client.equalizerVolume,
@@ -275,7 +284,7 @@ watch(
     // tolerance) — never mid-drag: an echo lags the thumb.
     if (localDisplayVolume.value !== null && !zoneDragging && newServerVolume != null) {
       const diff = Math.abs(newServerVolume - localDisplayVolume.value);
-      if (diff <= 1) {
+      if (diff <= 1 || zoneSuperseded) {
         // Backend confirmed our value, clear local state
         localDisplayVolume.value = null;
       }
@@ -411,6 +420,10 @@ watch(isExternalVolume, (external) => {
 
 function handleVolumeInput(newDisplayVolume) {
   zoneDragging = true;
+  zoneSuperseded = false;
+  for (const macId of Object.keys(clientLocalVolumes.value)) {
+    if (!clientsDragging.has(macId)) clientsSuperseded.add(macId);
+  }
   localDisplayVolume.value = newDisplayVolume;
   throttledZoneVolume(newDisplayVolume);
 }
@@ -447,11 +460,14 @@ const clientsDragging = new Set();
 function handleClientVolumeInput(clientMacId, value) {
   // Update local display volume for smooth UI
   clientsDragging.add(clientMacId);
+  clientsSuperseded.delete(clientMacId);
+  if (localDisplayVolume.value !== null && !zoneDragging) zoneSuperseded = true;
   clientLocalVolumes.value[clientMacId] = value;
   getClientThrottledFn(clientMacId)(value);
 }
 
 function clearClientLocalVolume(clientMacId) {
+  clientsSuperseded.delete(clientMacId);
   // Reassign the object to guarantee Vue 3 reactivity
   const { [clientMacId]: _, ...rest } = clientLocalVolumes.value;
   clientLocalVolumes.value = rest;
@@ -475,7 +491,12 @@ function handleClientVolumeRelease(clientMacId) {
 // against every echo when the slider comes back.
 watch(
   () => props.zoneClientDetails,
-  (details) => {
+  (details, previous) => {
+    // The rows are rebuilt on every volume event: "moved" is this client's
+    // level differing from the previous build, not the watcher firing.
+    const before = clientsSuperseded.size
+      ? new Map((previous || []).map(zoneClient => [zoneClient.mac_id, zoneClient.equalizerVolume]))
+      : null;
     const shown = new Set((details || [])
       .filter(zoneClient => zoneClient.online && zoneClient.volume_control !== false)
       .map(zoneClient => zoneClient.mac_id));
@@ -486,11 +507,13 @@ watch(
       }
     }
     for (const zoneClient of details || []) {
-      const local = clientLocalVolumes.value[zoneClient.mac_id];
-      if (local !== undefined && !clientsDragging.has(zoneClient.mac_id)
-          && Math.abs(zoneClient.equalizerVolume - local) <= 1) {
-        clearClientLocalVolume(zoneClient.mac_id);
-      }
+      const macId = zoneClient.mac_id;
+      const local = clientLocalVolumes.value[macId];
+      if (local === undefined || clientsDragging.has(macId)) continue;
+      const confirmed = Math.abs(zoneClient.equalizerVolume - local) <= 1;
+      const movedSinceSuperseded = clientsSuperseded.has(macId) && before?.has(macId)
+        && before.get(macId) !== zoneClient.equalizerVolume;
+      if (confirmed || movedSinceSuperseded) clearClientLocalVolume(macId);
     }
   }
 );
