@@ -29,13 +29,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
-from backend.core.models.volume_state import ClientVolume
 from backend.core.settings import SettingsService
 from backend.core.multiroom.models import RegistryEventType
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.volume import VolumeService, VolumeStateStore
+from backend.tests.volume_world import world
+from backend.core.volume.state import StoredLevel
 
 
 @pytest.fixture
@@ -181,9 +181,9 @@ class TestDacMode:
         service._routing_service = Mock()
         service._routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
         service._client_registry = Mock(get_online_client_ids=Mock(return_value=["aa:bb"]))
-        service._state_store._clients["aa:bb"] = ClientVolume(
-            volume_db=-40.0, offset_db=0.0, mute=False, available=True
-        )
+        service._state_store._clients["aa:bb"] = StoredLevel(
+            volume_db=-40.0, mute=False)
+        world(service._state_store).online.add("aa:bb")
         sent = []
 
         async def set_volume(mac_id, volume_db, force=False):
@@ -192,7 +192,6 @@ class TestDacMode:
 
         service._equalizer_controller._router = Mock(set_volume=set_volume)
         service.broadcast_volume_state = AsyncMock()
-        service._update_startup_volume_if_needed = AsyncMock()
 
         assert await service.set_volume_db(-30.0) is True
         for _ in range(5):
@@ -214,7 +213,7 @@ class TestDacMode:
             assert await service.initialize() is True
 
         assert service._volume_control is False
-        state = await service._state_store.get_complete_state()
+        state = await service._state_store.get_complete_state(multiroom=False)
         assert state.volume_control is False, \
             "the flag never reached the store, so the WS payload still claims Milo owns the level"
         assert "DAC mode: volume managed by external amplifier" in caplog.text
@@ -405,7 +404,7 @@ class TestStartupVolumeEdges:
 
         `target_volume` is a float on every path — `_validate_and_merge` runs
         `float()` over `volume.startup_volume_db` with the declared default as
-        its operand, and `ClientVolume.volume_db` is typed float — so the arm
+        its operand, and `StoredLevel.volume_db` is typed float — so the arm
         never runs. Worse, the line above it formats the same value with `:.1f`,
         so a value that WERE None would raise a TypeError there and the boot
         would end with the daemon's mute state untouched, which is the exact
@@ -636,116 +635,8 @@ class TestLocalLevelTrim:
         trimmed._equalizer_controller.set_equalizer_gain.assert_not_awaited()
 
 
-class TestSyncFromEqualizer:
-    """`sync_all_clients_from_equalizer` — reading each client's own level back."""
-
-    @pytest.fixture
-    def multiroom(self, service):
-        service._routing_service = Mock()
-        service._routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
-        service._equalizer_router = Mock()
-        service._equalizer_router.get_volume = AsyncMock(return_value={"main": -33.0})
-        service.broadcast_volume_state = AsyncMock()
-        return service
-
-    async def test_direct_mode_has_nothing_to_sync(self, service):
-        service._routing_service = Mock()
-        service._routing_service.get_state = Mock(return_value={"multiroom_enabled": False})
-
-        assert await service.sync_all_clients_from_equalizer() is True
-
-    async def test_no_registry_is_a_failure_not_a_silent_skip(self, multiroom, caplog):
-        """Answering True here would report a sync that never read a single
-        client, and the boot would move on believing every level current."""
-        multiroom._client_registry = None
-
-        with caplog.at_level(logging.WARNING):
-            assert await multiroom.sync_all_clients_from_equalizer() is False
-
-        assert "client registry not attached" in caplog.text
-
-    async def test_the_local_client_is_read_from_the_store_not_the_daemon(self, multiroom):
-        """SSOT. Reconstructing the local level from the live CamillaDSP inverts
-        the data flow and races the boot restore that is still in flight."""
-        multiroom._state_store.ensure_local_client("local:mac", -41.0)
-        multiroom._client_registry = Mock()
-        multiroom._client_registry.get_online_clients = Mock(
-            return_value=[Mock(mac_id="local:mac", ip="127.0.0.1")]
-        )
-
-        await multiroom.sync_all_clients_from_equalizer()
-
-        multiroom._equalizer_router.get_volume.assert_not_awaited()
-        assert multiroom._state_store.get_client_volume("local:mac") == -41.0
-
-    async def test_a_client_with_no_ip_is_skipped_without_stopping_the_sweep(
-        self, multiroom, caplog
-    ):
-        """The registry can hold a client whose address has not resolved yet.
-
-        Without the skip the proxy is handed a None hostname; unguarded, one
-        half-registered client costs the sync for every client after it.
-        """
-        multiroom._client_registry = Mock()
-        multiroom._client_registry.get_online_clients = Mock(return_value=[
-            Mock(mac_id="no:ip", ip=None),
-            Mock(mac_id="has:ip", ip="192.168.1.60"),
-        ])
-
-        with caplog.at_level(logging.WARNING):
-            assert await multiroom.sync_all_clients_from_equalizer() is True
-
-        assert "Cannot sync client no:ip: no IP address" in caplog.text
-        assert multiroom._state_store.has_client("has:ip")
-        assert not multiroom._state_store.has_client("no:ip")
-
-    async def test_an_unreachable_satellite_keeps_its_persisted_level(self, multiroom):
-        """Boot race: the satellite is registered before its API answers.
-
-        Overwriting with the −45 dB default here would be pushed back to the
-        speaker by the sync that follows, so a satellite that was slow to boot
-        would come back near-silent every time.
-        """
-        multiroom._equalizer_router.get_volume = AsyncMock(return_value=None)
-        await multiroom._state_store.register_client("sat:mac", volume_db=-28.0)
-        multiroom._client_registry = Mock()
-        multiroom._client_registry.get_online_clients = Mock(
-            return_value=[Mock(mac_id="sat:mac", ip="192.168.1.60")]
-        )
-
-        await multiroom.sync_all_clients_from_equalizer()
-
-        assert multiroom._state_store.get_client_volume("sat:mac") == -28.0
-
-    async def test_an_unknown_unreachable_satellite_lands_on_the_default(self, multiroom):
-        """Nothing to keep and nothing to read: the default is the only answer,
-        and it has to be a value the store can hold rather than None."""
-        multiroom._equalizer_router.get_volume = AsyncMock(return_value=None)
-        multiroom._client_registry = Mock()
-        multiroom._client_registry.get_online_clients = Mock(
-            return_value=[Mock(mac_id="brand:new", ip="192.168.1.60")]
-        )
-
-        await multiroom.sync_all_clients_from_equalizer()
-
-        assert multiroom._state_store.get_client_volume("brand:new") == DEFAULT_VOLUME_DB
-
-    async def test_a_reachable_satellite_is_read_through_the_router(self, multiroom):
-        """VolumeService no longer reaches a satellite directly — the router owns
-        local-vs-remote dispatch, and that is the only place the distinction lives."""
-        multiroom._client_registry = Mock()
-        multiroom._client_registry.get_online_clients = Mock(
-            return_value=[Mock(mac_id="sat:mac", ip="192.168.1.60")]
-        )
-
-        await multiroom.sync_all_clients_from_equalizer()
-
-        multiroom._equalizer_router.get_volume.assert_awaited_once_with("sat:mac")
-        assert multiroom._state_store.get_client_volume("sat:mac") == -33.0
-
-
-class TestRegistryZoneEvents:
-    """The zone arms of the volume store's registry subscription.
+class TestRegistryClientEvents:
+    """The client arms of the volume store's registry subscription.
 
     The payload keys below are read off `ClientRegistryService._emit_event` — a
     `.get()` for a key the producer does not send skips its arm with no error
@@ -759,101 +650,7 @@ class TestRegistryZoneEvents:
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
         settings.set_setting = AsyncMock()
-        return VolumeStateStore(settings_service=settings)
-
-    async def test_a_created_zone_appears_in_the_volume_state(self, store):
-        await store._handle_registry_event(RegistryEventType.ZONE_CREATED, {
-            "action": "created",
-            "zone_id": "zone-1",
-            "zone": {"name": "Salon", "client_ids": ["aa:bb", "cc:dd"]},
-        })
-
-        zone = store._zones["zone-1"]
-        assert zone.name == "Salon"
-        assert zone.client_ids == ["aa:bb", "cc:dd"]
-
-    async def test_an_updated_zone_replaces_its_membership(self, store):
-        """A speaker added to a zone must join that zone's volume group at once.
-
-        Not applied, the new member keeps taking its own level while the group
-        slider moves the others — the zone reads as broken from the UI.
-        """
-        await store._handle_registry_event(RegistryEventType.ZONE_CREATED, {
-            "action": "created",
-            "zone_id": "zone-1",
-            "zone": {"name": "Salon", "client_ids": ["aa:bb"]},
-        })
-
-        await store._handle_registry_event(RegistryEventType.ZONE_UPDATED, {
-            "action": "updated",
-            "zone_id": "zone-1",
-            "zone": {"name": "Salon", "client_ids": ["aa:bb", "cc:dd"]},
-        })
-
-        assert store._zones["zone-1"].client_ids == ["aa:bb", "cc:dd"]
-
-    async def test_a_renamed_zone_carries_its_new_name(self, store):
-        await store._handle_registry_event(RegistryEventType.ZONE_UPDATED, {
-            "action": "updated",
-            "zone_id": "zone-1",
-            "zone": {"name": "Cuisine", "client_ids": ["aa:bb"]},
-        })
-
-        assert store._zones["zone-1"].name == "Cuisine"
-
-    async def test_a_zone_with_no_name_falls_back_to_its_id(self, store):
-        """`zone_to_enriched_dict` always carries a name, but the fallback is
-        what keeps a zone addressable if it ever stops doing so — an unnamed
-        entry renders as an empty row the user cannot select."""
-        await store._handle_registry_event(RegistryEventType.ZONE_UPDATED, {
-            "action": "updated",
-            "zone_id": "zone-1",
-            "zone": {"client_ids": ["aa:bb"]},
-        })
-
-        assert store._zones["zone-1"].name == "zone-1"
-
-    async def test_a_deleted_zone_leaves_the_volume_state(self, store):
-        """A zone that outlives its deletion keeps answering zone-average reads,
-        so the UI shows a group whose speakers are already standalone."""
-        await store._handle_registry_event(RegistryEventType.ZONE_CREATED, {
-            "action": "created",
-            "zone_id": "zone-1",
-            "zone": {"name": "Salon", "client_ids": ["aa:bb"]},
-        })
-
-        await store._handle_registry_event(RegistryEventType.ZONE_DELETED, {
-            "action": "deleted",
-            "zone_id": "zone-1",
-            "zone": {"name": "Salon", "client_ids": ["aa:bb"]},
-        })
-
-        assert "zone-1" not in store._zones
-
-    async def test_deleting_a_zone_that_is_not_there_is_not_an_error(self, store):
-        """The registry emits ZONE_DELETED from four call sites, and a zone
-        dropped for having fewer than two clients can be announced twice."""
-        await store._handle_registry_event(RegistryEventType.ZONE_DELETED, {
-            "action": "deleted",
-            "zone_id": "never-existed",
-            "zone": {},
-        })
-
-        assert store._zones == {}
-
-    @pytest.mark.parametrize("event_type", [
-        RegistryEventType.ZONE_CREATED,
-        RegistryEventType.ZONE_UPDATED,
-    ])
-    async def test_a_zone_event_with_no_payload_is_ignored(self, store, event_type):
-        """The guard is `zone_id AND zone`. Without the second half an empty
-        payload would create a zone with no members whose average is computed
-        over nothing."""
-        await store._handle_registry_event(event_type, {
-            "action": "updated", "zone_id": "zone-1", "zone": {},
-        })
-
-        assert store._zones == {}
+        return VolumeStateStore()
 
     async def test_an_updated_client_that_is_unknown_is_registered(self, store):
         """CLIENT_UPDATED can be the first the volume store hears of a client —
@@ -868,17 +665,6 @@ class TestRegistryZoneEvents:
         })
 
         assert store.has_client("aa:bb")
-
-    async def test_an_updated_client_carries_its_online_state(self, store):
-        """A client announced offline must not be counted available: the zone
-        average would include a speaker that is switched off."""
-        await store._handle_registry_event(RegistryEventType.CLIENT_UPDATED, {
-            "mac_id": "aa:bb",
-            "client": {"online": False},
-        })
-
-        assert store.has_client("aa:bb")
-        assert store._clients["aa:bb"].available is False
 
     async def test_an_already_known_client_is_not_re_registered(self, store):
         """Re-registering resets the level to the default.
@@ -1030,7 +816,6 @@ class TestZoneDelta:
     def zoned(self, service):
         service._equalizer_controller = Mock()
         service.broadcast_volume_state = AsyncMock()
-        service._update_startup_volume_if_needed = AsyncMock()
         return service
 
     async def test_an_empty_zone_answers_its_average_without_a_fan_out(
@@ -1039,8 +824,7 @@ class TestZoneDelta:
         """A zone whose members were all removed still exists until the registry
         deletes it; the slider must not send an empty fan-out and must not raise.
         """
-        from backend.core.volume.state import ZoneConfig
-        zoned._state_store._zones["zone-1"] = ZoneConfig(zone_id="zone-1", name="Empty", client_ids=[])
+        world(zoned._state_store).zone("zone-1", [], name="Empty")
         zoned._state_store.compute_zone_average = Mock(return_value=-40.0)
 
         assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == (-40.0, 2.0)

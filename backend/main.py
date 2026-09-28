@@ -195,7 +195,6 @@ async def lifespan(app: FastAPI):
         ("fan", fan_controller.cleanup),
         ("connectivity", get_service("connectivity_service").cleanup),
         ("network", network_service.cleanup),
-        ("routing", routing_service.cleanup),
         ("crossover", crossover_service.cleanup),
         ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
         ("music_library_shares", get_service("music_library_source").shares.cleanup),

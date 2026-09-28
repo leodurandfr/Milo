@@ -159,21 +159,6 @@ class SnapcastService:
         })
         return True
 
-    @handle_errors(default=False, level='warning')
-    async def set_mute(self, client_id: str, muted: bool, volume: int = 100) -> bool:
-        """Mute/unmute a client.
-
-        Args:
-            client_id: Snapcast client ID
-            muted: Mute state to set
-            volume: Volume percentage to preserve (default 100 = passthrough)
-        """
-        await self._request("Client.SetVolume", {
-            "id": client_id,
-            "volume": {"percent": max(0, min(100, volume)), "muted": muted}
-        })
-        return True
-
     # === CLIENT QUERIES ===
 
     @handle_errors(default=[])
@@ -245,7 +230,6 @@ class SnapcastService:
                 raw_clients.append({
                     "id": client_data["id"],
                     "name": name,
-                    "volume": client_data["config"]["volume"]["percent"],
                     "muted": client_data["config"]["volume"]["muted"],
                     "host": host,
                     "ip": ip,

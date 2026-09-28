@@ -5,10 +5,10 @@ Unit tests for VolumeStateStore - Single Source of Truth for volume state.
 import asyncio
 import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock
-from backend.core.volume.state import VolumeStateStore, ZoneConfig
+from backend.core.volume.state import StoredLevel, VolumeStateStore
 from backend.core.models.volume import VolumeConfig
-from backend.core.models.volume_state import ClientVolume
 from backend.config.constants import DEFAULT_VOLUME_DB
+from backend.tests.volume_world import world
 
 
 # ==============================================================================
@@ -34,7 +34,6 @@ class TestZoneVolumeDelta:
         svc._volume_config = VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0)
         svc._state_store.set_volume_config(svc._volume_config)
         svc._state_store._schedule_persist = MagicMock()
-        svc._update_startup_volume_if_needed = AsyncMock()
         svc.broadcast_volume_state = AsyncMock()
         svc.sent = {}
 
@@ -45,21 +44,19 @@ class TestZoneVolumeDelta:
             return done
 
         svc._equalizer_controller.submit_volume = _submit
+        svc._routing_service = Mock(get_state=Mock(return_value={"multiroom_enabled": True}))  # zones move in multiroom
         return svc
 
     @staticmethod
     def _zone(service, clients):
         """Zone 'zone_1' holding `clients` ({mac: (level, available)})."""
-        service._state_store._zones = {
-            'zone_1': ZoneConfig(zone_id='zone_1', name='Test Zone', client_ids=list(clients))
-        }
+        registry = world(service._state_store)
+        registry.zone('zone_1', clients, name='Test Zone')
+        registry.online |= {mac for mac, (_, available) in clients.items() if available}
+        service._client_registry = registry
         service._state_store._clients = {
-            mac: ClientVolume(volume_db=level, offset_db=0.0, mute=False, available=available)
-            for mac, (level, available) in clients.items()
+            mac: StoredLevel(volume_db=level, mute=False) for mac, (level, _) in clients.items()
         }
-        service._client_registry = Mock(get_online_client_ids=Mock(
-            return_value=[mac for mac, (_, available) in clients.items() if available]
-        ))
 
     @staticmethod
     def _level(service, mac):
@@ -141,7 +138,7 @@ class TestZoneVolumeDelta:
         """
         A delta asked of an unknown zone raises ValueError (the route answers 404).
         """
-        service._state_store._zones = {}
+        world(service._state_store).zones.clear()
 
         with pytest.raises(ValueError, match="Unknown zone"):
             await service.apply_zone_volume_delta('nonexistent_zone', 5.0)
@@ -152,9 +149,10 @@ class TestZoneVolumeDelta:
         """
         store = service._state_store
         store._clients = {
-            'client-a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'client-b': ClientVolume(volume_db=-35.0, offset_db=0.0, mute=False, available=True)
+            'client-a': StoredLevel(volume_db=-30.0, mute=False),
+            'client-b': StoredLevel(volume_db=-35.0, mute=False)
         }
+        world(store).online |= {'client-a', 'client-b'}
 
         store.set_levels({'client-a': -25.0, 'client-b': -30.0})
 
@@ -181,25 +179,20 @@ class TestZoneAverageCalculation:
     @pytest.fixture
     def store(self, mock_settings_service):
         """Create a VolumeStateStore instance."""
-        return VolumeStateStore(mock_settings_service)
+        return VolumeStateStore()
 
     def test_zone_average_computed_from_online_clients_only(self, store):
         """
         Zone average computed from ONLINE clients only.
         """
         # Setup: zone with mixed ONLINE/OFFLINE clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['online-1', 'online-2', 'offline-1']
-            )
-        }
+        world(store).zone('zone_1', ['online-1', 'online-2', 'offline-1'], name='Test Zone')
         store._clients = {
-            'online-1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=True),
-            'online-2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'offline-1': ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=False)
+            'online-1': StoredLevel(volume_db=-20.0, mute=False),
+            'online-2': StoredLevel(volume_db=-30.0, mute=False),
+            'offline-1': StoredLevel(volume_db=-50.0, mute=False)
         }
+        world(store).online |= {'online-1', 'online-2'}
 
         # Action
         average = store.compute_zone_average('zone_1')
@@ -212,16 +205,10 @@ class TestZoneAverageCalculation:
         Zone average returns DEFAULT_VOLUME_DB when no clients ONLINE.
         """
         # Setup: zone with all OFFLINE clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['offline-1', 'offline-2']
-            )
-        }
+        world(store).zone('zone_1', ['offline-1', 'offline-2'], name='Test Zone')
         store._clients = {
-            'offline-1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=False),
-            'offline-2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False)
+            'offline-1': StoredLevel(volume_db=-20.0, mute=False),
+            'offline-2': StoredLevel(volume_db=-30.0, mute=False)
         }
 
         # Action
@@ -234,7 +221,7 @@ class TestZoneAverageCalculation:
         """
         Zone average returns DEFAULT_VOLUME_DB for unknown zone.
         """
-        store._zones = {}
+        world(store).zones.clear()
 
         # Action
         average = store.compute_zone_average('nonexistent')
@@ -247,16 +234,11 @@ class TestZoneAverageCalculation:
         Zone average equals client volume when only one client online.
         """
         # Setup: single online client
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['client-1']
-            )
-        }
+        world(store).zone('zone_1', ['client-1'], name='Test Zone')
         store._clients = {
-            'client-1': ClientVolume(volume_db=-35.0, offset_db=0.0, mute=False, available=True)
+            'client-1': StoredLevel(volume_db=-35.0, mute=False)
         }
+        world(store).online |= {'client-1'}
 
         # Action
         average = store.compute_zone_average('zone_1')
@@ -273,17 +255,12 @@ class TestZoneAverageCalculation:
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         # Setup: zone with clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['client-1', 'client-2']
-            )
-        }
+        world(store).zone('zone_1', ['client-1', 'client-2'], name='Test Zone')
         store._clients = {
-            'client-1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=True),
-            'client-2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True)
+            'client-1': StoredLevel(volume_db=-20.0, mute=False),
+            'client-2': StoredLevel(volume_db=-30.0, mute=False)
         }
+        world(store).online |= {'client-1', 'client-2'}
 
         # Verify initial average
         assert store.compute_zone_average('zone_1') == pytest.approx(-25.0, rel=1e-6)
@@ -300,17 +277,12 @@ class TestZoneAverageCalculation:
         Zone average includes muted clients (volume still counts).
         """
         # Setup: zone with muted client
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['muted-client', 'normal-client']
-            )
-        }
+        world(store).zone('zone_1', ['muted-client', 'normal-client'], name='Test Zone')
         store._clients = {
-            'muted-client': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=True, available=True),
-            'normal-client': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True)
+            'muted-client': StoredLevel(volume_db=-20.0, mute=True),
+            'normal-client': StoredLevel(volume_db=-30.0, mute=False)
         }
+        world(store).online |= {'muted-client', 'normal-client'}
 
         # Action
         average = store.compute_zone_average('zone_1')

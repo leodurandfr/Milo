@@ -28,6 +28,7 @@ from backend.api.responses import (
     VolumeControlResponse,
     VolumeSetResponse,
     VolumeStateEnvelope,
+    ZoneMuteSetResponse,
     ZoneVolumeDeltaResponse,
 )
 
@@ -245,6 +246,32 @@ def create_volume_router(
                 "applied_to": applied_to,
                 "offline_clients": offline_clients
             }
+
+    @router.patch("/zone/{zone_id}/mute", response_model=ZoneMuteSetResponse)
+    async def set_zone_mute(zone_id: str, request: ClientMuteRequest):
+        """
+        Mute or unmute every member of a zone, in one request and one broadcast.
+
+        Same verdict as the client route: a member offline takes it when it
+        comes back, a member online that refused answers 502.
+        """
+        async with api_error_handler("Error setting zone mute", logger):
+            try:
+                refused = await volume_service.set_zone_mute(zone_id, request.mute)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+
+            if refused:
+                logger.error(f"Zone {zone_id}: {', '.join(refused)} did not take mute={request.mute}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"Mute recorded but not applied: {', '.join(refused)} refused it, "
+                        "and applies it when its DSP is back"
+                    ),
+                )
+
+            return {"status": "success", "zone_id": zone_id, "mute": request.mute}
 
     # ============================================================================
     # CLIENT VOLUME OPERATIONS

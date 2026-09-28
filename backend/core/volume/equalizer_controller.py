@@ -248,6 +248,12 @@ class EqualizerController:
             self.logger.warning(f"Failed to set level trim for {mac_id}: {e}")
             return False
 
+    def submit_mute(self, mac_id: str, mute: bool, force: bool = False) -> asyncio.Future:
+        """Ask for `mute` on a speaker; resolves like `submit_volume`, and for the
+        same reason synchronous: a caller that stores then submits keeps the
+        order it stored in."""
+        return self._submit(self._mute_channels, mac_id, mute, force, self._send_mute)
+
     async def set_equalizer_mute(self, mac_id: str, mute: bool, force: bool = False) -> bool:
         """Set mute state for a client's equalizer via EqualizerRouter.
 
@@ -255,7 +261,7 @@ class EqualizerController:
         push calls it once per client, and a raise there must answer False
         rather than abort the pass.
         """
-        return await self._submit(self._mute_channels, mac_id, mute, force, self._send_mute)
+        return await self.submit_mute(mac_id, mute, force=force)
 
     async def _send_mute(self, mac_id: str, channel: _Channel, force: bool) -> bool:
         try:

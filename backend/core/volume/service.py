@@ -12,7 +12,6 @@ Architecture:
 - VolumeService: Orchestration layer only
 """
 import asyncio
-import contextlib
 import logging
 from typing import Callable, List, Optional, Tuple
 
@@ -25,8 +24,6 @@ from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
 from backend.core.models.ws_events import (
     VolumeChanged,
-    VolumeStartupChanged,
-    VolumeStartupConfig,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB
 
@@ -45,14 +42,6 @@ class VolumeService:
         VolumeService: Orchestration (API -> State -> Hardware)
     """
 
-    # Debounce for the startup-volume tracking write. Measured on this
-    # appliance: a 3 s rotary turn drives ~105 volume steps, each of which used
-    # to rewrite the whole of settings.json (8.6 KB) and fsync it — 104 writes,
-    # 1.72 MB of block traffic on the SD card and 9.3 % of one core, against
-    # 0.53 % at rest. Nothing coalesced, because every step wrote immediately.
-    # Same value as VolumeStateStore's own debounce, which was already
-    # collapsing last_volume.json to a single write over that identical burst.
-    STARTUP_VOLUME_DEBOUNCE_S = 2.0
 
     def __init__(self, state_machine, snapcast_service, settings_service=None,
                  camilladsp_service=None, equalizer_client_proxy_service=None,
@@ -75,7 +64,7 @@ class VolumeService:
         self._volume_control: bool = True
 
         # VolumeStateStore (SSOT) + EqualizerController (hardware abstraction)
-        self._state_store = VolumeStateStore(self.settings_service)
+        self._state_store = VolumeStateStore()
         self._equalizer_controller = EqualizerController(
             equalizer_router=equalizer_router,
             clamp=lambda volume_db: self._volume_config.clamp(volume_db),
@@ -89,9 +78,6 @@ class VolumeService:
         # Event to signal when client availability has been initialized (for WebSocket handshake)
         self._availability_ready = asyncio.Event()
 
-        # Debounced persistence of volume.startup_volume_db (see the constant above).
-        self._startup_volume_pending: Optional[float] = None
-        self._startup_persist_task: Optional[asyncio.Task] = None
 
     def attach_registry(self, registry):
         """Attach the ClientRegistryService: subscribe the volume state store to
@@ -173,7 +159,8 @@ class VolumeService:
         the thumb. A member the router then finds offline is skipped at the
         door, and stored like any absent room.
         """
-        return [m for m in members if self._state_store.is_client_available(m)]
+        multiroom = self._is_multiroom_enabled()
+        return [m for m in members if self._state_store.is_client_available(m, multiroom)]
 
     def _submit_levels(self, mac_ids: List[str]) -> Optional[asyncio.Future]:
         """Send each speaker its stored level, through the door; answer the local one's future.
@@ -325,13 +312,17 @@ class VolumeService:
         client muted during multiroom would return to silence with nothing on
         screen to explain it.
         """
-        await self._state_store.set_mode("multiroom" if multiroom_enabled else "direct")
+        # The unmute is stored first, like every mute: published muted while it
+        # plays, the speaker would also be muted again by the next CamillaDSP
+        # reconnect and the next boot, both of which apply the stored mute.
+        local_mac = self._state_store.local_mac_id
+        if not multiroom_enabled and local_mac:
+            await self._state_store.set_client_mute(local_mac, False)
 
         # DAC mode makes no CamillaDSP call at all here: reapply_current_volume
         # pins it at 0 dB and unmuted, and the external amp owns the rest.
         if self._volume_control and not multiroom_enabled:
             # Through the door, ordered after any mute still in flight to it.
-            local_mac = self._state_store.local_mac_id
             if await self._equalizer_controller.set_equalizer_mute(local_mac, False, force=True):
                 self.logger.info("Switched to direct: CamillaDSP unmuted, no level changed")
             else:
@@ -354,7 +345,6 @@ class VolumeService:
         `step_mobile_db` 3 against 2, and `restore_last_volume` False against True,
         so a degraded read silently stopped restoring the volume at startup.
         """
-        self._drop_pending_startup_volume()
         try:
             self.settings_service.invalidate_cache()
             volume_settings = await self.settings_service.get_setting('volume')
@@ -426,102 +416,6 @@ class VolumeService:
         if local_future is not None and not await local_future:
             self.logger.error("LOCAL server volume update failed — server audio may be silent")
 
-    # ============================================================================
-    # STARTUP VOLUME AUTO-UPDATE
-    # ============================================================================
-
-    @handle_errors(default=None)
-    async def _update_startup_volume_if_needed(self, volume_db: float) -> None:
-        """
-        Auto-update startup_volume_db to track current volume.
-
-        When restore_last_volume is enabled, startup_volume_db tracks the current volume
-        so it can be restored correctly at startup/restart (direct and multiroom).
-        When disabled, startup_volume_db stays at the user-configured fixed value.
-
-        Args:
-            volume_db: The new volume level in dB to potentially save as startup volume
-        """
-        if not self._volume_config.restore_last_volume:
-            return
-
-        current_startup = self._volume_config.startup_volume_db
-        # Skip if unchanged (avoid unnecessary writes) - 0.1 dB tolerance
-        if abs(current_startup - volume_db) < 0.1:
-            return
-
-        # In memory now, on disk in STARTUP_VOLUME_DEBOUNCE_S. The in-memory
-        # value is what the next step compares against and what every reader
-        # (initialize, the reconnection sync, GET /volume/startup) uses, so the
-        # appliance behaves as if the write had already landed — only the SD
-        # card sees one write per turn instead of one per step.
-        self._volume_config.startup_volume_db = volume_db
-        self._startup_volume_pending = volume_db
-        self._schedule_startup_volume_persist()
-
-        await self._broadcast_startup_volume_changed(volume_db)
-
-        self.logger.debug(f"Auto-updated startup_volume_db to {volume_db:.1f} dB")
-
-    def _schedule_startup_volume_persist(self) -> None:
-        """Schedule the debounced write of the pending startup volume."""
-        if self._startup_persist_task and not self._startup_persist_task.done():
-            self._startup_persist_task.cancel()
-
-        async def _debounced():
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.sleep(self.STARTUP_VOLUME_DEBOUNCE_S)
-                await self._persist_startup_volume()
-
-        self._startup_persist_task = self._bg.spawn(
-            _debounced(), label="persist_startup_volume"
-        )
-
-    @handle_errors(default=None, level='error')
-    async def _persist_startup_volume(self) -> None:
-        """Write the pending startup volume, if any. Idempotent."""
-        volume_db = self._startup_volume_pending
-        if volume_db is None or not self.settings_service:
-            return
-        self._startup_volume_pending = None
-        await self.settings_service.set_setting('volume.startup_volume_db', volume_db)
-
-    async def _flush_startup_volume(self) -> None:
-        """Cancel the debounce and write the pending value now (shutdown path)."""
-        if self._startup_persist_task and not self._startup_persist_task.done():
-            self._startup_persist_task.cancel()
-        await self._persist_startup_volume()
-
-    def _drop_pending_startup_volume(self) -> None:
-        """Discard a pending tracking write superseded by a settings reload.
-
-        `_load_volume_config` re-reads the whole `volume` section from disk, so
-        anything still only in memory is about to be overwritten by what the
-        file says. Writing it afterwards would resurrect it — and the reload's
-        own trigger is usually `PUT /api/settings/volume-startup`, i.e. a value
-        the user just chose explicitly. The tracked volume itself is not lost:
-        `last_volume.json` holds the local client's real level and is what
-        `initialize()` restores from whenever `restore_last_volume` is on.
-        """
-        if self._startup_persist_task and not self._startup_persist_task.done():
-            self._startup_persist_task.cancel()
-        self._startup_volume_pending = None
-
-    @handle_errors(default=None)
-    async def _broadcast_startup_volume_changed(self, volume_db: float) -> None:
-        """
-        Broadcast startup volume change via WebSocket.
-
-        Args:
-            volume_db: The new startup volume in dB
-        """
-        await self.state_machine.broadcast(VolumeStartupChanged(
-            config=VolumeStartupConfig(
-                startup_volume_db=volume_db,
-                restore_last_volume=self._volume_config.restore_last_volume
-            )
-        ))
-
     @handle_errors(default=False)
     async def _reload_config(self, broadcast: bool = False) -> bool:
         """Helper: reload config with optional broadcast."""
@@ -547,51 +441,6 @@ class VolumeService:
     # ============================================================================
 
     @handle_errors(default=False)
-    async def sync_all_clients_from_equalizer(self) -> bool:
-        """Sync all client volumes from their equalizer state (called when multiroom is enabled)."""
-        if not self._is_multiroom_enabled():
-            return True
-
-        registry = self._client_registry
-        if not registry:
-            self.logger.warning("Cannot sync client volumes: client registry not attached")
-            return False
-        clients = registry.get_online_clients()
-        for client_info in clients:
-            cid = client_info.mac_id
-            # Read equalizer volume via the router, which owns local/remote
-            # dispatch (local CamillaDSP vs satellite proxy) — VolumeService no
-            # longer reaches a satellite directly.
-            if not client_info.ip:
-                self.logger.warning(f"Cannot sync client {cid}: no IP address in registry")
-                continue
-            if cid == self._state_store.local_mac_id:
-                # SSOT: the local volume lives in the state store (last_volume.json).
-                # Never reconstruct it from the live CamillaDSP — that inverts the
-                # data flow and races the boot restore.
-                volume = self._state_store.get_client_volume(cid)
-                if volume is None:
-                    volume = self._volume_config.startup_volume_db
-            else:
-                # Remote: read the satellite's own value via the proxy, but if it is
-                # unreachable/not ready (boot race), keep the last persisted value
-                # (SSOT) rather than clobbering it with the -45 dB default — the later
-                # push restores that value to the satellite.
-                vol_data = await self._equalizer_router.get_volume(cid)
-                volume = vol_data.get("main") if vol_data else None
-                if volume is None:
-                    volume = self._state_store.get_client_volume(cid)
-                    if volume is None:
-                        volume = DEFAULT_VOLUME_DB
-            # Online in the registry is what "available" means here — there is no
-            # second liveness field to read, and the registry is the authority.
-            await self._state_store.register_client(cid, volume_db=volume, available=True)
-
-        self.logger.info(f"Synced {len(clients)} clients from equalizer")
-        await self.broadcast_volume_state(show_bar=False)
-        return True
-
-    @handle_errors(default=False)
     async def push_volume_to_all_clients(self) -> bool:
         """Push each online client's own level and mute state to its hardware.
 
@@ -613,7 +462,7 @@ class VolumeService:
         if not client_ids:
             # Benign boot-ordering case: the snapserver WS is ready but the local
             # snapclient has not registered yet. Push is a no-op (returns True) and
-            # the CLIENT_CONNECT handler + delayed sync apply volumes once it joins.
+            # its admission applies its level once it joins.
             self.logger.info("PUSH_VOLUME: No online clients yet — nothing to push (will sync on client connect)")
             return True
         self.logger.info(f"PUSH_VOLUME: Found {len(client_ids)} online clients: {client_ids}")
@@ -733,6 +582,33 @@ class VolumeService:
     # ATOMIC ZONE OPERATIONS
     # ============================================================================
 
+    async def set_zone_mute(self, zone_id: str, mute: bool) -> List[str]:
+        """Mute or unmute a whole zone in one request and one broadcast.
+
+        The web UI sent one PATCH per member and got one broadcast per member.
+        Every member's mute is stored, the absent ones included — the same rule
+        as the client route: a speaker that is away takes it at its admission.
+        The reachable ones are sent it. A member whose amp owns its level is
+        muted too: a mute is not a level, and the router mutes its DSP like any
+        other. Returns the reachable members that refused it.
+
+        Raises:
+            ValueError: unknown zone.
+        """
+        members = self._state_store.zone_clients(zone_id)
+        reachable = set(self._reachable(members))
+        answers = {}
+        for mac_id in members:
+            await self._state_store.set_client_mute(mac_id, mute)
+            if mac_id in reachable:
+                answers[mac_id] = self._equalizer_controller.submit_mute(mac_id, mute)
+        refused = [
+            mac_id for mac_id, answer in answers.items()
+            if self._refused(mac_id, await answer)
+        ]
+        await self.broadcast_volume_state(show_bar=False)
+        return refused
+
     async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> Tuple[float, float]:
         """Move a whole zone by `delta_db`. Returns (new zone average, delta applied).
 
@@ -773,7 +649,7 @@ class VolumeService:
         members = self._state_store.zone_members(zone_id)
         reachable = self._reachable(members)
         _, delta_db = await self._move(members, reachable, resolve)
-        new_avg = self._state_store.compute_zone_average(zone_id)
+        new_avg = self._state_store.compute_zone_average(zone_id, self._is_multiroom_enabled())
         if delta_db is None:
             return new_avg, 0.0
 
@@ -781,8 +657,6 @@ class VolumeService:
             f"Zone {zone_id} moved {delta_db:+.1f}dB -> {new_avg:.1f}dB "
             f"({len(reachable)}/{len(members)} reachable)"
         )
-        # Startup-volume tracking + broadcast
-        await self._update_startup_volume_if_needed(self._state_store.local_volume_db)
         await self.broadcast_volume_state(show_bar=False)
         return new_avg, delta_db
 
@@ -808,7 +682,7 @@ class VolumeService:
             if not self._volume_control:
                 self.logger.info("DAC mode: volume managed by external amplifier")
 
-            # Initialize VolumeStateStore (loads zones, persisted state)
+            # Initialize VolumeStateStore (loads the persisted levels)
             await self._state_store.initialize()
             self.logger.info("VolumeStateStore initialized")
 
@@ -964,10 +838,12 @@ class VolumeService:
 
         Volume source is determined by restore_last_volume setting:
         - True: the local client's OWN persisted per-client volume (state store,
-          restored from last_volume.json before this runs). In multiroom
-          startup_volume_db tracks the GLOBAL AVERAGE, which is wrong for the
-          local client; in direct mode the two are equal anyway.
+          restored from last_volume.json before this runs).
         - False: the user-configured fixed startup_volume_db.
+
+        startup_volume_db is only ever the operator's setting: every level a
+        room was left at is in last_volume.json already, so nothing rewrites
+        the setting as the volume moves.
 
         SSOT: the state store is the single source of truth for the local volume;
         we apply store -> CamillaDSP here and never read CamillaDSP back into it.
@@ -988,11 +864,10 @@ class VolumeService:
 
         local_mac_id = self._state_store.local_mac_id
 
-        # In restore mode, the local client's own persisted volume is authoritative
-        # (in multiroom startup_volume_db tracks the global AVERAGE — wrong for the
-        # local client). Before the local client is resolved (fresh boot), fall back
-        # to the configured startup volume rather than the -45 dB hard default.
-        # In fixed mode, the user-configured value applies to all clients.
+        # In restore mode, the local client's own persisted volume is authoritative.
+        # Before the local client is resolved (fresh boot), fall back to the
+        # configured startup volume rather than the -45 dB hard default. In fixed
+        # mode, the user-configured value applies to all clients.
         if (self._volume_config.restore_last_volume
                 and local_mac_id is not None
                 and self._state_store.has_client(local_mac_id)):
@@ -1037,7 +912,6 @@ class VolumeService:
             ws_ready = await self._snapcast_websocket_service.wait_for_ready(timeout=30.0)
             if ws_ready:
                 self.logger.info("Snapcast WebSocket ready, syncing clients")
-                await self.initialize_client_availability()
                 await self.push_volume_to_all_clients()
             else:
                 self.logger.warning("Snapcast WebSocket not ready after timeout")
@@ -1052,7 +926,7 @@ class VolumeService:
 
     async def get_volume_db(self) -> float:
         """Get current volume in dB (average of the reachable clients in multiroom mode)."""
-        volume_state = await self._state_store.get_complete_state()
+        volume_state = await self._state_store.get_complete_state(self._is_multiroom_enabled())
         return volume_state.global_volume_db
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
@@ -1066,7 +940,9 @@ class VolumeService:
         success, _ = await self._move(
             *group, lambda average: None if average is None else target_db - average
         )
-        await self._after_global_move(show_bar)
+        # Even when the local speaker refused: the levels were written and the
+        # satellites were sent theirs, and every screen must show them.
+        await self.broadcast_volume_state(show_bar)
         return success
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
@@ -1080,55 +956,33 @@ class VolumeService:
         # In the background: the rotary's accumulator awaits this call before
         # sending its next batch, and the snapshot a broadcast builds has no
         # business pacing the knob.
-        self._bg.spawn(self._after_global_move(show_bar), label="post_volume_update")
+        self._bg.spawn(self.broadcast_volume_state(show_bar), label="post_volume_update")
         return success
-
-    async def _after_global_move(self, show_bar: bool) -> None:
-        """Startup-volume tracking and the broadcast, once a global move is done.
-
-        Even when the local speaker refused: the levels were written and the
-        satellites were sent theirs, and every screen must show them. One
-        snapshot serves both. With no client available the global average is a
-        placeholder, and nothing is tracked from it.
-        """
-        volume_state = await self.get_volume_state()
-        if any(client.available for client in volume_state.clients.values()):
-            await self._update_startup_volume_if_needed(volume_state.global_volume_db)
-        await self.broadcast_volume_state(show_bar, volume_state)
 
     # ============================================================================
     # WEBSOCKET BROADCASTING
     # ============================================================================
 
-    @handle_errors(default=None, level='warning')
-    async def initialize_client_availability(self) -> None:
-        """Mark every client the registry reports online as available.
+    async def volume_event(self, show_bar: bool) -> VolumeChanged:
+        """The `volume_changed` event for the state as it is now.
 
-        Belt and braces over the CLIENT_CONNECTED events VolumeStateStore is
-        already subscribed to: this runs once the snapcast WebSocket reports
-        ready, which is not ordered against the registration sweep that emits
-        them. It only ever raises availability — a client that is genuinely gone
-        is lowered by CLIENT_DISCONNECTED, never here.
+        The one place it is built: the broadcast after every change and the
+        snapshot a new WebSocket connection receives both send this, so a
+        field added to one is never missing from the other.
         """
-        client_ids = self._online_client_ids()
-        for mac_id in client_ids:
-            await self._state_store.set_client_availability(mac_id, True)
-        self.logger.info(f"Initialized availability for {len(client_ids)} online clients")
+        volume_state = await self.get_volume_state()
+        return VolumeChanged(
+            show_bar=show_bar,
+            step_mobile_db=self._volume_config.step_mobile_db,
+            multiroom_enabled=volume_state.mode == "multiroom",
+            state=volume_state.to_dict()
+        )
 
-    async def broadcast_volume_state(self, show_bar: bool = True,
-                                     volume_state: Optional[VolumeState] = None) -> None:
+    async def broadcast_volume_state(self, show_bar: bool = True) -> None:
         """Broadcast volume state immediately to WebSocket clients."""
         try:
-            volume_state = volume_state or await self.get_volume_state()
+            await self.state_machine.broadcast(await self.volume_event(show_bar))
 
-            await self.state_machine.broadcast(VolumeChanged(
-                show_bar=show_bar,
-                step_mobile_db=self._volume_config.step_mobile_db,
-                multiroom_enabled=volume_state.mode == "multiroom",
-                state=volume_state.to_dict()
-            ))
-
-            self.logger.debug(f"Volume broadcast completed: {len(volume_state.clients)} clients, {len(volume_state.zones)} zones")
         except Exception as e:
             self.logger.error(f"Error broadcasting volume state: {e}", exc_info=True)
             raise  # Re-raise so task error callback can handle it
@@ -1143,7 +997,7 @@ class VolumeService:
 
         Returns a VolumeState with all volume data for both direct and multiroom modes.
         """
-        return await self._state_store.get_complete_state()
+        return await self._state_store.get_complete_state(self._is_multiroom_enabled())
 
     @handle_errors(default={"main": DEFAULT_VOLUME_DB, "mute": False})
     async def get_client_volume(self, hostname: str) -> dict:
@@ -1152,7 +1006,7 @@ class VolumeService:
 
         Returns: {"main": volume_db, "mute": bool}
         """
-        volume_state = await self._state_store.get_complete_state()
+        volume_state = await self._state_store.get_complete_state(self._is_multiroom_enabled())
         client = volume_state.clients.get(hostname)
         if client:
             return {"main": client.volume_db, "mute": client.mute}
@@ -1160,7 +1014,6 @@ class VolumeService:
 
     async def cleanup(self) -> None:
         """Clean up resources. Flushes pending volume state to disk."""
-        await self._flush_startup_volume()
         await self._bg.cancel_all()
         await self._equalizer_controller.cleanup()
         await self._state_store.cleanup()

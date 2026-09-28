@@ -21,6 +21,7 @@ from typing import List, Dict, Any
 
 from fastapi.websockets import WebSocketState
 
+from backend.core.volume import VolumeService
 from backend.ws import WebSocketManager, WebSocketServer
 from backend.core.models.audio_state import AudioSource
 from backend.core.state import AudioStateMachine
@@ -105,6 +106,10 @@ def mock_volume_service():
         "zones": {}
     })
     service.get_volume_state = AsyncMock(return_value=mock_state)
+    # The real builder over this mock's state: the handshake sends exactly what a
+    # broadcast would, because both go through VolumeService.volume_event.
+    service._volume_config.step_mobile_db = 3.0
+    service.volume_event = lambda show_bar: VolumeService.volume_event(service, show_bar)
 
     return service
 

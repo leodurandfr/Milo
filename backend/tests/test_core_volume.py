@@ -7,7 +7,7 @@ and EqualizerController in the new core/volume/ location.
 """
 import logging
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, call
+from unittest.mock import Mock, AsyncMock, patch
 import asyncio
 
 from backend.core.multiroom.equalizer_router import EqualizerRouter
@@ -21,9 +21,10 @@ from backend.core.models.volume import (
     denormalize_volume,
     normalize_volume,
 )
-from backend.core.models.volume_state import VolumeState, ClientVolume
-from backend.core.models.ws_events import VolumeStartupChanged
+from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
+from backend.tests.volume_world import Registry, world
+from backend.core.volume.state import StoredLevel
 
 
 # ============================================================================
@@ -280,7 +281,7 @@ class TestVolumeStateStore:
     @pytest.fixture
     def state_store(self, mock_settings):
         """Create VolumeStateStore with default VolumeConfig."""
-        store = VolumeStateStore(mock_settings)
+        store = VolumeStateStore()
         store.set_volume_config(VolumeConfig())
         return store
 
@@ -296,7 +297,7 @@ class TestVolumeStateStore:
 
     def test_clamp_db_fallback_without_config(self, mock_settings):
         """Test dB clamping falls back to technical limits when config not set."""
-        store = VolumeStateStore(mock_settings)
+        store = VolumeStateStore()
         # No set_volume_config called
         assert store._clamp_db(-90.0) == -80.0  # MIN_VOLUME_DB
         assert store._clamp_db(5.0) == 0.0      # MAX_VOLUME_DB
@@ -316,9 +317,8 @@ class TestVolumeStateStore:
 
         mac = "aa:bb:cc:dd:ee:ff"
         state_store._local_mac_id = mac
-        state_store._clients[mac] = ClientVolume(
-            volume_db=-30.0, offset_db=0.0, mute=False, available=False,
-        )
+        state_store._clients[mac] = StoredLevel(
+            volume_db=-30.0, mute=False)
 
         await state_store._handle_registry_event(
             RegistryEventType.CLIENT_CONNECTED,
@@ -330,8 +330,6 @@ class TestVolumeStateStore:
         assert mac in state_store._clients
         assert state_store._clients[mac].volume_db == -30.0
         assert state_store._local_mac_id == mac
-        # Availability flips to True via set_client_availability path
-        assert state_store._clients[mac].available is True
 
     @pytest.mark.asyncio
     async def test_local_client_first_connect_registers_the_startup_level(self, state_store):
@@ -366,28 +364,22 @@ class TestVolumeStateStore:
 
         Two producers emit CLIENT_DISCONNECTED and the registry is what tells them
         apart: set_client_online(False) leaves the client in the registry, so this
-        arm must only lower availability. Dropping the level here would hand the
-        client back at whatever its room drifted to, which is the one thing the
-        volume ownership rule forbids.
+        arm must leave it alone. Dropping the level here would hand the client
+        back at whatever its room drifted to, which is the one thing the volume
+        ownership rule forbids.
         """
         from backend.core.multiroom.models import RegistryEventType
 
         mac = "aa:bb:cc:dd:ee:ff"
-        registry = Mock()
-        registry.subscribe = Mock()
-        registry.get_client = Mock(return_value=Mock(mac_id=mac))
-        state_store.set_registry(registry)
-        state_store._clients[mac] = ClientVolume(
-            volume_db=-22.0, offset_db=0.0, mute=True, available=True,
-        )
+        registry = world(state_store)
+        registry.known.add(mac)
+        state_store._clients[mac] = StoredLevel(volume_db=-22.0, mute=True)
 
         await state_store._handle_registry_event(
             RegistryEventType.CLIENT_DISCONNECTED, {"mac_id": mac},
         )
 
-        # The arm ran: availability is what it is allowed to touch...
-        assert state_store._clients[mac].available is False
-        # ...and the level and mute it is not.
+        assert state_store.is_client_available(mac) is False
         assert state_store._clients[mac].volume_db == -22.0
         assert state_store._clients[mac].mute is True
 
@@ -403,13 +395,8 @@ class TestVolumeStateStore:
         from backend.core.multiroom.models import RegistryEventType
 
         mac = "aa:bb:cc:dd:ee:ff"
-        registry = Mock()
-        registry.subscribe = Mock()
-        registry.get_client = Mock(return_value=None)
-        state_store.set_registry(registry)
-        state_store._clients[mac] = ClientVolume(
-            volume_db=-22.0, offset_db=0.0, mute=False, available=True,
-        )
+        world(state_store)  # the registry no longer knows it
+        state_store._clients[mac] = StoredLevel(volume_db=-22.0, mute=False)
 
         await state_store._handle_registry_event(
             RegistryEventType.CLIENT_DISCONNECTED, {"mac_id": mac},
@@ -419,7 +406,7 @@ class TestVolumeStateStore:
 
     def test_set_volume_config(self, mock_settings):
         """Test setting VolumeConfig updates clamping behavior."""
-        store = VolumeStateStore(mock_settings)
+        store = VolumeStateStore()
         config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-15.0)
         store.set_volume_config(config)
         assert store._clamp_db(-70.0) == -60.0
@@ -428,10 +415,9 @@ class TestVolumeStateStore:
     @pytest.mark.asyncio
     async def test_register_client(self, state_store):
         """Test registering a client."""
-        await state_store.register_client("test-client", volume_db=-25.0, available=True)
+        await state_store.register_client("test-client", volume_db=-25.0)
         assert "test-client" in state_store._clients
         assert state_store._clients["test-client"].volume_db == -25.0
-        assert state_store._clients["test-client"].available is True
 
     @pytest.mark.asyncio
     async def test_set_client_volume(self, state_store):
@@ -447,31 +433,22 @@ class TestVolumeStateStore:
         await state_store.set_client_mute("test-client", True)
         assert state_store._clients["test-client"].mute is True
 
-    @pytest.mark.asyncio
-    async def test_set_client_availability(self, state_store):
-        """Test setting client availability."""
-        await state_store.register_client("test-client", volume_db=-30.0, available=False)
-        await state_store.set_client_availability("test-client", True)
-        assert state_store._clients["test-client"].available is True
-
     def test_get_client_volume(self, state_store):
         """Test getting client volume."""
-        state_store._clients["test-client"] = ClientVolume(
-            volume_db=-25.0, offset_db=0.0, mute=False, available=True
-        )
+        state_store._clients["test-client"] = StoredLevel(volume_db=-25.0, mute=False)
         assert state_store.get_client_volume("test-client") == -25.0
         assert state_store.get_client_volume("unknown") is None
 
     @pytest.mark.asyncio
     async def test_get_complete_state(self, state_store, mock_settings):
         """Test getting complete volume state."""
-        mock_settings.get_setting = AsyncMock(return_value=False)  # multiroom disabled
+        state_store._local_mac_id = "local"
         state_store.set_local_volume(-25.0)
 
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=False)
 
         assert isinstance(state, VolumeState)
-        assert state.mode in ["direct", "multiroom"]
+        assert (state.mode, state.global_volume_db) == ("direct", -25.0)
 
     @pytest.mark.asyncio
     async def test_the_snapshot_carries_the_span_its_levels_were_measured_over(
@@ -480,11 +457,10 @@ class TestVolumeStateStore:
         """A normalized level means nothing without the limits it spans, and the
         limits move. Sending them apart — in a settings call a client caches —
         is how Milo-iOS came to convert on a span this unit had left."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
         state_store.set_volume_config(VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0))
         state_store.ensure_local_client("dc:a6:32:7e:d3:43", -43.0)
 
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=False)
 
         assert (state.limit_min_db, state.limit_max_db) == (-78.0, -8.0)
         assert state.to_dict()["global_volume"] == 0.5
@@ -495,16 +471,11 @@ class TestVolumeStateStore:
         a reader that gets it can build the same set. Without it the lock screen
         drew a slider for a speaker Milō does not count, and the phone's idea of
         the global level and Milō's named different numbers."""
-        mock_settings.get_setting = AsyncMock(return_value={})
-        await state_store.set_mode("multiroom")
-        await state_store.register_client("dac-client", volume_db=-30.0, available=True)
+        await state_store.register_client("dac-client", volume_db=-30.0)
+        world(state_store).online.add("dac-client")
+        world(state_store).dac.add("dac-client")
 
-        registry = Mock()
-        registry.get_client = Mock(return_value=Mock(volume_control=False))
-        registry.get_all_zones = Mock(return_value={})
-        state_store._registry = registry
-
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=True)
 
         assert state.clients["dac-client"].volume_control is False
         assert state.to_dict()["clients"]["dac-client"]["volume_control"] is False
@@ -512,69 +483,39 @@ class TestVolumeStateStore:
     @pytest.mark.asyncio
     async def test_any_volume_control_local_manages(self, state_store, mock_settings):
         """Test any_volume_control is True when local device manages volume."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
         state_store.set_volume_control(True)
 
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=False)
         assert state.any_volume_control is True
 
     @pytest.mark.asyncio
     async def test_any_volume_control_direct_dac(self, state_store, mock_settings):
         """Test any_volume_control is False in direct mode with DAC."""
-        mock_settings.get_setting = AsyncMock(return_value=False)
         state_store.set_volume_control(False)
-        await state_store.set_mode("direct")
 
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=False)
         assert state.any_volume_control is False
 
     @pytest.mark.asyncio
     async def test_any_volume_control_multiroom_dac_with_remote(self, state_store, mock_settings):
         """Test any_volume_control is True in multiroom when remote client has volume control."""
-        mock_settings.get_setting = AsyncMock(return_value={})  # No zones
         state_store.set_volume_control(False)  # Local is DAC
-        await state_store.set_mode("multiroom")
-        await state_store.register_client("remote-client", volume_db=-30.0, available=True)
+        await state_store.register_client("remote-client", volume_db=-30.0)
+        world(state_store).online.add("remote-client")
 
-        # Mock registry with a non-DAC remote client
-        mock_registry = Mock()
-        mock_client = Mock()
-        mock_client.volume_control = True
-        mock_registry.get_client = Mock(return_value=mock_client)
-        mock_registry.get_all_zones = Mock(return_value={})
-        state_store._registry = mock_registry
-
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=True)
         assert state.any_volume_control is True
 
     @pytest.mark.asyncio
     async def test_any_volume_control_multiroom_all_dac(self, state_store, mock_settings):
         """Test any_volume_control is False in multiroom when all clients are DAC."""
-        mock_settings.get_setting = AsyncMock(return_value={})  # No zones
         state_store.set_volume_control(False)  # Local is DAC
-        await state_store.set_mode("multiroom")
-        await state_store.register_client("remote-dac", volume_db=-30.0, available=True)
+        await state_store.register_client("remote-dac", volume_db=-30.0)
+        world(state_store).online.add("remote-dac")
+        world(state_store).dac.add("remote-dac")
 
-        # Mock registry with a DAC remote client
-        mock_registry = Mock()
-        mock_client = Mock()
-        mock_client.volume_control = False
-        mock_registry.get_client = Mock(return_value=mock_client)
-        mock_registry.get_all_zones = Mock(return_value={})
-        state_store._registry = mock_registry
-
-        state = await state_store.get_complete_state()
+        state = await state_store.get_complete_state(multiroom=True)
         assert state.any_volume_control is False
-
-    @pytest.mark.asyncio
-    async def test_set_mode(self, state_store):
-        """Test setting volume mode."""
-        await state_store.set_mode("direct")
-        assert state_store._mode == "direct"
-
-        await state_store.set_mode("multiroom")
-        assert state_store._mode == "multiroom"
-
 
 # ============================================================================
 # VolumeService Tests
@@ -686,9 +627,9 @@ class TestVolumeService:
         service._routing_service = Mock()
         service._routing_service.get_state.return_value = {'multiroom_enabled': True}
         service._state_store._local_mac_id = "aa:bb"
-        service._state_store._clients["aa:bb"] = ClientVolume(
-            volume_db=-40.0, offset_db=0.0, mute=False, available=True
-        )
+        service._state_store._clients["aa:bb"] = StoredLevel(
+            volume_db=-40.0, mute=False)
+        world(service._state_store).online.add("aa:bb")
 
         assert await service.adjust_volume_db(2.0) is True
         assert service._state_store.get_client_volume("aa:bb") == -38.0
@@ -823,61 +764,6 @@ class TestVolumeService:
         mock_camilladsp_service.set_volume.assert_not_called()
         mock_camilladsp_service.set_mute.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_sync_does_not_read_local_from_camilladsp(self, service):
-        """SSOT: the local client's volume comes from the state store, never re-read
-        from the live CamillaDSP (which would race the boot restore)."""
-        local_mac = "2c:cf:67:b9:46:6f"
-        service._routing_service = Mock()
-        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
-        service._client_registry = Mock()
-        service._client_registry.get_online_clients = Mock(return_value=[
-            Mock(mac_id=local_mac, ip="127.0.0.1"),
-        ])
-        service._equalizer_router = Mock()
-        service._equalizer_router.get_volume = AsyncMock(return_value={"main": -10.0})  # would be WRONG
-        service.broadcast_volume_state = AsyncMock()
-        service._state_store._local_mac_id = local_mac
-        service._state_store._clients[local_mac] = ClientVolume(
-            volume_db=-40.0, offset_db=0.0, mute=False, available=True
-        )
-
-        result = await service.sync_all_clients_from_equalizer()
-
-        # Non-triviality first: @handle_errors turns any crash inside the loop into
-        # False, so a body that never ran would satisfy every negative below.
-        assert result is True
-        service._equalizer_router.get_volume.assert_not_called()  # local never read from hardware
-        assert service._state_store.get_client_volume(local_mac) == -40.0  # store value preserved
-        assert service._state_store._clients[local_mac].available is True  # the sync did run
-        service.broadcast_volume_state.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_sync_keeps_persisted_remote_volume_when_proxy_fails(self, service):
-        """SSOT: if the satellite proxy read fails at boot, keep the last persisted
-        remote volume instead of clobbering it with the -45 dB default."""
-        remote_mac = "dc:a6:32:7e:d3:43"
-        service._routing_service = Mock()
-        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
-        service._client_registry = Mock()
-        service._client_registry.get_online_clients = Mock(return_value=[
-            Mock(mac_id=remote_mac, ip="192.168.1.50"),
-        ])
-        service._equalizer_router = Mock()
-        service._equalizer_router.get_volume = AsyncMock(return_value=None)  # proxy unreachable
-        service.broadcast_volume_state = AsyncMock()
-        service._state_store._local_mac_id = "2c:cf:67:b9:46:6f"
-        service._state_store._clients[remote_mac] = ClientVolume(
-            volume_db=-50.0, offset_db=0.0, mute=False, available=True
-        )
-
-        result = await service.sync_all_clients_from_equalizer()
-
-        # Non-triviality first (see the local test above).
-        assert result is True
-        service._equalizer_router.get_volume.assert_awaited_once()  # the remote branch did run
-        assert service._state_store.get_client_volume(remote_mac) == -50.0  # persisted kept, not -45
-
     # ------------------------------------------------------------------
     # A mode switch moves no level
     # ------------------------------------------------------------------
@@ -889,9 +775,10 @@ class TestVolumeService:
         remote_mac = "dc:a6:32:7e:d3:43"
         service._state_store._local_mac_id = local_mac
         service._state_store._clients = {
-            local_mac: ClientVolume(volume_db=-75.0, offset_db=0.0, mute=False, available=True),
-            remote_mac: ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
+            local_mac: StoredLevel(volume_db=-75.0, mute=False),
+            remote_mac: StoredLevel(volume_db=-30.0, mute=False),
         }
+        world(service._state_store).online |= {local_mac, remote_mac}
         return local_mac, remote_mac
 
     @pytest.mark.asyncio
@@ -930,18 +817,16 @@ class TestVolumeService:
         assert service._state_store.get_client_volume(remote_mac) == -30.0
         mock_camilladsp_service.set_volume.assert_not_called()
         mock_camilladsp_service.set_mute.assert_not_called()
-        assert (await service._state_store.get_complete_state()).mode == "multiroom"
 
     @pytest.mark.asyncio
-    async def test_a_dac_mode_switch_only_changes_the_mode(self, service, mock_camilladsp_service):
-        """No local volume control: the mode still has to change (any_volume_control
-        reads it), but CamillaDSP stays as reapply_current_volume pinned it."""
+    async def test_a_dac_mode_switch_leaves_camilladsp_alone(self, service, mock_camilladsp_service):
+        """No local volume control: CamillaDSP stays as reapply_current_volume
+        pinned it, even on the way to direct, where a managed unit unmutes."""
         self._two_clients_apart(service)
         service._volume_control = False
 
         await service.update_volume_mode(False)
 
-        assert (await service._state_store.get_complete_state()).mode == "direct"
         mock_camilladsp_service.set_volume.assert_not_called()
         mock_camilladsp_service.set_mute.assert_not_called()
 
@@ -1007,8 +892,8 @@ class TestVolumeService:
         speaker was sent last, as the router received it."""
         service._routing_service = Mock()
         service._routing_service.get_state.return_value = {'multiroom_enabled': True}
-        service._client_registry = Mock()
-        service._client_registry.get_online_client_ids.return_value = list(online)
+        service._client_registry = world(service._state_store)
+        service._client_registry.online |= set(online)
         service.sent = {}
 
         async def set_volume(mac_id, volume_db, force=False):
@@ -1040,9 +925,9 @@ class TestVolumeService:
         service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
         service._state_store.set_volume_config(service._volume_config)
         for mac, level in (("a", -78.0), ("b", -75.0), ("c", -40.0)):
-            service._state_store._clients[mac] = ClientVolume(
-                volume_db=level, offset_db=0.0, mute=False, available=True
-            )
+            service._state_store._clients[mac] = StoredLevel(
+                volume_db=level, mute=False)
+            world(service._state_store).online.add(mac)
         self._multiroom(service, online=["a", "b", "c"])
         mock_settings.get_setting = AsyncMock(
             return_value=self._volume_section(limit_min_db=-70.0, limit_max_db=-8.0)
@@ -1069,9 +954,9 @@ class TestVolumeService:
         service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
         service._state_store.set_volume_config(service._volume_config)
         service._state_store._local_mac_id = local_mac
-        service._state_store._clients[local_mac] = ClientVolume(
-            volume_db=-10.0, offset_db=0.0, mute=False, available=True
-        )
+        service._state_store._clients[local_mac] = StoredLevel(
+            volume_db=-10.0, mute=False)
+        world(service._state_store).online.add(local_mac)
         mock_settings.get_setting = AsyncMock(
             return_value=self._volume_section(limit_min_db=-78.0, limit_max_db=-20.0)
         )
@@ -1094,12 +979,11 @@ class TestVolumeService:
         """
         service._volume_config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
         service._state_store.set_volume_config(service._volume_config)
-        service._state_store._clients["here"] = ClientVolume(
-            volume_db=-10.0, offset_db=0.0, mute=False, available=True
-        )
-        service._state_store._clients["away"] = ClientVolume(
-            volume_db=-10.0, offset_db=0.0, mute=False, available=False
-        )
+        service._state_store._clients["here"] = StoredLevel(
+            volume_db=-10.0, mute=False)
+        world(service._state_store).online.add("here")
+        service._state_store._clients["away"] = StoredLevel(
+            volume_db=-10.0, mute=False)
         self._multiroom(service, online=["here"])
         mock_settings.get_setting = AsyncMock(
             return_value=self._volume_section(limit_min_db=-78.0, limit_max_db=-20.0)
@@ -1114,12 +998,10 @@ class TestVolumeService:
     @staticmethod
     def _zone(service, levels, online):
         """One zone 'z' holding `levels` ({mac: dB}), `online` reachable."""
-        from backend.core.volume.state import ZoneConfig
         for mac, level in levels.items():
-            service._state_store._clients[mac] = ClientVolume(
-                volume_db=level, offset_db=0.0, mute=False, available=mac in online
-            )
-        service._state_store._zones["z"] = ZoneConfig(zone_id="z", name="Z", client_ids=list(levels))
+            service._state_store._clients[mac] = StoredLevel(volume_db=level, mute=False)
+        world(service._state_store).online |= set(online)
+        world(service._state_store).zone("z", levels, name="Z")
 
     async def test_a_zone_level_lands_the_average_on_it(self, service):
         """A level moves every member by one delta, measured against the average.
@@ -1185,9 +1067,9 @@ class TestVolumeService:
         """
         local_mac = "2c:cf:67:b9:46:6f"
         service._state_store._local_mac_id = local_mac
-        service._state_store._clients[local_mac] = ClientVolume(
-            volume_db=-40.0, offset_db=0.0, mute=False, available=True
-        )
+        service._state_store._clients[local_mac] = StoredLevel(
+            volume_db=-40.0, mute=False)
+        world(service._state_store).online.add(local_mac)
         # Same limits as the service's current config, a different step size.
         mock_settings.get_setting = AsyncMock(
             return_value=self._volume_section(step_mobile_db=6.0)
@@ -1218,9 +1100,10 @@ class TestVolumeService:
             Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
         )
         for mac, available in (("aa:bb", True), ("cc:dd", True), ("ee:ff", False)):
-            service._state_store._clients[mac] = ClientVolume(
-                volume_db=-40.0, offset_db=0.0, mute=False, available=available
-            )
+            service._state_store._clients[mac] = StoredLevel(
+                volume_db=-40.0, mute=False)
+            if available:
+                world(service._state_store).online.add(mac)
 
         members, reachable = service._global_members()
 
@@ -1234,9 +1117,8 @@ class TestVolumeService:
         service.set_routing_service(
             Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
         )
-        service._state_store._clients["aa:bb"] = ClientVolume(
-            volume_db=-40.0, offset_db=0.0, mute=False, available=False
-        )
+        service._state_store._clients["aa:bb"] = StoredLevel(
+            volume_db=-40.0, mute=False)
         assert service._global_members() == (["aa:bb"], [])
 
     # ------------------------------------------------------------------
@@ -1244,21 +1126,20 @@ class TestVolumeService:
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_boot_sync_marks_clients_available_then_pushes_their_level(self, service, mock_settings):
-        """The multiroom boot sync raises availability and pushes each client's level.
+    async def test_boot_sync_pushes_each_client_its_level(self, service, mock_settings):
+        """The multiroom boot sync pushes each online client its level.
 
         Consumer: initialize() spawns _startup_broadcast_after_websocket_ready, the
-        only path that runs both steps. Three collaborators are wired the way
+        only path that runs it. Three collaborators are wired the way
         dependencies.py wires them, so this fails if the WebSocket reference stops
-        being stored, if availability stops being raised, or if the push stops
-        reaching the hardware. @handle_errors(default=None) hides a crash here, so
-        both assertions are positive by construction.
+        being stored or if the push stops reaching the hardware.
+        @handle_errors(default=None) hides a crash here, so the assertion is
+        positive by construction.
         """
         mac = "dc:a6:32:7e:d3:43"
         service._state_store._local_mac_id = mac
-        service._state_store._clients[mac] = ClientVolume(
-            volume_db=-42.0, offset_db=0.0, mute=False, available=False
-        )
+        service._state_store._clients[mac] = StoredLevel(
+            volume_db=-42.0, mute=False)
         service._client_registry = Mock()
         service._client_registry.get_online_client_ids = Mock(return_value=[mac])
         sent = {}
@@ -1281,7 +1162,6 @@ class TestVolumeService:
 
         await service._startup_broadcast_after_websocket_ready()
 
-        assert service._state_store._clients[mac].available is True
         assert sent == {mac: -42.0}
 
     @pytest.mark.asyncio
@@ -1298,9 +1178,9 @@ class TestVolumeService:
         service._volume_config = VolumeConfig(restore_last_volume=False, startup_volume_db=-30.0)
         service._state_store.set_volume_config(service._volume_config)
         for mac, db in ((took, -42.0), (refused, -50.0)):
-            service._state_store._clients[mac] = ClientVolume(
-                volume_db=db, offset_db=0.0, mute=False, available=True
-            )
+            service._state_store._clients[mac] = StoredLevel(
+                volume_db=db, mute=False)
+            world(service._state_store).online.add(mac)
         service._client_registry = Mock()
         service._client_registry.get_online_client_ids = Mock(return_value=[took, refused])
         def submit(mac_id, volume_db, force=False):
@@ -1386,7 +1266,7 @@ class TestVolumeIntegration:
         mock_settings = Mock()
         mock_settings.get_setting = AsyncMock(return_value=None)
 
-        state_store = VolumeStateStore(mock_settings)
+        state_store = VolumeStateStore()
 
         # Set config with custom limits
         config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-15.0)
@@ -1401,271 +1281,6 @@ class TestVolumeIntegration:
 # ============================================================================
 # Startup Volume Tests (-)
 # ============================================================================
-
-class TestStartupVolumeAutoUpdate:
-    """Tests for Auto-update startup_volume_db when restore_last_volume is enabled."""
-
-    @pytest.fixture
-    def mock_state_machine(self):
-        """Create mock state machine."""
-        sm = Mock()
-        sm.broadcast = AsyncMock()
-        sm.routing_service = Mock()
-        sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
-        return sm
-
-    @pytest.fixture
-    def mock_snapcast_service(self):
-        """Create mock snapcast service."""
-        service = Mock()
-        return service
-
-    @pytest.fixture
-    def mock_settings(self):
-        """Create mock settings service."""
-        settings = Mock()
-        settings.invalidate_cache = Mock()
-        settings.get_setting = AsyncMock(return_value=None)
-        settings.set_setting = AsyncMock()
-        return settings
-
-    @pytest.fixture
-    def mock_camilladsp_service(self):
-        """Create mock CamillaDSP service."""
-        camilladsp_mock = Mock()
-        camilladsp_mock.set_volume = AsyncMock(return_value=True)
-        camilladsp_mock.get_volume = AsyncMock(return_value={"main": -30.0})
-        camilladsp_mock.set_mute = AsyncMock(return_value=True)
-        camilladsp_mock.is_volume_control_available = Mock(return_value=True)
-        camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
-        return camilladsp_mock
-
-    @pytest.fixture
-    def mock_proxy_service(self):
-        """Create mock proxy service."""
-        proxy = Mock()
-        proxy.request = AsyncMock(return_value={"status": "success"})
-        return proxy
-
-    @pytest.fixture
-    def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
-                mock_camilladsp_service, mock_proxy_service):
-        """Create VolumeService with mocks."""
-        svc = VolumeService(
-            state_machine=mock_state_machine,
-            snapcast_service=mock_snapcast_service,
-            settings_service=mock_settings,
-            camilladsp_service=mock_camilladsp_service,
-            equalizer_client_proxy_service=mock_proxy_service,
-            equalizer_router=EqualizerRouter(
-                client_registry=None,
-                camilladsp_service=mock_camilladsp_service,
-                proxy_service=mock_proxy_service,
-            ),
-        )
-        svc._state_store.ensure_local_client("aa:bb:cc:dd:ee:ff", -60.0)
-        # Set initial config with restore_last_volume=True (active)
-        svc._volume_config = VolumeConfig(
-            limit_min_db=-80.0,
-            limit_max_db=-21.0,
-            startup_volume_db=-60.0,
-            restore_last_volume=True
-        )
-        # Set state store to direct mode (default is multiroom, which would use empty clients)
-        svc._state_store._mode = "direct"
-        return svc
-
-    @staticmethod
-    async def _settled(service):
-        """Let the debounced startup-volume write land.
-
-        The write is deferred by STARTUP_VOLUME_DEBOUNCE_S so a rotary turn costs
-        one settings.json rewrite instead of one per step; the tests below set
-        that delay to 0 and give the task its turns.
-        """
-        service.STARTUP_VOLUME_DEBOUNCE_S = 0
-        for _ in range(5):
-            await asyncio.sleep(0)
-
-    @pytest.mark.asyncio
-    async def test_set_volume_updates_startup_volume_when_restore_true(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """
-        set_volume_db() updates startup_volume_db when restore_last_volume=true.
-        """
-        # Arrange: restore_last_volume=True (already set in fixture)
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-        service.STARTUP_VOLUME_DEBOUNCE_S = 0
-
-        # Act: Set volume to -45dB
-        await service.set_volume_db(-45.0)
-        await self._settled(service)
-
-        # Assert: startup_volume_db was updated via SettingsService
-        mock_settings.set_setting.assert_called_with('volume.startup_volume_db', -45.0)
-
-    @pytest.mark.asyncio
-    async def test_set_volume_does_not_update_startup_volume_when_restore_false(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """
-        set_volume_db() does NOT update startup_volume_db when restore_last_volume=false.
-        """
-        # Arrange: Set restore_last_volume=False
-        service._volume_config = VolumeConfig(
-            limit_min_db=-80.0,
-            limit_max_db=-21.0,
-            startup_volume_db=-60.0,
-            restore_last_volume=False  # should NOT trigger
-        )
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-
-        # Act: Set volume
-        await service.set_volume_db(-45.0)
-
-        # Assert: startup_volume_db was NOT updated
-        mock_settings.set_setting.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_adjust_volume_updates_startup_volume_when_restore_true(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """
-        adjust_volume_db() updates startup_volume_db when restore_last_volume=true.
-        """
-        # Arrange: restore_last_volume=True (already set in fixture)
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-        service.STARTUP_VOLUME_DEBOUNCE_S = 0
-        service._state_store.set_local_volume(-50.0)
-
-        # Act: Adjust by +5dB -> -45dB
-        await service.adjust_volume_db(5.0)
-
-        # Allow background task (_schedule_post_volume_tasks) and the debounced
-        # persist to run
-        await self._settled(service)
-
-        # Assert: startup_volume_db was updated
-        mock_settings.set_setting.assert_called()
-        call_args = mock_settings.set_setting.call_args
-        assert call_args[0][0] == 'volume.startup_volume_db'
-
-    @pytest.mark.asyncio
-    async def test_startup_volume_not_updated_if_unchanged(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """
-        startup_volume_db is NOT updated if value is unchanged (within 0.1dB tolerance).
-        """
-        # Arrange: Set startup_volume_db to same value we'll set
-        service._volume_config = VolumeConfig(
-            limit_min_db=-80.0,
-            limit_max_db=-21.0,
-            startup_volume_db=-45.0,  # Same as what we'll set
-            restore_last_volume=True
-        )
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-
-        # Act: Set volume to same value
-        await service.set_volume_db(-45.0)
-
-        # Assert: startup_volume_db was NOT updated (no unnecessary write)
-        mock_settings.set_setting.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_websocket_broadcast_on_startup_volume_change(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """
-        WebSocket event 'settings_changed' is broadcast when startup_volume_db updates.
-        """
-        # Arrange
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-
-        # Act
-        await service.set_volume_db(-45.0)
-
-        # Assert: a typed VolumeStartupChanged event was broadcast
-        broadcast_calls = mock_state_machine.broadcast.call_args_list
-        startup_broadcasts = [
-            c for c in broadcast_calls if isinstance(c[0][0], VolumeStartupChanged)
-        ]
-        assert len(startup_broadcasts) >= 1
-
-    @pytest.mark.asyncio
-    async def test_zone_volume_delta_updates_startup_volume(
-        self, service, mock_settings, mock_state_machine, mock_camilladsp_service, mock_snapcast_service
-    ):
-        """
-        apply_zone_volume_delta() updates startup_volume_db using local client volume.
-        """
-        # Arrange: Multiroom mode with a zone
-        service._routing_service = Mock()
-        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
-
-        # Setup zone in state store
-        from backend.core.models.volume_state import ClientVolume
-        service._state_store._local_mac_id = 'local'
-        service._state_store._clients = {
-            'local': ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=True)
-        }
-        service._state_store._zones = {
-            'zone-1': Mock(
-                id='zone-1',
-                name='Test Zone',
-                client_ids=['local'],
-                average_volume_db=-50.0,
-                all_muted=False
-            )
-        }
-
-        service._state_store.compute_zone_average = Mock(return_value=-45.0)
-
-        # Act
-        service.STARTUP_VOLUME_DEBOUNCE_S = 0
-        await service.apply_zone_volume_delta('zone-1', 5.0)
-        await self._settled(service)
-
-        # Assert: startup_volume_db was updated with local client's new volume
-        mock_settings.set_setting.assert_called_with('volume.startup_volume_db', -45.0)
-
-    @pytest.mark.asyncio
-    async def test_a_burst_of_steps_writes_nothing_while_it_lasts(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """A rotary turn must not rewrite settings.json once per step.
-
-        Measured on the appliance before this was debounced: ~105 steps over a
-        3 s turn produced 104 full rewrites + fsyncs of an 8.6 KB file, 1.72 MB
-        of block writes and 9.3 % of one core against 0.53 % at rest. The turn
-        must cost the card nothing until it stops, while the tracked value is
-        live in memory immediately — everything that reads startup_volume_db
-        (initialize, the reconnection sync, GET /volume/startup) reads it there.
-        """
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-
-        for target in range(-60, -50):
-            await service.set_volume_db(float(target))
-
-        assert mock_settings.set_setting.call_args_list == []
-        assert service.volume_config.startup_volume_db == -51.0
-
-    @pytest.mark.asyncio
-    async def test_the_burst_lands_as_one_write_carrying_the_last_value(
-        self, service, mock_settings, mock_state_machine
-    ):
-        """…and when it settles, exactly one write, with where the knob stopped."""
-        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
-
-        for target in range(-60, -50):
-            await service.set_volume_db(float(target))
-        await service._flush_startup_volume()
-
-        assert mock_settings.set_setting.call_args_list == [
-            call('volume.startup_volume_db', -51.0)
-        ]
-
 
 class TestStartupVolumeOnRestart:
     """Tests for Backend restart applies startup volume."""
@@ -1781,9 +1396,9 @@ class TestStartupVolumeOnRestart:
             restore_last_volume=True
         )
         service._state_store._local_mac_id = mac
-        service._state_store._clients[mac] = ClientVolume(
-            volume_db=persisted_vol, offset_db=0.0, mute=False, available=True
-        )
+        service._state_store._clients[mac] = StoredLevel(
+            volume_db=persisted_vol, mute=False)
+        world(service._state_store).online.add(mac)
 
         # Act
         await service._apply_startup_volume()
@@ -1823,7 +1438,7 @@ class TestStartupVolumeOnRestart:
     ):
         """
         Startup also applies persisted mute state.
-        The mute state is read from the local client's ClientVolume.
+        The mute state is read from the local client's stored record.
         """
         # Arrange
         service._volume_config = VolumeConfig(
@@ -1833,11 +1448,10 @@ class TestStartupVolumeOnRestart:
             restore_last_volume=False
         )
         # Set persisted mute state via local client in state store
-        from backend.core.models.volume_state import ClientVolume
         service._state_store._local_mac_id = "local-mac"
-        service._state_store._clients["local-mac"] = ClientVolume(
-            volume_db=-45.0, offset_db=0.0, mute=True, available=True
-        )
+        service._state_store._clients["local-mac"] = StoredLevel(
+            volume_db=-45.0, mute=True)
+        world(service._state_store).online.add("local-mac")
 
         # Act
         await service._apply_startup_volume()
@@ -1892,15 +1506,7 @@ class TestConcurrentMovesKeepEveryStep:
 
     @pytest.fixture
     def mock_registry(self):
-        registry = Mock()
-        registry.get_online_client_ids = Mock(
-            return_value=[TestConcurrentMovesKeepEveryStep.LOCAL, TestConcurrentMovesKeepEveryStep.SATELLITE]
-        )
-        registry.get_client = Mock(return_value=Mock(volume_control=True))
-        registry.is_client_online = Mock(return_value=True)
-        registry.get_all_zones = Mock(return_value={})
-        registry.subscribe = Mock()
-        return registry
+        return Registry(online=[self.LOCAL, self.SATELLITE])
 
     @pytest.fixture
     def satellite_gate(self):
@@ -1929,8 +1535,8 @@ class TestConcurrentMovesKeepEveryStep:
         svc._equalizer_controller.set_registry(mock_registry)
         svc._state_store._local_mac_id = self.LOCAL
         svc._state_store._clients = {
-            self.LOCAL: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
-            self.SATELLITE: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            self.LOCAL: StoredLevel(volume_db=-40.0, mute=False),
+            self.SATELLITE: StoredLevel(volume_db=-40.0, mute=False),
         }
         svc.satellite_received = []
 
@@ -1987,12 +1593,7 @@ class TestConcurrentMovesKeepEveryStep:
         Each once measured its delta against levels the other had not written
         yet, and whichever wrote last erased the other.
         """
-        from backend.core.volume.state import ZoneConfig
-        zone = ZoneConfig(zone_id="zone-1", name="Test", client_ids=[self.LOCAL, self.SATELLITE])
-        service._state_store._zones = {"zone-1": zone}
-        # get_complete_state() reloads zones from the registry, wiping any the
-        # test planted directly; the global move's broadcast goes through it.
-        mock_registry.get_all_zones.return_value = {"zone-1": zone}
+        mock_registry.zone("zone-1", [self.LOCAL, self.SATELLITE])
 
         results = await asyncio.gather(
             service.apply_zone_volume_delta("zone-1", 3.0),
@@ -2080,10 +1681,9 @@ class TestPerClientApplyVerdict:
         svc._routing_service = mock_state_machine.routing_service
         svc._equalizer_controller = mock_equalizer_controller
         svc._client_registry = mock_registry
-        svc._state_store._mode = "multiroom"
         svc._state_store._clients = {
-            self.ACCEPTING: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
-            self.REFUSING: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            self.ACCEPTING: StoredLevel(volume_db=-40.0, mute=False),
+            self.REFUSING: StoredLevel(volume_db=-40.0, mute=False),
         }
         return svc
 
@@ -2202,17 +1802,8 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
 
     @pytest.fixture
     def mock_registry(self):
-        """The registry answers "is it online?" for the global path."""
-        registry = Mock()
-        registry.is_client_online = Mock(
-            side_effect=lambda cid: cid != TestAbsentClientKeepsItsPlaceInTheRoom.OFFLINE
-        )
-        registry.get_online_client_ids = Mock(return_value=[
-            TestAbsentClientKeepsItsPlaceInTheRoom.ONLINE,
-            TestAbsentClientKeepsItsPlaceInTheRoom.REFUSING,
-        ])
-        registry.get_client = Mock(return_value=None)
-        return registry
+        """The registry answers "is it online?"."""
+        return Registry(online=[self.ONLINE, self.REFUSING], known=[self.OFFLINE])
 
     @pytest.fixture
     def mock_equalizer_controller(self):
@@ -2255,24 +1846,19 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
         svc._routing_service = mock_state_machine.routing_service
         svc._equalizer_controller = mock_equalizer_controller
         svc._client_registry = mock_registry
-        svc._state_store._mode = "multiroom"
+        svc._state_store.set_registry(mock_registry)
         svc._state_store._schedule_persist = Mock()
         svc._state_store._clients = {
-            self.ONLINE: ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            self.REFUSING: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
-            self.OFFLINE: ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=False),
+            self.ONLINE: StoredLevel(volume_db=-30.0, mute=False),
+            self.REFUSING: StoredLevel(volume_db=-40.0, mute=False),
+            self.OFFLINE: StoredLevel(volume_db=-50.0, mute=False),
         }
         return svc
 
     @pytest.fixture
     def zoned(self, service):
         """The three clients as one zone."""
-        from backend.core.volume.state import ZoneConfig
-        service._state_store._zones = {
-            'salon': ZoneConfig(zone_id='salon', name='Salon',
-                                client_ids=[self.ONLINE, self.REFUSING, self.OFFLINE])
-        }
-        service._state_store._load_zones = AsyncMock()
+        world(service._state_store).zone('salon', [self.ONLINE, self.REFUSING, self.OFFLINE], name='Salon')
         return service
 
     # ---- 3.1 the zone delta ----

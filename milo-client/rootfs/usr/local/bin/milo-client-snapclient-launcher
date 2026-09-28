@@ -71,5 +71,5 @@ exec /usr/bin/snapclient \
     --hostID "$host_id" \
     --logsink=system \
     --soundcard camilladsp_input \
-    --mixer software \
+    --mixer none \
     --player "alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4}"

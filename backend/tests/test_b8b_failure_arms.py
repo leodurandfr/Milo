@@ -26,6 +26,7 @@ import pytest
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.equalizer.service import CamillaDSPService
 from backend.core.volume import VolumeService, VolumeStateStore
+from backend.tests.volume_world import world
 
 
 @pytest.fixture
@@ -62,13 +63,13 @@ class TestVolumeFanOutVerdict:
 
     @pytest.fixture
     def multiroom(self, volume, camilladsp):
-        """Multiroom, the local unit plus one satellite, both online.
+        """Multiroom, the local unit plus one satellite; a test says which are online.
 
         `answers` is what each speaker says to the level it is sent.
         """
         volume._routing_service = Mock()
         volume._routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
-        volume._client_registry = Mock(get_online_client_ids=Mock(return_value=["local:mac", "sat:mac"]))
+        volume._client_registry = world(volume._state_store)
         volume.answers = {"local:mac": True, "sat:mac": True}
         volume.submitted = {}
 
@@ -80,7 +81,6 @@ class TestVolumeFanOutVerdict:
 
         volume._equalizer_controller = Mock(submit_volume=Mock(side_effect=submit))
         volume.broadcast_volume_state = AsyncMock()
-        volume._update_startup_volume_if_needed = AsyncMock()
         return volume
 
     async def test_the_local_client_refusing_is_the_one_fatal_failure(
@@ -93,7 +93,8 @@ class TestVolumeFanOutVerdict:
         anywhere says so.
         """
         multiroom._state_store.ensure_local_client("local:mac", -30.0)
-        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0, available=True)
+        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0)
+        world(multiroom._state_store).online |= {"local:mac", "sat:mac"}
         multiroom.answers["local:mac"] = False
 
         with caplog.at_level(logging.ERROR):
@@ -108,7 +109,8 @@ class TestVolumeFanOutVerdict:
         change in a house with one sleeping speaker report an error.
         """
         multiroom._state_store.ensure_local_client("local:mac", -30.0)
-        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0, available=True)
+        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0)
+        world(multiroom._state_store).online |= {"local:mac", "sat:mac"}
         multiroom.answers["sat:mac"] = False
 
         assert await multiroom.adjust_volume_db(5.0) is True
@@ -129,7 +131,7 @@ class TestVolumeFanOutVerdict:
         none reachable there is no average, and measuring against a default would
         move every speaker to a level derived from nothing.
         """
-        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0, available=False)
+        await multiroom._state_store.register_client("sat:mac", volume_db=-30.0)
 
         assert await multiroom.set_volume_db(-25.0) is True
         assert multiroom._state_store.get_client_volume("sat:mac") == -30.0
@@ -230,18 +232,7 @@ class TestVolumeStoreGuards:
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
         settings.set_setting = AsyncMock()
-        return VolumeStateStore(settings_service=settings)
-
-    async def test_an_unknown_mode_is_refused_rather_than_stored(self, store, caplog):
-        """The mode decides whether a level is applied locally or fanned out.
-
-        Stored blindly, an unrecognised value makes every later comparison fall
-        through and the store silently behaves as neither mode.
-        """
-        with caplog.at_level(logging.WARNING):
-            await store.set_mode("quadraphonic")
-
-        assert "Invalid volume mode" in caplog.text
+        return VolumeStateStore()
 
     async def test_muting_a_client_the_store_does_not_know_is_reported(
         self, store, caplog
@@ -255,14 +246,6 @@ class TestVolumeStoreGuards:
             await store.set_client_mute("never:seen", True)
 
         assert "Cannot mute unknown client" in caplog.text
-
-    async def test_marking_an_unknown_client_available_is_reported(self, store, caplog):
-        """Availability arrives from the registry bus, so an unknown id here
-        means the two views of the fleet have diverged."""
-        with caplog.at_level(logging.WARNING):
-            await store.set_client_availability("never:seen", True)
-
-        assert "Cannot set availability for unknown client" in caplog.text
 
     async def test_seeding_a_local_client_twice_keeps_the_first_level(self, store):
         """`_seed_local_client_if_needed` runs at every boot and the persisted

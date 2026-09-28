@@ -21,7 +21,6 @@ from backend.core.models.volume import normalize_volume
 class ClientVolume:
     """Volume state for a single client."""
     volume_db: float
-    offset_db: float
     mute: bool
     available: bool = True
     volume_control: bool = True  # False when this client is a DAC (external amp)
@@ -33,7 +32,6 @@ class ClientVolume:
         return {
             "volume_db": self.volume_db,
             "volume": normalize_volume(self.volume_db, limit_min_db, limit_max_db),
-            "offset_db": self.offset_db,
             "mute": self.mute,
             "available": self.available,
             "volume_control": self.volume_control

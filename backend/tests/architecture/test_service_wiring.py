@@ -214,8 +214,7 @@ def test_task_set_owners_drain_where_they_tear_down():
     """`BackgroundTaskSet` without `cancel_all()` leaks on shutdown.
 
     A systemd stop then drops in-flight work with the event loop instead of
-    cancelling it — including tasks that sleep for tens of seconds
-    (`_delayed_multiroom_sync` waits up to 15s on snapserver readiness).
+    cancelling it — including tasks that sleep for tens of seconds.
 
     Two obligations, because not every owner has a lifecycle: a service the
     registry builds must have a teardown method *and* drain in it; anything else

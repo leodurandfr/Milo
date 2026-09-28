@@ -18,7 +18,7 @@ from typing import Set, Dict, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from backend.core.models.ws_events import SystemInitialState, VolumeChanged
+from backend.core.models.ws_events import SystemInitialState
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -144,13 +144,7 @@ class WebSocketServer:
         """Send volume state after availability is ready (non-blocking)."""
         try:
             await self.volume_service.wait_for_availability(timeout=5.0)
-            volume_state = await self.volume_service.get_volume_state()
-            event = VolumeChanged(
-                show_bar=False,
-                step_mobile_db=self.volume_service.volume_config.step_mobile_db,
-                multiroom_enabled=volume_state.mode == "multiroom",
-                state=volume_state.to_dict(),
-            )
+            event = await self.volume_service.volume_event(show_bar=False)
             await websocket.send_text(json.dumps(event.to_envelope()))
         except Exception as e:
             logger.debug(f"Failed to send volume state: {e}")

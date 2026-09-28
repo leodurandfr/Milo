@@ -22,9 +22,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from backend.core.models.volume import VolumeConfig
-from backend.core.models.volume_state import ClientVolume
 from backend.core.volume import EqualizerController, VolumeService, VolumeStateStore
-from backend.core.volume.state import ZoneConfig
+from backend.tests.volume_world import Registry
+from backend.core.volume.state import StoredLevel
 
 LIMITS = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0, startup_volume_db=-60.0,
                       restore_last_volume=False)
@@ -46,6 +46,7 @@ class Router:
 
     def __init__(self):
         self.received = []
+        self.muted = []
         self.hold = set()
         self.release = asyncio.Event()
         self.answer = {}
@@ -64,6 +65,7 @@ class Router:
             self.in_flight[mac_id] -= 1
 
     async def set_mute(self, mac_id, muted, force=False):
+        self.muted.append((mac_id, muted))
         return {"status": "success"}
 
     def last(self, mac_id):
@@ -84,12 +86,7 @@ def make_service(levels, online, multiroom=True, router=None, local=LOCAL, **con
     settings.invalidate_cache = Mock()
     settings.get_setting = AsyncMock(return_value=None)
     settings.set_setting = AsyncMock()
-    registry = Mock()
-    registry.get_online_client_ids = Mock(return_value=list(online))
-    registry.is_client_online = Mock(side_effect=lambda mac: mac in online)
-    registry.get_client = Mock(return_value=Mock(volume_control=True, gain_db=0.0))
-    registry.get_all_zones = Mock(return_value={})
-    registry.subscribe = Mock()
+    registry = Registry(online=online, known=levels)
     service = VolumeService(
         state_machine=Mock(broadcast=AsyncMock()),
         snapcast_service=Mock(),
@@ -108,20 +105,131 @@ def make_service(levels, online, multiroom=True, router=None, local=LOCAL, **con
     service._equalizer_controller._router = router or Router()
     service._state_store._local_mac_id = local
     service._state_store._clients = {
-        mac: ClientVolume(volume_db=level, offset_db=0.0, mute=False, available=mac in online)
+        mac: StoredLevel(volume_db=level, mute=False)
         for mac, level in levels.items()
     }
     return service
 
 
 def zone(service, members):
-    zone_config = ZoneConfig(zone_id="z", name="Z", client_ids=list(members))
-    service._state_store._zones = {"z": zone_config}
-    service._client_registry.get_all_zones.return_value = {"z": zone_config}
+    service._client_registry.zone("z", members, name="Z")
 
 
 def level(service, mac):
     return service._state_store.get_client_volume(mac)
+
+
+# ============================================================================
+# What the screens are sent
+# ============================================================================
+
+async def test_the_multiroom_state_every_screen_and_phone_reads():
+    """The snapshot Milo-Mac (`MultiroomVolume`), the web UI and the push
+    service decode: levels as stored, availability, the zone average over its
+    reachable members, a zone muted when every reachable member is."""
+    service = make_service({LOCAL: -40.0, "sat": -50.0, "away": -60.0}, online=[LOCAL, "sat"])
+    zone(service, ["sat", "away"])
+    await service._state_store.set_client_mute("sat", True)
+
+    state = (await service.get_volume_state()).to_dict()
+
+    assert state == {
+        "mode": "multiroom", "global_volume_db": -45.0, "global_volume": 0.4714,
+        "global_mute": False, "limit_min_db": -78.0, "limit_max_db": -8.0,
+        "volume_control": True, "any_volume_control": True,
+        "clients": {
+            LOCAL: {"volume_db": -40.0, "volume": 0.5429, "mute": False, "available": True,
+                    "volume_control": True},
+            "sat": {"volume_db": -50.0, "volume": 0.4, "mute": True, "available": True,
+                    "volume_control": True},
+            "away": {"volume_db": -60.0, "volume": 0.2571, "mute": False, "available": False,
+                     "volume_control": True},
+        },
+        "zones": {"z": {"id": "z", "name": "Z", "client_ids": ["sat", "away"],
+                        "average_volume_db": -50.0, "all_muted": True}},
+    }
+
+
+async def test_the_direct_state_is_the_local_speaker_alone():
+    """In direct mode the global level is the local speaker's own, whatever
+    the satellites the store still holds are at — and it is the one speaker
+    published available, though the registry holds it offline (no snapclient
+    runs). Published unavailable, the lock screen, which draws a slider for the
+    available speakers only, had nothing to draw. The registry still holding a
+    satellite online from before the switch counts for nothing either: the
+    zone's figures are the local speaker's alone."""
+    service = make_service({LOCAL: -40.0, "sat": -50.0}, online=["sat"], multiroom=False)
+    zone(service, [LOCAL, "sat"])
+
+    state = (await service.get_volume_state()).to_dict()
+
+    assert state == {
+        "mode": "direct", "global_volume_db": -40.0, "global_volume": 0.5429,
+        "global_mute": False, "limit_min_db": -78.0, "limit_max_db": -8.0,
+        "volume_control": True, "any_volume_control": True,
+        "clients": {
+            LOCAL: {"volume_db": -40.0, "volume": 0.5429, "mute": False, "available": True,
+                    "volume_control": True},
+            "sat": {"volume_db": -50.0, "volume": 0.4, "mute": False, "available": False,
+                    "volume_control": True},
+        },
+        "zones": {"z": {"id": "z", "name": "Z", "client_ids": [LOCAL, "sat"],
+                        "average_volume_db": -40.0, "all_muted": False}},
+    }
+
+
+async def test_leaving_multiroom_unmutes_the_local_speaker_in_the_store_too():
+    """The way to direct unmutes the local speaker, the only one left playing.
+    Done on the hardware alone, the store kept the mute: every screen showed it
+    muted while it played, and the next CamillaDSP reconnect or boot — both
+    apply the stored mute — silenced it."""
+    router = Router()
+    service = make_service({LOCAL: -40.0, "sat": -50.0}, online=[LOCAL, "sat"],
+                           multiroom=False, router=router)
+    await service._state_store.set_client_mute(LOCAL, True)
+
+    await service.update_volume_mode(False)
+
+    assert service._state_store.get_client_mute(LOCAL) is False
+    assert router.muted == [(LOCAL, False)]
+    assert (await service.get_volume_state()).global_mute is False
+
+
+# ============================================================================
+# A zone's mute
+# ============================================================================
+
+async def test_a_zone_mute_is_one_request_stored_for_every_member_and_broadcast_once():
+    """The web UI muted a zone with one PATCH per member, each broadcast, the
+    offline members included. One call now: every member stores the mute (the
+    away one takes it at its admission), only the reachable ones are sent it —
+    one whose amp owns its level included, since a mute is not a level — and
+    the screens hear of it once."""
+    router = Router()
+    service = make_service({LOCAL: -40.0, "amp": -40.0, "away": -40.0}, online=[LOCAL, "amp"],
+                           router=router)
+    service._client_registry.dac.add("amp")
+    zone(service, [LOCAL, "amp", "away"])
+
+    assert await service.set_zone_mute("z", True) == []
+    await settle()
+
+    assert all(service._state_store.get_client_mute(mac) for mac in (LOCAL, "amp", "away"))
+    assert sorted(router.muted) == [("amp", True), (LOCAL, True)]
+    assert service.state_machine.broadcast.await_count == 1
+
+
+async def test_a_zone_of_dac_speakers_reads_muted_once_muted():
+    """A zone mute mutes a member whose amp owns its level, so `all_muted`
+    counts it. Counted out, a zone of such speakers read unmuted for ever, and
+    the zone toggle, which sends the opposite of what it reads, could only mute."""
+    service = make_service({"amp1": -40.0, "amp2": -40.0}, online=["amp1", "amp2"])
+    service._client_registry.dac |= {"amp1", "amp2"}
+    zone(service, ["amp1", "amp2"])
+
+    await service.set_zone_mute("z", True)
+
+    assert (await service.get_volume_state()).zones["z"].all_muted is True
 
 
 # ============================================================================
@@ -482,13 +590,12 @@ async def test_a_startup_level_below_the_floor_is_played_at_the_floor(path):
 async def test_a_level_saved_under_older_limits_is_brought_into_them_at_load():
     """last_volume.json may hold a level the limits no longer allow (changed while
     the unit was off): the store brings it to the nearest limit as it loads it."""
-    settings = Mock(get_setting=AsyncMock(return_value=False))
-    store = VolumeStateStore(settings)
+    store = VolumeStateStore()
     store.set_volume_config(VolumeConfig(limit_min_db=-90.0, limit_max_db=-8.0))
-    store._clients["room"] = ClientVolume(volume_db=-90.0, offset_db=0.0, mute=False, available=True)
+    store._clients["room"] = StoredLevel(volume_db=-90.0)
     await store._persist_state_async()
 
-    restored = VolumeStateStore(settings)
+    restored = VolumeStateStore()
     restored.set_volume_config(LIMITS)
     await restored.initialize()
 

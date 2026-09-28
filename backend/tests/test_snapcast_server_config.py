@@ -664,26 +664,6 @@ class TestReadingTheClientList:
 class TestTheCommandsAndQueries:
     """The thin JSON-RPC calls, where the method name and the body are the contract."""
 
-    async def test_muting_a_client_preserves_the_level_it_is_muted_at(self, service):
-        """Snapserver has one call for both, so a mute that forgot the percent
-        would set it to snapserver's default — and unmuting later would come back
-        at the wrong level, on a stage that is supposed to be a passthrough."""
-        service._request = AsyncMock(return_value={})
-
-        assert await service.set_mute("aa:bb:cc:dd:ee:01", True, volume=100) is True
-
-        service._request.assert_awaited_once_with("Client.SetVolume", {
-            "id": "aa:bb:cc:dd:ee:01",
-            "volume": {"percent": 100, "muted": True},
-        })
-
-    async def test_a_mute_that_fails_is_reported_as_false_not_raised(self, service):
-        """Its callers are admission paths that must keep going for the other
-        clients; the boolean is what decides whether this one is retried."""
-        service._request = AsyncMock(side_effect=SnapcastRequestError("unreachable"))
-
-        assert await service.set_mute("aa:bb:cc:dd:ee:01", True) is False
-
     async def test_the_client_list_comes_from_the_server_status(self, service):
         """One RPC, then the same parse the reconcile sweep uses — so both agree
         on which clients are live."""

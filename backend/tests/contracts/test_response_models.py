@@ -86,7 +86,7 @@ def test_volume_state_success_omits_message():
         "any_volume_control": True,
         "clients": {
             "dc:a6:32:7e:d3:43": {
-                "volume_db": -40.0, "volume": 0.5, "offset_db": 0.0,
+                "volume_db": -40.0, "volume": 0.5,
                 "mute": False, "available": True, "volume_control": True,
             }
         },

@@ -1062,8 +1062,8 @@ class PushService:
         What wakes the coalescer for it is NOT complete, and the gap is on the
         dim side. `VolumeChanged` is broadcast when a client reconnects
         (`_sync_reconnecting_client_volume`), so the relight is seen; it is NOT
-        broadcast when one drops (`set_client_online(mac, False)` reaches
-        `VolumeStateStore.set_client_availability` and stops there) nor by
+        broadcast when one drops (`set_client_online(mac, False)` changes the
+        registry, which the volume state reads, and nothing broadcasts it) nor by
         `PATCH /api/multiroom/clients/{mac}` changing `volume_control`. Those
         two flips therefore reach no push and wait for the widget's own
         timeline. The missing broadcasts are a defect in those paths — the Dock

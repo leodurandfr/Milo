@@ -2349,7 +2349,7 @@ class TestTheDeviceList:
         """-43 dB is the middle of -78..-8, and the phone is told 0.5 — never
         the decibel, and never a fraction of a range this unit does not use."""
         service = wired(kitchen=ClientVolume(
-            volume_db=-43.0, offset_db=0.0, mute=False,
+            volume_db=-43.0, mute=False,
         ))
 
         devices = await service._devices()
@@ -2360,8 +2360,8 @@ class TestTheDeviceList:
         """It is out of `global_volume_db`'s average, so a handle for it moves
         the phone's idea of the house volume and not Milō's."""
         service = wired(
-            kitchen=ClientVolume(volume_db=-43.0, offset_db=0.0, mute=False),
-            garden=ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=False),
+            kitchen=ClientVolume(volume_db=-43.0, mute=False),
+            garden=ClientVolume(volume_db=-20.0, mute=False, available=False),
         )
 
         assert [d.id for d in await service._devices()] == ["kitchen"]
@@ -2370,8 +2370,8 @@ class TestTheDeviceList:
         """Same argument, other flag: an external amp owns its own level, so
         Milō neither counts it nor can move it."""
         service = wired(
-            kitchen=ClientVolume(volume_db=-43.0, offset_db=0.0, mute=False),
-            study=ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, volume_control=False),
+            kitchen=ClientVolume(volume_db=-43.0, mute=False),
+            study=ClientVolume(volume_db=-30.0, mute=False, volume_control=False),
         )
 
         assert [d.id for d in await service._devices()] == ["kitchen"]

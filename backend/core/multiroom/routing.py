@@ -7,7 +7,6 @@ import itertools
 import logging
 import asyncio
 import os
-import time
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
@@ -23,7 +22,6 @@ from backend.core.models.ws_events import (
     RoutingMultiroomReady,
 )
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
-from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 
 if TYPE_CHECKING:
@@ -294,7 +292,6 @@ class AudioRoutingService:
 
         # Lock to guarantee atomicity of routing operations
         self._routing_lock = asyncio.Lock()
-        self._bg = BackgroundTaskSet(self.logger, "routing")
 
         self.snapserver_service = "milo-snapserver-multiroom.service"
         self.snapclient_service = "milo-snapclient-multiroom.service"
@@ -399,12 +396,6 @@ class AudioRoutingService:
                 f"equalizer_effects={self.equalizer_effects_enabled}"
             )
 
-            if self.multiroom_enabled:
-                self._bg.spawn(
-                    self._delayed_multiroom_sync(),
-                    label="delayed_multiroom_sync",
-                )
-
         except Exception as e:
             # Leave _initial_detection_done = False so a transient init failure
             # can be retried on the next caller (e.g., set_multiroom_enabled).
@@ -456,34 +447,6 @@ class AudioRoutingService:
             self.logger.info("Starting CamillaDSP service (always required for volume control)")
             await self.service_manager.start("milo-camilladsp.service")
             await asyncio.sleep(1.0)  # Give daemon time to start
-
-    @handle_errors(default=None)
-    async def _delayed_multiroom_sync(self):
-        """Sync client volumes from equalizer once snapserver is actually ready.
-
-        Boot-time counterpart of the post-transition sync: waits on a real
-        readiness condition (snapserver JSON-RPC answering) instead of a blind
-        constant, then pushes equalizer volumes to the connected clients.
-        """
-        self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Waiting for snapserver readiness...")
-        if not await self._wait_snapserver_ready(timeout=15.0):
-            self.logger.warning(
-                f"[{time.time():.3f}] DELAYED_SYNC: snapserver not ready in time, skipping startup sync"
-            )
-            return
-
-        # Check multiroom is still enabled
-        if not self.multiroom_enabled:
-            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Multiroom disabled, skipping sync")
-            return
-
-        # Sync volumes from equalizer
-        if self.volume_service:
-            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_equalizer")
-            await self.volume_service.sync_all_clients_from_equalizer()
-            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_equalizer complete")
-        else:
-            self.logger.warning("VolumeService not available for equalizer sync")
 
     async def _guarded_simple_toggle(
         self,
@@ -543,7 +506,7 @@ class AudioRoutingService:
         already started snapserver + snapclient, and both snapclient and the
         control WS auto-reconnect as the daemon finishes coming up — so a
         WS-not-ready-yet or a transient volume-push miss is self-healing
-        (delayed sync + client-connect retry). It is logged (warning) but does
+        (each client's admission applies its level). It is logged (warning) but does
         NOT fail the enable — the mode IS committed, so we always broadcast
         `state_changed` and return True. Failing here would contradict the
         committed mode (toggle stuck off, HTTP 500) with no upside. (A genuinely
@@ -632,12 +595,12 @@ class AudioRoutingService:
         await self.state_machine.reroute_active_source(switch_output)
 
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
-        """Post-transition: WebSocket lifecycle, volume sync, and ready broadcast.
+        """Post-transition: WebSocket lifecycle, volume mode, and ready broadcast.
 
         Settings + routing.env are already committed by the caller and snapserver
         has been started, so every step here is best-effort and self-healing: a
-        WS-not-ready-yet or a missed client read is recovered by the delayed sync
-        + client-connect retries. Failures are logged (warning) but never fail
+        WS-not-ready-yet is recovered by each client's admission, which applies
+        its level and retries. Failures are logged (warning) but never fail
         the transition — the physical mode has switched regardless.
         """
         # WebSocket connection lifecycle + readiness wait
@@ -651,7 +614,7 @@ class AudioRoutingService:
                     else:
                         self.logger.warning(
                             "POST_TRANSITION: Snapcast WebSocket not ready after 15s — "
-                            "volume sync will heal via delayed sync / client-connect"
+                            "each client's admission applies its level once it connects"
                         )
                 else:
                     await self.snapcast_websocket_service.stop_connection()
@@ -664,12 +627,8 @@ class AudioRoutingService:
         try:
             if self.volume_service:
                 await self.volume_service.update_volume_mode(enabled)
-                if enabled and not self.volume_service.volume_control:
-                    # DAC mode: read the clients' own levels into the store,
-                    # which is the direction the principle allows.
-                    await self.volume_service.sync_all_clients_from_equalizer()
         except Exception as e:
-            self.logger.warning(f"POST_TRANSITION: Volume sync failed (non-fatal): {e}")
+            self.logger.warning(f"POST_TRANSITION: Volume mode update failed (non-fatal): {e}")
 
         # The local level trim, in both directions. Leaving multiroom clears it —
         # it balances this speaker against the others and in direct mode there
@@ -840,10 +799,6 @@ class AudioRoutingService:
                 f"snapcast stop incomplete: client_ok={client_ok}, server_ok={server_ok}"
             )
         return client_ok and server_ok
-
-    async def cleanup(self) -> None:
-        """Drain the delayed-multiroom-sync task (it waits up to 15s on snapserver)."""
-        await self._bg.cancel_all()
 
     def get_state(self) -> Dict[str, bool]:
         """

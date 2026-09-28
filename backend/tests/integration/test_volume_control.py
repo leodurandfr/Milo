@@ -20,12 +20,13 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.core.settings import SettingsService
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.volume import VolumeService
-from backend.core.volume.state import VolumeStateStore, ZoneConfig
+from backend.core.volume.state import StoredLevel, VolumeStateStore
 from backend.core.models.volume import VolumeConfig
-from backend.core.models.volume_state import VolumeState, ClientVolume
+from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB
 
 from .conftest import WebSocketEventCollector
+from backend.tests.volume_world import world
 
 
 # ==============================================================================
@@ -136,7 +137,7 @@ def temp_storage_path(tmp_path):
 async def volume_state_store(mock_settings_service, temp_storage_path):
     """VolumeStateStore with mocked persistence path."""
     with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
-        store = VolumeStateStore(mock_settings_service)
+        store = VolumeStateStore()
         store.set_volume_config(VolumeConfig())
         await store.initialize()
         yield store
@@ -172,7 +173,8 @@ async def volume_service(
         # Register "local" client so tests can use it (simulates what
         # ClientRegistryService does in production when local Snapcast client connects)
         service._state_store._local_mac_id = "local"
-        await service._state_store.register_client("local", volume_db=DEFAULT_VOLUME_DB, available=True)
+        await service._state_store.register_client("local", volume_db=DEFAULT_VOLUME_DB)
+        world(service._state_store).online.add("local")
 
         yield service
 
@@ -502,8 +504,7 @@ class TestVolumeLimits:
         - Custom max limit is applied
         - Volume is clamped to custom limit
         """
-        # Update limits to custom values (disable restore_last_volume to prevent
-        # _update_startup_volume_if_needed from reloading config from settings)
+        # Update limits to custom values
         custom_config = VolumeConfig(limit_min_db=-60.0, limit_max_db=-25.0, restore_last_volume=False)
         volume_service._volume_config = custom_config
         volume_service._state_store.set_volume_config(custom_config)
@@ -774,7 +775,7 @@ class TestVolumePersistence:
 
         # Create new store with mocked path
         with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
-            store = VolumeStateStore(mock_settings_service)
+            store = VolumeStateStore()
             await store.initialize()
 
             # Check restored volume
@@ -886,7 +887,7 @@ class TestVolumePersistence:
 
         # Create store
         with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
-            store = VolumeStateStore(mock_settings_service)
+            store = VolumeStateStore()
             await store.initialize()
 
             # Old data is restored as-is
@@ -911,7 +912,7 @@ class TestVolumeStateStore:
         """
         Test get_complete_state returns valid VolumeState.
         """
-        state = await volume_state_store.get_complete_state()
+        state = await volume_state_store.get_complete_state(multiroom=True)
 
         assert isinstance(state, VolumeState)
         assert state.mode in ("direct", "multiroom")
@@ -928,15 +929,10 @@ class TestVolumeStateStore:
         """
         Test registering a client adds it to state.
         """
-        await volume_state_store.register_client(
-            "test-client",
-            volume_db=-40.0,
-            available=True
-        )
+        await volume_state_store.register_client("test-client", volume_db=-40.0)
 
         assert "test-client" in volume_state_store._clients
         assert volume_state_store._clients["test-client"].volume_db == -40.0
-        assert volume_state_store._clients["test-client"].available is True
 
     @pytest.mark.asyncio
     async def test_set_client_volume_clamps_value(
@@ -1072,7 +1068,8 @@ class TestClientVolumeAPI:
         - Volume can be retrieved after being set
         """
         # Register a client with specific volume
-        await volume_state_store.register_client("test-client", volume_db=-42.0, available=True)
+        await volume_state_store.register_client("test-client", volume_db=-42.0)
+        world(volume_state_store).online.add("test-client")
 
         # Verify client volume was stored
         assert "test-client" in volume_state_store._clients
@@ -1096,7 +1093,8 @@ class TestClientVolumeAPI:
         - Mute state can be retrieved after being set
         """
         # Register a client
-        await volume_state_store.register_client("test-client", volume_db=-30.0, available=True)
+        await volume_state_store.register_client("test-client", volume_db=-30.0)
+        world(volume_state_store).online.add("test-client")
 
         # Set mute state
         await volume_state_store.set_client_mute("test-client", True)
@@ -1121,10 +1119,7 @@ async def _moved(store, zone_id, delta_db):
                             settings_service=Mock(get_setting=AsyncMock(return_value=None)))
     service._volume_config = store._volume_config
     service._state_store = store
-    service._client_registry = Mock(get_online_client_ids=Mock(
-        return_value=[mac for mac, client in store._clients.items() if client.available]
-    ))
-    service._update_startup_volume_if_needed = AsyncMock()
+    service._client_registry = world(store)
     service.broadcast_volume_state = AsyncMock()
     sent = {}
 
@@ -1135,26 +1130,23 @@ async def _moved(store, zone_id, delta_db):
         return done
 
     service._equalizer_controller.submit_volume = submit
+    service._routing_service = Mock(get_state=Mock(return_value={"multiroom_enabled": True}))  # zones move in multiroom
     await service.apply_zone_volume_delta(zone_id, delta_db)
-    members = store._zones[zone_id].client_ids
+    members = world(store).zones[zone_id].client_ids
     return {mac: store.get_client_volume(mac) for mac in members}, sent
 
 
 class TestZoneVolumeDeltaIntegration:
     """Integration Tests for Zone Volume Delta.
 
-    Note: These tests plant zones in the VolumeStateStore directly to avoid the
-    registry reloading them on get_complete_state(). The unit tests in
-    test_volume_state.py cover the same functionality.
+    The unit tests in test_volume_state.py cover the same functionality.
     """
 
     @pytest.fixture
     def zone_state_store(self, mock_settings_service, temp_storage_path):
-        """VolumeStateStore configured for zone testing without registry."""
+        """VolumeStateStore configured for zone testing."""
         with patch.object(VolumeStateStore, 'STORAGE_PATH', temp_storage_path):
-            store = VolumeStateStore(mock_settings_service)
-            # Do not set registry to avoid zones being reloaded
-            store._mode = "multiroom"
+            store = VolumeStateStore()
             store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
             yield store
 
@@ -1173,17 +1165,12 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with 5dB offset between clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['client_a', 'client_b']
-            )
-        }
+        world(store).zone('zone_1', ['client_a', 'client_b'], name='Test Zone')
         store._clients = {
-            'client_a': ClientVolume(volume_db=-25.0, offset_db=0.0, mute=False, available=True),
-            'client_b': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True)
+            'client_a': StoredLevel(volume_db=-25.0, mute=False),
+            'client_b': StoredLevel(volume_db=-30.0, mute=False)
         }
+        world(store).online |= {'client_a', 'client_b'}
 
         # Record initial difference
         initial_diff = store._clients['client_a'].volume_db - store._clients['client_b'].volume_db
@@ -1212,17 +1199,12 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with mixed availability
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['online_client', 'offline_client']
-            )
-        }
+        world(store).zone('zone_1', ['online_client', 'offline_client'], name='Test Zone')
         store._clients = {
-            'online_client': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'offline_client': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False)
+            'online_client': StoredLevel(volume_db=-30.0, mute=False),
+            'offline_client': StoredLevel(volume_db=-30.0, mute=False)
         }
+        world(store).online |= {'online_client'}
 
         # Action: apply delta
         updates, sent = await _moved(store, 'zone_1', 5.0)
@@ -1248,18 +1230,13 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with mixed availability
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['online_1', 'online_2', 'offline_1']
-            )
-        }
+        world(store).zone('zone_1', ['online_1', 'online_2', 'offline_1'], name='Test Zone')
         store._clients = {
-            'online_1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=True),
-            'online_2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'offline_1': ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=False)
+            'online_1': StoredLevel(volume_db=-20.0, mute=False),
+            'online_2': StoredLevel(volume_db=-30.0, mute=False),
+            'offline_1': StoredLevel(volume_db=-50.0, mute=False)
         }
+        world(store).online |= {'online_1', 'online_2'}
 
         # Get zone average (computed)
         average = store.compute_zone_average('zone_1')
@@ -1285,16 +1262,11 @@ class TestZoneVolumeDeltaIntegration:
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
         # Setup: client near maximum
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['client_a']
-            )
-        }
+        world(store).zone('zone_1', ['client_a'], name='Test Zone')
         store._clients = {
-            'client_a': ClientVolume(volume_db=-25.0, offset_db=0.0, mute=False, available=True)
+            'client_a': StoredLevel(volume_db=-25.0, mute=False)
         }
+        world(store).online |= {'client_a'}
 
         # Action: apply delta that would exceed max (-25 + 10 = -15 > -21)
         updates, _ = await _moved(store, 'zone_1', 10.0)
@@ -1316,17 +1288,12 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['client_a', 'client_b']
-            )
-        }
+        world(store).zone('zone_1', ['client_a', 'client_b'], name='Test Zone')
         store._clients = {
-            'client_a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'client_b': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True)
+            'client_a': StoredLevel(volume_db=-30.0, mute=False),
+            'client_b': StoredLevel(volume_db=-30.0, mute=False)
         }
+        world(store).online |= {'client_a', 'client_b'}
 
         # Verify initial average
         assert store.compute_zone_average('zone_1') == pytest.approx(-30.0, rel=1e-6)
@@ -1351,17 +1318,12 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['client_a', 'client_b']
-            )
-        }
+        world(store).zone('zone_1', ['client_a', 'client_b'], name='Test Zone')
         store._clients = {
-            'client_a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'client_b': ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True)
+            'client_a': StoredLevel(volume_db=-30.0, mute=False),
+            'client_b': StoredLevel(volume_db=-40.0, mute=False)
         }
+        world(store).online |= {'client_a', 'client_b'}
 
         # Action: apply delta
         updates, _ = await _moved(store, 'zone_1', 5.0)
@@ -1386,16 +1348,10 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with all OFFLINE clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['offline_a', 'offline_b']
-            )
-        }
+        world(store).zone('zone_1', ['offline_a', 'offline_b'], name='Test Zone')
         store._clients = {
-            'offline_a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False),
-            'offline_b': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False)
+            'offline_a': StoredLevel(volume_db=-30.0, mute=False),
+            'offline_b': StoredLevel(volume_db=-30.0, mute=False)
         }
 
         # Action: apply delta
@@ -1416,16 +1372,10 @@ class TestZoneVolumeDeltaIntegration:
         store = zone_state_store
 
         # Setup: zone with all OFFLINE clients
-        store._zones = {
-            'zone_1': ZoneConfig(
-                zone_id='zone_1',
-                name='Test Zone',
-                client_ids=['offline_a', 'offline_b']
-            )
-        }
+        world(store).zone('zone_1', ['offline_a', 'offline_b'], name='Test Zone')
         store._clients = {
-            'offline_a': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=False),
-            'offline_b': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False)
+            'offline_a': StoredLevel(volume_db=-20.0, mute=False),
+            'offline_b': StoredLevel(volume_db=-30.0, mute=False)
         }
 
         # Action: get zone average
@@ -1448,7 +1398,7 @@ class TestStartupVolumeIntegration:
     """
 
     @pytest.mark.asyncio
-    async def test_volume_change_updates_startup_volume_and_broadcasts(
+    async def test_a_volume_change_leaves_the_startup_setting_alone(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1456,12 +1406,13 @@ class TestStartupVolumeIntegration:
         websocket_collector: WebSocketEventCollector,
         temp_storage_path
     ):
-        """ End-to-End: Volume change → settings update → WebSocket broadcast.
+        """startup_volume_db is the operator's setting, and a volume change is not one.
 
-        Validates complete flow:
-        1. Set volume when restore_last_volume=true (tracks current volume)
-        2. startup_volume_db auto-updated in settings
-        3. WebSocket event broadcast with new value
+        It used to track the last volume when restore_last_volume was on: every
+        step rewrote the setting (debounced) and sent `volume_startup_changed`
+        to every screen — a second event per rotary detent — while
+        last_volume.json already held each room's level. Fails if a volume
+        change writes the setting or announces it.
         """
         # Create settings with restore_last_volume=True (active: auto-track volume)
         settings = Mock()
@@ -1515,21 +1466,11 @@ class TestStartupVolumeIntegration:
             # Action: Set volume to -45dB
             await service.set_volume_db(-45.0)
 
-            # Assert: WebSocket broadcast occurred with settings category —
-            # immediately, ahead of the disk write, so the UI never waits on it
-            events = websocket_collector.get_events_by_type("volume_startup_changed")
-            assert len(events) >= 1
-            assert events[0]["category"] == "settings"
-            assert events[0]["data"]["config"]["startup_volume_db"] == -45.0
-            assert events[0]["data"]["config"]["restore_last_volume"] is True
-
-            # Assert: settings was updated. The write is debounced (a rotary turn
-            # must not rewrite settings.json once per step), so it lands on the
-            # shutdown flush — which is the path that guarantees the last value
-            # of a turn survives a restart.
             await service.cleanup()
-            settings.set_setting.assert_called()
-            assert settings_data["startup_volume_db"] == -45.0
+            assert websocket_collector.get_events_by_type("volume_startup_changed") == []
+            assert websocket_collector.get_events_by_type("volume_changed"), "the move itself was announced"
+            settings.set_setting.assert_not_called()
+            assert settings_data["startup_volume_db"] == -60.0
 
     @pytest.mark.asyncio
     async def test_restore_disabled_does_not_update_startup_volume(
@@ -1818,18 +1759,13 @@ class TestVolumeApiEndpointsIntegration:
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         # Setup zone with 3 clients (2 online, 1 offline)
-        store._zones = {
-            'test-zone': ZoneConfig(
-                zone_id='test-zone',
-                name='Test Zone',
-                client_ids=['client-a', 'client-b', 'client-c']
-            )
-        }
+        world(store).zone('test-zone', ['client-a', 'client-b', 'client-c'], name='Test Zone')
         store._clients = {
-            'client-a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'client-b': ClientVolume(volume_db=-35.0, offset_db=0.0, mute=False, available=True),
-            'client-c': ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=False)  # Offline
+            'client-a': StoredLevel(volume_db=-30.0, mute=False),
+            'client-b': StoredLevel(volume_db=-35.0, mute=False),
+            'client-c': StoredLevel(volume_db=-40.0, mute=False)  # Offline
         }
+        world(store).online |= {'client-a', 'client-b'}
 
         # Apply zone delta
         updates, sent = await _moved(store, 'test-zone', 5.0)
@@ -1965,17 +1901,12 @@ class TestVolumeApiEndpointsIntegration:
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
 
         # Setup zone
-        store._zones = {
-            'test-zone': ZoneConfig(
-                zone_id='test-zone',
-                name='Test Zone',
-                client_ids=['client-a', 'client-b']
-            )
-        }
+        world(store).zone('test-zone', ['client-a', 'client-b'], name='Test Zone')
         store._clients = {
-            'client-a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
-            'client-b': ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True)
+            'client-a': StoredLevel(volume_db=-30.0, mute=False),
+            'client-b': StoredLevel(volume_db=-40.0, mute=False)
         }
+        world(store).online |= {'client-a', 'client-b'}
 
         # Initial average: (-30 + -40) / 2 = -35
         assert store.compute_zone_average('test-zone') == pytest.approx(-35.0, rel=1e-6)

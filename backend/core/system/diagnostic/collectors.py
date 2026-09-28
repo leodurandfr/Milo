@@ -514,10 +514,11 @@ async def _snapserver_clients(ctx) -> List[str]:
     for client in clients:
         mac = client.get("mac_id", "?")
         # `name` is skipped: snapserver carries the same user-chosen room name
-        # the registry does, and this view exists for the level and the address.
+        # the registry does. Its volume is skipped too: every snapclient runs
+        # `--mixer none`, which ignores it — but not its mute, which silences
+        # the room and which snapserver keeps across restarts, so it stays.
         lines.append(
-            f"{ctx.labels.get(mac, mac)}: volume={client.get('volume')} "
-            f"muted={_fmt(client.get('muted'))} ip={client.get('ip')} "
+            f"{ctx.labels.get(mac, mac)}: muted={_fmt(client.get('muted'))} ip={client.get('ip')} "
             f"host={client.get('host')} last_seen_age={client.get('last_seen_age')}s"
         )
     lines.append("(snapserver reports online clients only — an absence here is a departure)")

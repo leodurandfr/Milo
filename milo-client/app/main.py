@@ -15,6 +15,7 @@ import uvicorn
 from services import EqualizerService, SnapclientService, AppUpdateService, CamillaDSPUpdateService
 from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router, create_diagnostic_router, create_probe_router
 from routes.health import get_hostname
+from access_log import quiet_volume_steps
 from services.registration import register_with_main_milo
 from services.server_address_watch import follow_server_address
 
@@ -27,6 +28,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+quiet_volume_steps()
 
 def _sd_notify_ready():
     """Notify systemd that the service is ready (no external dependency)."""

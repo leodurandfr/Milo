@@ -29,6 +29,7 @@ from backend.tests.conftest import drain_background_tasks
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
+from backend.core.multiroom.snapcast import SnapcastService
 
 MAC = "aa:bb:cc:dd:ee:01"
 IP = "192.168.1.150"
@@ -65,7 +66,7 @@ async def registry():
 @pytest.fixture
 def snapcast():
     """Stand-in for snapserver: the only outside world this service has."""
-    service = MagicMock()
+    service = MagicMock(spec=SnapcastService)
     service.set_volume = AsyncMock(return_value=True)
     service.set_latency = AsyncMock(return_value=True)
     service.get_clients = AsyncMock(return_value=[])

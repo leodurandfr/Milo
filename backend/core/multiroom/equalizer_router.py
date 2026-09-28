@@ -148,8 +148,11 @@ class EqualizerRouter:
     async def set_gain(self, mac_id: str, gain_db: float, force: bool = False) -> Dict[str, Any]:
         """Set a client's level trim (a fixed Gain stage, in dB).
 
-        A DAC client is skipped for the same reason `set_volume` skips it: its
-        external amp owns the level, and Milō attenuates nothing on that path.
+        A DAC client is skipped: its external amp owns the level, and Milō
+        attenuates nothing on that path. (`set_volume` does not skip a DAC — it
+        sends unity instead, since a fader left where the unit started it would
+        be opened by the unmute that follows.) So a trim is cleared before the
+        DAC flag is set, never after (`VolumeService._clear_local_gain`).
         """
         client = self._get_client(mac_id)
         if client and not client.volume_control:

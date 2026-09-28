@@ -1005,15 +1005,16 @@ class SnapcastWebSocketService:
         """Internal sync implementation (called under _syncing_mac_ids guard)."""
         if snapcast_id and self._snapcast_service:
             # Snapserver stays a passthrough — attenuation is CamillaDSP's job on
-            # the client — so every admission path must leave it at 100. Only the
-            # paths holding a Snapcast client id could do it, which is what made
-            # the same client end up differently attenuated depending on which
-            # notification announced it.
+            # the client. Every snapclient runs `--mixer none`, which ignores
+            # snapserver's volume but still obeys its mute (measured on 0.35),
+            # and snapserver keeps a mute across its restarts: one set from
+            # snapweb or a home-automation client would silence the room for
+            # good, with Milō showing it unmuted. Every admission lifts it.
             await self._snapcast_service.set_volume(snapcast_id, 100)
 
             # Re-push the per-client delay the same way: it is native Snapcast
             # latency Milō owns, and a delay set while the client was away never
-            # reached snapserver. Mirror of the volume passthrough above.
+            # reached snapserver.
             client = self.registry.get_client(mac_id)
             if client:
                 await self._snapcast_service.set_latency(snapcast_id, client.delay_ms)

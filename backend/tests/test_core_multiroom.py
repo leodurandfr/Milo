@@ -3055,11 +3055,12 @@ class TestAdmissionPathConvergence:
 
     @pytest.mark.asyncio
     async def test_snapserver_is_left_a_passthrough_whenever_the_path_can_tell(self):
-        """Attenuation is CamillaDSP's job on the client; snapserver stays at 100.
+        """Attenuation is CamillaDSP's job on the client; snapserver stays at 100, unmuted.
 
-        Only the paths holding a Snapcast client id can restore it, and they did
-        not, so the same client ended up differently attenuated depending on
-        which notification announced it.
+        `--mixer none` ignores snapserver's volume but not its mute. Only the
+        paths holding a Snapcast client id can lift it, and they did not, so the
+        same client ended up silenced or not depending on which notification
+        announced it.
         """
         service, registry, snapcast, _ = await self._service()
         await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
@@ -3453,7 +3454,7 @@ class TestTheZoneAClientLeavesIsAnnounced:
         registry = await self._registry()
         settings = AsyncMock()
         settings.get_setting = AsyncMock(return_value=None)
-        store = VolumeStateStore(settings)
+        store = VolumeStateStore()
         store.set_volume_config(VolumeConfig())
         store.set_registry(registry)
 
@@ -3461,8 +3462,9 @@ class TestTheZoneAClientLeavesIsAnnounced:
         await registry.create_zone("z2", "Bureau", ["c3", "c4"])
         await registry.add_client_to_zone("z2", "c2")
 
-        assert "c2" not in store._zones["z1"].client_ids
-        assert "c2" in store._zones["z2"].client_ids
+        zones = (await store.get_complete_state(multiroom=True)).zones
+        assert "c2" not in zones["z1"].client_ids
+        assert "c2" in zones["z2"].client_ids
 
     async def test_creating_a_zone_from_a_client_that_is_in_one_moves_it(self):
         """A client in two zones at once is unrecoverable through the UI: both

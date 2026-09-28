@@ -12,7 +12,6 @@ import asyncio
 import functools
 import logging
 import os
-import time
 import yaml
 from typing import Dict, Any, Optional, List
 
@@ -815,7 +814,7 @@ class EqualizerService:
 
         try:
             await self._exec(lambda c: c.set_volume(self._volume["main"]))
-            self.logger.info(f"[{time.time():.3f}] VOLUME_SET: Volume set to {self._volume['main']:.1f} dB")
+            self.logger.debug(f"Volume set to {self._volume['main']:.1f} dB")
             return True
         except Exception as e:
             self.logger.error(f"Error setting volume: {e}")
@@ -827,7 +826,7 @@ class EqualizerService:
 
         try:
             await self._exec(lambda c: c.set_mute(muted))
-            self.logger.info(f"[{time.time():.3f}] MUTE_SET: Mute set to {muted}")
+            self.logger.info(f"Mute set to {muted}")
             return True
         except Exception as e:
             self.logger.error(f"Error setting mute: {e}")

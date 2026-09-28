@@ -140,35 +140,24 @@ class TestThePostTransitionSetup:
         assert any("WS lifecycle failed" in r.message for r in caplog.records)
         volume.update_volume_mode.assert_awaited_once_with(True)
 
-    async def test_switching_mode_never_pushes_a_level_to_anyone(self, service):
+    @pytest.mark.parametrize("volume_control", [True, False])
+    async def test_switching_mode_never_moves_or_reads_a_level(self, service, volume_control):
         """Switching modes changes what the global figure denotes, not what any
         speaker plays at. A push here would move every room's level at once
-        because someone enabled multiroom."""
+        because someone enabled multiroom; a read-back would adopt whatever a
+        DSP holds — a satellite restarted with the house answers its -80 dB
+        startup floor. On a DAC unit too: its amp owns the local level, not the
+        satellites'. The level trim is re-synced, and it is not a level."""
         volume = MagicMock()
         volume.update_volume_mode = AsyncMock()
-        volume.sync_all_clients_from_equalizer = AsyncMock()
-        volume.volume_control = True
+        volume.volume_control = volume_control
         service.volume_service = volume
 
         await service._post_transition_setup_best_effort(True)
 
-        volume.sync_all_clients_from_equalizer.assert_not_called()
+        assert [call[0] for call in volume.method_calls] == ["update_volume_mode", "sync_local_gain"]
 
-    async def test_a_dac_unit_reads_the_clients_levels_instead(self, service):
-        """The one direction the ownership rule allows: with `volume_control`
-        False an external amp holds the level, so the store learns it from the
-        clients rather than telling them."""
-        volume = MagicMock()
-        volume.update_volume_mode = AsyncMock()
-        volume.sync_all_clients_from_equalizer = AsyncMock()
-        volume.volume_control = False
-        service.volume_service = volume
-
-        await service._post_transition_setup_best_effort(True)
-
-        volume.sync_all_clients_from_equalizer.assert_awaited_once()
-
-    async def test_a_volume_sync_that_raises_still_clears_the_spinner(
+    async def test_a_volume_mode_update_that_raises_still_clears_the_spinner(
         self, service, caplog
     ):
         """The event is what takes the UI out of its transition state. Losing it
@@ -181,7 +170,7 @@ class TestThePostTransitionSetup:
         with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.routing"):
             await service._post_transition_setup_best_effort(True)
 
-        assert any("Volume sync failed" in r.message for r in caplog.records)
+        assert any("Volume mode update failed" in r.message for r in caplog.records)
         assert len(events_of(service.state_machine.broadcast, "routing", "multiroom_ready")) == 1
 
     async def test_the_ready_event_fires_on_enable_and_only_on_enable(self, service):
@@ -268,69 +257,8 @@ class TestTheTransitionBroadcasts:
         assert caplog.records == []
 
 
-class TestTheDelayedBootSync:
-    """The boot-time catch-up: what re-aligns the fleet when nothing else did."""
-
-    async def test_it_waits_for_snapserver_before_reading_anything(self, service, caplog):
-        """It runs at boot while snapserver is still starting. Syncing against a
-        daemon that is not up reads an empty client list and does nothing, with
-        no second attempt."""
-        service.snapcast_service = MagicMock()
-        service.snapcast_service.wait_until_available = AsyncMock(return_value=False)
-        volume = MagicMock()
-        volume.sync_all_clients_from_equalizer = AsyncMock()
-        service.volume_service = volume
-
-        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.routing"):
-            await service._delayed_multiroom_sync()
-
-        volume.sync_all_clients_from_equalizer.assert_not_called()
-        assert any("not ready in time" in r.message for r in caplog.records)
-
-    async def test_a_multiroom_switched_off_while_waiting_cancels_the_sync(
-        self, service, mock_settings_service
-    ):
-        """Up to fifteen seconds pass in the wait above. Pushing to snapserver
-        after the operator switched back to direct mode would drive a daemon the
-        routing service has just stopped."""
-        service.snapcast_service = MagicMock()
-        service.snapcast_service.wait_until_available = AsyncMock(return_value=True)
-        mock_settings_service._storage["routing.multiroom_enabled"] = False
-        volume = MagicMock()
-        volume.sync_all_clients_from_equalizer = AsyncMock()
-        service.volume_service = volume
-
-        await service._delayed_multiroom_sync()
-
-        volume.sync_all_clients_from_equalizer.assert_not_called()
-
-    async def test_with_multiroom_still_on_the_fleet_is_synced(
-        self, service, mock_settings_service
-    ):
-        service.snapcast_service = MagicMock()
-        service.snapcast_service.wait_until_available = AsyncMock(return_value=True)
-        mock_settings_service._storage["routing.multiroom_enabled"] = True
-        volume = MagicMock()
-        volume.sync_all_clients_from_equalizer = AsyncMock()
-        service.volume_service = volume
-
-        await service._delayed_multiroom_sync()
-
-        volume.sync_all_clients_from_equalizer.assert_awaited_once()
-
-    async def test_no_volume_service_is_reported_not_passed_over(
-        self, service, mock_settings_service, caplog
-    ):
-        """The fleet then boots un-synced with nothing to say why."""
-        service.snapcast_service = MagicMock()
-        service.snapcast_service.wait_until_available = AsyncMock(return_value=True)
-        mock_settings_service._storage["routing.multiroom_enabled"] = True
-        service.volume_service = None
-
-        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.routing"):
-            await service._delayed_multiroom_sync()
-
-        assert any("VolumeService not available" in r.message for r in caplog.records)
+class TestSnapserverReadiness:
+    """The readiness wait snapclient's start is gated on."""
 
     async def test_no_snapcast_service_cannot_confirm_readiness(self, service, caplog):
         """Fail closed: an unconfirmed daemon is not a ready one."""
@@ -554,15 +482,3 @@ class TestTheServiceLifecycle:
 
         with pytest.raises(RuntimeError, match="State machine not available"):
             await service._apply_transition(True)
-
-    async def test_cleanup_drains_the_delayed_sync(self, service):
-        """It waits up to fifteen seconds on snapserver. Left running through a
-        teardown it outlives the services it pushes to, and the lifespan is the
-        only thing that ever cancels it."""
-        parked = asyncio.Event()
-        task = service._bg.spawn(parked.wait(), label="delayed_sync")
-
-        await service.cleanup()
-
-        assert task.cancelled()
-        assert service._bg._tasks == set()

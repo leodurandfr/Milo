@@ -7,14 +7,16 @@ All volume operations must go through this store to ensure consistency.
 
 Architecture: "Gros" VolumeStateStore (Option A)
 - Integrates persistence, validation, and limits inline
-- Minimal external dependencies (only SettingsService)
+- No external dependency but the client registry it reads
 - Autonomous, testable, simple
 
 CONSOLIDATED: Includes all persistence logic (formerly VolumeStorageService)
 
 Integration with ClientRegistryService:
-- Subscribes to registry availability events
-- Keeps volume/mute state locally, syncs availability from registry
+- The registry answers who is online and what the zones are; the store keeps
+  no copy of either, and reads them when it answers
+- Subscribes to registry events only to learn of a client (seeded at the
+  startup level) and of its removal (its level is forgotten)
 """
 
 import asyncio
@@ -39,11 +41,14 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class ZoneConfig:
-    """Configuration for a multiroom zone (internal)."""
-    zone_id: str
-    name: str
-    client_ids: List[str]
+class StoredLevel:
+    """What the store owns of one client: the level it plays at, and its mute.
+
+    Whether it is online and whether Milo controls its volume are the
+    registry's, read when a snapshot is built — never kept here.
+    """
+    volume_db: float
+    mute: bool = False
 
 
 class VolumeStateStore:
@@ -51,10 +56,8 @@ class VolumeStateStore:
     Single Source of Truth for all volume state.
 
     Responsibilities:
-    - Track client volumes, mutes, availability
-    - Track zone configurations
-    - Calculate zone averages (excluding muted/unavailable)
-    - Calculate offsets on demand
+    - Track client volumes and mutes — the one thing it owns
+    - Calculate zone averages over the members the registry reports online
     - Validate volume limits
     - Persist state to disk (CONSOLIDATED - no separate storage service)
     - Thread-safe with async locks
@@ -63,23 +66,13 @@ class VolumeStateStore:
     # Persistence
     STORAGE_PATH = Path("/var/lib/milo/last_volume.json")
 
-    def __init__(self, settings_service):
-        """
-        Initialize VolumeStateStore.
-
-        Args:
-            settings_service: For reading routing.mode and volume limits
-        """
+    def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.settings_service = settings_service
 
         # Client registry reference (set via set_registry after construction)
         self._registry: Optional["ClientRegistryService"] = None
 
-        # State storage
-        self._clients: Dict[str, ClientVolume] = {}
-        self._zones: Dict[str, ZoneConfig] = {}
-        self._mode: str = "multiroom"  # 'direct' or 'multiroom'
+        self._clients: Dict[str, StoredLevel] = {}
 
         # Local client mac_id. Loaded from disk at init (if previously persisted)
         # so _clients[_local_mac_id].volume_db can serve as SSOT immediately;
@@ -129,99 +122,35 @@ class VolumeStateStore:
         """Handle events from ClientRegistryService."""
         from backend.core.multiroom.models import RegistryEventType
 
-        if event_type == RegistryEventType.CLIENT_CONNECTED:
-            # Handle client connected - register if new or update availability
+        if event_type in (RegistryEventType.CLIENT_CONNECTED, RegistryEventType.CLIENT_UPDATED):
             mac_id = data.get("mac_id")
-            client_data = data.get("client", {})
-            if mac_id:
-                is_local = client_data.get("ip") == "127.0.0.1"
-
-                if is_local:
-                    self._local_mac_id = mac_id
-
-                # CLIENT_CONNECTED is emitted twice for the same client, and the
-                # payload is what tells them apart: once when it is *registered*
-                # (online False — the admission has not confirmed the hardware
-                # yet) and once when it is announced online. Reading `online`
-                # instead of assuming True is what keeps a client mid-admission
-                # out of the averages get_complete_state() computes over
-                # `available`.
-                online = bool(client_data.get("online", False))
-
-                if mac_id not in self._clients:
-                    # Seed at the configured startup level, never at
-                    # DEFAULT_VOLUME_DB: _resolve_target_volume reads this store
-                    # to decide what a client comes back at, so a fabricated -45
-                    # here *is* the level the speaker gets — and it shadowed the
-                    # startup_volume_db branch that exists for exactly this case.
-                    await self.register_client(
-                        mac_id,
-                        volume_db=(
-                            self._volume_config.startup_volume_db
-                            if self._volume_config else DEFAULT_VOLUME_DB
-                        ),
-                        available=online
-                    )
-                else:
-                    await self.set_client_availability(mac_id, online)
-
-        elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
-            # Handle client disconnected - check if deleted or just offline
-            mac_id = data.get("mac_id")
-            if mac_id and mac_id in self._clients:
-                # Check if client was deleted from registry (vs just went offline)
-                client_still_exists = self._registry and self._registry.get_client(mac_id) is not None
-
-                if client_still_exists:
-                    # Client just went offline temporarily - keep volume state
-                    await self.set_client_availability(mac_id, False)
-                else:
-                    # Client was deleted from registry - remove from volume state
-                    async with self._lock:
-                        del self._clients[mac_id]
-                        self._schedule_persist()
-                    self.logger.info(f"Deleted client {mac_id} from volume state")
-
-        elif event_type == RegistryEventType.CLIENT_UPDATED:
-            mac_id = data.get("mac_id")
-            client_data = data.get("client", {})
-            if mac_id and mac_id not in self._clients:
+            if not mac_id:
+                return
+            if data.get("client", {}).get("ip") == "127.0.0.1":
+                self._local_mac_id = mac_id
+            if mac_id not in self._clients:
+                # Seed at the configured startup level, never at
+                # DEFAULT_VOLUME_DB: _resolve_target_volume reads this store
+                # to decide what a client comes back at, so a fabricated -45
+                # here *is* the level the speaker gets — and it shadowed the
+                # startup_volume_db branch that exists for exactly this case.
                 await self.register_client(
                     mac_id,
-                    volume_db=None,  # Use default
-                    available=client_data.get("online", True)
+                    volume_db=(
+                        self._volume_config.startup_volume_db
+                        if self._volume_config else DEFAULT_VOLUME_DB
+                    ),
                 )
 
-        elif event_type == RegistryEventType.ZONE_CREATED:
-            zone_data = data.get("zone", {})
-            zone_id = data.get("zone_id")
-            if zone_id and zone_data:
+        elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
+            # Offline is the registry's to say; only a client removed from the
+            # registry takes its level with it.
+            mac_id = data.get("mac_id")
+            if mac_id in self._clients and not (self._registry and self._registry.get_client(mac_id)):
                 async with self._lock:
-                    self._zones[zone_id] = ZoneConfig(
-                        zone_id=zone_id,
-                        name=zone_data.get("name", zone_id),
-                        client_ids=zone_data.get("client_ids", [])
-                    )
-                self.logger.info(f"Zone {zone_id} added to volume state")
-
-        elif event_type == RegistryEventType.ZONE_UPDATED:
-            zone_data = data.get("zone", {})
-            zone_id = data.get("zone_id")
-            if zone_id and zone_data:
-                async with self._lock:
-                    self._zones[zone_id] = ZoneConfig(
-                        zone_id=zone_id,
-                        name=zone_data.get("name", zone_id),
-                        client_ids=zone_data.get("client_ids", [])
-                    )
-                self.logger.debug(f"Zone {zone_id} updated in volume state")
-
-        elif event_type == RegistryEventType.ZONE_DELETED:
-            zone_id = data.get("zone_id")
-            if zone_id:
-                async with self._lock:
-                    self._zones.pop(zone_id, None)
-                self.logger.info(f"Zone {zone_id} removed from volume state")
+                    del self._clients[mac_id]
+                    self._schedule_persist()
+                self.logger.info(f"Deleted client {mac_id} from volume state")
 
     @handle_errors(default=None)
     def _ensure_storage_directory(self) -> None:
@@ -246,37 +175,13 @@ class VolumeStateStore:
         is already set via set_volume_config() before this is called.
         """
         async with self._lock:
-            # Load routing mode from multiroom_enabled setting
-            multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled")
-            self._mode = "multiroom" if multiroom_enabled else "direct"
-
-            # Load zone configurations
-            await self._load_zones()
-
-            # Load persisted volume state
             await self._load_persisted_state()
 
             limits_info = (f"{self._volume_config.limit_min_db:.1f}/{self._volume_config.limit_max_db:.1f}"
                           if self._volume_config else "not set")
-            self.logger.info(f"VolumeStateStore initialized: mode={self._mode}, "
-                           f"zones={len(self._zones)}, clients={len(self._clients)}, "
+            self.logger.info(f"VolumeStateStore initialized: clients={len(self._clients)}, "
                            f"local_volume={self.local_volume_db:.1f}dB, "
                            f"limits={limits_info}dB")
-
-    async def set_mode(self, mode: str) -> None:
-        """
-        Update volume mode at runtime (called when multiroom is toggled).
-
-        Args:
-            mode: 'direct' or 'multiroom'
-        """
-        async with self._lock:
-            if mode not in ("direct", "multiroom"):
-                self.logger.warning(f"Invalid volume mode: {mode}, ignoring")
-                return
-            old_mode = self._mode
-            self._mode = mode
-            self.logger.info(f"Volume mode changed: {old_mode} -> {mode}")
 
     def set_local_volume(self, volume_db: float) -> None:
         """
@@ -294,12 +199,7 @@ class VolumeStateStore:
         if local_mac_id in self._clients:
             self._clients[local_mac_id].volume_db = volume_db
         else:
-            self._clients[local_mac_id] = ClientVolume(
-                volume_db=volume_db,
-                offset_db=0.0,
-                mute=False,
-                available=True,
-            )
+            self._clients[local_mac_id] = StoredLevel(volume_db=volume_db, mute=False)
         self._schedule_persist()
 
     def ensure_local_client(self, mac_id: str, volume_db: float) -> None:
@@ -317,30 +217,8 @@ class VolumeStateStore:
             return
         self._local_mac_id = mac_id
         if mac_id not in self._clients:
-            self._clients[mac_id] = ClientVolume(
-                volume_db=self._clamp_db(volume_db),
-                offset_db=0.0,
-                mute=False,
-                available=True,
-            )
+            self._clients[mac_id] = StoredLevel(volume_db=self._clamp_db(volume_db), mute=False)
         self.logger.info(f"Seeded local client {mac_id} at {self.local_volume_db:.1f}dB")
-
-    async def _load_zones(self) -> None:
-        """Load zone configurations from registry."""
-        self._zones.clear()
-
-        if self._registry:
-            # Load zones from registry (single source of truth)
-            zones = self._registry.get_all_zones()
-            for zone_id, zone in zones.items():
-                self._zones[zone_id] = ZoneConfig(
-                    zone_id=zone_id,
-                    name=zone.name,
-                    client_ids=zone.client_ids.copy()
-                )
-            self.logger.debug(f"Loaded {len(self._zones)} zones from registry")
-        else:
-            self.logger.warning("Registry not available, zones not loaded")
 
     async def _load_persisted_state(self) -> None:
         """
@@ -368,11 +246,9 @@ class VolumeStateStore:
                 volume_db = client_data.get("volume_db", DEFAULT_VOLUME_DB)
                 volume_db = self._clamp_db(volume_db)
 
-                self._clients[mac_id] = ClientVolume(
+                self._clients[mac_id] = StoredLevel(
                     volume_db=volume_db,
-                    offset_db=0.0,  # Offsets computed on demand
                     mute=client_data.get("mute", False),
-                    available=False  # Availability set by snapcast events
                 )
 
             self.logger.info(f"Restored volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
@@ -420,54 +296,29 @@ class VolumeStateStore:
 
     # ========== Client Management ==========
 
-    async def register_client(self, mac_id: str, volume_db: Optional[float] = None,
-                             mute: bool = False, available: bool = False) -> None:
+    async def register_client(self, mac_id: str, volume_db: Optional[float] = None) -> None:
         """
-        Register or update a client.
+        Register a client, or update its level.
 
         Args:
             mac_id: Client MAC identifier
             volume_db: Volume in dB (None = keep existing or use default)
-            mute: Initial mute state
-            available: Initial availability
         """
         async with self._lock:
             if mac_id in self._clients:
-                # Update availability and volume if provided
-                self._clients[mac_id].available = available
                 if volume_db is not None:
                     self._clients[mac_id].volume_db = self._clamp_db(volume_db)
                     self._schedule_persist()
-                self.logger.debug(f"Updated client: {mac_id} -> available={available}, volume_db={self._clients[mac_id].volume_db:.1f}dB")
+                self.logger.debug(f"Updated client: {mac_id} -> volume_db={self._clients[mac_id].volume_db:.1f}dB")
             else:
                 if volume_db is None:
                     volume_db = DEFAULT_VOLUME_DB
 
                 volume_db = self._clamp_db(volume_db)
 
-                self._clients[mac_id] = ClientVolume(
-                    volume_db=volume_db,
-                    offset_db=0.0,  # Offsets computed on demand
-                    mute=mute,
-                    available=available
-                )
+                self._clients[mac_id] = StoredLevel(volume_db=volume_db)
 
                 self.logger.info(f"Registered client: {mac_id} at {volume_db:.1f}dB")
-
-    async def set_client_availability(self, mac_id: str, available: bool) -> None:
-        """
-        Update client availability status.
-
-        Args:
-            mac_id: Client MAC identifier
-            available: New availability state
-        """
-        async with self._lock:
-            if mac_id in self._clients:
-                self._clients[mac_id].available = available
-                self.logger.debug(f"Client availability: {mac_id} -> {available}")
-            else:
-                self.logger.warning(f"Cannot set availability for unknown client: {mac_id}")
 
     async def set_client_mute(self, mac_id: str, mute: bool) -> None:
         """
@@ -505,12 +356,7 @@ class VolumeStateStore:
                 self.logger.debug(f"Client volume: {mac_id} -> {volume_db:.1f}dB")
             else:
                 # Auto-register client inline (avoid deadlock with register_client's lock)
-                self._clients[mac_id] = ClientVolume(
-                    volume_db=volume_db,
-                    offset_db=0.0,
-                    mute=False,
-                    available=True
-                )
+                self._clients[mac_id] = StoredLevel(volume_db=volume_db, mute=False)
                 self.logger.info(f"Auto-registered client: {mac_id} at {volume_db:.1f}dB")
 
         return volume_db
@@ -530,10 +376,19 @@ class VolumeStateStore:
         """Check if a client is registered in the volume state."""
         return mac_id in self._clients
 
-    def is_client_available(self, mac_id: str) -> bool:
-        """Whether a client is currently reachable. Unknown clients are not."""
-        client = self._clients.get(mac_id)
-        return client.available if client else False
+    def is_client_available(self, mac_id: str, multiroom: bool = True) -> bool:
+        """Whether a client plays now — the one rule the snapshot, the zones
+        and the moves all count by.
+
+        Multiroom: online in the registry (without one, a store built on its
+        own, no client is). Direct: the local speaker alone, whatever the
+        registry says — no snapclient runs, and the registry still holds the
+        satellites online after a switch from multiroom, and every client
+        offline after a boot in direct mode, the local one too.
+        """
+        if not multiroom:
+            return mac_id == self._local_mac_id
+        return self._registry is not None and self._registry.is_client_online(mac_id)
 
     @property
     def local_volume_db(self) -> float:
@@ -561,19 +416,37 @@ class VolumeStateStore:
         client = self._registry.get_client(mac_id)
         return client.volume_control if client else True
 
-    def zone_members(self, zone_id: str) -> List[str]:
-        """The zone's members the volume state holds a level for, with volume control.
+    def _zone_client_ids(self, zone_id: str) -> Optional[List[str]]:
+        """A zone's members as the registry holds them; None for an unknown zone."""
+        zone = self._registry.get_zone(zone_id) if self._registry else None
+        return None if zone is None else list(zone.client_ids)
+
+    def zone_clients(self, zone_id: str) -> List[str]:
+        """The zone's members the volume state holds a record for.
 
         Raises:
             ValueError: If zone not found
         """
-        zone = self._zones.get(zone_id)
-        if zone is None:
+        client_ids = self._zone_client_ids(zone_id)
+        if client_ids is None:
             raise ValueError(f"Unknown zone: {zone_id}")
-        return [
-            client_id for client_id in zone.client_ids
-            if client_id in self._clients and self.has_volume_control(client_id)
-        ]
+        return [client_id for client_id in client_ids if client_id in self._clients]
+
+    def zone_members(self, zone_id: str) -> List[str]:
+        """The zone's members a level moves: those with volume control.
+
+        Raises:
+            ValueError: If zone not found
+        """
+        return [c for c in self.zone_clients(zone_id) if self.has_volume_control(c)]
+
+    def _zone_playing(self, zone_id: str, multiroom: bool) -> Dict[str, StoredLevel]:
+        """The records of a zone's members that play now, by mac."""
+        return {
+            client_id: self._clients[client_id]
+            for client_id in self._zone_client_ids(zone_id) or []
+            if client_id in self._clients and self.is_client_available(client_id, multiroom)
+        }
 
     def set_levels(self, levels: Dict[str, float]) -> None:
         """Write the levels of several known clients in one step.
@@ -595,117 +468,88 @@ class VolumeStateStore:
         """Every client the volume state holds a level for, reachable or not."""
         return list(self._clients)
 
-    def zone_average_or_none(self, zone_id: str) -> Optional[float]:
-        """Average level of a zone's available members with volume control.
+    def zone_average_or_none(self, zone_id: str, multiroom: bool = True) -> Optional[float]:
+        """Average level of a zone's playing members with volume control.
 
         None when there is none (or the zone is unknown): a level asked of such
         a zone has nothing to be measured against, and answering a default here
         would move every member off a number nobody set.
         """
-        zone = self._zones.get(zone_id)
-        if zone is None:
-            return None
         volumes = [
-            self._clients[client_id].volume_db
-            for client_id in zone.client_ids
-            if client_id in self._clients
-            and self._clients[client_id].available
-            and self.has_volume_control(client_id)
+            client.volume_db for mac_id, client in self._zone_playing(zone_id, multiroom).items()
+            if self.has_volume_control(mac_id)
         ]
         return sum(volumes) / len(volumes) if volumes else None
 
-    def compute_zone_average(self, zone_id: str) -> float:
-        """
-        Compute average volume for a zone (all available clients).
-
-        Args:
-            zone_id: Zone identifier
-
-        Returns:
-            Average volume in dB (or DEFAULT_VOLUME if no available clients)
-        """
-        average = self.zone_average_or_none(zone_id)
+    def compute_zone_average(self, zone_id: str, multiroom: bool = True) -> float:
+        """The zone's average, or DEFAULT_VOLUME_DB when no member counts."""
+        average = self.zone_average_or_none(zone_id, multiroom)
         return DEFAULT_VOLUME_DB if average is None else average
+
+    def _zone_all_muted(self, zone_id: str, multiroom: bool) -> bool:
+        """Every playing member muted — a DAC member included: a zone mute
+        mutes it too, since a mute is not a level."""
+        playing = self._zone_playing(zone_id, multiroom)
+        return bool(playing) and all(client.mute for client in playing.values())
 
     # ========== State Retrieval ==========
 
-    async def get_complete_state(self) -> VolumeState:
+    async def get_complete_state(self, multiroom: bool) -> VolumeState:
         """
         Get complete volume state snapshot.
+
+        Args:
+            multiroom: The routing mode now — the caller's, read where the
+                moves read it, so the figure published and the group a move
+                acts on can never be of two different modes.
 
         Returns:
             VolumeState with all clients and zones
         """
         async with self._lock:
-            # Refresh zones from settings (in case they changed)
-            await self._load_zones()
-
-            # Compute offsets for clients (offset = client_volume - zone_average)
-            clients_with_offsets = {}
-            for mac_id, client in self._clients.items():
-                # Find which zone this client belongs to
-                zone_avg = None
-                for zone_id, zone_config in self._zones.items():
-                    if mac_id in zone_config.client_ids:
-                        zone_avg = self.compute_zone_average(zone_id)
-                        break
-
-                # Calculate offset
-                if zone_avg is not None and client.available:
-                    offset = client.volume_db - zone_avg
-                else:
-                    offset = 0.0
-
-                # Create client with computed offset. `volume_control` comes
-                # from the registry, and it is already the filter the global
-                # average below applies — publishing it means a reader can build
-                # the same set instead of guessing which speakers Milo counted.
-                clients_with_offsets[mac_id] = ClientVolume(
+            # One entry per client, `available` and `volume_control` from the
+            # registry: they are already the filters the averages below apply,
+            # and publishing them means a reader can build the same set instead
+            # of guessing which speakers Milo counted (the lock screen draws a
+            # slider for exactly those).
+            clients = {
+                mac_id: ClientVolume(
                     volume_db=client.volume_db,
-                    offset_db=offset,
                     mute=client.mute,
-                    available=client.available,
+                    available=self.is_client_available(mac_id, multiroom),
                     volume_control=self.has_volume_control(mac_id)
                 )
+                for mac_id, client in self._clients.items()
+            }
 
-            # Compute zone states
-            zone_states = {}
-            for zone_id, zone_config in self._zones.items():
-                zone_states[zone_id] = ZoneVolume(
+            zones = self._registry.get_all_zones() if self._registry else {}
+            zone_states = {
+                zone_id: ZoneVolume(
                     id=zone_id,
-                    name=zone_config.name,
-                    client_ids=zone_config.client_ids,
-                    average_volume_db=self.compute_zone_average(zone_id),
-                    all_muted=self._zone_all_muted(zone_id)
+                    name=zone.name,
+                    client_ids=list(zone.client_ids),
+                    average_volume_db=self.compute_zone_average(zone_id, multiroom),
+                    all_muted=self._zone_all_muted(zone_id, multiroom)
                 )
+                for zone_id, zone in zones.items()
+            }
 
-            # Calculate global volume (mode-aware)
-            # - Direct mode: use local client's volume
-            # - Multiroom mode: average of all available, unmuted clients
-            if self._mode == "direct":
+            # Direct: the local speaker's own level. Multiroom: the average of
+            # the online clients with volume control (a DAC is excluded).
+            online = [c for c in clients.values() if c.available]
+            if not multiroom:
                 global_volume = self.local_volume_db
             else:
-                # Multiroom: average of all available clients with volume control (exclude DAC)
-                all_volumes = [
-                    client.volume_db
-                    for mac_id, client in self._clients.items()
-                    if client.available and self.has_volume_control(mac_id)
-                ]
+                all_volumes = [c.volume_db for c in online if c.volume_control]
                 global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else DEFAULT_VOLUME_DB
 
-            # Check if all available clients are muted
-            available_clients = [c for c in self._clients.values() if c.available]
-            global_mute = all(c.mute for c in available_clients) if available_clients else False
+            global_mute = all(c.mute for c in online) if online else False
 
             # any_volume_control: True if at least one device manages volume via Milo
             if self._volume_control:
                 any_vol_ctrl = True
-            elif self._mode == "multiroom":
-                any_vol_ctrl = any(
-                    self.has_volume_control(mac_id)
-                    for mac_id, client in self._clients.items()
-                    if client.available
-                )
+            elif multiroom:
+                any_vol_ctrl = any(c.volume_control for c in online)
             else:
                 any_vol_ctrl = False
 
@@ -717,34 +561,16 @@ class VolumeStateStore:
             config = self._volume_config or VolumeConfig()
 
             return VolumeState(
-                mode=self._mode,
+                mode="multiroom" if multiroom else "direct",
                 global_volume_db=global_volume,
                 global_mute=global_mute,
                 limit_min_db=config.limit_min_db,
                 limit_max_db=config.limit_max_db,
-                clients=clients_with_offsets,
+                clients=clients,
                 zones=zone_states,
                 volume_control=self._volume_control,
                 any_volume_control=any_vol_ctrl
             )
-
-    def _zone_all_muted(self, zone_id: str) -> bool:
-        """Check if all available clients with volume control in a zone are muted."""
-        if zone_id not in self._zones:
-            return False
-
-        zone = self._zones[zone_id]
-        controllable_clients = [
-            self._clients[cid]
-            for cid in zone.client_ids
-            if cid in self._clients and self._clients[cid].available
-            and self.has_volume_control(cid)
-        ]
-
-        if not controllable_clients:
-            return False
-
-        return all(client.mute for client in controllable_clients)
 
     # ========== Utilities ==========
 

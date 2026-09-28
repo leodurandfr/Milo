@@ -115,14 +115,14 @@ async def registry_with_clients(registry_service):
 @pytest.fixture
 async def volume_state_store_with_registry(mock_settings_service, registry_with_clients):
     """VolumeStateStore integrated with registry for zone volume tests."""
-    store = VolumeStateStore(mock_settings_service)
+    store = VolumeStateStore()
     store.set_registry(registry_with_clients)
     await store.initialize()
 
-    # Register clients in volume store
-    await store.register_client("local", volume_db=-30.0, available=True)
-    await store.register_client("bedroom", volume_db=-25.0, available=True)
-    await store.register_client("kitchen", volume_db=-35.0, available=True)
+    # Their levels; the registry above has them online
+    await store.register_client("local", volume_db=-30.0)
+    await store.register_client("bedroom", volume_db=-25.0)
+    await store.register_client("kitchen", volume_db=-35.0)
 
     return store
 
@@ -137,7 +137,6 @@ async def _move_zone(store, registry, zone_id, delta_db):
     service._volume_config = store._volume_config
     service._state_store = store
     service._client_registry = registry
-    service._update_startup_volume_if_needed = AsyncMock()
     service.broadcast_volume_state = AsyncMock()
     sent = {}
 
@@ -148,6 +147,7 @@ async def _move_zone(store, registry, zone_id, delta_db):
         return done
 
     service._equalizer_controller.submit_volume = submit
+    service._routing_service = Mock(get_state=Mock(return_value={"multiroom_enabled": True}))  # zones move in multiroom
     await service.apply_zone_volume_delta(zone_id, delta_db)
     return sent
 
@@ -352,8 +352,8 @@ class TestZoneVolumeSynchronization:
             client_ids=["local", "bedroom"]
         )
 
-        # Mark bedroom as unavailable
-        await store.set_client_availability("bedroom", False)
+        # Bedroom goes offline
+        await store._registry.set_client_online("bedroom", False)
 
         # Only local should contribute now
         average = store.compute_zone_average("living_room")
@@ -421,103 +421,6 @@ class TestZoneVolumeSynchronization:
 
         assert store.get_client_volume("bedroom") == -21.0  # at the max
         assert store.get_client_volume("local") == -26.0  # kept its 5 dB below
-
-
-# ==============================================================================
-# Test Volume Offsets
-# ==============================================================================
-
-
-class TestVolumeOffsets:
-    """Tests for Per-client volume offsets."""
-
-    @pytest.mark.asyncio
-    async def test_client_offset_relative_to_zone_average(
-        self,
-        volume_state_store_with_registry: VolumeStateStore,
-        registry_with_clients: ClientRegistryService
-    ):
-        """
-        Test offset_db is calculated relative to zone average.
-
-        Validates:
-        - offset_db = client_volume - zone_average
-        """
-        store = volume_state_store_with_registry
-
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local", "bedroom"]
-        )
-
-        state = await store.get_complete_state()
-
-        # Zone average: (-30 + -25) / 2 = -27.5
-        # local offset: -30 - (-27.5) = -2.5
-        # bedroom offset: -25 - (-27.5) = +2.5
-        local_offset = state.clients["local"].offset_db
-        bedroom_offset = state.clients["bedroom"].offset_db
-
-        assert local_offset == pytest.approx(-2.5, abs=0.1)
-        assert bedroom_offset == pytest.approx(2.5, abs=0.1)
-
-    @pytest.mark.asyncio
-    async def test_clients_with_different_volumes_have_offsets(
-        self,
-        volume_state_store_with_registry: VolumeStateStore,
-        registry_with_clients: ClientRegistryService
-    ):
-        """
-        Test clients with different volumes have different offsets.
-
-        Validates:
-        - Offset reflects difference from zone average
-        """
-        store = volume_state_store_with_registry
-
-        # local: -30, bedroom: -25, kitchen: -35
-        await registry_with_clients.create_zone(
-            zone_id="all_rooms",
-            name="All Rooms",
-            client_ids=["local", "bedroom", "kitchen"]
-        )
-
-        state = await store.get_complete_state()
-
-        # Zone average: (-30 + -25 + -35) / 3 = -30
-        # local offset: -30 - (-30) = 0
-        # bedroom offset: -25 - (-30) = +5
-        # kitchen offset: -35 - (-30) = -5
-        assert state.clients["local"].offset_db == pytest.approx(0.0, abs=0.1)
-        assert state.clients["bedroom"].offset_db == pytest.approx(5.0, abs=0.1)
-        assert state.clients["kitchen"].offset_db == pytest.approx(-5.0, abs=0.1)
-
-    @pytest.mark.asyncio
-    async def test_client_not_in_zone_has_zero_offset(
-        self,
-        volume_state_store_with_registry: VolumeStateStore,
-        registry_with_clients: ClientRegistryService
-    ):
-        """
-        Test clients not in any zone have zero offset.
-
-        Validates:
-        - Clients outside zones have offset_db = 0
-        """
-        store = volume_state_store_with_registry
-
-        # Create zone with only local and bedroom
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local", "bedroom"]
-        )
-
-        state = await store.get_complete_state()
-
-        # Kitchen is not in any zone
-        assert state.clients["kitchen"].offset_db == 0.0
 
 
 # ==============================================================================

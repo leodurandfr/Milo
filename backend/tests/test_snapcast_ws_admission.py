@@ -33,6 +33,7 @@ import pytest
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import EqFilter, EqualizerSettings
 from backend.core.multiroom.websocket import SnapcastWebSocketService
+from backend.core.multiroom.snapcast import SnapcastService
 
 MAC = "aa:bb:cc:dd:ee:07"
 IP = "192.168.1.153"
@@ -61,7 +62,7 @@ async def registry():
 
 @pytest.fixture
 def snapcast():
-    service = MagicMock()
+    service = MagicMock(spec=SnapcastService)
     service.set_volume = AsyncMock(return_value=True)
     service.set_latency = AsyncMock(return_value=True)
     service.get_clients = AsyncMock(return_value=[])
@@ -282,10 +283,10 @@ class TestTheDuplicateSyncGuard:
         """Two things only the paths holding a snapcast id can restore.
 
         Snapserver must stay a passthrough — CamillaDSP on the client is the only
-        attenuation stage (invariant 7) — so an admission that left snapserver at
-        whatever level it held would attenuate twice, and the same client ended up
-        differently loud depending on which of the four notifications announced
-        it. The per-client delay is the mirror: it is native Snapcast latency
+        attenuation stage (invariant 7). Its volume no longer reaches the audio
+        (`--mixer none`), but its mute still does, and snapserver keeps a mute
+        across restarts: one set from snapweb would silence the room for good
+        while Milō shows it unmuted. The per-client delay is the mirror: it is native Snapcast latency
         Milō owns, so a delay changed while the client was away has reached
         nobody until this call.
         """
@@ -869,7 +870,7 @@ class TestWhatANewClientIsAdmittedAt:
 
         settings = AsyncMock()
         settings.get_setting = AsyncMock(return_value=None)
-        store = VolumeStateStore(settings)
+        store = VolumeStateStore()
         store.STORAGE_PATH = tmp_path / "last_volume.json"
         config = VolumeConfig()
         config.startup_volume_db = -20.0

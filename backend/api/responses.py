@@ -72,7 +72,6 @@ class VolumeClientModel(BaseModel):
     """ClientVolume.to_dict()."""
     volume_db: float
     volume: float
-    offset_db: float
     mute: bool
     available: bool
     volume_control: bool
@@ -287,6 +286,13 @@ class ClientMuteSetResponse(BaseModel):
     """PATCH /api/volume/client/mac/{mac_url}/mute."""
     status: str
     mac_id: str
+    mute: bool
+
+
+class ZoneMuteSetResponse(BaseModel):
+    """PATCH /api/volume/zone/{zone_id}/mute."""
+    status: str
+    zone_id: str
     mute: bool
 
 

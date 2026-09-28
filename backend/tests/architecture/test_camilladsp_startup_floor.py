@@ -218,3 +218,28 @@ def test_both_camilladsp_units_pin_the_card_mixer_at_unity(name):
     assert re.search(
         r"^ExecStartPre=-?/usr/local/bin/milo-alsa-passthrough\s*$", text, re.MULTILINE
     ), f"{name} does not run milo-alsa-passthrough before CamillaDSP opens the card"
+
+
+SNAPCLIENTS = {
+    "server": REPO_ROOT / "system" / "milo-snapclient-multiroom.service",
+    "satellite": REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-snapclient-launcher",
+}
+
+
+@pytest.mark.parametrize("name", sorted(SNAPCLIENTS))
+def test_both_snapclients_leave_the_level_to_camilladsp(name):
+    """Invariant 7 again, one stage upstream of CamillaDSP.
+
+    With `--mixer software` snapclient scales the stream by the volume
+    snapserver holds for it — and snapserver takes that volume from anyone on
+    the LAN (snapweb on :1780, a home-automation integration, JSON-RPC), while
+    Milō ignored Client.OnVolumeChanged. A room turned down there stayed down
+    under CamillaDSP until the next admission reset it to 100. `--mixer none`
+    ignores that volume (measured on the unit: Client.SetVolume at 10 % left
+    CamillaDSP's capture peak where it was). It still obeys snapserver's mute
+    — measured too — which is why every admission still lifts it. Fails if
+    either launch line uses another mixer.
+    """
+    text = SNAPCLIENTS[name].read_text(encoding="utf-8")
+    mixers = re.findall(r"--mixer[ =](\S+)", text)
+    assert mixers == ["none"], f"{name} snapclient runs with --mixer {mixers}"

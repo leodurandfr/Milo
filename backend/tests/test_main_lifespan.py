@@ -349,7 +349,7 @@ class TestShutdownTable:
             "mac_link_calibration", "equalizer_proxy_service",
             "levels_monitor", "screen_controller", "bt_remote_controller",
             "ir_remote_controller", "fan_controller", "connectivity", "network",
-            "routing_service", "crossover_service", "hostname_conflict",
+            "crossover_service", "hostname_conflict",
             "music_library_shares", "rotary_controller", "apns", "push_service",
         }
 
@@ -379,4 +379,4 @@ class TestShutdownTable:
         await _run_lifespan(boot)
 
         assert "volume_service" in boot["order"]
-        assert "routing_service" in boot["order"]
+        assert "crossover_service" in boot["order"]
