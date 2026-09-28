@@ -126,20 +126,21 @@ class TestInZoneReconnectionSyncIntegration:
         assert target_volume != (-30.0 + -40.0) / 2
 
     @pytest.mark.asyncio
-    async def test_in_zone_restore_disabled_uses_startup_volume(
+    async def test_in_zone_restore_disabled_still_returns_its_own_level(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: with `restore_last_volume` off, a zone member ignores its own level.
+        E2E: with `restore_last_volume` off, a reconnecting member keeps its level.
 
-        The escape hatch for a fleet that must start at a fixed level: the
-        stored value is not read at all, so the boot push and the admission
-        cannot disagree about what a client comes back at.
+        The setting is applied once, when the store loads at boot (so the boot
+        push and the admission read the same value). Applied again here, it
+        sent both satellites to startup_volume_db at the end of every app
+        update, although nobody had touched their level.
 
         Scenario:
-        1. Zone with 3 clients, all offline (backend restart)
-        2. restore_last_volume is off, client-1 has a stored -20
-        3. client-1 reconnects and receives startup_volume_db (-45.0)
+        1. Zone with 3 clients, all offline
+        2. restore_last_volume is off, client-1 was left at -20 in this run
+        3. client-1 reconnects and receives -20, not startup_volume_db (-45.0)
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -177,10 +178,7 @@ class TestInZoneReconnectionSyncIntegration:
 
         target_volume = ws_service._resolve_target_volume("client-1")
 
-        # Should use startup_volume_db from config, and never read the store
-        assert target_volume == -45.0
-        store = mock_state_machine.volume_service.state_store
-        store.get_client_volume.assert_not_called()
+        assert target_volume == -20.0
 
     @pytest.mark.asyncio
     async def test_websocket_broadcast_after_sync(

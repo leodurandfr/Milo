@@ -739,29 +739,27 @@ class SnapcastWebSocketService:
         volume (`_apply_startup_volume`) already apply; the admission used to be
         the one path that answered differently.
 
-        `restore_last_volume` gates it, and is not optional here: with it off,
-        a fleet configured for a fixed startup level would have the boot push
-        apply startup_volume_db and the admission apply the remembered value —
-        the same split, moved one path over.
+        `restore_last_volume` is not read here. It says what the levels are at
+        the *startup* of Milō, and the store applies it once, when it loads:
+        read at every admission, it sent a satellite back to startup_volume_db
+        each time it reconnected — after an app update, a reboot, a Wi-Fi drop —
+        although nobody had touched its level.
 
         Resolution order:
-        1. restore_last_volume on → the volume store's level for this client. The
-           store is seeded at startup_volume_db when the registry first admits a
-           client, so this answers startup_volume_db for one nobody has set and
-           its own level for one someone has — which is why the message says
-           where the number came from rather than claiming it was "stored"
-           (measured on the unit: a fresh satellite reads startup_volume_db here,
-           and a log line calling that "stored" is the one place the two are
+        1. The volume store's level for this client. The store is seeded at
+           startup_volume_db when the registry first admits a client, so this
+           answers startup_volume_db for one nobody has set and its own level
+           for one someone has — which is why the message says where the number
+           came from rather than claiming it was "stored" (measured on the unit:
+           a fresh satellite reads startup_volume_db here, and a log line
+           calling that "stored" is the one place the two are
            indistinguishable).
-        2. restore_last_volume off → the configured startup_volume_db.
+        2. The configured startup_volume_db, for a client the store lacks.
         3. DEFAULT_VOLUME_DB constant (no volume service at all)
         """
         if self._volume_service:
             config = self._volume_service.volume_config
-            stored = (
-                self._volume_service.state_store.get_client_volume(mac_id)
-                if config.restore_last_volume else None
-            )
+            stored = self._volume_service.state_store.get_client_volume(mac_id)
             if stored is not None:
                 self.logger.info(f"Volume store holds {stored:.1f} dB for {mac_id}")
                 return stored

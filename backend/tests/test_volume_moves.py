@@ -18,6 +18,7 @@ measured: speakers that must be slow are held on an event and released.
 """
 import asyncio
 import logging
+from dataclasses import replace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -736,8 +737,9 @@ async def test_a_level_saved_under_older_limits_is_brought_into_them_at_load():
     store._clients["room"] = StoredLevel(volume_db=-90.0)
     await store._persist_state_async()
 
+    # Restoring, or the load would forget the level instead of clamping it.
     restored = VolumeStateStore()
-    restored.set_volume_config(LIMITS)
+    restored.set_volume_config(replace(LIMITS, restore_last_volume=True))
     await restored.initialize()
 
     assert restored.get_client_volume("room") == -78.0

@@ -423,6 +423,35 @@ class TestStartupVolumeEdges:
         camilladsp.set_mute.assert_not_awaited()
 
 
+class TestStoreLoadAtStartup:
+    """What the levels are once `last_volume.json` has been read at boot.
+
+    The store is the only thing a satellite's reconnection reads, so this load
+    is the one place `restore_last_volume` applies: off means "every speaker
+    starts this run at startup_volume_db", never "every reconnection goes back
+    to it" — which is what sent both satellites to -76 dB after an app update.
+    """
+
+    async def _load(self, tmp_path, monkeypatch, restore):
+        path = tmp_path / "last_volume.json"
+        path.write_text('{"local_mac_id": null, "clients": {"aa:bb": {"volume_db": -38.0, "mute": false}}}')
+        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", path)
+        store = VolumeStateStore()
+        store.set_volume_config(VolumeConfig(restore_last_volume=restore, startup_volume_db=-60.0))
+        await store.initialize()
+        return store
+
+    async def test_restore_on_keeps_the_previous_runs_level(self, tmp_path, monkeypatch):
+        store = await self._load(tmp_path, monkeypatch, restore=True)
+
+        assert store.get_client_volume("aa:bb") == -38.0
+
+    async def test_restore_off_starts_every_known_client_at_the_startup_level(self, tmp_path, monkeypatch):
+        store = await self._load(tmp_path, monkeypatch, restore=False)
+
+        assert store.get_client_volume("aa:bb") == -60.0
+
+
 class TestBootPush:
     """`_do_push_volume_to_all_clients` — one level per client, after a restart."""
 

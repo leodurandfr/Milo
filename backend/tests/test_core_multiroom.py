@@ -2495,13 +2495,14 @@ class TestResolveTargetVolume:
         assert target == -70.0
         assert target != -25.0, "the fleet's average is not the target either"
 
-    def test_restore_last_volume_off_returns_startup_volume(
+    def test_restore_last_volume_off_still_returns_the_clients_own_level(
         self, mock_state_machine, mock_registry
     ):
-        """The escape hatch: a fleet configured for a fixed level ignores the store.
+        """A reconnection is not a startup: the client gets the level it was left at.
 
-        Without this gate the boot push would apply startup_volume_db and the
-        admission the remembered value — the split this rule exists to remove.
+        `restore_last_volume` off is applied once, when the store loads at boot.
+        Read here as well, it sent both satellites to startup_volume_db at the
+        end of every app update (measured 2026-09-28, -76 dB on both units).
         """
         volume_service = mock_state_machine.volume_service
         volume_service.volume_config = VolumeConfig(
@@ -2509,10 +2510,7 @@ class TestResolveTargetVolume:
         )
         ws_service = self._ws(mock_state_machine, mock_registry)
 
-        target = ws_service._resolve_target_volume("client-1")
-
-        assert target == -40.0
-        volume_service.state_store.get_client_volume.assert_not_called()
+        assert ws_service._resolve_target_volume("client-1") == -70.0
 
     def test_a_client_the_store_never_saw_returns_startup_volume(
         self, mock_state_machine, mock_registry

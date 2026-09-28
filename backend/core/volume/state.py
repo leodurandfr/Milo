@@ -240,10 +240,18 @@ class VolumeStateStore:
             if isinstance(local_mac_id, str) and local_mac_id:
                 self._local_mac_id = local_mac_id
 
-            # Restore client volumes
+            # Restore client volumes. With restore_last_volume off, the levels
+            # of the previous run are forgotten here, once: this *is* the
+            # startup, and every later reader — a satellite coming back after
+            # an update or a reboot — then gets the level it was left at in
+            # this run rather than being sent back to the startup level.
+            forget = self._volume_config is not None and not self._volume_config.restore_last_volume
             clients_data = data.get("clients", {})
             for mac_id, client_data in clients_data.items():
-                volume_db = client_data.get("volume_db", DEFAULT_VOLUME_DB)
+                volume_db = (
+                    self._volume_config.startup_volume_db if forget
+                    else client_data.get("volume_db", DEFAULT_VOLUME_DB)
+                )
                 volume_db = self._clamp_db(volume_db)
 
                 self._clients[mac_id] = StoredLevel(
