@@ -260,10 +260,16 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const likedSongIds = ref(new Set());
   const likedSongsLoaded = ref(false);
   const likedSongsLoading = ref(false);
+  // Two loads overlap when a storage change lands while the view forces one:
+  // the flag and the list belong to the latest. Otherwise the first to finish
+  // drops the spinner over a list still coming ("no tracks"), and the last to
+  // finish — possibly the older — puts back the list from before the change.
+  let likedSongsRequest = 0;
 
   async function loadLikedSongs({ force = false } = {}) {
     if (likedSongsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
+    const request = ++likedSongsRequest;
     likedSongsLoading.value = true;
     // Released ahead of the scope check, as loadAlbums does: LikedSongsView
     // gates its spinner on this flag.
@@ -276,9 +282,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         params: scoped(),
       });
     } finally {
-      likedSongsLoading.value = false;
+      if (request === likedSongsRequest) likedSongsLoading.value = false;
     }
-    if (!inScope(scope)) return true;  // superseded, not failed
+    if (request !== likedSongsRequest || !inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.songs);
     if (ok) {
       likedSongs.value = result.data.songs;

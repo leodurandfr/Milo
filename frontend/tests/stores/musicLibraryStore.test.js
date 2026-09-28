@@ -461,6 +461,44 @@ describe('musicLibraryStore — a loader that lands out of scope', () => {
     expect(store.albums.map((a) => a.id)).toEqual(['usb-1']);
     expect(store.albumsLoading).toBe(false);
   });
+
+  it('loadLikedSongs keeps its flag up while a newer load is still in flight', async () => {
+    // LikedSongsView reads the flag to tell "loading" from "no tracks": an
+    // older load finishing first used to lower it over the one still coming.
+    let releaseOld;
+    let releaseNew;
+    apiCall.get
+      .mockReturnValueOnce(new Promise((resolve) => { releaseOld = () => resolve(ok({ songs: [] })); }))
+      .mockReturnValueOnce(new Promise((resolve) => { releaseNew = () => resolve(ok({ songs: [{ id: 's1' }] })); }));
+    const older = store.loadLikedSongs({ force: true });
+    const newer = store.loadLikedSongs({ force: true });
+
+    releaseOld();
+    await older;
+    expect(store.likedSongsLoading).toBe(true);
+
+    releaseNew();
+    await newer;
+    expect(store.likedSongsLoading).toBe(false);
+  });
+
+  it('loadLikedSongs keeps the newer list when the older load lands last', async () => {
+    // A list read before a storage change must not overwrite the one read after.
+    let releaseOld;
+    let releaseNew;
+    apiCall.get
+      .mockReturnValueOnce(new Promise((resolve) => { releaseOld = () => resolve(ok({ songs: [{ id: 'old' }] })); }))
+      .mockReturnValueOnce(new Promise((resolve) => { releaseNew = () => resolve(ok({ songs: [{ id: 'new' }] })); }));
+    const older = store.loadLikedSongs({ force: true });
+    const newer = store.loadLikedSongs({ force: true });
+
+    releaseNew();
+    await newer;
+    releaseOld();
+    await older;
+
+    expect(store.likedSongs.map((s) => s.id)).toEqual(['new']);
+  });
 });
 
 /**
