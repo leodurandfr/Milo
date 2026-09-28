@@ -498,20 +498,6 @@ class TestRestoringAFavourite:
         assert store._favorites_cache["s1"]["url"] == "http://stream/fip"
 
     @pytest.mark.asyncio
-    async def test_a_hand_added_station_is_not_asked_of_the_directory(self, store):
-        """Its creation record is the original; the directory has never heard of it."""
-        store._manual_stations = {"custom_1": {"name": "Mine", "url": "http://mine"}}
-        store._modified_metadata["custom_1"] = {"name": "Renamed", "url": "http://mine"}
-        radio_api = Mock()
-        radio_api.fetch_remote_station = AsyncMock()
-
-        result = await store.restore_favorite_metadata("custom_1", radio_api=radio_api)
-
-        assert result["success"] is True
-        radio_api.fetch_remote_station.assert_not_awaited()
-        assert store.get_favorite_metadata_local("custom_1")["name"] == "Mine"
-
-    @pytest.mark.asyncio
     async def test_a_station_that_was_never_edited_is_refused(self, store):
         result = await store.restore_favorite_metadata("never-touched")
 

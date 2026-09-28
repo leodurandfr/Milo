@@ -443,10 +443,10 @@ export const useRadioStore = defineStore('radio', () => {
       category: 'radio',
       message: 'Error removing custom station',
     });
-    // The route raises on failure, so result.ok is the whole verdict.
+    // The route raises on failure, so result.ok is the whole verdict. The
+    // grid follows the favorite_removed event the deletion announces.
     if (result.ok) {
       logger.info('radio', `Custom station removed: ${stationId}`);
-      searchResults.value = searchResults.value.filter(s => s.id !== stationId);
       return true;
     }
     return false;
@@ -492,6 +492,9 @@ export const useRadioStore = defineStore('radio', () => {
     } else {
       // Remove from favorites - reload to get animation and ensure consistency
       logger.debug('radio', 'Favorite removed, reloading favorites');
+      // Un-favoriting drops the station's edits: without the refetch it stays
+      // listed under "Modified stations" until the next resync.
+      if (customStationsLoaded.value) fetchCustomStations();
       await loadStations(true);
     }
   }

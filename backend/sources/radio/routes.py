@@ -207,6 +207,11 @@ async def remove_favorite(
         Success envelope
     """
     async with api_error_handler("Remove favorite error", logger):
+        if source.station_data.is_custom_station(station_id):
+            logger.error("Refused to un-favorite added station %s", station_id)
+            raise HTTPException(
+                status_code=400, detail="An added station is removed from Settings"
+            )
         if not await source.station_data.remove_favorite(station_id):
             logger.error("Failed to persist removal of favorite %s", station_id)
             raise HTTPException(status_code=500, detail="Failed to remove favorite")
@@ -299,22 +304,17 @@ async def get_custom_stations(source: RadioSource = Depends(get_source)) -> Dict
     """
     Get all custom stations (modified metadata and manually created).
 
-    A custom station edited by the user lives in both stores at once: the record
-    written at creation, and the override written by every later save. The override
-    wins, per `_lookup_local`'s priority — merged per station, so the fields only the
-    creation record carries (`id`, `is_custom`) survive the overlay.
+    The two stores never share an id — an added station's edits are written
+    into its own record — so this is a plain union.
 
     Returns:
         Dict of station_id → metadata
     """
     async with api_error_handler("Custom stations error", logger):
-        modified_metadata = source.station_data.get_modified_metadata()
-        manual_stations = source.station_data.get_manual_stations()
-
-        merged = {station_id: dict(meta) for station_id, meta in manual_stations.items()}
-        for station_id, override in modified_metadata.items():
-            merged[station_id] = {**merged.get(station_id, {}), **override}
-        return merged
+        return {
+            **source.station_data.get_modified_metadata(),
+            **source.station_data.get_manual_stations(),
+        }
 
 
 @router.post("/custom")

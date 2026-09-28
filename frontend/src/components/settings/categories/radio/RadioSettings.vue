@@ -56,6 +56,7 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import { isCustomStation } from '@/utils/radioStation';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
@@ -85,7 +86,7 @@ const unmodifiedFavorites = computed(() => {
 // Modified stations: RadioBrowser favorites that have been modified (sorted alphabetically)
 const modifiedStations = computed(() => {
   return Object.entries(radioStore.customStations)
-    .filter(([id]) => !id.startsWith('custom_'))
+    .filter(([id]) => !isCustomStation(id))
     .map(([id, metadata]) => ({ ...metadata, id }))
     .sort((a, b) => a.name.localeCompare(b.name));
 });
@@ -93,7 +94,7 @@ const modifiedStations = computed(() => {
 // Added stations: custom stations created manually (sorted alphabetically)
 const addedStations = computed(() => {
   return Object.entries(radioStore.customStations)
-    .filter(([id]) => id.startsWith('custom_'))
+    .filter(([id]) => isCustomStation(id))
     .map(([id, metadata]) => ({ ...metadata, id }))
     .sort((a, b) => a.name.localeCompare(b.name));
 });

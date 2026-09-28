@@ -242,83 +242,24 @@ def _raw(name, **over):
     return station
 
 
-class TestSearchKeepsHandAddedStations:
-    """A station the user typed in by hand must survive the result cap.
+class TestSearchIsTheCatalogOnly:
+    """An added station is a favorite for as long as it exists, so the grid
+    shows it; merged into the catalog search too, it was filtered on its
+    creation record (a renamed station was found under its old name) and
+    vanished whenever the directory did not answer."""
 
-    `search_stations` merges the catalogue with the manually-added stations and
-    then cuts the list at `limit`. Measured against the live Radio Browser on
-    2026-08-24, the catalogue alone fills that cap on every broad request: the
-    no-filter view returns 451 deduplicated stations, `rock` 541, `jazz` 500,
-    `fm` 554 and `country=France` 515, against the 300 that
-    `GET /api/radio/stations` defaults to and that the frontend never overrides.
-    Merged in at the end, the hand-added station was therefore cut every time —
-    the one entry no search term can bring back.
-    """
-
-    @staticmethod
-    def _manager(*names):
+    @pytest.mark.asyncio
+    async def test_a_matching_added_station_is_not_merged_in(self):
         manager = Mock()
         manager.get_manual_stations.return_value = {
-            f"custom_{n}": {"name": n, "genre": "rock", "country": "France", "url": f"http://{n}"}
-            for n in names
+            "custom_1": {"name": "Rock Maison", "genre": "rock", "url": "http://x"},
         }
-        return manager
-
-    @pytest.mark.asyncio
-    async def test_survives_a_catalogue_that_fills_the_cap(self):
-        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
-        catalogue = [_raw(f"Station {i}") for i in range(300)]
-
-        with patch.object(api, "_request", new=AsyncMock(return_value=catalogue)):
-            result = await api.search_stations(query="rock", limit=300)
-
-        assert len(result["stations"]) == 300, "the cap must still be honoured"
-        names = [s["name"] for s in result["stations"]]
-        assert "Ma Radio" in names
-
-    @pytest.mark.asyncio
-    async def test_survives_when_the_catalogue_is_the_top_stations_view(self):
-        """No query, no country, no genre — the screen the user lands on."""
-        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
-        catalogue = [_raw(f"Station {i}") for i in range(451)]
-
-        with patch.object(api, "_request", new=AsyncMock(return_value=catalogue)):
-            result = await api.search_stations(limit=300)
-
-        assert len(result["stations"]) == 300
-        assert "Ma Radio" in [s["name"] for s in result["stations"]]
-
-    @pytest.mark.asyncio
-    async def test_appears_once_when_there_is_room_to_spare(self):
-        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
+        api = RadioBrowserAPI(station_manager=manager)
 
         with patch.object(api, "_request", new=AsyncMock(return_value=[_raw("Station 0")])):
             result = await api.search_stations(query="rock", limit=300)
 
-        names = [s["name"] for s in result["stations"]]
-        assert names.count("Ma Radio") == 1
-        assert "Station 0" in names
-
-    @pytest.mark.asyncio
-    async def test_a_non_matching_hand_added_station_is_left_out(self):
-        """The merge filters; it does not smuggle every custom station in."""
-        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
-
-        with patch.object(api, "_request", new=AsyncMock(return_value=[_raw("Station 0")])):
-            result = await api.search_stations(query="nothing-matches-this", limit=300)
-
-        assert "Ma Radio" not in [s["name"] for s in result["stations"]]
-
-    @pytest.mark.asyncio
-    async def test_total_counts_what_was_merged_not_what_was_returned(self):
-        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
-        catalogue = [_raw(f"Station {i}") for i in range(300)]
-
-        with patch.object(api, "_request", new=AsyncMock(return_value=catalogue)):
-            result = await api.search_stations(query="rock", limit=300)
-
-        assert result["total"] == 301
-        assert len(result["stations"]) == 300
+        assert [s["name"] for s in result["stations"]] == ["Station 0"]
 
 
 class TestFaviconRank:

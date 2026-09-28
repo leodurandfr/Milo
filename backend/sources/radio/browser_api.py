@@ -461,13 +461,15 @@ class RadioBrowserAPI:
         limit: int = MAX_SEARCH_RESULTS
     ) -> Dict[str, Any]:
         """
-        Unified station search with filters (includes custom stations)
+        Unified station search with filters, over the RadioBrowser catalog.
+
+        Added stations are not merged in: each is a favorite for as long as
+        it exists, so the favorites grid already shows it.
 
         Strategy:
         1. Build search parameters, bounded by what the caller asked for
         2. Make unified API call
-        3. Add the matching manually-created stations
-        4. Truncate to `limit`
+        3. Truncate to `limit`
 
         `limit` bounds the API call itself (× SEARCH_OVERFETCH), not just the
         answer: it used to bound only the slice at the end, so every search
@@ -512,51 +514,6 @@ class RadioBrowserAPI:
         except NetworkUnavailableError:
             self.logger.info("Network unavailable for station search")
             return {"stations": [], "total": 0, "api_error": True}
-
-        # Add manually created stations (not modified favorites)
-        # Modified favorites are already enriched in the normal API flow via station_manager
-        if self.station_manager:
-            manual_stations_dict = self.station_manager.get_manual_stations()
-
-            # Apply same filters as RadioBrowserAPI stations
-            filtered_custom = []
-            # Iterate over manual stations (custom_xxx IDs)
-            for station_id, station in manual_stations_dict.items():
-                # Add ID to station metadata for consistency
-                station = {**station, 'id': station_id}
-                matches = True
-
-                # Check query match (in name or genre)
-                if query:
-                    query_lower = query.lower()
-                    name_match = query_lower in station.get('name', '').lower()
-                    genre_match = query_lower in station.get('genre', '').lower()
-                    if not (name_match or genre_match):
-                        matches = False
-
-                # Check country match
-                if country and matches:
-                    if country.lower() not in station.get('country', '').lower():
-                        matches = False
-
-                # Check genre match
-                if genre and matches:
-                    if genre.lower() not in station.get('genre', '').lower():
-                        matches = False
-
-                if matches:
-                    filtered_custom.append(station)
-
-            if filtered_custom:
-                # Prepended, not appended: the slice below cuts at `limit`, and a
-                # broad query fills it on its own — measured against the live
-                # catalogue, the no-filter view returns 451 stations and `rock`
-                # 541, both past the 300 the route defaults to. Appended, a
-                # hand-added station was dropped by that slice every time the
-                # catalogue had enough to say, which is the one entry the user
-                # cannot get back by searching harder.
-                all_stations = filtered_custom + all_stations
-                self.logger.info(f"Added {len(filtered_custom)} manually-added custom station(s)")
 
         # Total before limit
         total = len(all_stations)

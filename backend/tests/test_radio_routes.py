@@ -2,65 +2,12 @@
 """Route-level tests for the radio source."""
 from unittest.mock import Mock, AsyncMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.sources.radio.routes import get_custom_stations, setup_radio_routes
+from backend.sources.radio.data import StationDataService
+from backend.sources.radio.routes import setup_radio_routes
 from backend.sources.radio.source import RadioSource
-
-class TestCustomStationsMerge:
-    """GET /api/radio/custom must answer with what the user last saved.
-
-    A custom station lives in both stores at once: the record written at creation
-    (`manual_stations`) and the override written by every later save
-    (`modified_metadata`). When the two disagree, the override is the newer of the
-    two — the priority `_lookup_local` documents and `enrich_with_favorite_status`
-    already applies. Merging the other way serves the pre-edit record to
-    Réglages → Webradio on every page load, and the edit form then re-commits it.
-
-    Consumer: `radioStore.fetchCustomStations()` → RadioSettings.vue.
-    """
-
-    @staticmethod
-    def _station_data(modified, manual):
-        data = Mock()
-        data.get_modified_metadata = Mock(return_value=modified)
-        data.get_manual_stations = Mock(return_value=manual)
-        return data
-
-    async def _call(self, modified, manual):
-        source = Mock()
-        source.station_data = self._station_data(modified, manual)
-        return await get_custom_stations(source=source)
-
-    @pytest.mark.asyncio
-    async def test_edit_of_a_custom_station_wins_over_its_creation_record(self):
-        result = await self._call(
-            modified={"custom_1": {"name": "Renamed", "genre": "Jazz"}},
-            manual={"custom_1": {"id": "custom_1", "name": "Created",
-                                 "genre": "", "is_custom": True}},
-        )
-        assert result["custom_1"]["name"] == "Renamed"
-        assert result["custom_1"]["genre"] == "Jazz"
-
-    @pytest.mark.asyncio
-    async def test_fields_only_the_creation_record_carries_survive_the_overlay(self):
-        result = await self._call(
-            modified={"custom_1": {"name": "Renamed"}},
-            manual={"custom_1": {"id": "custom_1", "name": "Created", "is_custom": True}},
-        )
-        assert result["custom_1"]["id"] == "custom_1"
-        assert result["custom_1"]["is_custom"] is True
-
-    @pytest.mark.asyncio
-    async def test_a_modified_favourite_has_no_creation_record_and_is_returned_alone(self):
-        result = await self._call(
-            modified={"api_42": {"name": "Renamed favourite"}},
-            manual={"custom_1": {"id": "custom_1", "name": "Created"}},
-        )
-        assert result["api_42"]["name"] == "Renamed favourite"
-        assert result["custom_1"]["name"] == "Created"
 
 
 class TestFavoritesHaveOneEntryPoint:
@@ -79,6 +26,8 @@ class TestFavoritesHaveOneEntryPoint:
     def _client(station_data, radio_api=None):
         app = FastAPI()
         source = Mock()
+        # The route asks the real predicate; a Mock would answer truthy for all.
+        station_data.is_custom_station = StationDataService.is_custom_station
         source.station_data = station_data
         source.radio_api = radio_api or Mock()
         app.include_router(setup_radio_routes(lambda: source), prefix="/api")
@@ -158,6 +107,17 @@ class TestFavoritesHaveOneEntryPoint:
         assert response.json()["status"] == "success"
         data.remove_favorite.assert_awaited_once_with("s1")
         source.command.assert_not_called()
+
+    def test_an_added_station_cannot_be_unfavorited(self):
+        """An added station is a favorite for as long as it exists; the heart is
+        disabled for it, and a client that sends the DELETE anyway is refused
+        before the service is reached."""
+        data = Mock()
+        data.remove_favorite = AsyncMock(return_value=True)
+        client, _ = self._client(data)
+
+        assert client.delete("/api/radio/favorites/custom_1").status_code == 400
+        data.remove_favorite.assert_not_awaited()
 
     def test_remove_that_fails_to_persist_raises(self):
         data = Mock()

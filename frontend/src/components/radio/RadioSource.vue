@@ -77,7 +77,7 @@
                   t('audioSources.radioSource.playRadio') }}
               </Button>
               <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
-                @click="handleFavorite" />
+                :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </div>
             <!-- Mobile docked mini-bar only: compact row has no room for a text button +
                  heart — collapse to the single play/pause/stop ghost icon. Wrapped in
@@ -115,6 +115,7 @@ import LazyImage from '@/components/ui/LazyImage.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
 import { getFaviconUrl } from '@/utils/faviconUrl'
+import { isCustomStation } from '@/utils/radioStation'
 
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()

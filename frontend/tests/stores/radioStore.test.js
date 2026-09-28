@@ -6,7 +6,7 @@
  * cache and the network-error retry policy.
  *
  * The pass-through actions (play/stop/favorite) are covered only where the
- * store decides something — the payload enrichment and the local list pruning.
+ * store decides something — the payload enrichment and what a WS delta refetches.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useRadioStore } from '@/stores/radioStore';
@@ -437,16 +437,6 @@ describe('radioStore', () => {
   });
 
   describe('custom stations', () => {
-    it('prunes a removed custom station from the local results', async () => {
-      await seedSearchResults(store, [STATION('custom1'), STATION('s2')]);
-      apiCall.delete.mockResolvedValueOnce(ok({ success: true }));
-
-      const removed = await store.removeCustomStation('custom1');
-
-      expect(removed).toBe(true);
-      expect(store.displayedStations.map(s => s.id)).toEqual(['s2']);
-    });
-
     it('keeps the local results intact when the removal fails', async () => {
       await seedSearchResults(store, [STATION('custom1')]);
       apiCall.delete.mockResolvedValueOnce(fail('Not found', 404));
@@ -501,6 +491,27 @@ describe('radioStore', () => {
       expect(loadingWhileFetching).toBe(false);
       expect(store.favoriteStations.map(s => s.id)).toEqual(['s1']);
       expect(store.displayedStations).toHaveLength(2);
+    });
+
+    it('drops a removed station from the custom dict once settings loaded it', async () => {
+      // Un-favoriting purges the station's edits on the backend: without the
+      // refetch it stays under "Modified stations" until the next resync.
+      apiCall.get.mockResolvedValueOnce(ok({ s1: STATION('s1', { name: 'Renamed' }) }));
+      await store.loadRadioSettingsData();
+      apiCall.get.mockImplementation(async (url) =>
+        url === '/api/radio/custom' ? ok({}) : ok({ stations: [] }));
+
+      await store.handleFavoriteEvent('s1', false);
+
+      await vi.waitFor(() => expect(store.customStations).toEqual({}));
+    });
+
+    it('leaves the custom dict unfetched on a removal while settings never asked', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [] }));
+
+      await store.handleFavoriteEvent('s1', false);
+
+      expect(apiCall.get).not.toHaveBeenCalledWith('/api/radio/custom', expect.anything());
     });
   });
 

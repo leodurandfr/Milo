@@ -279,68 +279,16 @@ class TestTheAvrcpPositionPoll:
 
 
 class TestTheStationSearchFilters:
-    """A station the user typed in themselves, and whether a query finds it."""
+    """Which directory endpoint a search reaches, and what an outage answers."""
 
     @pytest.fixture
     def api(self):
         browser = RadioBrowserAPI.__new__(RadioBrowserAPI)
         browser.logger = logging.getLogger("source.radio.browser_api")
-        browser.station_manager = Mock()
-        browser.station_manager.get_manual_stations = Mock(return_value={})
         browser._fetch_top_stations = AsyncMock(return_value=[])
         browser._fetch_with_search_params = AsyncMock(return_value=[])
         browser._build_search_params = Mock(return_value={})
         return browser
-
-    @staticmethod
-    def _manual(name="Radio Maison", country="France", genre="jazz"):
-        return {"custom_1": {"name": name, "country": country, "genre": genre,
-                             "url": "http://example/stream"}}
-
-    async def test_a_manual_station_matches_on_its_name(self, api):
-        """B3's finding was a station that was never listed. These four filters
-        are what decides whether one the user created themselves survives a
-        query, and nothing upstream can compensate: the radio-browser API has
-        never heard of it."""
-        api.station_manager.get_manual_stations = Mock(return_value=self._manual())
-
-        result = await api.search_stations(query="maison", limit=10)
-
-        assert [s["name"] for s in result["stations"]] == ["Radio Maison"]
-
-    async def test_a_manual_station_matches_on_its_genre_too(self, api):
-        """The query box is one field for both; searching a genre and getting
-        only the API's answers hides every station the user tagged that way."""
-        api.station_manager.get_manual_stations = Mock(return_value=self._manual())
-
-        result = await api.search_stations(query="jazz", limit=10)
-
-        assert len(result["stations"]) == 1
-
-    async def test_a_query_that_matches_neither_drops_it(self, api):
-        api.station_manager.get_manual_stations = Mock(return_value=self._manual())
-
-        result = await api.search_stations(query="classique", limit=10)
-
-        assert result["stations"] == []
-
-    @pytest.mark.parametrize("kwargs,expected", [
-        ({"country": "france"}, 1),
-        ({"country": "belgique"}, 0),
-        ({"genre": "jazz"}, 1),
-        ({"genre": "metal"}, 0),
-        ({"query": "maison", "country": "belgique"}, 0),
-    ], ids=["country-hit", "country-miss", "genre-hit", "genre-miss", "both-required"])
-    async def test_the_dropdown_filters_apply_to_manual_stations_as_well(
-        self, api, kwargs, expected
-    ):
-        """They are `and`-ed, like the API's own: a country and a genre that
-        contradict must return nothing rather than the union."""
-        api.station_manager.get_manual_stations = Mock(return_value=self._manual())
-
-        result = await api.search_stations(limit=10, **kwargs)
-
-        assert len(result["stations"]) == expected
 
     @pytest.mark.parametrize("kwargs", [
         {"query": "jazz"}, {"country": "france"}, {"genre": "jazz"},
