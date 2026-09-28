@@ -81,7 +81,7 @@
     "radioSource": {
       "favoritesTitle": "Stations favorites",
       "discoverTitle": "Rechercher une station",
-      "searchPlaceholder": "Nom d'une station",
+      "searchPlaceholder": "Station",
       "loadingCountries": "Chargement des pays…",
       "loadingStations": "Chargement des stations…",
       "searchUnavailable": "Recherche indisponible",

@@ -81,7 +81,7 @@
     "radioSource": {
       "favoritesTitle": "पसंदीदा स्टेशन",
       "discoverTitle": "स्टेशन खोजें",
-      "searchPlaceholder": "स्टेशन का नाम",
+      "searchPlaceholder": "स्टेशन",
       "loadingCountries": "देश लोड हो रहे हैं…",
       "loadingStations": "स्टेशन लोड हो रहे हैं…",
       "searchUnavailable": "खोज उपलब्ध नहीं",

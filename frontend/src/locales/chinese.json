@@ -81,7 +81,7 @@
     "radioSource": {
       "favoritesTitle": "喜爱的电台",
       "discoverTitle": "搜索电台",
-      "searchPlaceholder": "电台名称",
+      "searchPlaceholder": "电台",
       "loadingCountries": "正在加载国家…",
       "loadingStations": "正在加载电台…",
       "searchUnavailable": "搜索不可用",
