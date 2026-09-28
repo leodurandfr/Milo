@@ -1034,10 +1034,15 @@ class VolumeService:
             published = (event.multiroom_enabled, event.state)
             if not show_bar and published == self._last_published:
                 return
-            await self.state_machine.broadcast(event)
+            # Claimed before the send, which yields: the admission's broadcast
+            # and the one its registry event raises run together, and the
+            # second compared against the state before the first had landed
+            # (measured on the unit: two identical `volume_changed`).
             self._last_published = published
+            await self.state_machine.broadcast(event)
 
         except Exception as e:
+            self._last_published = None  # not sent: the next one must go out
             self.logger.error(f"Error broadcasting volume state: {e}", exc_info=True)
             raise  # Re-raise so task error callback can handle it
 

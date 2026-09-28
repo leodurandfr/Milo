@@ -289,6 +289,22 @@ async def test_a_state_already_sent_is_not_sent_again():
     assert service.state_machine.broadcast.await_count == 2
 
 
+async def test_two_broadcasts_of_one_state_in_flight_together_send_it_once():
+    """The admission's broadcast and the one its registry event raises run
+    together; each sends while the other's send is still in flight."""
+    service = make_service({LOCAL: -40.0}, online=[LOCAL])
+
+    async def broadcast(event):
+        await asyncio.sleep(0)
+
+    service.state_machine.broadcast = AsyncMock(side_effect=broadcast)
+
+    await asyncio.gather(service.broadcast_volume_state(show_bar=False),
+                         service.broadcast_volume_state(show_bar=False))
+
+    assert service.state_machine.broadcast.await_count == 1
+
+
 async def test_nothing_is_published_before_the_service_has_started():
     """The registry's boot sweep can come first; a state published then would
     carry defaults — `any_volume_control` among them, which the widget draws."""
