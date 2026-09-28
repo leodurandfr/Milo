@@ -153,7 +153,7 @@ const additionalDockApps = computed(() => {
 const unifiedStore = useUnifiedAudioStore();
 
 const volumeControlsWithSteps = computed(() => {
-  const step = unifiedStore.volumeState.step_mobile_db;
+  const step = settingsStore.volumeSteps.step_mobile_db;
   return [
     { icon: 'minus', delta: -step },
     { icon: 'plus', delta: step }
@@ -251,7 +251,7 @@ const hideDock = () => {
   indicatorStyle.value.opacity = '0';
   timer.setTimeout(() => additionalAppsInDOM.value = false, 400);
 
-  volumeHold.onVolumeHoldEnd();
+  volumeHold.cancel();
   drag.resetGestureState();
 };
 
@@ -278,8 +278,6 @@ const { isDragging } = drag;
 // === VOLUME HOLD COMPOSABLE ===
 const volumeHold = useVolumeHold({
   adjustVolume: (delta) => unifiedStore.adjustVolume(delta),
-  onHoldStart: (delta, intervalMs) => unifiedStore.startVolumeInterpolation(delta, intervalMs),
-  onHoldEnd: () => unifiedStore.stopVolumeInterpolation(),
   gestureHasMoved: drag.gestureHasMoved,
   gestureStartPosition: drag.gestureStartPosition,
   getEventX: drag.getEventX,

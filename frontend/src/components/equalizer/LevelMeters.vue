@@ -81,9 +81,11 @@ onMounted(() => {
   timer.setInterval(keepalive, KEEPALIVE_INTERVAL); // auto-cleared on unmount
 });
 
-// Re-arm immediately when clientIds or mute states change (updates the
-// aggregation target on the backend without waiting for the next interval)
-watch([() => props.clientIds, activeClientIds], keepalive, { deep: true });
+// Re-arm immediately when the set of clients it aggregates changes (updates the
+// aggregation target on the backend without waiting for the next interval).
+// Keyed on the set itself: activeClientIds is a new array on every volume
+// broadcast, and each one re-armed the monitor with the set it already had.
+watch(() => activeClientIds.value.join(','), keepalive);
 </script>
 
 <style scoped>

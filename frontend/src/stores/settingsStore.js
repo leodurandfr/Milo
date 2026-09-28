@@ -37,9 +37,8 @@ export const useSettingsStore = defineStore('settings', () => {
     restore_last_volume: true
   });
 
-  // Note: step_mobile_db is in unifiedAudioStore.volumeState (single source of truth)
-  // Only step_rotary_db is kept here as it's hardware-specific
   const volumeSteps = ref({
+    step_mobile_db: 2.0,
     step_rotary_db: 2.0,
     step_bt_remote_db: 2.0,
     step_ir_remote_db: 2.0
@@ -203,8 +202,8 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(volumeLimits, d.volume_limits);
         setIfChanged(volumeStartup, d.volume_startup);
 
-        // The three hardware step sizes are separate categories on the wire and
-        // one ref here (step_mobile_db joins them from volume_changed).
+        // The four step sizes are separate categories on the wire and one ref here.
+        volumeSteps.value.step_mobile_db = d.volume_steps.step_mobile_db;
         volumeSteps.value.step_rotary_db = d.rotary_steps.step_rotary_db;
         volumeSteps.value.step_bt_remote_db = d.bt_remote_steps.step_bt_remote_db;
         volumeSteps.value.step_ir_remote_db = d.ir_remote_steps.step_ir_remote_db;

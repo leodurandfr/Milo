@@ -17,6 +17,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 import { makeAudioState, makeSession } from '../helpers/audioState';
+import { DEFAULT_VOLUME_DB } from '@/constants/volume';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -162,7 +163,7 @@ describe('unifiedAudioStore', () => {
       volume_control: true,
       any_volume_control: true,
       clients: {
-        'dc:a6:32:7e:d3:43': { volume_db: -25, offset_db: 0, mute: false, available: true },
+        'dc:a6:32:7e:d3:43': { volume_db: -25, mute: false, available: true },
       },
       zones: {
         'zone-uuid-123': {
@@ -194,7 +195,6 @@ describe('unifiedAudioStore', () => {
       }));
 
       const client = store.volumeState.clients['dc:a6:32:7e:d3:43'];
-      expect(client.offset_db).toBe(0);
       expect(client.mute).toBe(false);
       expect(client.available).toBe(true);
     });
@@ -211,12 +211,6 @@ describe('unifiedAudioStore', () => {
       // scalar fields of the same event still apply.
       expect(store.volumeState.clients).toEqual({});
       expect(store.volumeState.global_volume_db).toBe(-10);
-    });
-
-    it('updates step_mobile_db when the event carries one', () => {
-      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { step_mobile_db: 5.0 }));
-
-      expect(store.volumeState.step_mobile_db).toBe(5.0);
     });
 
     it('shows the volume bar and auto-hides it after 3s', () => {
@@ -393,6 +387,53 @@ describe('unifiedAudioStore', () => {
     });
   });
 
+  describe('adjustVolume', () => {
+    it('keeps one request in flight and sends what came meanwhile as one sum', async () => {
+      // A held dock button asks every 50 ms. Sent as they came, the requests
+      // queued behind a slow satellite and the level climbed after the release.
+      let answer;
+      apiCall.post.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
+
+      const gesture = store.adjustVolume(2);
+      store.adjustVolume(2);
+      store.adjustVolume(-1);
+      store.adjustVolume(2);
+      expect(apiCall.post).toHaveBeenCalledTimes(1);
+
+      answer(ok({ status: 'success' }));
+      expect(await gesture).toBe(true);
+
+      expect(apiCall.post.mock.calls.map(([, body]) => body.delta_db)).toEqual([2, 3]);
+    });
+
+    it('sends a sum beyond what the route accepts in parts it accepts', async () => {
+      // The route bounds one delta to ±60 dB: a sum gathered behind a slow
+      // request, sent whole, was refused whole — the gesture lost.
+      let answer;
+      apiCall.post.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      apiCall.post.mockResolvedValue(ok({ status: 'success' }));
+
+      const gesture = store.adjustVolume(-6);
+      for (let i = 0; i < 12; i++) store.adjustVolume(-6);
+      answer(ok({ status: 'success' }));
+      await gesture;
+
+      expect(apiCall.post.mock.calls.map(([, body]) => body.delta_db)).toEqual([-6, -60, -12]);
+    });
+
+    it('is not jammed by a delta of nothing', async () => {
+      // A drain with nothing to send settles at once; kept as the one in
+      // flight, it would have swallowed every later press.
+      apiCall.post.mockResolvedValue(ok({ status: 'success' }));
+
+      await store.adjustVolume(0);
+      await store.adjustVolume(2);
+
+      expect(apiCall.post).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('client volume', () => {
     it('addresses the client by colon-free MAC', async () => {
       setMultiroom(true);
@@ -436,7 +477,7 @@ describe('unifiedAudioStore', () => {
 
       expect(store.getClientVolume(REMOTE_MAC)).toBe(-30);
       expect(store.getClientMute(REMOTE_MAC)).toBe(true);
-      expect(store.getClientVolume('unknown')).toBe(-30);
+      expect(store.getClientVolume('unknown')).toBe(DEFAULT_VOLUME_DB);
       expect(store.getClientMute('unknown')).toBe(false);
     });
   });
@@ -448,7 +489,10 @@ describe('unifiedAudioStore', () => {
       setMultiroom(true);
     });
 
-    it('mutes only the addressed client by default', async () => {
+    // A zone member muted on its own row is that member alone; the zone's
+    // own toggle goes through setZoneMute.
+
+    it('mutes only the addressed client', async () => {
       await store.setClientMute(REMOTE_MAC, true);
 
       expect(apiCall.patch).toHaveBeenCalledTimes(1);
@@ -458,33 +502,23 @@ describe('unifiedAudioStore', () => {
         expect.anything(),
       );
     });
+  });
 
-    it('propagates to the other zone members when asked', async () => {
-      await store.setClientMute(REMOTE_MAC, true, { propagate: true });
+  describe('setZoneMute', () => {
+    it('mutes a zone in one request, whatever its size', async () => {
+      // One PATCH per member was one broadcast per member, and the offline
+      // ones were left out; the server now stores it for every member.
+      registerClient(multiroomStore, OTHER_MAC, { name: 'Bedroom' });
+      registerZone(multiroomStore, 'z1', [LOCAL_MAC, REMOTE_MAC, OTHER_MAC]);
+      setMultiroom(true);
+      apiCall.patch.mockResolvedValueOnce(ok({ status: 'success' }));
 
-      expect(apiCall.patch).toHaveBeenCalledTimes(2);
+      expect(await store.setZoneMute('z1', true)).toBe(true);
+
+      expect(apiCall.patch).toHaveBeenCalledTimes(1);
       expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/client/mac/dca6327ed344/mute',
-        { mute: true },
-        expect.anything(),
+        '/api/volume/zone/z1/mute', { mute: true }, expect.anything(),
       );
-    });
-
-    it('skips offline members while propagating', async () => {
-      registerClient(multiroomStore, OTHER_MAC, { name: 'Bedroom', online: false });
-
-      await store.setClientMute(REMOTE_MAC, true, { propagate: true });
-
-      expect(apiCall.patch).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not propagate when the primary request fails', async () => {
-      apiCall.patch.mockResolvedValueOnce(fail());
-
-      const result = await store.setClientMute(REMOTE_MAC, true, { propagate: true });
-
-      expect(result).toBe(false);
-      expect(apiCall.patch).toHaveBeenCalledTimes(1);
     });
   });
 

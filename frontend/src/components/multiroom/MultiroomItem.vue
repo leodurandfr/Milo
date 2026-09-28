@@ -106,7 +106,7 @@
             show-value
             value-unit=" dB"
             @input="handleVolumeInput"
-            @change="handleVolumeChange"
+            @drag-end="handleVolumeRelease"
           />
         </div>
       </div>
@@ -188,7 +188,7 @@
               show-value
               value-unit=" dB"
               @input="(v) => handleClientVolumeInput(zoneClient.mac_id, v)"
-              @change="(v) => handleClientVolumeChange(zoneClient.mac_id, v)"
+              @drag-end="handleClientVolumeRelease(zoneClient.mac_id)"
             />
           </div>
 
@@ -271,8 +271,9 @@ const expandedWrapperHeight = ref('0px');
 watch(
   () => props.client.equalizerVolume,
   (newServerVolume) => {
-    // If we have a pending local value and server now matches (within 1dB tolerance)
-    if (localDisplayVolume.value !== null && newServerVolume != null) {
+    // If we have a pending local value and server now matches (within 1dB
+    // tolerance) — never mid-drag: an echo lags the thumb.
+    if (localDisplayVolume.value !== null && !zoneDragging && newServerVolume != null) {
       const diff = Math.abs(newServerVolume - localDisplayVolume.value);
       if (diff <= 1) {
         // Backend confirmed our value, clear local state
@@ -295,7 +296,7 @@ const { throttledFn: throttledZoneVolume, flush: flushZoneVolume } = useVolumeTh
 );
 
 // Individual client sliders: use throttle map with FAST preset (50ms throttle, 150ms final)
-const { getThrottledFn: getClientThrottledFn } = useVolumeThrottleMap(
+const { getThrottledFn: getClientThrottledFn, flush: flushClientVolume } = useVolumeThrottleMap(
   (clientMacId) => (value) => {
     emit('client-volume-change', clientMacId, value);
   },
@@ -337,12 +338,16 @@ const displayVolume = computed(() => {
     return localDisplayVolume.value;
   }
 
-  // Use equalizerVolume from client (populated by parent), clamp to limits
-  const volume = props.client.equalizerVolume ?? -60;
-  return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(volume)));
+  return clampToSlider(props.client.equalizerVolume);
 });
 
 // === HELPERS ===
+// A level the server sends is within the limits; a default drawn before it
+// arrives (DEFAULT_VOLUME_DB) may not be, and the thumb must stay on the track.
+function clampToSlider(volumeDb) {
+  return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(volumeDb)));
+}
+
 function getSpeakerIcon(speakerType) {
   const iconMap = {
     satellite: 'speakerSatellite',
@@ -358,7 +363,7 @@ function getClientDisplayVolume(macId, serverVolume) {
   if (clientLocalVolumes.value[macId] !== undefined) {
     return clientLocalVolumes.value[macId];
   }
-  return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(serverVolume ?? -60)));
+  return clampToSlider(serverVolume);
 }
 
 // === ZONE HEADER HANDLERS ===
@@ -391,21 +396,36 @@ function toggleExpand() {
   expandedWrapperHeight.value = opening ? `${fullHeight}px` : '0px';
 }
 
+// Released on `drag-end`, which every gesture ends with: `change` is emitted
+// only when the thumb ends away from where it started, and a gesture waiting
+// for it kept its local value — the slider pinned — for good.
+let zoneDragging = false;
+
+// Same for the zone slider, which gives way to the external-volume label.
+watch(isExternalVolume, (external) => {
+  if (external) {
+    zoneDragging = false;
+    localDisplayVolume.value = null;
+  }
+});
+
 function handleVolumeInput(newDisplayVolume) {
+  zoneDragging = true;
   localDisplayVolume.value = newDisplayVolume;
   throttledZoneVolume(newDisplayVolume);
 }
 
-function handleVolumeChange(newDisplayVolume) {
-  // Don't clear localDisplayVolume here - keep showing the user's chosen value
-  // until the backend confirms via WebSocket (handled by watcher above)
-  // The released value reaches the parent once: RangeSlider only ever emits `change`
-  // after an `input` carrying the same value, so either the throttle already sent it
-  // (and the flush finds nothing left) or the flush sends it. Never both.
+function handleVolumeRelease() {
+  zoneDragging = false;
+  // Keep showing the user's chosen value until the backend confirms it (the
+  // watcher above). The released value reaches the parent once: either the
+  // throttle already sent it (and the flush finds nothing left) or the flush
+  // sends it. Never both.
   flushZoneVolume();
   // Fallback: clear local value after 2s if WebSocket didn't confirm
+  const released = localDisplayVolume.value;
   timer.setTimeout(() => {
-    if (localDisplayVolume.value === newDisplayVolume) {
+    if (localDisplayVolume.value === released) {
       localDisplayVolume.value = null;
     }
   }, 2000);
@@ -420,19 +440,60 @@ function handleMuteToggle(enabled) {
 }
 
 // === INDIVIDUAL CLIENT HANDLERS (expanded view) ===
+// The client sliders held by a finger: their local value stays whatever the
+// server echoes meanwhile, since an echo lags the thumb.
+const clientsDragging = new Set();
+
 function handleClientVolumeInput(clientMacId, value) {
   // Update local display volume for smooth UI
+  clientsDragging.add(clientMacId);
   clientLocalVolumes.value[clientMacId] = value;
   getClientThrottledFn(clientMacId)(value);
 }
 
-function handleClientVolumeChange(clientMacId, value) {
-  // Clear local display volume on release (reassign object to guarantee Vue 3 reactivity)
+function clearClientLocalVolume(clientMacId) {
+  // Reassign the object to guarantee Vue 3 reactivity
   const { [clientMacId]: _, ...rest } = clientLocalVolumes.value;
   clientLocalVolumes.value = rest;
-  // Emit final value immediately (composable's final timer handles any pending)
-  emit('client-volume-change', clientMacId, value);
 }
+
+function handleClientVolumeRelease(clientMacId) {
+  // Same as the zone slider: the released value is sent once (by the throttle
+  // or by this flush), and shown until the server confirms it. Cleared at
+  // once, the thumb jumped back to the last echo, then forward again.
+  clientsDragging.delete(clientMacId);
+  flushClientVolume(clientMacId);
+  const released = clientLocalVolumes.value[clientMacId];
+  timer.setTimeout(() => {
+    if (clientLocalVolumes.value[clientMacId] === released) clearClientLocalVolume(clientMacId);
+  }, 2000);
+}
+
+// A client's local value leaves once the server's level has caught up with it
+// — or at once when its slider is gone (offline, DAC, out of the zone): an
+// unmounted RangeSlider emits no `drag-end`, and the value left would be shown
+// against every echo when the slider comes back.
+watch(
+  () => props.zoneClientDetails,
+  (details) => {
+    const shown = new Set((details || [])
+      .filter(zoneClient => zoneClient.online && zoneClient.volume_control !== false)
+      .map(zoneClient => zoneClient.mac_id));
+    for (const macId of Object.keys(clientLocalVolumes.value)) {
+      if (!shown.has(macId)) {
+        clientsDragging.delete(macId);
+        clearClientLocalVolume(macId);
+      }
+    }
+    for (const zoneClient of details || []) {
+      const local = clientLocalVolumes.value[zoneClient.mac_id];
+      if (local !== undefined && !clientsDragging.has(zoneClient.mac_id)
+          && Math.abs(zoneClient.equalizerVolume - local) <= 1) {
+        clearClientLocalVolume(zoneClient.mac_id);
+      }
+    }
+  }
+);
 
 function handleClientMuteToggle(clientMacId, muted) {
   emit('client-mute-toggle', clientMacId, muted);

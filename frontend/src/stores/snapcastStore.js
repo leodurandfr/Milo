@@ -8,23 +8,19 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useMultiroomStore } from './multiroomStore';
-import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { SnapcastCapabilitiesSchema, SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
-import { dbToPercent } from '@/constants/volumeConversion';
 
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
 export const useSnapcastStore = defineStore('snapcast', () => {
   // === DERIVED STATE FROM MULTIROOM REGISTRY ===
   const registryStore = useMultiroomStore();
-  const audioStore = useUnifiedAudioStore();
 
   // Clients derived from multiroomStore with Snapcast-compatible format
   const clients = computed(() => {
     return registryStore.clientList.map(client => {
-      const volumeState = audioStore.volumeState.clients[client.mac_id];
       return {
         // Use mac_id as primary ID (snapcast_id not available in registry)
         id: client.mac_id,
@@ -38,9 +34,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         eq_independent: client.eq_independent ?? false,
         delay_ms: client.delay_ms ?? 0,
         gain_db: client.gain_db ?? 0,
-        // Convert dB to percentage for UI
-        volume: dbToPercent(volumeState?.volume_db ?? -60),
-        muted: volumeState?.mute ?? false,
         last_seen_age: 0 // Not tracked here, use registry if needed
       };
     });

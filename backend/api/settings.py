@@ -277,7 +277,7 @@ def create_settings_router(
                 startup_volume_db=payload.startup_volume_db,
                 restore_last_volume=payload.restore_last_volume,
             )),
-            reload_callback=volume_service.reload_startup_config
+            reload_callback=volume_service.reload_config
         )
 
     # Volume steps (mobile, in dB)
@@ -288,7 +288,6 @@ def create_settings_router(
             event=VolumeStepsChanged(
                 config=VolumeStepsConfig(step_mobile_db=payload.step_mobile_db)
             ),
-            reload_callback=volume_service.reload_volume_steps_config
         )
 
     # Rotary steps (in dB)
@@ -299,7 +298,7 @@ def create_settings_router(
             event=RotaryStepsChanged(
                 config=RotaryStepsConfig(step_rotary_db=payload.step_rotary_db)
             ),
-            reload_callback=volume_service.reload_steps_config
+            reload_callback=volume_service.reload_config
         )
 
     # BT remote steps (in dB)
@@ -310,7 +309,7 @@ def create_settings_router(
             event=BtRemoteStepsChanged(
                 config=BtRemoteStepsConfig(step_bt_remote_db=payload.step_bt_remote_db)
             ),
-            reload_callback=volume_service.reload_steps_config
+            reload_callback=volume_service.reload_config
         )
 
     # IR remote steps (in dB)
@@ -321,7 +320,7 @@ def create_settings_router(
             event=IrRemoteStepsChanged(
                 config=IrRemoteStepsConfig(step_ir_remote_db=payload.step_ir_remote_db)
             ),
-            reload_callback=volume_service.reload_steps_config
+            reload_callback=volume_service.reload_config
         )
 
     # Dock apps – VERSION WITH PROCESS DEACTIVATION

@@ -68,7 +68,7 @@ const VALID_VOLUME_STATE = {
   global_mute: false,
   volume_control: true,
   any_volume_control: true,
-  clients: { 'dc:a6:32:7e:d3:43': { volume_db: -20, offset_db: 0, mute: false, available: true } },
+  clients: { 'dc:a6:32:7e:d3:43': { volume_db: -20, mute: false, available: true } },
   zones: { z1: { id: 'z1', name: 'Zone 1', client_ids: ['dc:a6:32:7e:d3:43'] } },
 };
 
@@ -163,8 +163,33 @@ describe('VolumeStateSchema', () => {
     });
 
     expect(result.data.clients['dc:a6:32:7e:d3:43']).toEqual({
-      volume_db: -20, offset_db: 0, mute: false, available: true,
+      volume_db: -20, mute: false, available: true,
     });
+  });
+
+  it('holds a global level past either end of 0..1 at that end', () => {
+    // The bar draws this number as a fraction of its width: off the scale it
+    // would push the fill out of its track, and zeroed it would draw a speaker
+    // at its maximum as silent.
+    const above = VolumeStateSchema.safeParse({ ...VALID_VOLUME_STATE, global_volume: 1.0001 });
+    const below = VolumeStateSchema.safeParse({ ...VALID_VOLUME_STATE, global_volume: -0.2 });
+
+    expect([above.data.global_volume, below.data.global_volume]).toEqual([1, 0]);
+  });
+
+  it('keeps every zone when one of them carries a bad figure', () => {
+    // The zone rows read these figures with no fallback of their own: one bad
+    // entry dropping the whole record set every zone to the default.
+    const result = VolumeStateSchema.safeParse({
+      ...VALID_VOLUME_STATE,
+      zones: {
+        z1: { id: 'z1', name: 'Zone 1', client_ids: [], average_volume_db: null, all_muted: false },
+        z2: { id: 'z2', name: 'Zone 2', client_ids: [], average_volume_db: -30, all_muted: true },
+      },
+    });
+
+    expect(result.data.zones.z1.average_volume_db).toBeUndefined();
+    expect(result.data.zones.z2).toMatchObject({ average_volume_db: -30, all_muted: true });
   });
 
   it('coerces an unknown mode to direct', () => {

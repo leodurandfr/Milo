@@ -63,7 +63,6 @@ class TestVolumeService:
         assert service.snapcast_service is not None
         assert service.volume_config.limit_min_db == -80.0
         assert service.volume_config.limit_max_db == -20.0
-        assert service.volume_config.step_mobile_db == 2.0
         assert service.volume_config.step_rotary_db == 2.0
 
     def test_clamp_db_volume(self, service):
@@ -84,7 +83,6 @@ class TestVolumeService:
             limit_max_db=-15.0,
             startup_volume_db=-25.0,
             restore_last_volume=True,
-            step_mobile_db=4.0,
             step_rotary_db=3.0,
         ))
 
@@ -94,7 +92,6 @@ class TestVolumeService:
         assert service.volume_config.limit_max_db == -15.0
         assert service.volume_config.startup_volume_db == -25.0
         assert service.volume_config.restore_last_volume is True
-        assert service.volume_config.step_mobile_db == 4.0
         assert service.volume_config.step_rotary_db == 3.0
 
     def test_is_multiroom_enabled_true(self, service):
@@ -123,31 +120,7 @@ class TestVolumeService:
         assert service.volume_config.step_rotary_db == 3.0
 
     @pytest.mark.asyncio
-    async def test_reload_volume_steps_config(self, service):
-        """Volume steps reload test"""
-        service.settings_service.invalidate_cache = Mock()
-
-        async def mock_get_setting(key):
-            if key == "volume":
-                return volume_section(
-                    startup_volume_db=-30.0,
-                    restore_last_volume=False,
-                    step_mobile_db=5.0,
-                    step_rotary_db=2.0,
-                )
-            elif key == "equalizer.linked_groups":
-                return []
-            return None
-
-        service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
-
-        result = await service.reload_volume_steps_config()
-
-        assert result is True
-        assert service.volume_config.step_mobile_db == 5.0
-
-    @pytest.mark.asyncio
-    async def test_reload_steps_config(self, service):
+    async def test_reload_takes_the_hardware_steps(self, service):
         """Hardware steps reload test (rotary/BT remote)"""
         service.settings_service.invalidate_cache = Mock()
 
@@ -165,13 +138,13 @@ class TestVolumeService:
 
         service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
 
-        result = await service.reload_steps_config()
+        result = await service.reload_config()
 
         assert result is True
         assert service.volume_config.step_rotary_db == 4.0
 
     @pytest.mark.asyncio
-    async def test_reload_startup_config(self, service):
+    async def test_reload_takes_the_startup_settings(self, service):
         """Startup config reload test"""
         service.settings_service.invalidate_cache = Mock()
 
@@ -189,7 +162,7 @@ class TestVolumeService:
 
         service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
 
-        result = await service.reload_startup_config()
+        result = await service.reload_config()
 
         assert result is True
         assert service.volume_config.startup_volume_db == -25.0
@@ -211,7 +184,6 @@ class TestVolumeConfig:
 
     def test_default_values(self, config):
         """Test all default values"""
-        assert config.step_mobile_db == 2.0
         assert config.step_rotary_db == 2.0
         assert config.step_bt_remote_db == 2.0
         assert config.step_ir_remote_db == 2.0
@@ -236,15 +208,4 @@ class TestVolumeConfig:
         """Test clamping value above maximum"""
         assert config.clamp(-10.0) == -20.0
 
-    def test_to_dict(self, config):
-        """Test config serialization to dict"""
-        result = config.to_dict()
-        assert result["limit_min_db"] == -80.0
-        assert result["limit_max_db"] == -20.0
-        assert result["step_mobile_db"] == 2.0
-        assert result["step_rotary_db"] == 2.0
-        assert result["step_bt_remote_db"] == 2.0
-        assert result["step_ir_remote_db"] == 2.0
-        assert result["startup_volume_db"] == -45.0  # DEFAULT_VOLUME_DB from constants
-        assert result["restore_last_volume"] is True
 

@@ -3,9 +3,9 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { AudioStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
+import { DEFAULT_VOLUME_DB, MAX_ADJUST_DB } from '@/constants/volume';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === THE AUDIO STATE ===
@@ -31,13 +31,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === VOLUME STATE (unified structure) ===
   const volumeState = ref({
     mode: 'direct',                  // 'direct' or 'multiroom'
-    global_volume_db: -45.0,         // Global volume (average of unmuted clients)
+    global_volume_db: DEFAULT_VOLUME_DB, // Global volume (average of the playing clients)
+    global_volume: 0,                // The same, 0..1 over the limits — computed by the server
     global_mute: false,              // Global mute state
     volume_control: true,            // False = DAC mode (external amp manages volume)
     any_volume_control: true,        // True if any device manages volume via Milo
-    clients: {},                     // {hostname: {volume_db, offset_db, mute, available}}
+    clients: {},                     // {mac: {volume_db, mute, available}} — what VolumeClientSchema keeps
     zones: {},                       // {zoneId: {id, name, client_ids, average_volume_db, all_muted}}
-    step_mobile_db: 2.0              // Volume step for mobile buttons
   });
 
   // Volume bar visibility state (replaces component coupling)
@@ -113,41 +113,41 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   // === VOLUME ACTIONS (all in dB) ===
-  // Smooth rAF interpolation for visual volume during hold
-  let _rafId = null;
-  let _rafLastTime = 0;
-  let _rafVelocity = 0; // dB per ms
+  // One /adjust in flight at a time. A held dock button asks every 50 ms,
+  // faster than a satellite can answer: sent as they came, the requests piled
+  // up and the level went on climbing after the release. What arrives while
+  // one is in flight is summed and sent as one when it returns, so a release
+  // leaves at most one request behind it.
+  let adjustInFlight = null;
+  let pendingDelta = 0;
 
-  function startVolumeInterpolation(delta_db, intervalMs) {
-    _rafVelocity = delta_db / intervalMs;
-    if (_rafId) return; // already running
-    _rafLastTime = performance.now();
-    const { min_db, max_db } = useSettingsStore().volumeLimits;
-    const tick = (now) => {
-      const dt = now - _rafLastTime;
-      _rafLastTime = now;
-      volumeState.value.global_volume_db = Math.max(min_db, Math.min(max_db,
-        volumeState.value.global_volume_db + _rafVelocity * dt));
-      _rafId = requestAnimationFrame(tick);
-    };
-    _rafId = requestAnimationFrame(tick);
+  function adjustVolume(delta_db) {
+    pendingDelta += delta_db;
+    // Started only with something to send, so the drain always reaches its
+    // first request before it can finish — and it is assigned before that.
+    if (!adjustInFlight && pendingDelta !== 0) adjustInFlight = drainAdjust();
+    return adjustInFlight ?? Promise.resolve(true);
   }
 
-  function stopVolumeInterpolation() {
-    if (_rafId) {
-      cancelAnimationFrame(_rafId);
-      _rafId = null;
+  /** Sends until nothing is pending; true iff every request succeeded. */
+  async function drainAdjust() {
+    let ok = true;
+    while (pendingDelta !== 0) {
+      // The route's own bound on one delta: a sum gathered behind a slow
+      // request can exceed it, and leaves in several.
+      const delta_db = Math.max(-MAX_ADJUST_DB, Math.min(MAX_ADJUST_DB, pendingDelta));
+      pendingDelta -= delta_db;
+      const result = await apiCall.post('/api/volume/adjust', { delta_db, show_bar: true }, {
+        category: 'store',
+        message: 'Adjust volume failed',
+        checkStatus: true,
+      });
+      ok = ok && result.ok;
     }
-    _rafVelocity = 0;
-  }
-
-  async function adjustVolume(delta_db, showBar = true) {
-    const result = await apiCall.post('/api/volume/adjust', { delta_db, show_bar: showBar }, {
-      category: 'store',
-      message: 'Adjust volume failed',
-      checkStatus: true,
-    });
-    return result.ok;
+    // Cleared in the same step as the check above, so a press arriving after
+    // it starts a new drain rather than joining one that has ended.
+    adjustInFlight = null;
+    return ok;
   }
 
   // === STATE UPDATE ===
@@ -178,7 +178,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   function handleVolumeEvent(event) {
-    const { show_bar, step_mobile_db, state } = event.data || {};
+    const { show_bar, state } = event.data || {};
 
     // Validate with Zod — .catch() defaults handle invalid fields automatically
     if (state) {
@@ -187,17 +187,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       if (result.success) {
         volumeState.value.mode = result.data.mode;
         volumeState.value.global_volume_db = result.data.global_volume_db;
+        volumeState.value.global_volume = result.data.global_volume;
         volumeState.value.global_mute = result.data.global_mute;
         volumeState.value.volume_control = result.data.volume_control;
         volumeState.value.any_volume_control = result.data.any_volume_control;
         volumeState.value.clients = result.data.clients;
         volumeState.value.zones = result.data.zones;
       }
-    }
-
-    // Update step if provided
-    if (typeof step_mobile_db === 'number') {
-      volumeState.value.step_mobile_db = step_mobile_db;
     }
 
     // Show volume bar and auto-hide after 3 seconds
@@ -242,12 +238,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       handleVolumeEvent({ data: { show_bar: false, state: volumeRes.data.data } });
     }
     return audioRes.ok && volumeOk;
-  }
-
-  function updateMobileStep(stepDb) {
-    if (typeof stepDb === 'number') {
-      volumeState.value.step_mobile_db = stepDb;
-    }
   }
 
   // Dismiss the volume bar on user tap. Cancels the auto-hide timer so it
@@ -323,7 +313,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   /** One client's volume in dB, from the WS-maintained state. */
   function getClientVolume(clientId) {
-    return volumeState.value.clients[clientId]?.volume_db ?? -30;
+    return volumeState.value.clients[clientId]?.volume_db ?? DEFAULT_VOLUME_DB;
   }
 
   /** One client's mute flag, from the WS-maintained state. */
@@ -331,15 +321,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return volumeState.value.clients[clientId]?.mute ?? false;
   }
 
-  /**
-   * Mute or unmute one client. With `{ propagate: true }` the whole zone follows
-   * (online members only — an offline one picks it up on reconnect).
-   */
-  async function setClientMute(clientId, muted, options = {}) {
-    const { propagate = false } = options;
+  /** Mute or unmute one client. */
+  async function setClientMute(clientId, muted) {
     if (!_reachable(clientId, 'mute')) return false;
 
-    const primary = await apiCall.patch(
+    const result = await apiCall.patch(
       `/api/volume/client/mac/${macToUrlFormat(clientId)}/mute`,
       { mute: muted },
       {
@@ -347,29 +333,25 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         message: `Error updating mute for ${clientId}`,
       },
     );
-    if (!primary.ok) return false;
+    return result.ok;
+  }
 
-    if (propagate) {
-      const registry = useMultiroomStore();
-      const linkedIds = registry.getLinkedClientIds(clientId);
-      if (linkedIds.length > 1) {
-        const otherClients = linkedIds.filter(id =>
-          id !== clientId && registry.isClientOnline(id)
-        );
-        await Promise.all(otherClients.map(targetId =>
-          apiCall.patch(
-            `/api/volume/client/mac/${macToUrlFormat(targetId)}/mute`,
-            { mute: muted },
-            {
-              category: 'store',
-              message: `Error propagating mute to ${targetId}`,
-            },
-          ),
-        ));
-      }
+  /**
+   * Mute or unmute a whole zone, in one request: the server stores it for
+   * every member (an offline one takes it when it comes back) and broadcasts
+   * once, where one request per member broadcast once each.
+   */
+  async function setZoneMute(zoneId, muted) {
+    if (!systemState.value.multiroom_enabled) {
+      logger.warn('store', 'Skipping zone mute - multiroom disabled');
+      return false;
     }
 
-    return true;
+    const result = await apiCall.patch(`/api/volume/zone/${zoneId}/mute`, { mute: muted }, {
+      category: 'store',
+      message: `Error setting zone mute for ${zoneId}`,
+    });
+    return result.ok;
   }
 
   return {
@@ -390,10 +372,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     updateState,
     updatePosition,
     adjustVolume,
-    startVolumeInterpolation,
-    stopVolumeInterpolation,
     handleVolumeEvent,
-    updateMobileStep,
     hideVolumeBar,
 
     // Per-client volume / mute
@@ -402,5 +381,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     setClientVolume,
     setClientMute,
     setZoneVolume,
+    setZoneMute,
   };
 });

@@ -398,27 +398,6 @@ class TestVolumeWebSocketEvents:
         assert len(events) >= 1
         assert events[0]["data"]["show_bar"] is False
 
-    @pytest.mark.asyncio
-    async def test_step_mobile_db_included_in_event(
-        self,
-        volume_service: VolumeService,
-        websocket_collector: WebSocketEventCollector
-    ):
-        """
-        Test step_mobile_db is included in volume event.
-
-        Validates:
-        - step_mobile_db from config is included in event data
-        """
-        websocket_collector.clear()
-
-        await volume_service.set_volume_db(-25.0)
-
-        events = websocket_collector.get_events_by_type("volume_changed")
-        assert len(events) >= 1
-        assert "step_mobile_db" in events[0]["data"]
-        assert events[0]["data"]["step_mobile_db"] == 3.0  # Default value
-
 
 # ==============================================================================
 # Test Volume Limits

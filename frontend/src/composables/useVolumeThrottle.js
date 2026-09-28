@@ -1,15 +1,13 @@
 /**
- * useVolumeThrottle - Unified throttle manager for volume interactions
+ * useVolumeThrottle - Throttle for volume sliders
  *
- * Provides consistent throttling across all volume controls:
- * - FAST: Mobile dock buttons, quick adjustments
- * - MEDIUM: Zone sliders, multiroom controls
- * - SLOW: Settings changes
+ * - MEDIUM: the zone header slider
+ * - FAST: a client's own slider
  *
- * Features:
- * - Throttled execution (skip calls within throttle window)
- * - Final callback (ensures last value is sent after drag ends)
- * - Proper cleanup on unmount
+ * One core for both shapes: at most one call per throttle window, plus one
+ * trailing call carrying the value the gesture ended on, and `flush()` to send
+ * that value at once on release. The value a gesture ends on is emitted
+ * exactly once.
  *
  * Timer-primitive layer: like useTimer, this composable manages its own cleanup,
  * so it uses raw window.* timers directly (the window.* prefix marks the
@@ -22,163 +20,89 @@ import { onUnmounted } from 'vue';
 const THROTTLE_PRESETS = {
   FAST: { throttle: 50, final: 150 },
   MEDIUM: { throttle: 80, final: 300 },
-  SLOW: { throttle: 150, final: 500 },
 };
 
-/**
- * Create a throttled volume control function
- *
- * @param {Function} callback - The function to throttle
- * @param {string} preset - Preset name: 'FAST', 'MEDIUM', or 'SLOW'
- * @returns {Object} { throttledFn, flush }
- */
-export function useVolumeThrottle(callback, preset = 'MEDIUM') {
-  const config = THROTTLE_PRESETS[preset] || THROTTLE_PRESETS.MEDIUM;
-
+function createThrottle(callback, { throttle, final }) {
   let finalTimer = null;
   let lastArgs = null;
   let lastCallTime = 0;
 
-  /**
-   * Throttled function - call this instead of the original callback
-   * @param {...any} args - Arguments to pass to the callback
-   */
-  const throttledFn = (...args) => {
-    const now = Date.now();
-    lastArgs = args;
-
-    // Clear any pending final timer
+  const clearFinal = () => {
     if (finalTimer) {
       window.clearTimeout(finalTimer);
       finalTimer = null;
     }
+  };
 
-    // Check if we're within the throttle window
-    if (now - lastCallTime >= config.throttle) {
-      // Execute immediately. Clearing lastArgs is what makes "the value a
-      // gesture ends on is emitted exactly once" true: a release calls flush()
-      // in the same tick as the last move, and a second emit of the same value
-      // would be one more fan-out to every speaker for nothing.
+  const call = (...args) => {
+    const now = Date.now();
+    lastArgs = args;
+    clearFinal();
+
+    if (now - lastCallTime >= throttle) {
+      // Sent now, so nothing is left for the trailing timer or a release to
+      // send again: a second emit of one value is one more fan-out to every
+      // speaker for nothing.
       lastArgs = null;
       lastCallTime = now;
       callback(...args);
     }
 
-    // Schedule final callback to ensure last value is sent
-    finalTimer = window.setTimeout(() => {
-      if (lastArgs) {
-        callback(...lastArgs);
-        lastArgs = null;
-      }
-    }, config.final);
+    finalTimer = window.setTimeout(flush, final);
   };
 
-  /**
-   * Force execute with current args (useful for slider release)
-   */
   const flush = () => {
-    if (finalTimer) {
-      window.clearTimeout(finalTimer);
-      finalTimer = null;
-    }
+    clearFinal();
     if (lastArgs) {
-      callback(...lastArgs);
+      const args = lastArgs;
       lastArgs = null;
+      callback(...args);
     }
   };
 
-  /**
-   * Cleanup all timers
-   */
-  const cleanup = () => {
-    if (finalTimer) {
-      window.clearTimeout(finalTimer);
-      finalTimer = null;
-    }
+  const cancel = () => {
+    clearFinal();
     lastArgs = null;
   };
 
-  // Auto-cleanup on component unmount
-  onUnmounted(cleanup);
-
-  return {
-    throttledFn,
-    flush,
-  };
+  return { call, flush, cancel };
 }
 
 /**
- * Create a map of throttled functions (for per-client throttling)
- *
- * @param {Function} callbackFactory - Factory function (key) => callback
- * @param {string} preset - Preset name
- * @returns {Object} { getThrottledFn }
+ * @param {Function} callback - The function to throttle
+ * @param {'FAST'|'MEDIUM'} preset
+ * @returns {{throttledFn: Function, flush: Function}}
  */
-export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
-  const config = THROTTLE_PRESETS[preset] || THROTTLE_PRESETS.MEDIUM;
-  const throttleMap = new Map();
-
-  /**
-   * Get or create a throttled function for a specific key
-   * @param {string} key - Unique identifier (e.g., client ID)
-   * @returns {Function} Throttled function
-   */
-  const getThrottledFn = (key) => {
-    if (!throttleMap.has(key)) {
-      let lastCallTime = 0;
-      let finalTimer = null;
-      let lastArgs = null;
-
-      const throttledFn = (...args) => {
-        const now = Date.now();
-        lastArgs = args;
-
-        if (finalTimer) {
-          window.clearTimeout(finalTimer);
-        }
-
-        if (now - lastCallTime >= config.throttle) {
-          // Same clear as above — here it saves the trailing timer re-sending a
-          // value already applied, one `final` after the gesture ended.
-          lastArgs = null;
-          lastCallTime = now;
-          callbackFactory(key)(...args);
-        }
-
-        finalTimer = window.setTimeout(() => {
-          if (lastArgs) {
-            callbackFactory(key)(...lastArgs);
-            lastArgs = null;
-          }
-        }, config.final);
-      };
-
-      throttleMap.set(key, {
-        fn: throttledFn,
-        cleanup: () => {
-          if (finalTimer) {
-            window.clearTimeout(finalTimer);
-          }
-        },
-      });
-    }
-
-    return throttleMap.get(key).fn;
-  };
-
-  /**
-   * Cleanup all throttled functions
-   */
-  const cleanupAll = () => {
-    throttleMap.forEach((entry) => entry.cleanup());
-    throttleMap.clear();
-  };
-
-  // Auto-cleanup on component unmount
-  onUnmounted(cleanupAll);
-
-  return {
-    getThrottledFn,
-  };
+export function useVolumeThrottle(callback, preset = 'MEDIUM') {
+  const throttle = createThrottle(callback, THROTTLE_PRESETS[preset]);
+  onUnmounted(throttle.cancel);
+  return { throttledFn: throttle.call, flush: throttle.flush };
 }
 
+/**
+ * One throttle per key (a client's mac), each with its own window.
+ *
+ * @param {Function} callbackFactory - (key) => callback
+ * @param {'FAST'|'MEDIUM'} preset
+ * @returns {{getThrottledFn: Function, flush: Function}}
+ */
+export function useVolumeThrottleMap(callbackFactory, preset = 'MEDIUM') {
+  const throttles = new Map();
+
+  const throttleFor = (key) => {
+    if (!throttles.has(key)) {
+      throttles.set(key, createThrottle(callbackFactory(key), THROTTLE_PRESETS[preset]));
+    }
+    return throttles.get(key);
+  };
+
+  onUnmounted(() => {
+    throttles.forEach((throttle) => throttle.cancel());
+    throttles.clear();
+  });
+
+  return {
+    getThrottledFn: (key) => throttleFor(key).call,
+    flush: (key) => throttles.get(key)?.flush(),
+  };
+}

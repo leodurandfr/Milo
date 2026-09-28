@@ -175,9 +175,16 @@ def test_the_volume_dataclass_agrees_with_the_declared_section():
     two places because `core/models/` cannot import the settings service; this
     rule is what keeps the two spellings one value.
     """
+    from dataclasses import asdict
+
     from backend.core.models.volume import VolumeConfig
 
-    assert VolumeConfig().to_dict() == SettingsService().defaults["volume"]
+    config = asdict(VolumeConfig())
+    section = SettingsService().defaults["volume"]
+    # The one key it does not carry: the dock's step, which only the screens
+    # read (through GET /api/settings/bulk) and nothing on the backend uses.
+    assert set(section) - set(config) == {"step_mobile_db"}
+    assert config == {key: section[key] for key in config}
 
 
 # --------------------------------------------------------------------------

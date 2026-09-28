@@ -9,10 +9,11 @@ import { useTimer } from '@/composables/useTimer';
  * Movement beyond MOVE_THRESHOLD cancels the hold to avoid conflicts
  * with drag gestures sharing the same pointer stream.
  *
+ * A release ends the gesture; `cancel()` abandons it — the dock hiding or the
+ * component leaving — and a press abandoned before its hold began is no tap.
+ *
  * @param {Object} options
  * @param {Function} options.adjustVolume - (delta: number) => void
- * @param {Function} [options.onHoldStart] - (delta, intervalMs) => void — called when hold begins
- * @param {Function} [options.onHoldEnd] - () => void — called when hold ends
  * @param {import('vue').Ref<boolean>} options.gestureHasMoved - shared ref from drag composable
  * @param {import('vue').Ref<{x:number,y:number}>} options.gestureStartPosition - shared ref
  * @param {Function} options.getEventX - normalize event → clientX
@@ -20,8 +21,6 @@ import { useTimer } from '@/composables/useTimer';
  */
 export function useVolumeHold({
   adjustVolume,
-  onHoldStart,
-  onHoldEnd,
   gestureHasMoved,
   gestureStartPosition,
   getEventX,
@@ -53,7 +52,6 @@ export function useVolumeHold({
         adjustVolume(delta);
         actionTaken = true;
         isHolding = true;
-        onHoldStart?.(delta, REPEAT_INTERVAL);
 
         repeatTimer = timer.setInterval(() => {
           if (isHolding) {
@@ -73,10 +71,12 @@ export function useVolumeHold({
     if (!gestureHasMoved.value && !actionTaken && currentDelta !== 0) {
       adjustVolume(currentDelta);
     }
+    cancel();
+  };
 
+  const cancel = () => {
     isHolding = false;
     lockedPointerType = null;
-    onHoldEnd?.();
 
     if (startTimer) {
       timer.clear(startTimer);
@@ -97,11 +97,7 @@ export function useVolumeHold({
     gestureHasMoved.value = false;
   };
 
-  const cleanup = () => {
-    onVolumeHoldEnd();
-  };
+  onUnmounted(cancel);
 
-  onUnmounted(cleanup);
-
-  return { onVolumeHoldStart, onVolumeHoldEnd, cleanup };
+  return { onVolumeHoldStart, onVolumeHoldEnd, cancel };
 }

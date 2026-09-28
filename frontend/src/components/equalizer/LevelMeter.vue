@@ -25,7 +25,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { dbToPercent } from '@/constants/volumeConversion';
+import { dbToPercent } from '@/utils/volumeConversion';
 import { useTimer } from '@/composables/useTimer';
 
 const props = defineProps({

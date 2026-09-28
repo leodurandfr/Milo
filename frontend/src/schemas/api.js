@@ -12,6 +12,7 @@
  */
 import { z } from 'zod';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { DEFAULT_VOLUME_DB } from '@/constants/volume';
 
 // === AUDIO STATE ===
 //
@@ -90,22 +91,26 @@ export const AudioStateSchema = z.object({
 
 const VolumeClientSchema = z.object({
   volume_db: z.number(),
-  offset_db: z.number().default(0),
   mute: z.boolean().default(false),
-  available: z.boolean().default(true)  // matches ClientVolume.to_dict() on the backend
-});
+  available: z.boolean().default(true)
+});  // ClientVolume.to_dict() also sends `volume` and `volume_control`; nothing here reads them
 
 const VolumeZoneSchema = z.object({
   id: z.string(),
   name: z.string(),
   client_ids: z.array(z.string()),
-  average_volume_db: z.number().optional(),
-  all_muted: z.boolean().optional()
+  // Per field, so one bad figure costs its own zone that figure, never the
+  // whole record the `.catch({})` below would otherwise drop.
+  average_volume_db: z.number().optional().catch(undefined),
+  all_muted: z.boolean().optional().catch(undefined)
 });
 
 export const VolumeStateSchema = z.object({
   mode: z.enum(['direct', 'multiroom']).catch('direct'),
-  global_volume_db: z.number().catch(-45.0),
+  global_volume_db: z.number().catch(DEFAULT_VOLUME_DB),
+  // 0..1 over the limits, the server's. Clamped, not refused: a hair past an
+  // end is that end, and full must never read as silence.
+  global_volume: z.number().transform(v => Math.min(1, Math.max(0, v))).catch(0),
   global_mute: z.boolean().catch(false),
   volume_control: z.boolean().catch(true),  // False = DAC mode (external amp)
   any_volume_control: z.boolean().catch(true),  // True if any device manages volume via Milo

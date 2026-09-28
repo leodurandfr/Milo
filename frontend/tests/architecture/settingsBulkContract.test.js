@@ -106,12 +106,7 @@ function refInitialKeys(name) {
  * Rule 4's escape hatch — an entry here is a claim that someone *else* reads the
  * field, not that nobody does.
  */
-const NO_FRONTEND_CONSUMER = {
-  volume_steps:
-    'Read by the iOS app\'s WidgetKit volume control, a process woken for seconds to '
-    + 'build a timeline and killed — it cannot hold a WebSocket open, and `volume_changed` '
-    + 'is where this app and Milo-Mac get `step_mobile_db`, so the store has no use for it.',
-};
+const NO_FRONTEND_CONSUMER = {};
 
 const BULK = bulkFields();
 const MODELS = configModels();

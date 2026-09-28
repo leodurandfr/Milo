@@ -2,8 +2,8 @@
 /**
  * useVolumeThrottle rate-limits a volume gesture into at most one call per
  * throttle window, plus one trailing call carrying the value the gesture ended
- * on. `flush()` exists so a slider release sends that final value immediately
- * instead of waiting out the trailing timer.
+ * on. `flush()` — `flush(key)` on the map — exists so a slider release sends
+ * that final value immediately instead of waiting out the trailing timer.
  *
  * The invariant these cases pin: **the value a gesture ends on is emitted
  * exactly once**. The zone slider now sends a level, so a second emit no longer
@@ -126,6 +126,30 @@ describe('useVolumeThrottleMap', () => {
 
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith('dc:a6:32:7e:d3:43', -20);
+  });
+
+  it('flushes one key on its release and leaves the others alone', () => {
+    // A client slider released sends its value at once, and only once — the
+    // release used to emit it directly beside the trailing timer that still
+    // held it, so the same level left twice.
+    const callback = vi.fn();
+    const { getThrottledFn, flush } = mountThrottle(() =>
+      useVolumeThrottleMap((key) => (value) => callback(key, value), 'FAST')
+    );
+
+    getThrottledFn('aa:aa:aa:aa:aa:aa')(-20); // rising edge
+    getThrottledFn('bb:bb:bb:bb:bb:bb')(-30); // rising edge
+    vi.advanceTimersByTime(10);
+    getThrottledFn('aa:aa:aa:aa:aa:aa')(-18); // swallowed by the window
+    getThrottledFn('bb:bb:bb:bb:bb:bb')(-28); // swallowed by the window
+
+    flush('aa:aa:aa:aa:aa:aa');
+    expect(callback).toHaveBeenCalledTimes(3);
+    expect(callback).toHaveBeenLastCalledWith('aa:aa:aa:aa:aa:aa', -18);
+
+    vi.advanceTimersByTime(1000);
+    expect(callback).toHaveBeenCalledTimes(4);
+    expect(callback).toHaveBeenLastCalledWith('bb:bb:bb:bb:bb:bb', -28);
   });
 
   it('keeps one throttle state per key', () => {

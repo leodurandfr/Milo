@@ -15,7 +15,6 @@
 <script setup>
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 
 defineProps({
   // The tone of the surface the bar is drawn on, not the tone of the bar itself
@@ -31,27 +30,15 @@ defineProps({
 });
 
 const unifiedStore = useUnifiedAudioStore();
-const settingsStore = useSettingsStore();
 
-// Volume in dB (average of unmuted clients)
-const volumeDb = computed(() => unifiedStore.volumeState.global_volume_db);
+const volumeDisplay = computed(() => `${Math.round(unifiedStore.volumeState.global_volume_db)} dB`);
 
-// Volume limits from settings
-const limitMin = computed(() => settingsStore.volumeLimits.min_db);
-const limitMax = computed(() => settingsStore.volumeLimits.max_db);
-
-const volumeDisplay = computed(() => `${Math.round(volumeDb.value)} dB`);
-
-// Fill percentage interpolated on volume limits (limit_min = 0%, limit_max = 100%)
-const fillPercent = computed(() => {
-  const range = limitMax.value - limitMin.value;
-  if (range <= 0) return 0;
-  return ((volumeDb.value - limitMin.value) / range) * 100;
-});
-
+// The server's own 0..1 over the limits it applied — the span the level was
+// measured on travels with it, so the fill never mixes a new level with old
+// limits. Between two echoes the fill's transition does the smoothing.
 const volumeFillStyle = computed(() => ({
   width: '100%',
-  transform: `translateX(${fillPercent.value - 100}%)`
+  transform: `translateX(${unifiedStore.volumeState.global_volume * 100 - 100}%)`
 }));
 </script>
 

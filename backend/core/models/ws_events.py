@@ -14,7 +14,7 @@ consumers (frontend store/handler, Milo-Mac where applicable).
 import time
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.models.audio_wire import AudioState, PositionAnchor
 from backend.core.models.session import EndReason
@@ -43,7 +43,14 @@ from backend.core.models.settings_config import (
 
 
 class WsEvent(BaseModel):
-    """Base WS event; subclasses set CATEGORY/TYPE and declare payload fields."""
+    """Base WS event; subclasses set CATEGORY/TYPE and declare payload fields.
+
+    An unknown field is refused, not dropped: the model's fields ARE the
+    wire, so a producer passing one the model no longer declares sends
+    something no consumer receives — loudly now, where it was silent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     CATEGORY: ClassVar[str]
     TYPE: ClassVar[str]
@@ -278,7 +285,6 @@ class VolumeChanged(WsEvent):
     CATEGORY = "volume"
     TYPE = "volume_changed"
     show_bar: bool
-    step_mobile_db: float
     multiroom_enabled: bool
     state: Dict[str, Any]  # VolumeState.to_dict()
 

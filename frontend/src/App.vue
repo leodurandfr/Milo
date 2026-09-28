@@ -581,6 +581,7 @@ const PARSED_EVENTS = [
  */
 const SETTINGS_CONFIG_EVENTS = [
   ['volume_startup_changed', settingsStore.updateVolumeStartup],
+  ['volume_steps_changed', settingsStore.updateVolumeSteps],
   ['rotary_steps_changed', settingsStore.updateVolumeSteps],
   ['bt_remote_steps_changed', settingsStore.updateVolumeSteps],
   ['ir_remote_steps_changed', settingsStore.updateVolumeSteps],
@@ -659,12 +660,6 @@ onMounted(async () => {
     on('settings', 'volume_limits_changed', (event) => {
       if (event.data?.limits) {
         settingsStore.updateVolumeLimits(event.data.limits);
-      }
-    }),
-    // The mobile step is the one volume setting the audio store owns, not settings.
-    on('settings', 'volume_steps_changed', (event) => {
-      if (event.data?.config?.step_mobile_db !== undefined) {
-        unifiedStore.updateMobileStep(event.data.config.step_mobile_db);
       }
     }),
     on('settings', 'screen_ui_scale_changed', (event) => {

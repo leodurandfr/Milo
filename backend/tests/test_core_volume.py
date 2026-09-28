@@ -39,7 +39,6 @@ class TestVolumeConfig:
         config = VolumeConfig()
         assert config.limit_min_db == -80.0
         assert config.limit_max_db == -20.0
-        assert config.step_mobile_db == 2.0
         assert config.step_rotary_db == 2.0
         assert config.step_bt_remote_db == 2.0
         assert config.step_ir_remote_db == 2.0
@@ -68,23 +67,10 @@ class TestVolumeConfig:
         assert config.clamp(-100.0) == MIN_VOLUME_DB  # -80.0
         assert config.clamp(10.0) == MAX_VOLUME_DB     # 0.0
 
-    def test_to_dict(self):
-        """Test getting config as dictionary."""
-        config = VolumeConfig()
-        result = config.to_dict()
-
-        assert isinstance(result, dict)
-        assert "limit_min_db" in result
-        assert "limit_max_db" in result
-        assert "step_mobile_db" in result
-        assert "step_bt_remote_db" in result
-        assert "step_ir_remote_db" in result
-
     def test_step_ir_remote_db_custom(self):
-        """Custom step_ir_remote_db value is preserved through to_dict()."""
+        """Custom step_ir_remote_db value is kept."""
         config = VolumeConfig(step_ir_remote_db=4.5)
         assert config.step_ir_remote_db == 4.5
-        assert config.to_dict()["step_ir_remote_db"] == 4.5
 
 
 # ============================================================================
@@ -1072,7 +1058,7 @@ class TestVolumeService:
         world(service._state_store).online.add(local_mac)
         # Same limits as the service's current config, a different step size.
         mock_settings.get_setting = AsyncMock(
-            return_value=self._volume_section(step_mobile_db=6.0)
+            return_value=self._volume_section(step_rotary_db=6.0)
         )
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
         service.set_volume_db = AsyncMock()
@@ -1081,7 +1067,7 @@ class TestVolumeService:
         result = await service.reload_volume_limits()
 
         assert result is True
-        assert service._volume_config.step_mobile_db == 6.0  # the reload did happen
+        assert service._volume_config.step_rotary_db == 6.0  # the reload did happen
         service.set_volume_db.assert_not_awaited()
         service.broadcast_volume_state.assert_not_awaited()
 

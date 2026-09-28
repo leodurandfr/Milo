@@ -31,6 +31,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
+import { DEFAULT_VOLUME_DB } from '@/constants/volume';
 import { logger } from '@/services/logger';
 import MultiroomItem from './MultiroomItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -64,37 +65,16 @@ function isZonePrimary(client) {
   return firstOnlineId === client.mac_id;
 }
 
-// Get zone average volume from unified volume state
+// A zone's figures are the server's, computed over the members it counts.
+// Recomputing them here counted another set. A zone the volume state does not
+// hold yet (created a moment before its first broadcast) sits where the
+// server puts a zone with no member to count: DEFAULT_VOLUME_DB.
 function getZoneAverageVolume(zone) {
-  if (!zone?.id) return -60;
-  // Use pre-calculated zone volume from unified state
-  const zoneData = unifiedStore.volumeState.zones[zone.id];
-  if (zoneData && typeof zoneData.average_volume_db === 'number') {
-    return zoneData.average_volume_db;
-  }
-  // Fallback: calculate from individual clients (only online clients with volume control)
-  if (!zone?.client_ids?.length) return -60;
-  // Filter to only connected clients that have volume control (exclude DAC clients)
-  const controllableClientIds = zone.client_ids.filter(macId =>
-    snapcastStore.clients.some(c => c.mac_id === macId && c.online && c.volume_control !== false)
-  );
-  if (controllableClientIds.length === 0) return -60;
-
-  const volumes = controllableClientIds.map(macId => unifiedStore.getClientVolume(macId));
-  return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
+  return unifiedStore.volumeState.zones[zone.id]?.average_volume_db ?? DEFAULT_VOLUME_DB;
 }
 
-// Check if a zone is muted from unified volume state
 function getZoneMuted(zone) {
-  if (!zone?.id) return false;
-  // Use pre-calculated zone mute from unified state
-  const zoneData = unifiedStore.volumeState.zones[zone.id];
-  if (zoneData && typeof zoneData.all_muted === 'boolean') {
-    return zoneData.all_muted;
-  }
-  // Fallback: check individual clients
-  if (!zone?.client_ids?.length) return false;
-  return zone.client_ids.every(macId => unifiedStore.getClientMute(macId));
+  return unifiedStore.volumeState.zones[zone.id]?.all_muted ?? false;
 }
 
 const showMessage = computed(() => {
@@ -160,7 +140,8 @@ const displayClients = computed(() => {
       id: `placeholder-${i}`,
       mac_id: item.mac_id || null,
       name: '',
-      volume: 0,
+      // The skeleton's slider needs a number to draw; it shows no value.
+      equalizerVolume: DEFAULT_VOLUME_DB,
       equalizerMuted: false,
       isZone: item.type === 'zone',
       zoneClientDetails: null
@@ -205,7 +186,6 @@ const displayClients = computed(() => {
             name: zoneName,
             equalizerVolume: zoneVolume,
             equalizerMuted: getZoneMuted(zone),
-            volumeLoading: zoneVolume === null,
             zoneClientIds: zone.client_ids,
             isZone: true,
             all_external_volume: zone.all_external_volume || false,
@@ -343,15 +323,7 @@ async function handleMuteToggle(clientMacId, muted, options = {}) {
   if (isZone) {
     const zone = getZoneForClient(client);
     if (zone && zone.client_ids.length > 1) {
-      // Zone mute: mute ALL ONLINE clients in the zone
-      const onlineClientIds = zone.client_ids.filter(macId =>
-        snapcastStore.clients.some(c => c.mac_id === macId)
-      );
-
-      const updatePromises = onlineClientIds.map(async (macId) => {
-        await unifiedStore.setClientMute(macId, muted);
-      });
-      await Promise.all(updatePromises);
+      await unifiedStore.setZoneMute(zone.id, muted);
     }
   } else {
     // Standalone client - always use direct update

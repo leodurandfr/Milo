@@ -67,7 +67,6 @@ class VolumeConfig:
     """
     limit_min_db: float = -80.0
     limit_max_db: float = -20.0
-    step_mobile_db: float = 2.0
     step_rotary_db: float = 2.0
     step_bt_remote_db: float = 2.0
     step_ir_remote_db: float = 2.0
@@ -118,16 +117,3 @@ class VolumeConfig:
     def denormalize(self, level: float) -> float:
         """0..1 → dB over this config's own limits."""
         return denormalize_volume(level, self.limit_min_db, self.limit_max_db)
-
-    def to_dict(self) -> dict:
-        """Convert config to dictionary for API responses."""
-        return {
-            "limit_min_db": self.limit_min_db,
-            "limit_max_db": self.limit_max_db,
-            "step_mobile_db": self.step_mobile_db,
-            "step_rotary_db": self.step_rotary_db,
-            "step_bt_remote_db": self.step_bt_remote_db,
-            "step_ir_remote_db": self.step_ir_remote_db,
-            "startup_volume_db": self.startup_volume_db,
-            "restore_last_volume": self.restore_last_volume
-        }

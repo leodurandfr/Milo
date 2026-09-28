@@ -279,7 +279,7 @@ class TestWebSocketBroadcasting:
         sent = recorded(state_machine)
 
         await state_machine.broadcast(VolumeChanged(
-            show_bar=True, step_mobile_db=3.0, multiroom_enabled=False, state={}
+            show_bar=True, multiroom_enabled=False, state={}
         ))
 
         assert "full_state" not in sent.call_args[0][0]["data"]

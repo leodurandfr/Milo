@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -64,14 +64,9 @@ const { rotaryEnabled } = useHardwareConfig();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 
-// Local refs for instant responsiveness (all values in dB)
-const config = ref({
-  step_mobile_db: 3.0,
-  step_rotary_db: 2.0,
-  limits: { min: -80.0, max: -21.0 },
-  restore_last_volume: false,
-  startup_volume_db: -60.0
-});
+// Local refs for instant responsiveness (all values in dB), taken from the
+// store — never from placeholders a first frame would show.
+const config = ref(fromStore());
 
 const startupModeOptions = computed(() => [
   { label: t('volumeSettings.fixedVolume'), value: false },
@@ -85,15 +80,18 @@ function handleStartupModeChange(restoreLast) {
   });
 }
 
-// Sync local refs with the stores on mount
+function fromStore() {
+  return {
+    step_mobile_db: settingsStore.volumeSteps.step_mobile_db,
+    step_rotary_db: settingsStore.volumeSteps.step_rotary_db,
+    limits: { min: settingsStore.volumeLimits.min_db, max: settingsStore.volumeLimits.max_db },
+    restore_last_volume: settingsStore.volumeStartup.restore_last_volume,
+    startup_volume_db: Math.round(settingsStore.volumeStartup.startup_volume_db),
+  };
+}
+
 function syncFromStore() {
-  // step_mobile_db comes from unifiedAudioStore (single source of truth)
-  config.value.step_mobile_db = unifiedStore.volumeState.step_mobile_db;
-  config.value.step_rotary_db = settingsStore.volumeSteps.step_rotary_db;
-  config.value.limits.min = settingsStore.volumeLimits.min_db;
-  config.value.limits.max = settingsStore.volumeLimits.max_db;
-  config.value.restore_last_volume = settingsStore.volumeStartup.restore_last_volume;
-  config.value.startup_volume_db = Math.round(settingsStore.volumeStartup.startup_volume_db);
+  config.value = fromStore();
 }
 
 function updateVolumeLimits(limits) {
@@ -108,14 +106,12 @@ watch(
   [
     () => settingsStore.volumeLimits,
     () => settingsStore.volumeStartup,
-    () => settingsStore.volumeSteps,
-    () => unifiedStore.volumeState.step_mobile_db
+    () => settingsStore.volumeSteps
   ],
   syncFromStore,
   { deep: true }
 );
 
-onMounted(syncFromStore);
 </script>
 
 <style scoped>

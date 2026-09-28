@@ -352,7 +352,6 @@ class VolumeService:
             self._volume_config = VolumeConfig(
                 limit_min_db=volume_settings["limit_min_db"],
                 limit_max_db=volume_settings["limit_max_db"],
-                step_mobile_db=volume_settings["step_mobile_db"],
                 step_rotary_db=volume_settings["step_rotary_db"],
                 step_bt_remote_db=volume_settings["step_bt_remote_db"],
                 step_ir_remote_db=volume_settings["step_ir_remote_db"],
@@ -417,24 +416,15 @@ class VolumeService:
             self.logger.error("LOCAL server volume update failed — server audio may be silent")
 
     @handle_errors(default=False)
-    async def _reload_config(self, broadcast: bool = False) -> bool:
-        """Helper: reload config with optional broadcast."""
+    async def reload_config(self) -> bool:
+        """Reload the volume section after a startup or step setting changed.
+
+        Nothing is broadcast: no level moved, and each setting reaches the
+        screens through its own `settings/*_changed` event. The limits are the
+        exception, with their own `reload_volume_limits`.
+        """
         await self._load_volume_config()
-        if broadcast:
-            await self.broadcast_volume_state(show_bar=False)
         return True
-
-    async def reload_startup_config(self) -> bool:
-        """Reload startup configuration."""
-        return await self._reload_config()
-
-    async def reload_volume_steps_config(self) -> bool:
-        """Reload volume step configuration."""
-        return await self._reload_config(broadcast=True)
-
-    async def reload_steps_config(self) -> bool:
-        """Reload hardware step configuration (rotary encoder, BT remote)."""
-        return await self._reload_config()
 
     # ============================================================================
     # CLIENT VOLUME MANAGEMENT (VolumeStateStore architecture)
@@ -973,7 +963,6 @@ class VolumeService:
         volume_state = await self.get_volume_state()
         return VolumeChanged(
             show_bar=show_bar,
-            step_mobile_db=self._volume_config.step_mobile_db,
             multiroom_enabled=volume_state.mode == "multiroom",
             state=volume_state.to_dict()
         )
