@@ -21,7 +21,7 @@
                 <div class="genre-actions">
                   <div class="genre-buttons">
                     <Button variant="brand" left-icon="play" @click="playFrom(0)">{{ t('musicLibrary.play') }}</Button>
-                    <IconButton icon="shuffle" variant="on-dark" :aria-label="t('musicLibrary.shuffle')" @click="shufflePlay" />
+                    <IconButton icon="shuffle" variant="background-strong" :aria-label="t('musicLibrary.shuffle')" @click="shufflePlay" />
                   </div>
                   <p class="genre-count text-mono-medium">{{ t('musicLibrary.tracksCount', { count: songs.length }) }}</p>
                 </div>

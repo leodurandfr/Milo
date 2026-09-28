@@ -60,7 +60,11 @@ export function installApiHarness(reporter) {
   }
 
   apiCall.get = async (url) => {
-    const match = Object.keys(fixtures).find(prefix => url.startsWith(prefix));
+    // Longest prefix wins, so '/api/podcast/subscriptions' cannot answer for
+    // '/api/podcast/subscriptions/latest-episodes' whatever the key order.
+    const match = Object.keys(fixtures)
+      .filter(prefix => url.startsWith(prefix))
+      .sort((a, b) => b.length - a.length)[0];
     if (match) return { ok: true, data: fixtures[match] };
 
     report(`GET ${url}`, 'unstubbed — add a fixture in sources.js');

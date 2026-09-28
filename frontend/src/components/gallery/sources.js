@@ -439,7 +439,7 @@ const ZARATHOUSTRA = {
  * different screen from the one being documented.
  */
 const RADIO_HEADER = { titleKey: 'audioSources.radioSource.favoritesTitle', actions: ['search'] };
-const PODCAST_HEADER = { titleKey: 'podcasts.podcasts', actions: ['heartOff', 'search', 'queue'] };
+const PODCAST_HEADER = { titleKey: 'podcasts.podcasts', actions: ['heartOff', 'queue', 'search'] };
 const ML_HEADER = { titleKey: 'audioSources.musicLibrary', actions: ['queue', 'search'] };
 
 /**
@@ -532,6 +532,16 @@ const PODCAST_SPEEDS = [0.8, 1.0, 1.2, 1.5, 1.8, 2.0];
 const PODCAST_SUBSCRIPTIONS = [
   { uuid: 'sub-1', name: 'Le Code a changé', publisher: 'France Inter', is_subscribed: true },
   { uuid: 'sub-2', name: 'Affaires sensibles', publisher: 'France Inter', is_subscribed: true }
+];
+
+/**
+ * Their latest episodes, as `/subscriptions/latest-episodes` answers — what fills
+ * the home's "new episodes" block. Fixed dates, so the meta line does not move
+ * with the day the gallery is opened.
+ */
+const PODCAST_LATEST_EPISODES = [
+  { uuid: 'ep-lca-215', name: 'Épisode 215', podcast: { uuid: 'sub-1', name: 'Le Code a changé' }, duration: 2940, date_published: 1788170400 },
+  { uuid: 'ep-as-88', name: "L'affaire des poisons", podcast: { uuid: 'sub-2', name: 'Affaires sensibles' }, duration: 3240, date_published: 1788084000 }
 ];
 
 /**
@@ -1113,7 +1123,8 @@ export const SOURCE_PAGES = [
         state: { controls: ['set_speed'] },
         api: {
           '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
+          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
+          '/api/podcast/subscriptions/latest-episodes': { results: PODCAST_LATEST_EPISODES }
         },
         player: null
       }),

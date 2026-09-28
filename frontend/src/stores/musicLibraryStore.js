@@ -259,16 +259,25 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const likedSongs = ref([]);
   const likedSongIds = ref(new Set());
   const likedSongsLoaded = ref(false);
+  const likedSongsLoading = ref(false);
 
   async function loadLikedSongs({ force = false } = {}) {
     if (likedSongsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
-    const result = await apiCall.get(`${BASE}/starred`, {
-      category: 'musicLibrary',
-      message: 'Error loading liked songs',
-      checkStatus: true,
-      params: scoped(),
-    });
+    likedSongsLoading.value = true;
+    // Released ahead of the scope check, as loadAlbums does: LikedSongsView
+    // gates its spinner on this flag.
+    let result;
+    try {
+      result = await apiCall.get(`${BASE}/starred`, {
+        category: 'musicLibrary',
+        message: 'Error loading liked songs',
+        checkStatus: true,
+        params: scoped(),
+      });
+    } finally {
+      likedSongsLoading.value = false;
+    }
     if (!inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.songs);
     if (ok) {
@@ -1088,6 +1097,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     likedSongs,
     likedSongIds,
     likedSongsCount,
+    likedSongsLoading,
     loadLikedSongs,
     setSongFavorite,
     currentStarred,

@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -60,7 +60,9 @@ function shufflePlay() {
   store.playContext(store.likedSongs, start, true);
 }
 
-onMounted(() => store.loadLikedSongs({ force: true }));
+// Started in setup, not onMounted: the loading flag is then up before the first
+// render, so the empty state never flashes ahead of the spinner.
+store.loadLikedSongs({ force: true });
 </script>
 
 <style scoped>
