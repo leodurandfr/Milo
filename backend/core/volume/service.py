@@ -20,6 +20,7 @@ from backend.shared.decorators import handle_errors
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.equalizer_controller import EqualizerController
 from backend.core.multiroom.identity import get_local_mac
+from backend.core.multiroom.models import RegistryEventType
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
 from backend.core.models.ws_events import (
@@ -55,6 +56,16 @@ class VolumeService:
         self._hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
         self._bg = BackgroundTaskSet(self.logger, "volume")
+        self._state_broadcast_pending = False
+        # Set once initialize() has read the hardware flag and the stored levels:
+        # the registry's boot sweep can run before, and a state published then
+        # would carry the defaults (`any_volume_control` above all, which the
+        # iOS widget draws). The startup broadcast publishes the first one.
+        self._started = False
+        # What the last broadcast carried, so a state already on every screen
+        # is not sent again (the admission, and the registry event it raises,
+        # publish the same one; a trim or delay edit changes nothing here).
+        self._last_published = None
         self._push_lock = asyncio.Lock()
 
         # Volume configuration (loaded from settings in _load_volume_config)
@@ -86,11 +97,53 @@ class VolumeService:
 
         Ordering matters — initialize_services calls this BEFORE the snapcast
         WebSocket subscribes, so volume state is current by the time a registry
-        event triggers a multiroom broadcast.
+        event triggers a multiroom broadcast. The service subscribes after its
+        store, so the state it broadcasts has taken the event in.
         """
         self._client_registry = registry
         self._equalizer_controller.set_registry(registry)
         self._state_store.set_registry(registry)
+        registry.subscribe(self._handle_registry_event)
+
+    async def _handle_registry_event(self, event_type: str, data: dict) -> None:
+        """Publish the volume state again when the registry changed it.
+
+        The state reads availability, `volume_control` and the zones from the
+        registry, so a change there is a change of the state — and nothing
+        published it: a client that dropped left every screen on the average
+        it no longer counts in, `available` true, and `any_volume_control` as
+        it was (the Dock and the iOS widget read it), and a zone just created
+        had no figures until the next volume move. An event that moves nothing
+        the state holds (a trim, a delay, a rename) publishes nothing:
+        `broadcast_volume_state` skips a state already sent.
+        """
+        if not self._started:
+            return
+        # What the state reads there: who is online, whether Milō controls a
+        # client's volume, which clients exist, and the zones.
+        if event_type in (
+            RegistryEventType.CLIENT_CONNECTED,
+            RegistryEventType.CLIENT_DISCONNECTED,
+            RegistryEventType.CLIENT_UPDATED,
+            RegistryEventType.ZONE_CREATED,
+            RegistryEventType.ZONE_UPDATED,
+            RegistryEventType.ZONE_DELETED,
+        ):
+            self._schedule_state_broadcast()
+
+    def _schedule_state_broadcast(self) -> None:
+        """One broadcast for a burst of registry events (the admission sweep
+        emits one per client): the task reads the state when it runs, so a
+        later event of the same burst is in it already."""
+        if self._state_broadcast_pending:
+            return
+        self._state_broadcast_pending = True
+
+        async def broadcast() -> None:
+            self._state_broadcast_pending = False
+            await self.broadcast_volume_state(show_bar=False)
+
+        self._bg.spawn(broadcast(), label="registry_volume_state")
 
     def set_routing_service(self, routing_service) -> None:
         """Set routing service reference (circular dependency resolution)."""
@@ -685,6 +738,7 @@ class VolumeService:
             await self._apply_startup_volume()
 
             # Start initial broadcast task (waits for Snapcast WebSocket in multiroom mode)
+            self._started = True
             self._bg.spawn(self._startup_broadcast_after_websocket_ready(), label="startup_broadcast")
             return True
         except Exception as e:
@@ -968,9 +1022,20 @@ class VolumeService:
         )
 
     async def broadcast_volume_state(self, show_bar: bool = True) -> None:
-        """Broadcast volume state immediately to WebSocket clients."""
+        """Broadcast volume state immediately to WebSocket clients.
+
+        A state identical to the last one sent is not sent again, unless it is
+        to show the bar: nothing on any screen would move, and each broadcast
+        wakes the push coalescer. A screen that connects gets the whole state
+        from its own handshake (`volume_event`), never from a broadcast.
+        """
         try:
-            await self.state_machine.broadcast(await self.volume_event(show_bar))
+            event = await self.volume_event(show_bar)
+            published = (event.multiroom_enabled, event.state)
+            if not show_bar and published == self._last_published:
+                return
+            await self.state_machine.broadcast(event)
+            self._last_published = published
 
         except Exception as e:
             self.logger.error(f"Error broadcasting volume state: {e}", exc_info=True)

@@ -1,8 +1,9 @@
 """Structural guardrail: the registry's internal event bus has to line up.
 
 `ClientRegistryService` is the only producer of `RegistryEventType` events;
-three services subscribe to them (`CrossoverService`, `VolumeStateStore` and
-`SnapcastWebSocketService`, the last of which turns each one into a typed WS
+four services subscribe to them (`CrossoverService`, `VolumeStateStore`,
+`VolumeService`, which publishes the volume state again when an event changes
+it, and `SnapcastWebSocketService`, which turns each one into a typed WS
 broadcast). Nothing connected the two ends, and every kind of mismatch that is
 possible had happened by the time this test was written:
 
@@ -152,13 +153,20 @@ def _subscribers() -> dict:
                 left, comparators = branch.test.left, branch.test.comparators
                 if not (isinstance(left, ast.Name) and left.id == "event_type" and comparators):
                     continue
+                # `event_type == X` or `event_type in (X, Y)`: a literal tuple
+                # is read element by element. Anything else (a name bound
+                # elsewhere) is reported unknown rather than skipped, which is
+                # how an `in (…)` arm once went unchecked.
                 target = comparators[0]
-                if isinstance(target, ast.Attribute):
-                    value = DECLARED.get(target.attr, f"<unknown:{target.attr}>")
-                elif isinstance(target, ast.Constant):
-                    value = target.value
-                else:
-                    continue
+                elements = target.elts if isinstance(target, ast.Tuple) else [target]
+                values = []
+                for element in elements:
+                    if isinstance(element, ast.Attribute):
+                        values.append(DECLARED.get(element.attr, f"<unknown:{element.attr}>"))
+                    elif isinstance(element, ast.Constant):
+                        values.append(element.value)
+                    else:
+                        values.append(f"<unknown:{ast.dump(element)[:40]}>")
                 keys = set()
                 for node in ast.walk(ast.Module(body=branch.body, type_ignores=[])):
                     if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
@@ -171,7 +179,8 @@ def _subscribers() -> dict:
                           and isinstance(node.value, ast.Name) and node.value.id == "data"
                           and isinstance(node.slice, ast.Constant)):
                         keys.add(node.slice.value)
-                arms.setdefault(value, set()).update(keys)
+                for value in values:
+                    arms.setdefault(value, set()).update(keys)
     return out
 
 
@@ -226,8 +235,8 @@ def test_extraction_is_not_trivial():
     assert len(PRODUCERS) >= 8, sorted(PRODUCERS)
     assert len(PRODUCER_SITES) >= 12, PRODUCER_SITES
     assert set(PRODUCERS) <= set(DECLARED.values())
-    # The three known subscriber modules must all be found, each with arms.
-    assert set(SUBSCRIBERS) >= {"crossover.py", "state.py"}, sorted(SUBSCRIBERS)
+    # The known subscriber modules with arms must all be found.
+    assert set(SUBSCRIBERS) >= {"crossover.py", "state.py", "service.py"}, sorted(SUBSCRIBERS)
     assert sum(len(arms) for arms in SUBSCRIBERS.values()) >= 8, SUBSCRIBERS
     # At least one payload key per event, or the payload walk silently missed them.
     assert all(keys for keys in PRODUCERS.values()), PRODUCERS

@@ -196,6 +196,109 @@ async def test_leaving_multiroom_unmutes_the_local_speaker_in_the_store_too():
 
 
 # ============================================================================
+# The registry changes what the screens are sent
+# ============================================================================
+
+async def _published_by_the_registry(change, started=True):
+    """A VolumeService over the real ClientRegistryService, as dependencies.py
+    wires it — with a second subscriber after it that yields, as the snapcast
+    WS re-emit does, and a broadcast that yields too; `change(registry)` moves
+    the registry. Answers the volume states broadcast afterwards."""
+    from backend.core.models.ws_events import VolumeChanged
+    from backend.core.multiroom.client_registry import ClientRegistryService
+
+    settings = AsyncMock()
+    settings.get_setting = AsyncMock(return_value=None)
+    registry = ClientRegistryService(settings_service=settings)
+    await registry.initialize()
+    service = make_service({LOCAL: -40.0, "sat": -60.0}, online=[])
+    service.attach_registry(registry)
+
+    async def re_emit(event_type, data):
+        await asyncio.sleep(0)
+
+    registry.subscribe(re_emit)
+    published = []
+
+    async def broadcast(event):
+        await asyncio.sleep(0)
+        if isinstance(event, VolumeChanged):
+            published.append(event.state)
+
+    service.state_machine.broadcast = broadcast
+    service._started = started
+    for mac, ip in ((LOCAL, "127.0.0.1"), ("sat", "192.168.1.60")):
+        await registry.register_client(mac, mac, ip)
+        await registry.set_client_online(mac, True)
+    await settle()
+    published.clear()
+
+    await change(registry)
+    await settle()
+    return published
+
+
+async def test_a_client_that_drops_is_published_gone_from_the_average():
+    """Nothing published a client going offline: every screen kept it
+    available and kept an average it no longer counts in, until the next move."""
+    states = await _published_by_the_registry(
+        lambda registry: registry.set_client_online("sat", False))
+
+    assert len(states) == 1
+    assert states[0]["clients"]["sat"]["available"] is False
+    assert states[0]["global_volume_db"] == -40.0
+
+
+async def test_a_client_handed_to_its_amp_is_published():
+    """`volume_control` feeds `any_volume_control`, which the Dock and the iOS
+    widget read; changing it published nothing."""
+    states = await _published_by_the_registry(
+        lambda registry: registry.update_client("sat", volume_control=False))
+
+    assert len(states) == 1
+    assert states[0]["clients"]["sat"]["volume_control"] is False
+
+
+async def test_a_new_zone_is_published_with_its_figures():
+    """A zone created had no average on any screen until a volume moved."""
+    states = await _published_by_the_registry(
+        lambda registry: registry.create_zone("z", "Salon", [LOCAL, "sat"]))
+
+    assert states and states[-1]["zones"]["z"]["average_volume_db"] == -50.0
+
+
+async def test_an_edit_the_volume_state_does_not_hold_publishes_nothing():
+    """A trim or a delay is a client property the volume state does not carry:
+    a slider dragged across it sent a full volume state per step to every
+    screen, and woke the push coalescer each time, for nothing that moved."""
+    async def edit(registry):
+        await registry.set_client_gain("sat", 3.0)
+        await registry.set_client_delay("sat", 40)
+
+    assert await _published_by_the_registry(edit) == []
+
+
+async def test_a_state_already_sent_is_not_sent_again():
+    """The admission publishes the state its registry event already did."""
+    service = make_service({LOCAL: -40.0}, online=[LOCAL])
+
+    await service.broadcast_volume_state(show_bar=False)
+    await service.broadcast_volume_state(show_bar=False)
+    await service.broadcast_volume_state(show_bar=True)  # the bar is always shown
+
+    assert service.state_machine.broadcast.await_count == 2
+
+
+async def test_nothing_is_published_before_the_service_has_started():
+    """The registry's boot sweep can come first; a state published then would
+    carry defaults — `any_volume_control` among them, which the widget draws."""
+    states = await _published_by_the_registry(
+        lambda registry: registry.set_client_online("sat", False), started=False)
+
+    assert states == []
+
+
+# ============================================================================
 # A zone's mute
 # ============================================================================
 

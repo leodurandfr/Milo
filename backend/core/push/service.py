@@ -1059,16 +1059,13 @@ class PushService:
         a DAC-configured unit, where it is also the only thing that can dim the
         logo for a reason Milō knows.
 
-        What wakes the coalescer for it is NOT complete, and the gap is on the
-        dim side. `VolumeChanged` is broadcast when a client reconnects
-        (`_sync_reconnecting_client_volume`), so the relight is seen; it is NOT
-        broadcast when one drops (`set_client_online(mac, False)` changes the
-        registry, which the volume state reads, and nothing broadcasts it) nor by
-        `PATCH /api/multiroom/clients/{mac}` changing `volume_control`. Those
-        two flips therefore reach no push and wait for the widget's own
-        timeline. The missing broadcasts are a defect in those paths — the Dock
-        reads `any_volume_control` too and goes stale on the same event — and
-        not something to work around here by widening `TRIGGERS`, which would
+        What wakes the coalescer for it is `VolumeChanged`, and every flip of it
+        is one: VolumeService publishes the volume state again on each registry
+        event that changes it — a client connecting or dropping, `volume_control`
+        changed by `PATCH /api/multiroom/clients/{mac}`. The drop and the
+        `volume_control` change published nothing until 2026-09-28, and left
+        both the logo and the Dock, which reads `any_volume_control` too, stale.
+        The fix belonged in those paths, not in a wider `TRIGGERS`, which would
         wake this loop for events that change nothing a widget draws.
 
         The other half cannot be pushed while it is false: a unit that is not
