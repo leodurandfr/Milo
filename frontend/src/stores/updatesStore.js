@@ -10,8 +10,11 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 
 export const useUpdatesStore = defineStore('updates', () => {
+  const multiroomStore = useMultiroomStore();
+
   // === STATE ===
   const localPrograms = ref({});
   const localProgramsLoading = ref(true);
@@ -267,6 +270,11 @@ export const useUpdatesStore = defineStore('updates', () => {
   // it again, leaving its row a skeleton until the page was reloaded. Poll
   // until it answers, bounded: what outlives the bound is a satellite that
   // really is not answering, and the row says so in words.
+  //
+  // Its API answering is half of the return. The snapclient restarted with it,
+  // and Snapcast reports the satellite offline until the reconnection sync
+  // admits it again — ~9 s after the completion, measured on both units — and
+  // an offline satellite nobody is waiting for has no section at all.
   const SATELLITE_RETURN_ATTEMPTS = 5;
   const SATELLITE_RETURN_DELAY_MS = 4000;
 
@@ -275,7 +283,8 @@ export const useUpdatesStore = defineStore('updates', () => {
     try {
       for (let attempt = 1; ; attempt++) {
         await loadSatellites();
-        if (satelliteByMacId.value[macId] || attempt >= SATELLITE_RETURN_ATTEMPTS) return;
+        const back = satelliteByMacId.value[macId] && multiroomStore.isClientOnline(macId);
+        if (back || attempt >= SATELLITE_RETURN_ATTEMPTS) return;
         await new Promise(resolve => setTimeout(resolve, SATELLITE_RETURN_DELAY_MS));
       }
     } finally {

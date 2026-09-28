@@ -15,6 +15,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useUpdatesStore } from '@/stores/updatesStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok } from '../helpers/apiCallMock';
 
@@ -96,10 +97,31 @@ describe('updatesStore satellite return', () => {
       .mockResolvedValueOnce(withoutSatellite())
       .mockResolvedValue(withSatellite());
 
+    useMultiroomStore().clients.set(MAC, { mac_id: MAC, online: true });
+
     store.handleSatelliteAppUpdateComplete({ mac_id: MAC, success: true });
     await vi.advanceTimersByTimeAsync(30000);
 
     expect(store.satelliteByMacId[MAC]).toBeTruthy();
+    expect(store.isSatelliteAwaitingReturn(MAC)).toBe(false);
+  });
+
+  it('keeps waiting while its API answers but Snapcast still has it offline', async () => {
+    // The snapclient restarts with the app and is admitted again ~9 s after
+    // the completion (measured on both units). Ending the wait on the API
+    // alone left an offline satellite nobody was waiting for, and its whole
+    // settings section vanished for those seconds.
+    const multiroom = useMultiroomStore();
+    multiroom.clients.set(MAC, { mac_id: MAC, online: false });
+    apiCall.get.mockResolvedValue(withSatellite());
+
+    store.handleSatelliteAppUpdateComplete({ mac_id: MAC, success: true });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(store.satelliteByMacId[MAC]).toBeTruthy();
+    expect(store.isSatelliteAwaitingReturn(MAC)).toBe(true);
+
+    multiroom.clients.set(MAC, { mac_id: MAC, online: true });
+    await vi.advanceTimersByTimeAsync(4000);
     expect(store.isSatelliteAwaitingReturn(MAC)).toBe(false);
   });
 

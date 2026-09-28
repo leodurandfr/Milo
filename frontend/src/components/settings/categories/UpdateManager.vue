@@ -448,13 +448,18 @@ const miloButtonLabel = computed(() => {
   return withdrawn ? t('updates.revertTo', { version }) : t('updates.update');
 });
 
-// Non-local satellites: online clients + clients with an active update (anticipates snapclient restart during update)
+// Non-local satellites: online clients, plus those an update took offline —
+// while it runs, and until Snapcast admits them again after it ended. Sorted
+// by name alone: `clientList` puts online clients first, which moved the
+// section of a satellite to the bottom while its update restarted it.
 const anticipatedSatellites = computed(() =>
-  multiroomStore.clientList.filter(c => {
-    if (c.is_local) return false;
-    if (c.online) return true;
-    return isSatelliteUpdating(c.mac_id) || isSatelliteAppUpdating(c.mac_id) || isSatelliteCamillaUpdating(c.mac_id);
-  })
+  multiroomStore.clientList
+    .filter(c => {
+      if (c.is_local) return false;
+      if (c.online) return true;
+      return isSatelliteBusy(c.mac_id) || isSatelliteAwaitingReturn(c.mac_id);
+    })
+    .sort((a, b) => (a.name || a.mac_id).localeCompare(b.name || b.mac_id, undefined, { sensitivity: 'base' }))
 );
 
 // The inventory is a live probe of each satellite's own API, so a client
