@@ -1,10 +1,11 @@
 """
-How a level moves: the block a zone or the house moves as, the door every level
-leaves through, and the per-speaker sender behind that door.
+How a level moves: a zone or the house moving together, each room stopping at
+a limit on its own, the door every level leaves through, and the per-speaker
+sender behind that door.
 
 What breaks when these fail:
-- a zone pushed to a limit loses its rooms' distances for good (measured on
-  the unit: three rooms stored at -78 / -77.95 / -78);
+- a zone with one room at the floor cannot be turned down at all, or a zone
+  slider released at the bottom jumps back up because its average landed short;
 - two gestures in flight together lose one of them (ten +2 dB steps landed as
   one while the store was written only after the hardware answered);
 - a satellite ends at an older level than the one Milō shows, because two
@@ -568,71 +569,99 @@ async def test_a_move_landing_during_the_boot_push_is_not_overwritten():
 
 
 # ============================================================================
-# The block: a group stops when one of its rooms meets a limit
+# A group moves together; each room stops at a limit on its own
 # ============================================================================
 
-@pytest.mark.parametrize("delta, loudest, quietest, expected", [
-    (10.0, -12.0, -40.0, 4.0),     # up: stops when the loudest reaches the maximum
-    (-30.0, -40.0, -60.0, -18.0),  # down: stops when the quietest reaches the minimum
-    (-5.0, -70.0, -80.0, 0.0),     # a room already past the floor never turns a step down into a step up
-    (5.0, -40.0, -60.0, 5.0),      # inside the range: the delta passes whole
-], ids=["up", "down", "never-reversed", "inside"])
-def test_bound_block_delta(delta, loudest, quietest, expected):
-    """The part of a move a block can make: the first room to meet a limit stops it."""
-    assert LIMITS.bound_block_delta(delta, loudest, quietest) == expected
+@pytest.mark.parametrize("level_db, delta, expected", [
+    (-40.0, 10.0, -30.0),    # inside the range: the delta passes whole
+    (-12.0, 10.0, -8.0),     # up: stops at the maximum
+    (-70.0, -10.0, -78.0),   # down: stops at the minimum
+    (-78.0, -5.0, -78.0),    # already at the floor: stays
+], ids=["inside", "up", "down", "at-floor"])
+def test_move_level(level_db, delta, expected):
+    """One room's share of a group move: the delta, stopped at the limits."""
+    assert LIMITS.move_level(level_db, delta) == expected
 
 
-async def test_a_zone_pulled_to_the_floor_keeps_its_distances_and_gets_them_back():
-    """A zone pulled down stops when its quietest room reaches the floor, and comes back exactly.
+@pytest.mark.parametrize("levels, target", [
+    ([-40.0, -50.0], -55.0),          # no room meets a limit: the plain difference
+    ([-40.0, -50.0, -60.0], -70.0),   # the quietest stops at -78 on the way
+    ([-40.0, -78.0], -78.0),          # one room at the floor, the zone to the floor
+    ([-10.0, -30.0, -50.0], -8.0),    # every room meets the ceiling
+], ids=["free", "one-stops", "to-the-floor", "to-the-ceiling"])
+def test_delta_to_average_lands_the_average_on_the_target(levels, target):
+    """The delta an absolute move takes lands the average exactly where it was asked.
 
-    Measured on the unit before the fix: the three rooms were stored at
-    -78 / -77.95 / -78, because each room was clamped while the block kept
-    moving, and the distances between the rooms were gone for good.
+    `target - average` lands short as soon as a room stops at a limit, and the
+    zone slider released there jumps back to where the average really went.
+    """
+    delta = LIMITS.delta_to_average(levels, target)
+    moved = [LIMITS.move_level(level, delta) for level in levels]
+    assert sum(moved) / len(moved) == pytest.approx(target)
+
+
+async def test_a_zone_with_a_room_at_the_floor_still_goes_down():
+    """A zone whose quietest room already sits at the minimum still turns down.
+
+    Consumer: the zone slider on the multiroom screen. When the whole zone
+    stopped at its first room's limit, one room at the floor froze the zone:
+    the slider could not go below where the loudest room was.
     """
     router = Router()
+    service = make_service({"a": -40.0, "b": -78.0}, online=["a", "b"], router=router, local=None)
+    zone(service, ["a", "b"])
+
+    await service.apply_zone_volume_delta("z", -10.0)
+    await settle()
+    assert [level(service, m) for m in "ab"] == [-50.0, -78.0]
+
+    await service.set_zone_volume("z", -78.0)
+    await settle()
+    assert [level(service, m) for m in "ab"] == [-78.0, -78.0]
+    assert [router.last(m) for m in "ab"] == [-78.0, -78.0]
+
+
+async def test_a_zone_level_is_reached_although_a_room_stops_on_the_way():
+    """A zone asked for a level lands on it, the rooms that stopped included.
+
+    The slider sends a level and shows the average the server answers: an
+    average landing short of what was asked makes the thumb jump back.
+    """
     service = make_service({"a": -40.0, "b": -50.0, "c": -60.0}, online=["a", "b", "c"],
-                           router=router, local=None)
+                           local=None)
     zone(service, ["a", "b", "c"])
 
-    await service.apply_zone_volume_delta("z", -30.0)
-    await settle()
-    assert [level(service, m) for m in "abc"] == [-58.0, -68.0, -78.0]
-    assert [router.last(m) for m in "abc"] == [-58.0, -68.0, -78.0]
+    average, applied = await service.set_zone_volume("z", -70.0)
 
-    await service.apply_zone_volume_delta("z", 18.0)
-    assert [level(service, m) for m in "abc"] == [-40.0, -50.0, -60.0]
+    assert [level(service, m) for m in "abc"] == [-61.0, -71.0, -78.0]
+    assert average == pytest.approx(-70.0)
+    assert applied == pytest.approx(-21.0)
 
 
-async def test_the_house_going_up_stops_when_its_loudest_room_reaches_the_maximum():
-    """Going up, the whole house stops when its loudest reachable room hits the ceiling."""
+async def test_the_house_going_up_stops_each_room_at_the_maximum():
+    """Going up, a room meeting the ceiling stops there and the others go on."""
     service = make_service({LOCAL: -12.0, "sat": -40.0}, online=[LOCAL, "sat"])
 
     await service.adjust_volume_db(10.0)
 
     assert level(service, LOCAL) == -8.0
-    assert level(service, "sat") == -36.0
+    assert level(service, "sat") == -30.0
 
 
-async def test_the_house_going_down_stops_when_its_quietest_room_reaches_the_minimum():
-    """Going down, the whole house stops when its quietest reachable room hits the floor.
-
-    The knob then stops turning the house down: the rooms keep their balance,
-    and the quiet one is not squeezed against the floor while the others go on.
-    """
+async def test_the_house_going_down_reaches_the_minimum():
+    """Going down, the knob keeps turning the house down until every room is at the floor."""
     service = make_service({LOCAL: -70.0, "sat": -76.0}, online=[LOCAL, "sat"])
 
     await service.adjust_volume_db(-10.0)
 
-    assert level(service, LOCAL) == -72.0
+    assert level(service, LOCAL) == -78.0
     assert level(service, "sat") == -78.0
 
 
-async def test_a_house_with_no_speaker_reachable_still_moves_as_a_block():
-    """With every speaker away, the block is bounded by all its rooms.
+async def test_a_house_with_no_speaker_reachable_still_records_a_step():
+    """With every speaker away, a relative step is still stored, within the limits.
 
-    Unbounded, a step taken while nothing was online moved each stored level by
-    the whole delta and clamped them one by one, and the rooms collapsed onto a
-    limit — the very loss the block exists to prevent.
+    A delta needs no average; nothing reaches any speaker.
     """
     router = Router()
     service = make_service({"a": -40.0, "b": -70.0}, online=[], router=router, local=None)
@@ -640,17 +669,13 @@ async def test_a_house_with_no_speaker_reachable_still_moves_as_a_block():
     await service.adjust_volume_db(-10.0)
     await settle()
 
-    assert level(service, "a") == -48.0
+    assert level(service, "a") == -50.0
     assert level(service, "b") == -78.0
     assert router.received == []
 
 
-async def test_a_room_that_is_away_moves_with_the_house_but_does_not_hold_it_back():
-    """An absent room moves by the same delta, clamped to the limits, and bounds nothing.
-
-    Letting it bound the block would let a speaker unplugged at -10 freeze the
-    whole house at +2 dB with nothing on screen to say why. It is stored only.
-    """
+async def test_a_room_that_is_away_moves_with_the_house_and_is_stored_only():
+    """An absent room moves by the same delta, stops at the limits, and is sent nothing."""
     router = Router()
     service = make_service({LOCAL: -12.0, "sat": -30.0, "away": -10.0}, online=[LOCAL, "sat"],
                            router=router)
@@ -658,11 +683,8 @@ async def test_a_room_that_is_away_moves_with_the_house_but_does_not_hold_it_bac
     await service.adjust_volume_db(10.0)
     await settle()
 
-    # Bounded by the loudest *reachable* room (-12 -> +4): the other reachable
-    # one keeps its 18 dB below it; clamping each room instead would give -20,
-    # and letting the absent one bound the block -28.
     assert level(service, LOCAL) == -8.0
-    assert level(service, "sat") == -26.0
+    assert level(service, "sat") == -20.0
     assert level(service, "away") == -8.0
     assert router.last("away") is None
 

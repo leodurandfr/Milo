@@ -192,8 +192,8 @@ def create_volume_router(
         """
         Move a whole zone, by a delta or to a level, in one request.
 
-        Every member moves by the same delta, so the rooms keep their balance,
-        and the state is broadcast once. `delta_db` is Milo-Mac's body.
+        Every member moves by the same delta, stopping on its own at a limit
+        (`VolumeConfig.move_level`), and the state is broadcast once. `delta_db` is Milo-Mac's body.
         `volume_db` is the web slider's: the delta is measured against the
         average the service holds when the request lands, so two sends of one
         position during a drag move the zone once, not twice.
@@ -203,11 +203,11 @@ def create_volume_router(
             request: `delta_db` or `volume_db`, exactly one
 
         Returns:
-            New zone average, the delta actually applied (less than a delta
-            asked when the zone's loudest room meets a limit first; 0 when a
-            level was asked of a zone with no member online, since there is no
-            average to measure it from), list of affected clients, and offline
-            clients
+            New zone average, the delta actually applied (the largest move a
+            room made — less than a delta asked only when every room met a
+            limit first; 0 when a level was asked of a zone with no member
+            online, since there is no average to measure it from), list of
+            affected clients, and offline clients
         """
         async with api_error_handler("Error applying zone delta"):
             if client_registry_service:

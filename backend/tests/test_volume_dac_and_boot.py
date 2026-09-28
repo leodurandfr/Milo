@@ -823,11 +823,12 @@ class TestZoneDelta:
     ):
         """A zone whose members were all removed still exists until the registry
         deletes it; the slider must not send an empty fan-out and must not raise.
+        With no room to move, the delta applied is 0.
         """
         world(zoned._state_store).zone("zone-1", [], name="Empty")
         zoned._state_store.compute_zone_average = Mock(return_value=-40.0)
 
-        assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == (-40.0, 2.0)
+        assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == (-40.0, 0.0)
 
         zoned._equalizer_controller.submit_volume.assert_not_called()
 

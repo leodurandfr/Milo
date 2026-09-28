@@ -16,6 +16,7 @@ what happened when only the outgoing half existed and a client kept its own copy
 of the limits.
 """
 from dataclasses import dataclass
+from typing import List
 
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
@@ -91,24 +92,43 @@ class VolumeConfig:
         clamped = max(self.limit_min_db, min(self.limit_max_db, volume_db))
         return max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, clamped))
 
-    def bound_block_delta(self, delta_db: float, loudest_db: float, quietest_db: float) -> float:
-        """The part of `delta_db` a group of rooms can move by together.
+    def move_level(self, level_db: float, delta_db: float) -> float:
+        """One room's level after its group (a zone, the whole house) moved by `delta_db`.
 
-        A zone or the whole house moves as a block, so its rooms keep their
-        distances: going up it stops when its loudest room reaches the maximum,
-        going down when its quietest reaches the minimum. Clamping each room
-        instead let the block keep moving past a limit while the rooms at it
-        stayed put, and the distances were gone for good (measured on the unit:
-        a zone pushed down this way was stored at -78 / -77.95 / -78).
-
-        Never reverses a gesture: a room already past the limit a move is
-        heading for gives 0, not a move the other way.
+        The rooms move together while they can; a room that meets a limit stops
+        there and the others go on, so a group always reaches the minimum and the
+        maximum. Stopping the whole group at its first room's limit kept the
+        distances, but left a zone with one room at the floor unable to go down
+        at all. The cost: rooms that met a limit together come back together,
+        since no level is ever stored outside the limits.
         """
-        if delta_db > 0:
-            return max(0.0, min(delta_db, self.limit_max_db - loudest_db))
-        if delta_db < 0:
-            return min(0.0, max(delta_db, self.limit_min_db - quietest_db))
-        return 0.0
+        return self.clamp(level_db + delta_db)
+
+    def delta_to_average(self, levels: List[float], target_db: float) -> float:
+        """The delta that lands the average of `levels` on `target_db`, each room
+        moved by `move_level`.
+
+        Once a room stops at a limit, the average moves more slowly than the
+        delta: `target - average` would land short, and a slider released there
+        would jump back. The average is linear between the deltas at which a
+        room meets its limit, so the answer is exact: walk those points, nearest
+        first, and interpolate on the segment that crosses the target.
+        """
+        target_db = self.clamp(target_db)
+        average = sum(levels) / len(levels)
+        if target_db == average:
+            return 0.0
+        down = target_db < average
+        limit = self.clamp(self.limit_min_db if down else self.limit_max_db)
+        stops = sorted({limit - level for level in levels
+                        if (limit - level < 0 if down else limit - level > 0)}, key=abs)
+        prev_delta, prev_average = 0.0, average
+        for stop in stops:
+            reached = sum(self.move_level(level, stop) for level in levels) / len(levels)
+            if (reached <= target_db) if down else (reached >= target_db):
+                return prev_delta + (target_db - prev_average) * (stop - prev_delta) / (reached - prev_average)
+            prev_delta, prev_average = stop, reached
+        return prev_delta
 
     def normalize(self, volume_db: float) -> float:
         """dB → 0..1 over this config's own limits."""

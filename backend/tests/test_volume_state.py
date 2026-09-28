@@ -17,10 +17,10 @@ from backend.tests.volume_world import world
 
 
 class TestZoneVolumeDelta:
-    """A zone moves as a block: VolumeService._move over the store's levels.
+    """A zone moves its members together: VolumeService._move over the store's levels.
 
-    The store no longer computes moves: a move reads the levels, bounds the
-    delta and writes them in one synchronous step in the service.
+    The store no longer computes moves: a move reads the levels, moves each one
+    within the limits and writes them in one synchronous step in the service.
     """
 
     @pytest.fixture
@@ -104,27 +104,24 @@ class TestZoneVolumeDelta:
         assert self._level(service, 'client-2') == -20.0
         assert service.sent == {}
 
-    async def test_a_block_going_down_stops_when_its_quietest_room_reaches_the_minimum(self, service):
-        """The quietest reachable room meets the floor first, and the block stops there.
+    async def test_a_room_going_down_stops_at_the_minimum_and_the_others_go_on(self, service):
+        """The quietest room meets the floor and stays there; the others keep going.
 
-        Consumer: a zone slider pulled to the bottom. Clamping each room instead
-        collapsed a zone onto the floor (measured: -78 / -77.95 / -78), its
-        distances gone for good. Fails if a room is sent past the minimum, or if
-        the rooms stop keeping their distance.
+        Consumer: a zone slider pulled to the bottom. Fails if a room is sent
+        past the minimum, or if the zone stops going down with a room at the floor.
         """
         service._volume_config = VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0)
         self._zone(service, {'client-a': (-60.0, True), 'client-b': (-75.0, True)})
 
         await service.apply_zone_volume_delta('zone_1', -10.0)
 
-        assert self._level(service, 'client-a') == -65.0
+        assert self._level(service, 'client-a') == -70.0
         assert self._level(service, 'client-b') == -80.0
 
-    async def test_a_block_going_up_stops_when_its_loudest_room_reaches_the_maximum(self, service):
-        """Going up, the block stops when its loudest reachable room hits the ceiling.
+    async def test_a_room_going_up_stops_at_the_maximum(self, service):
+        """Going up, no room is asked louder than the operator's maximum.
 
-        Consumer: a zone slider pushed to the top. Fails if any room is asked
-        louder than the operator's maximum.
+        Consumer: a zone slider pushed to the top.
         """
         service._volume_config = VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0)
         self._zone(service, {'client-a': (-25.0, True), 'client-b': (-35.0, True)})
@@ -132,7 +129,7 @@ class TestZoneVolumeDelta:
         await service.apply_zone_volume_delta('zone_1', 10.0)
 
         assert self._level(service, 'client-a') == -21.0
-        assert self._level(service, 'client-b') == -31.0
+        assert self._level(service, 'client-b') == -25.0
 
     async def test_zone_delta_raises_for_unknown_zone(self, service):
         """

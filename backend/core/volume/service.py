@@ -240,30 +240,28 @@ class VolumeService:
         return local_future
 
     async def _move(self, members: List[str], reachable: List[str],
-                    resolve: Callable[[Optional[float]], Optional[float]]) -> Tuple[bool, Optional[float]]:
+                    resolve: Callable[[List[float]], Optional[float]]) -> Tuple[bool, Optional[float]]:
         """Move a group of rooms together — the one primitive behind every volume move.
 
         Global and zone, relative and absolute, direct and multiroom. `resolve`
-        receives the average level of the reachable members (None when there is
-        none) and answers the delta, or None to move nothing: a relative move
-        ignores the average, an absolute one needs it.
+        receives the levels of the reachable members (empty when there is none)
+        and answers the delta, or None to move nothing: a relative move ignores
+        the levels, an absolute one aims their average
+        (`VolumeConfig.delta_to_average`).
 
         Everything up to the submissions is one synchronous step: read the
-        levels, bound the delta, write them, submit them. With no await in it,
-        no other move can read a level this one has not written yet, which is
-        how ten +2 dB steps in flight together used to land as one — the store
-        was written only after the hardware answered. The speakers are
-        submitted in that same step, so the order of submissions is the order
-        of writes, and the last level each speaker receives is its stored one.
+        levels, move them, write them, submit them. With no await in it, no
+        other move can read a level this one has not written yet, which is how
+        ten +2 dB steps in flight together used to land as one — the store was
+        written only after the hardware answered. The speakers are submitted in
+        that same step, so the order of submissions is the order of writes, and
+        the last level each speaker receives is its stored one.
 
-        The group moves as a block (`VolumeConfig.bound_block_delta`): it stops
-        when its loudest reachable room reaches the maximum or its quietest the
-        minimum, so the rooms keep their distances and no level is ever stored
-        outside the limits. A room that is away moves by the same delta, and so
-        comes back where its room went; it does not bound the block (a speaker
-        unplugged at -10 would freeze the whole house), so it is clamped to the
-        limits instead, and stored only. With no room reachable at all, the
-        block is bounded by all of them.
+        Every room, reachable or away, moves by the same delta and stops at a
+        limit on its own (`VolumeConfig.move_level`), so a group always reaches
+        the floor and the ceiling and no level is ever stored outside the
+        limits. A room that is away is stored only, and comes back where its
+        room went.
 
         A room that refuses keeps the level asked for, like a satellite does
         with its own cache and the local unit with `reapply_current_volume`. The
@@ -273,27 +271,23 @@ class VolumeService:
 
         Returns:
             (ok, delta) — ok is False only when the local speaker refused; delta
-            is None when nothing moved.
+            is None when nothing was asked, else the largest move a room made
+            (0 when every room already sat at the limit asked for).
         """
         levels = {m: self._state_store.get_client_volume(m) for m in members}
         levels = {m: level for m, level in levels.items() if level is not None}
-        reach = [m for m in reachable if m in levels]
-        average = sum(levels[m] for m in reach) / len(reach) if reach else None
-        delta = resolve(average)
+        delta = resolve([levels[m] for m in reachable if m in levels])
         if delta is None:
             return True, None
-        # Bounded by the reachable rooms; a group with none reachable (every
-        # speaker away) still moves as a block, bounded by all its rooms.
-        bounding = [levels[m] for m in (reach or levels)]
-        if bounding:
-            delta = self._volume_config.bound_block_delta(delta, max(bounding), min(bounding))
-        self._state_store.set_levels({m: level + delta for m, level in levels.items()})
-        local_future = self._submit_levels(reach)
+        moved = {m: self._volume_config.move_level(level, delta) for m, level in levels.items()}
+        self._state_store.set_levels(moved)
+        local_future = self._submit_levels([m for m in reachable if m in levels])
+        applied = max((moved[m] - levels[m] for m in levels), key=abs, default=0.0)
 
         if local_future is not None and not await local_future:
             self.logger.error("LOCAL server volume update failed — server audio may be silent")
-            return False, delta
-        return True, delta
+            return False, applied
+        return True, applied
 
     # ============================================================================
     # EXPOSED SUB-SERVICES
@@ -659,10 +653,10 @@ class VolumeService:
         hardware. A member that was away during the adjustment therefore comes
         back at the level its room moved to, not the one it left. An entirely
         offline zone therefore moves too: a delta needs no average. The delta
-        applied is less than the one asked when the zone's loudest room meets a
-        limit first.
+        applied is the largest move a room made — less than the one asked only
+        when every room met a limit first.
         """
-        return await self._move_zone(zone_id, lambda average: delta_db)
+        return await self._move_zone(zone_id, lambda levels: delta_db)
 
     async def set_zone_volume(self, zone_id: str, target_db: float) -> Tuple[float, float]:
         """Move a zone so its average lands on `target_db`. Returns (average, delta).
@@ -674,15 +668,17 @@ class VolumeService:
         deltas up. A zone with no member online has no average to aim at, and
         moves nothing.
         """
-        target_db = self._volume_config.clamp(target_db)
-        return await self._move_zone(
-            zone_id,
-            lambda average: None if average is None else target_db - average,
-        )
+        return await self._move_zone(zone_id, self._aim(target_db))
+
+    def _aim(self, target_db: float) -> Callable[[List[float]], Optional[float]]:
+        """An absolute move: the delta landing the reachable rooms' average on
+        `target_db`, or nothing with no room reachable — no average to aim."""
+        return lambda levels: (self._volume_config.delta_to_average(levels, target_db)
+                               if levels else None)
 
     async def _move_zone(self, zone_id: str,
-                         resolve: Callable[[Optional[float]], Optional[float]]) -> Tuple[float, float]:
-        """Move a zone's members by the delta `resolve` derives from their average.
+                         resolve: Callable[[List[float]], Optional[float]]) -> Tuple[float, float]:
+        """Move a zone's members by the delta `resolve` derives from their levels.
 
         Returns (new average, delta applied).
 
@@ -980,10 +976,7 @@ class VolumeService:
         group = self._global_members()
         if group is None:
             return False
-        target_db = self._volume_config.clamp(volume_db)
-        success, _ = await self._move(
-            *group, lambda average: None if average is None else target_db - average
-        )
+        success, _ = await self._move(*group, self._aim(volume_db))
         # Even when the local speaker refused: the levels were written and the
         # satellites were sent theirs, and every screen must show them.
         await self.broadcast_volume_state(show_bar)
@@ -996,7 +989,7 @@ class VolumeService:
         group = self._global_members()
         if group is None:
             return False
-        success, _ = await self._move(*group, lambda average: delta_db)
+        success, _ = await self._move(*group, lambda levels: delta_db)
         # In the background: the rotary's accumulator awaits this call before
         # sending its next batch, and the snapshot a broadcast builds has no
         # business pacing the knob.

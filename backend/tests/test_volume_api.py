@@ -283,7 +283,7 @@ class TestZoneVolumeDelta:
     def mock_volume_service(self):
         """Create a mock VolumeService for zone tests."""
         service = MagicMock()
-        # (new average, delta applied): 3 of the 5 asked, the loudest room at the ceiling
+        # (new average, delta applied): 3 of the 5 asked, every room at the ceiling
         service.apply_zone_volume_delta = AsyncMock(return_value=(-35.0, 3.0))
         service.get_volume_state = AsyncMock()
         return service

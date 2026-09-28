@@ -401,7 +401,7 @@ class TestZoneVolumeSynchronization:
         Test a zone delta respects volume limits.
 
         Validates:
-        - The zone moves as a block, stopped by its loudest room at the max
+        - No room is moved past the max; each stops there on its own
         """
         store = volume_state_store_with_registry
 
@@ -414,12 +414,12 @@ class TestZoneVolumeSynchronization:
             client_ids=["local", "bedroom"]
         )
 
-        # Try to apply delta that would exceed max: the block stops when its
-        # loudest room (bedroom, -25) reaches -21, so everyone moves +4
+        # A delta that would exceed max: bedroom (-25) stops at -21 after +4,
+        # local (-30) after +9
         await _move_zone(store, registry_with_clients, "living_room", 10.0)
 
-        assert store.get_client_volume("bedroom") == -21.0  # at the max
-        assert store.get_client_volume("local") == -26.0  # kept its 5 dB below
+        assert store.get_client_volume("bedroom") == -21.0
+        assert store.get_client_volume("local") == -21.0
 
 
 # ==============================================================================
