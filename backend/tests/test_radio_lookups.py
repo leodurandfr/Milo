@@ -3,8 +3,9 @@
 
 Measured 2026-08-25: `browser_api.py` ran at 72,3 % and four of its public
 methods were never entered — `fetch_remote_station`, `get_station_by_id`,
-`get_stations_by_ids` and `increment_station_clicks`. Between them they are how
-a favourite becomes a row in the list and how a tap becomes a stream URL, so the
+`get_stations_by_ids` (since deleted) and `increment_station_clicks`. Between
+them they are how a favorite becomes a row in the list and how a tap becomes a
+stream URL, so the
 directory's *quality* filters were deciding the fate of stations the user had
 already chosen, with nothing watching.
 
@@ -62,8 +63,8 @@ class TestAnExplicitLookupIsNotASearch:
     """`fetch_remote_station` resolves a station the caller already named.
 
     It sits under `get_station_by_id` (a tap on a station), under
-    `get_stations_by_ids` (the favourites list) and under
-    `get_station_metadata` (a favourite with no cached record). Applying the
+    `get_station_metadata` (a favorite with no cached record) and under the
+    restore of a favorite's original metadata. Applying the
     directory's health filters here does not improve a list — it deletes a
     station the user chose.
     """
@@ -115,7 +116,7 @@ class TestAnExplicitLookupIsNotASearch:
             _remote(stationuuid="dead", name="Dead", lastcheckok=0),
             _remote(stationuuid="mystery", name="Mystery", codec="UNKNOWN"),
         ])):
-            stations = await api._fetch_stations_by_query("x")
+            stations = await api._fetch_with_search_params({"name": "x"})
 
         assert [s["name"] for s in stations] == ["Good"]
 
@@ -190,102 +191,6 @@ class TestCustomStationsResolveLocally:
             assert await api.get_station_by_id("custom_gone") is None
 
         request.assert_awaited_once()
-
-
-class TestBatchResolution:
-    """`get_stations_by_ids` builds the favourites list."""
-
-    @pytest.mark.asyncio
-    async def test_an_empty_request_asks_the_directory_nothing(self, api):
-        with patch.object(api, "_request", new=AsyncMock()) as request:
-            assert await api.get_stations_by_ids([]) == []
-        request.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_custom_and_directory_ids_are_both_returned(self, api):
-        api.station_manager = Mock()
-        api.station_manager.get_custom_station_by_id = Mock(
-            return_value={"id": "custom_1", "name": "Mine",
-                          "url": "http://mine", "favicon": "https://x/512x512.png"}
-        )
-
-        with patch.object(api, "fetch_remote_station",
-                          new=AsyncMock(return_value={
-                              "id": "s1", "name": "FIP", "url": "http://stream/fip",
-                              "favicon": "https://cdn/fip-512x512.png"})):
-            stations = await api.get_stations_by_ids(["custom_1", "s1"])
-
-        assert {s["name"] for s in stations} == {"Mine", "FIP"}
-
-    @pytest.mark.asyncio
-    async def test_a_station_the_directory_cannot_resolve_is_skipped_not_fatal(
-        self, api
-    ):
-        """One dead id must not empty the user's whole favourites list."""
-        async def _fetch(station_id):
-            return None if station_id == "gone" else {
-                "id": station_id, "name": "FIP", "url": "http://x",
-                "favicon": "https://cdn/fip-512x512.png"}
-
-        with patch.object(api, "fetch_remote_station", new=AsyncMock(side_effect=_fetch)):
-            stations = await api.get_stations_by_ids(["gone", "s1"])
-
-        assert [s["id"] for s in stations] == ["s1"]
-
-    @pytest.mark.asyncio
-    async def test_a_station_with_a_poor_favicon_is_searched_by_name(self, api):
-        """The list is a grid of logos: a favourite with no usable icon falls
-        back to a generated monogram, so the by-name search is what puts the
-        real logo back."""
-        with patch.object(api, "fetch_remote_station", new=AsyncMock(return_value={
-            "id": "s1", "name": "FIP", "url": "http://x", "favicon": ""
-        })), patch.object(api, "_fetch_stations_by_query",
-                          new=AsyncMock(return_value=[])) as by_name:
-            await api.get_stations_by_ids(["s1"])
-
-        by_name.assert_awaited_once_with("FIP")
-
-    @pytest.mark.asyncio
-    async def test_a_station_with_a_good_favicon_costs_no_extra_lookup(self, api):
-        with patch.object(api, "fetch_remote_station", new=AsyncMock(return_value={
-            "id": "s1", "name": "FIP", "url": "http://x",
-            "favicon": "https://cdn.example.com/fip-512x512.png"
-        })), patch.object(api, "_fetch_stations_by_query",
-                          new=AsyncMock(return_value=[])) as by_name:
-            await api.get_stations_by_ids(["s1"])
-
-        by_name.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_only_same_named_results_are_admitted_as_alternatives(self, api):
-        """The by-name search is a broad match. Admitting everything it returns
-        puts strangers' stations into the user's favourites list."""
-        with patch.object(api, "fetch_remote_station", new=AsyncMock(return_value={
-            "id": "s1", "name": "FIP", "url": "http://x", "favicon": ""
-        })), patch.object(api, "_fetch_stations_by_query", new=AsyncMock(return_value=[
-            {"id": "alt", "name": "fip ", "url": "http://alt",
-             "favicon": "https://cdn/fip-512x512.png", "bitrate": 128},
-            {"id": "other", "name": "FIP Rock", "url": "http://rock",
-             "favicon": "https://cdn/rock-512x512.png", "bitrate": 128},
-        ])):
-            stations = await api.get_stations_by_ids(["s1"])
-
-        assert "FIP Rock" not in {s["name"] for s in stations}
-
-    @pytest.mark.asyncio
-    async def test_the_alternatives_are_merged_away_not_appended(self, api):
-        """Deduplication is how the alternative's logo reaches the original
-        entry. Without it the list shows the same station twice."""
-        with patch.object(api, "fetch_remote_station", new=AsyncMock(return_value={
-            "id": "s1", "name": "FIP", "url": "http://x", "favicon": "", "bitrate": 128
-        })), patch.object(api, "_fetch_stations_by_query", new=AsyncMock(return_value=[
-            {"id": "alt", "name": "FIP", "url": "http://alt",
-             "favicon": "https://cdn/fip-512x512.png", "bitrate": 128},
-        ])):
-            stations = await api.get_stations_by_ids(["s1"])
-
-        assert len(stations) == 1
-        assert stations[0]["favicon"] == "https://cdn/fip-512x512.png"
 
 
 class TestClickCounter:
@@ -514,9 +419,9 @@ class TestRestoringAFavourite:
     @pytest.mark.asyncio
     async def test_a_refetched_original_replaces_the_override(self, store):
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[
+        radio_api.fetch_remote_station = AsyncMock(return_value=(
             {"id": "s1", "name": "FIP", "url": "http://stream/fip"}
-        ])
+        ))
 
         result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
@@ -529,7 +434,7 @@ class TestRestoringAFavourite:
         """A favourite added through the UI already carries its record."""
         store._favorites_cache = {"s1": {"name": "FIP", "url": "http://stream/fip"}}
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[])
+        radio_api.fetch_remote_station = AsyncMock(return_value=None)
 
         result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
@@ -539,7 +444,7 @@ class TestRestoringAFavourite:
     @pytest.mark.asyncio
     async def test_nothing_to_restore_keeps_the_users_edit(self, store):
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[])
+        radio_api.fetch_remote_station = AsyncMock(return_value=None)
 
         result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
@@ -556,7 +461,7 @@ class TestRestoringAFavourite:
         )
         store._modified_metadata["s1"]["image_filename"] = filename
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[])
+        radio_api.fetch_remote_station = AsyncMock(return_value=None)
 
         await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
@@ -569,25 +474,42 @@ class TestRestoringAFavourite:
         )
         store._modified_metadata["s1"]["image_filename"] = filename
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[
+        radio_api.fetch_remote_station = AsyncMock(return_value=(
             {"id": "s1", "name": "FIP", "url": "http://stream/fip"}
-        ])
+        ))
 
         await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
         assert not (store.image_manager.IMAGES_DIR / filename).exists()
 
     @pytest.mark.asyncio
-    async def test_a_directory_outage_never_deletes_anything(self, store):
+    async def test_the_original_is_the_station_itself_never_a_namesake(self, store):
+        """The refetch used to search by name when the logo looked poor, and the
+        merge could keep a same-named station's stream under this favorite's
+        id. The original is asked for by id, once."""
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(
-            side_effect=NetworkUnavailableError("all mirrors down")
-        )
+        radio_api.fetch_remote_station = AsyncMock(return_value=(
+            {"id": "s1", "name": "FIP", "url": "http://stream/fip"}
+        ))
 
-        result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
+        await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
-        assert result["success"] is False
-        assert store.get_modified_metadata()["s1"]["name"] == "My name"
+        radio_api.fetch_remote_station.assert_awaited_once_with("s1")
+        assert store._favorites_cache["s1"]["url"] == "http://stream/fip"
+
+    @pytest.mark.asyncio
+    async def test_a_hand_added_station_is_not_asked_of_the_directory(self, store):
+        """Its creation record is the original; the directory has never heard of it."""
+        store._manual_stations = {"custom_1": {"name": "Mine", "url": "http://mine"}}
+        store._modified_metadata["custom_1"] = {"name": "Renamed", "url": "http://mine"}
+        radio_api = Mock()
+        radio_api.fetch_remote_station = AsyncMock()
+
+        result = await store.restore_favorite_metadata("custom_1", radio_api=radio_api)
+
+        assert result["success"] is True
+        radio_api.fetch_remote_station.assert_not_awaited()
+        assert store.get_favorite_metadata_local("custom_1")["name"] == "Mine"
 
     @pytest.mark.asyncio
     async def test_a_station_that_was_never_edited_is_refused(self, store):
@@ -601,9 +523,9 @@ class TestRestoringAFavourite:
         """The stores hold stations by value: without the event the favourites
         list keeps serving the override, its deleted image included."""
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[
+        radio_api.fetch_remote_station = AsyncMock(return_value=(
             {"id": "s1", "name": "FIP", "url": "http://stream/fip"}
-        ])
+        ))
 
         await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
@@ -615,9 +537,9 @@ class TestRestoringAFavourite:
         """`favorites_cache` is keyed by id; a second `id` inside the value is
         what `_lookup_local` then stamps over."""
         radio_api = Mock()
-        radio_api.get_stations_by_ids = AsyncMock(return_value=[
+        radio_api.fetch_remote_station = AsyncMock(return_value=(
             {"id": "s1", "name": "FIP", "url": "http://stream/fip"}
-        ])
+        ))
 
         await store.restore_favorite_metadata("s1", radio_api=radio_api)
 

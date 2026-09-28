@@ -9,14 +9,9 @@ Provides REST API endpoints for:
 - Search: Search RadioBrowser API
 - Images: Serve station artwork
 """
-import asyncio
-import ipaddress
 import logging
-import socket
 from typing import Dict, Any, Optional
-from urllib.parse import urljoin, urlparse
 
-import aiohttp
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends, Request
 from backend.api.route_helpers import api_error_handler, run_source_command
 from backend.api.responses import RadioStationsResponse
@@ -487,124 +482,38 @@ async def get_station_image(
         return FileResponse(path=str(image_path), media_type=media_type, headers=headers)
 
 
-# A favicon URL is supplied by the *caller*, so the proxy fetches whatever it is
-# pointed at. Every legitimate target is on the public internet: `getFaviconUrl()`
-# returns a root-relative path unchanged, and a custom station has no favicon
-# field at all (its upload is served from /api/radio/images/), so the only URLs
-# that reach here come from radio-browser.info's public directory. Redirects are
-# therefore followed by hand rather than by aiohttp: each hop is re-checked, so a
-# public host cannot bounce the fetch onto the LAN.
-FAVICON_MAX_REDIRECTS = 3
-
-
-async def _favicon_target_allowed(url: str) -> bool:
-    """False when `url` is not http(s), or names an address on this LAN."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return False
-    if not parsed.hostname:
-        return False
-    try:
-        infos = await asyncio.get_running_loop().getaddrinfo(
-            parsed.hostname, None, type=socket.SOCK_STREAM
-        )
-    except (OSError, UnicodeError):
-        return False
-    if not infos:
-        return False
-    for info in infos:
-        try:
-            address = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        # `is_global` is the one predicate that covers loopback, RFC1918,
-        # link-local and the 100.64/10 carrier-grade NAT range.
-        if not address.is_global:
-            return False
-    return True
+# `nosniff` + a CSP that runs nothing: the bytes come from a host the directory
+# named, and are served from Milō's own origin. An `<img>` never executes them,
+# but a tab opened on this URL would.
+_FAVICON_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+    # The same URL answers WebP to a browser and JPEG to iOS.
+    "Vary": "Accept",
+}
 
 
 @router.get("/favicon")
-async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to proxy")) -> Response:
+async def get_favicon_proxy(
+    request: Request,
+    url: str = Query(..., description="External station logo URL"),
+    source: RadioSource = Depends(get_source),
+) -> Response:
     """
-    Proxy for radio station favicons.
+    A station's external logo, checked, squared and cached (see `logos.py`).
 
-    Solves CORS issues and handles HTTP→HTTPS redirects.
-    Returns 204 No Content when the favicon is unavailable or too small.
-
-    Args:
-        url: Original favicon URL
-
-    Returns:
-        Favicon image with CORS headers, or 204 if unavailable
+    204 when there is no usable logo: every client then draws the station's
+    generated avatar. Milo-Mac and the session artwork Milo-iOS reads call this
+    route too — its path and `?url=` are pinned by their manifests.
     """
-    cors_headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET",
-    }
-
-    try:
-        # Browser-like header set: many station hosts sit behind a WAF
-        # (Akamai, Cloudflare) that rejects requests with only a bare
-        # `User-Agent`. We mirror the headers a real <img> request carries
-        # (Accept image/*, sec-fetch-*, Accept-Language/Encoding) so favicons
-        # protected by header-fingerprinting reach us instead of 403'ing.
-        target = url
-        async with aiohttp.ClientSession() as session:
-            for _ in range(FAVICON_MAX_REDIRECTS + 1):
-                if not await _favicon_target_allowed(target):
-                    logger.debug("Favicon proxy refused target %s", target)
-                    return Response(status_code=204, headers=cors_headers)
-
-                async with session.get(
-                    target,
-                    timeout=aiohttp.ClientTimeout(total=5),
-                    allow_redirects=False,
-                    headers={
-                        'User-Agent': (
-                            'Mozilla/5.0 (X11; Linux aarch64) '
-                            'AppleWebKit/537.36 (KHTML, like Gecko) '
-                            'Chrome/120.0.0.0 Safari/537.36'
-                        ),
-                        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Accept-Encoding': 'gzip, deflate',
-                        'Sec-Fetch-Dest': 'image',
-                        'Sec-Fetch-Mode': 'no-cors',
-                        'Sec-Fetch-Site': 'cross-site',
-                    },
-                ) as resp:
-                    if resp.status in (301, 302, 303, 307, 308):
-                        location = resp.headers.get('Location')
-                        if not location:
-                            return Response(status_code=204, headers=cors_headers)
-                        target = urljoin(target, location)
-                        continue
-
-                    if resp.status != 200:
-                        return Response(status_code=204, headers=cors_headers)
-
-                    content = await resp.read()
-
-                    # Reject empty or tiny content (tracking pixels, broken icons)
-                    if not content or len(content) < 100:
-                        return Response(status_code=204, headers=cors_headers)
-
-                    content_type = resp.headers.get('Content-Type', 'image/x-icon')
-
-                    return Response(
-                        content=content,
-                        media_type=content_type,
-                        headers={
-                            "Cache-Control": "public, max-age=86400",
-                            **cors_headers,
-                        }
-                    )
-
-            return Response(status_code=204, headers=cors_headers)
-
-    except Exception as e:
-        # Resilience by design: an unreachable favicon host must never surface
-        # as an error — the UI falls back to its inline SVG on 204.
-        logger.debug("Favicon proxy fallback for %s: %s", url, e)
-        return Response(status_code=204, headers=cors_headers)
+    logo = await source.logos.get(url, request.headers.get("accept", ""))
+    if logo is None:
+        return Response(status_code=204, headers=_FAVICON_HEADERS)
+    content, media_type = logo
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400", **_FAVICON_HEADERS},
+    )

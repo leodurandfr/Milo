@@ -321,15 +321,14 @@ class TestSearchKeepsHandAddedStations:
         assert len(result["stations"]) == 300
 
 
-class TestFaviconQualityGate:
-    """The score decides what artwork a station card shows, and what it costs.
+class TestFaviconRank:
+    """The rank orders a station's candidate logos; it rejects only non-images.
 
-    Two thresholds read it and neither is cosmetic. `_normalize_station` blanks
-    any favicon under 10, so a rejected URL is a station that falls back to the
-    generated monogram. `get_stations_by_ids` treats anything under 20 as poor
-    and pays a *second* Radio Browser round trip per station to look for a better
-    one. A drift that lowers a whole family of URLs therefore either strips the
-    catalogue of its logos or multiplies the calls the favourites list makes.
+    Whether a URL is a usable image is settled by the logo cache, which fetches
+    it. The rank used to guess from the file's *name* and blanked every PNG
+    called "favicon" — measured on the 3000 most played stations, the images it
+    dropped were 180 px at the median, and the `.ico` files it kept 62 px. A
+    drift back to that strips the catalog of logos it can show.
     """
 
     @staticmethod
@@ -340,109 +339,146 @@ class TestFaviconQualityGate:
         "https://facebook.com/pages/x/logo.png",
         "https://scontent.fbcdn.net/logo.png",
         "https://dropbox.com/s/x/logo.png",
+        "https://drive.google.com/drive/u/0/my-drive",
         "https://cdn.example.com/logo.png?token=abcd",
         "https://cdn.example.com/logo.png?signature=abcd",
         "https://en.wikipedia.org/wiki/Radio_France",
-        "https://cdn.example.com/cropped-favicon.png",
+        "https://commons.wikimedia.org/wiki/File:Logo.svg",
     ])
-    def test_rejected_urls_are_blanked_by_normalize(self, api, url):
-        """Each of these scores under the 10 that _normalize_station requires."""
+    def test_a_url_that_is_not_an_image_is_blanked(self, api, url):
         assert self._with_favicon(api, url) == ""
 
     @pytest.mark.parametrize("url", [
-        "https://cdn.example.com/favicon.ico",       # exactly at the threshold
-        "https://cdn.example.com/logo.png",
+        "https://cdn.example.com/cropped-favicon-180x180.png",
+        "https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png",
+        "https://cdn.example.com/favicon.ico",
         "https://cdn.example.com/logo.webp",
-        "https://cdn.example.com/logo.jpg",
-        "https://upload.wikimedia.org/x/logo.png",
+        "https://upload.wikimedia.org/wikipedia/fr/thumb/c/c9/X.svg/1024px-X.svg.png",
     ])
-    def test_accepted_urls_survive_normalize(self, api, url):
+    def test_an_image_url_is_kept_whatever_it_is_called(self, api, url):
         assert self._with_favicon(api, url) == url
 
-    def test_a_vector_keeps_its_bonus_even_named_favicon(self, api):
-        """The one format the "favicon" penalty does not apply to.
+    def test_an_icon_ranks_below_a_picture(self, api):
+        assert api._favicon_rank("https://cdn.example.com/favicon.ico") < api._favicon_rank(
+            "https://cdn.example.com/favicon.png"
+        )
 
-        A raster called `cropped-favicon.png` is a thumbnail and is rejected; the
-        same name in SVG is scalable, so it is kept on purpose. The two must not
-        drift into agreeing — that is the difference between a crisp logo and a
-        monogram on the card.
-        """
-        svg = "https://cdn.example.com/cropped-favicon.svg"
-        png = "https://cdn.example.com/cropped-favicon.png"
-        assert self._with_favicon(api, svg) == svg
-        assert self._with_favicon(api, png) == ""
+    def test_a_url_announcing_an_icon_too_small_to_show_ranks_below_a_plain_one(self, api):
+        """The logo cache refuses under 48 px; picking it over a sibling whose
+        URL says nothing trades a likely logo for a certain avatar."""
+        assert api._favicon_rank("https://x.fr/favicon-32x32.png") < api._favicon_rank(
+            "https://x.fr/logo.png"
+        )
 
     def test_resolution_read_from_the_url_outranks_a_plain_image(self, api):
-        plain = api._get_favicon_quality("https://cdn.example.com/logo.png")
-        sized = api._get_favicon_quality("https://cdn.example.com/logo-512x512.png")
+        plain = api._favicon_rank("https://cdn.example.com/logo.png")
+        sized = api._favicon_rank("https://cdn.example.com/logo-512x512.png")
         assert sized > plain
 
     def test_the_last_resolution_in_the_url_is_the_one_that_counts(self, api):
         """`image-400x400-resized-180x180.png` is 180 wide, not 400."""
-        resized = api._get_favicon_quality("https://cdn.example.com/a-400x400-resized-180x180.png")
-        small = api._get_favicon_quality("https://cdn.example.com/a-180x180.png")
-        large = api._get_favicon_quality("https://cdn.example.com/a-400x400.png")
+        resized = api._favicon_rank("https://cdn.example.com/a-400x400-resized-180x180.png")
+        small = api._favicon_rank("https://cdn.example.com/a-180x180.png")
+        large = api._favicon_rank("https://cdn.example.com/a-400x400.png")
         assert resized == small
         assert resized < large
 
-    def test_a_rectangle_scores_on_its_smaller_side(self, api):
-        wide = api._get_favicon_quality("https://cdn.example.com/a-1200x200.png")
-        square = api._get_favicon_quality("https://cdn.example.com/a-200x200.png")
+    def test_a_rectangle_ranks_on_its_smaller_side(self, api):
+        wide = api._favicon_rank("https://cdn.example.com/a-1200x200.png")
+        square = api._favicon_rank("https://cdn.example.com/a-200x200.png")
         assert wide == square
 
-    def test_nothing_at_all_ranks_below_the_worst_url(self, api):
-        """_deduplicate_stations seeds its search with -1, so "" must lose."""
-        assert api._get_favicon_quality("") < api._get_favicon_quality(
-            "https://facebook.com/logo.png"
+    def test_a_wikimedia_thumbnail_width_is_read(self, api):
+        base = "https://upload.wikimedia.org/wikipedia/fr/thumb/c/c9/X.svg/"
+        assert api._favicon_rank(f"{base}1024px-X.svg.png") > api._favicon_rank(
+            f"{base}120px-X.svg.png"
         )
+
+    def test_nothing_at_all_ranks_below_the_worst_url(self, api):
+        """The merge takes the highest rank, so "" must lose to any candidate."""
+        assert api._favicon_rank("") < api._favicon_rank("https://facebook.com/logo.png")
 
 
 class TestDeduplicateMergesBestAudioWithBestImage:
     """One station published twice must come back once, taking the best of each.
 
-    This is the whole point of the pass: Radio Browser carries the same station
-    under several entries, and the good stream and the good logo are rarely the
-    same entry. Merging the wrong way round is invisible in a list — it shows up
-    as a station that plays at 64 kbps, or one with no artwork while a sibling
-    entry had one.
+    Radio Browser carries the same station under several entries, and the good
+    stream and the good logo are rarely the same entry. Merging the wrong way
+    round is invisible in a list — it shows up as a station that plays at
+    64 kbps, or one with no artwork while a sibling entry had one.
     """
 
-    @pytest.mark.asyncio
-    async def test_takes_the_url_of_the_best_stream_and_the_image_of_another(self, api):
+    def test_takes_the_url_of_the_best_stream_and_the_image_of_another(self, api):
         loud = api._normalize_station(_raw(
             "FIP", url_resolved="http://hi", bitrate=320, favicon=""))
         pretty = api._normalize_station(_raw(
             "FIP", url_resolved="http://lo", bitrate=64,
             favicon="https://cdn.example.com/fip-512x512.png"))
 
-        merged = await api._deduplicate_stations([loud, pretty])
+        merged = api._deduplicate([loud, pretty])
 
         assert len(merged) == 1
         assert merged[0]["url"] == "http://hi"
         assert merged[0]["favicon"] == "https://cdn.example.com/fip-512x512.png"
 
-    @pytest.mark.asyncio
-    async def test_groups_ignore_case_and_surrounding_space(self, api):
+    def test_groups_ignore_case_and_surrounding_space(self, api):
         versions = [
             api._normalize_station(_raw("FIP")),
             api._normalize_station(_raw("  fip  ")),
         ]
-        assert len(await api._deduplicate_stations(versions)) == 1
+        assert len(api._deduplicate(versions)) == 1
 
-    @pytest.mark.asyncio
-    async def test_distinct_stations_are_all_kept(self, api):
+    def test_distinct_stations_are_all_kept(self, api):
         versions = [api._normalize_station(_raw(n)) for n in ("FIP", "TSF", "Nova")]
-        merged = await api._deduplicate_stations(versions)
+        merged = api._deduplicate(versions)
         assert sorted(s["name"] for s in merged) == ["FIP", "Nova", "TSF"]
 
-    @pytest.mark.asyncio
-    async def test_a_lone_station_is_returned_untouched(self, api):
+    def test_a_lone_station_is_returned_untouched(self, api):
         only = api._normalize_station(_raw("FIP", favicon=""))
-        assert await api._deduplicate_stations([only]) == [only]
+        assert api._deduplicate([only]) == [only]
 
-    @pytest.mark.asyncio
-    async def test_an_empty_list_stays_empty(self, api):
-        assert await api._deduplicate_stations([]) == []
+    def test_an_empty_list_stays_empty(self, api):
+        assert api._deduplicate([]) == []
+
+
+class TestDeduplicateKeepsCountriesApart:
+    """Two stations sharing a name are two stations.
+
+    Grouping by name alone merged them: searching "Fun Radio" returned the
+    Slovak stream wearing the Slovak logo, and the French station was gone.
+    """
+
+    @staticmethod
+    def _station(api, country, url):
+        return api._normalize_station(_raw(
+            "Fun Radio", countrycode=country, url_resolved=url, stationuuid=url))
+
+    def test_the_same_name_in_two_countries_is_two_stations(self, api):
+        merged = api._deduplicate([
+            self._station(api, "FR", "http://fr"),
+            self._station(api, "SK", "http://sk"),
+        ])
+
+        assert sorted(s["url"] for s in merged) == ["http://fr", "http://sk"]
+
+    def test_a_variant_with_no_country_joins_the_only_country_its_name_has(self, api):
+        merged = api._deduplicate([
+            self._station(api, "FR", "http://fr"),
+            self._station(api, "", "http://unknown"),
+        ])
+
+        assert len(merged) == 1
+
+    def test_a_variant_with_no_country_stays_apart_when_its_name_has_several(self, api):
+        """Which station it belongs to is unknowable; merging it into one would
+        be a guess that can hand that station a stranger's stream."""
+        merged = api._deduplicate([
+            self._station(api, "FR", "http://fr"),
+            self._station(api, "SK", "http://sk"),
+            self._station(api, "", "http://unknown"),
+        ])
+
+        assert len(merged) == 3
 
 
 class _Resp:

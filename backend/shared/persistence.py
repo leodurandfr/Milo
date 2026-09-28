@@ -17,7 +17,7 @@ from typing import Any, Dict
 
 import aiofiles
 
-# Monotonic counter making each in-flight temp file unique (see save_versioned_json).
+# Monotonic counter making each in-flight temp file unique (see _unique_temp).
 _temp_counter = itertools.count()
 
 
@@ -94,8 +94,18 @@ def load_versioned_json_sync(file: Path, expected_version: int) -> Dict[str, Any
     return data
 
 
-def _write_atomically(file: Path, payload: Dict[str, Any], temp_file: Path) -> None:
-    """Serialize, fsync and rename into place. Blocking — call via ``to_thread``.
+def _unique_temp(file: Path) -> Path:
+    """A temp name beside ``file`` that no concurrent writer shares.
+
+    A shared ``<file>.tmp`` lets two writers collide: one truncates the other's
+    half-written temp, or the loser's ``os.replace`` finds it already renamed
+    away. PID + counter keep every temp distinct.
+    """
+    return file.with_name(f"{file.name}.{os.getpid()}.{next(_temp_counter)}.tmp")
+
+
+def _write_bytes_atomically(file: Path, data: bytes, temp_file: Path) -> None:
+    """Write, fsync and rename into place. Blocking — call via ``to_thread``.
 
     Every syscall of the sequence runs on the same worker thread. Wrapping only
     the write (aiofiles) left mkdir, fsync and replace on the event-loop thread,
@@ -104,9 +114,8 @@ def _write_atomically(file: Path, payload: Dict[str, Any], temp_file: Path) -> N
     """
     file.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(temp_file, "w", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False, indent=2))
-            f.write("\n")
+        with open(temp_file, "wb") as f:
+            f.write(data)
             f.flush()
             os.fsync(f.fileno())
 
@@ -118,6 +127,26 @@ def _write_atomically(file: Path, payload: Dict[str, Any], temp_file: Path) -> N
             os.unlink(temp_file)
 
 
+async def write_bytes_atomically(file: Path, data: bytes) -> None:
+    """Replace ``file`` with ``data`` atomically, off the event loop.
+
+    A reader meets the old content or the new one, never a partial file — which
+    matters most for caches, where a file's mere existence is the hit.
+    """
+    await asyncio.to_thread(_write_bytes_atomically, file, data, _unique_temp(file))
+
+
+def _write_json_atomically(file: Path, payload: Dict[str, Any], temp_file: Path) -> None:
+    """Serialize, then write atomically. Blocking — call via ``to_thread``.
+
+    Serialization belongs on the worker too: `indent=2` over a large payload
+    (radio favorites with their cached records, multiroom state) is time the
+    event loop would otherwise spend not answering the WebSocket.
+    """
+    text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    _write_bytes_atomically(file, text.encode("utf-8"), temp_file)
+
+
 async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) -> None:
     """Atomically write a versioned JSON file, stamping ``schema_version`` into the payload.
 
@@ -127,13 +156,8 @@ async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) ->
     payload = dict(data)
     payload["schema_version"] = version
 
-    # Unique temp name per write. A shared "<file>.tmp" lets concurrent writers
-    # collide: the first os.replace() renames it onto the final path, and the
-    # loser's os.replace() then raises FileNotFoundError. The same record reaches
-    # this primitive from several uncoordinated paths (e.g. the EQ debounced
-    # persist plus the access layer's persist_state/update_cache), so concurrent
-    # writes are real. PID + counter keep every temp distinct; os.replace stays
-    # atomic, so the final file is always a complete payload (last writer wins).
-    temp_file = file.with_name(f"{file.name}.{os.getpid()}.{next(_temp_counter)}.tmp")
-
-    await asyncio.to_thread(_write_atomically, file, payload, temp_file)
+    # Concurrent writes are real: the same record reaches this primitive from
+    # several uncoordinated paths (e.g. the EQ debounced persist plus the access
+    # layer's persist_state/update_cache). os.replace stays atomic, so the final
+    # file is always a complete payload (last writer wins).
+    await asyncio.to_thread(_write_json_atomically, file, payload, _unique_temp(file))

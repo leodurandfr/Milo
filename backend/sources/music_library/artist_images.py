@@ -26,14 +26,13 @@ file the user put beside their music). This is only the online tier, reached
 when Navidrome has nothing — so a user who ships their own art keeps it.
 """
 import asyncio
-import contextlib
 import hashlib
-import itertools
 import logging
 import os
 import re
 import time
 import unicodedata
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiofiles
@@ -41,6 +40,7 @@ import aiohttp
 
 from backend.config.constants import ARTIST_IMAGES_DIR
 from backend.shared.network import describe_network_error, is_network_error
+from backend.shared.persistence import write_bytes_atomically
 
 logger = logging.getLogger("source.music_library.artist_images")
 
@@ -106,32 +106,6 @@ def parse_artist_cover_id(cover_id: str) -> Optional[str]:
 
 
 _WHITESPACE_RE = re.compile(r"\s+")
-
-# Distinguishes one cache write from another; see _write_cache.
-_temp_counter = itertools.count()
-
-
-def _write_bytes_atomically(path: str, data: bytes, temp_path: str) -> None:
-    """Write, fsync and rename into place. Blocking — call via ``to_thread``.
-
-    Every syscall runs on the same worker thread. Offloading only the write would
-    leave mkdir, fsync and replace on the event-loop thread, where an fsync on a
-    busy SD card stalls every WS, HTTP and monitor task — the measurement
-    ``shared/persistence.py::_write_atomically`` was written from.
-    """
-    os.makedirs(os.path.dirname(temp_path), exist_ok=True)
-    try:
-        with open(temp_path, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temp_path, path)
-    finally:
-        # Renamed away on success (unlink → FileNotFoundError, suppressed); on any
-        # failure or cancellation, drop our own temp so it cannot leak.
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(temp_path)
-
 
 def normalize_name(name: str) -> str:
     """The form two artist names are compared in: accents folded away, case
@@ -384,15 +358,13 @@ class ArtistImageService:
     async def _write_cache(path: str, data: bytes) -> None:
         """Store the photo, atomically and off the event loop.
 
-        The temp name is unique per write, not a shared ``<path>.tmp``: the same
-        artist is resolved by two concurrent requests as soon as it appears in
-        both the A–Z list and a search, and a shared temp lets one writer
-        truncate the other's file so ``os.replace`` publishes a half-written
+        The same artist is resolved by two concurrent requests as soon as it
+        appears in both the A–Z list and a search; the shared primitive gives
+        each write its own temp, so neither can publish the other's half-written
         JPEG. That would be permanent — a cache hit is decided by the file
         existing, and nothing ever re-reads it.
         """
-        temp_path = f"{path}.{os.getpid()}.{next(_temp_counter)}.tmp"
         try:
-            await asyncio.to_thread(_write_bytes_atomically, path, data, temp_path)
+            await write_bytes_atomically(Path(path), data)
         except OSError as exc:
             logger.warning("Could not cache artist photo %s: %s", path, exc)

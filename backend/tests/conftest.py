@@ -89,15 +89,18 @@ def keep_the_suite_out_of_the_live_store_folders(tmp_path_factory):
     Session-scoped and autouse for the same reason as the env fixture: both
     constructors are reached through many paths, and a test that acquires one
     more must not have to know this exists. The files that already repoint these
-    two per-test keep winning -- function-scoped monkeypatch undoes first.
+    per-test keep winning -- function-scoped monkeypatch undoes first.
+    `StationLogos` joined them: every radio source sweeps its cache at initialize.
     """
     from backend.core.volume.state import VolumeStateStore
     from backend.sources.radio.data import ImageManager
+    from backend.sources.radio.logos import StationLogos
 
     tmp = tmp_path_factory.mktemp("stores")
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(VolumeStateStore, "STORAGE_PATH", tmp / "last_volume.json")
         mp.setattr(ImageManager, "IMAGES_DIR", tmp / "radio_images")
+        mp.setattr(StationLogos, "LOGOS_DIR", tmp / "radio_logos")
         yield
 
 

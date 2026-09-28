@@ -32,6 +32,7 @@ from backend.core.models.session import (
 from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
+from backend.sources.radio.logos import StationLogos
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
@@ -209,6 +210,9 @@ class RadioSource(MpvAudioSource):
         )
         self._station_data.radio_api = self._radio_api
 
+        # External station logos, served by /api/radio/favicon whatever plays.
+        self._logos = StationLogos()
+
         self._shazam: Optional[ShazamRecognitionService] = None
 
         # Resolves cover art for in-band tracks (which carry no artwork) from
@@ -221,6 +225,7 @@ class RadioSource(MpvAudioSource):
     async def initialize(self) -> bool:
         """Initialize station data (call at startup for API access)."""
         await self._station_data.initialize()
+        await self._logos.initialize()
         self._logger.info("Radio station data initialized")
         return await super().initialize()
 
@@ -715,3 +720,12 @@ class RadioSource(MpvAudioSource):
     def radio_api(self) -> Optional[RadioBrowserAPI]:
         """Get RadioBrowser API client."""
         return self._radio_api
+
+    async def shutdown(self) -> None:
+        await super().shutdown()
+        await self._logos.cleanup()
+
+    @property
+    def logos(self) -> StationLogos:
+        """The cache behind /api/radio/favicon."""
+        return self._logos

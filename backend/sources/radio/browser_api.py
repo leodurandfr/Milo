@@ -5,9 +5,10 @@ import asyncio
 import aiohttp
 import logging
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from backend.sources.radio.genres import extract_valid_genre
+from backend.sources.radio.logos import MIN_LOGO_PX
 from backend.sources.radio.server_discovery import ServerDiscovery
 from backend.shared.decorators import handle_errors
 from backend.shared.network import NetworkUnavailableError
@@ -25,6 +26,30 @@ MAX_SEARCH_RESULTS = 10000
 # query's payload by more than 3×. Results come back sorted by votes, so what
 # the bound drops is the least-voted tail of a list the UI pages 40 at a time.
 SEARCH_OVERFETCH = 2
+
+# URLs that name something other than an image: a wiki page, a share page, a
+# drive folder, or a signed link that expires. Nothing downstream can draw them.
+_NOT_AN_IMAGE = (
+    'wikipedia.org/wiki/', 'wikimedia.org/wiki/', '#/media/',
+    'facebook.com', 'fbcdn.net', 'dropbox.com', 'drive.google.com', 'googledrive.com',
+    'onedrive.com', 'sharepoint.com', 'syncusercontent.com',
+    '?timestamp=', '?token=', '?signature=',
+)
+_DIMENSIONS_RE = re.compile(r'(\d+)x(\d+)')
+_WIKIMEDIA_WIDTH_RE = re.compile(r'/(?:lang[a-z-]+-)?(\d+)px-')
+
+
+def _size_hint(url: str) -> int:
+    """The image size a URL announces, 0 when it says nothing.
+
+    The last `WxH` wins (`logo-400x400-resized-180x180.png` is 180) and a
+    rectangle counts by its smaller side; a Wikimedia thumbnail says `NNNpx-`.
+    """
+    dimensions = _DIMENSIONS_RE.findall(url)
+    if dimensions:
+        return min(map(int, dimensions[-1]))
+    width = _WIKIMEDIA_WIDTH_RE.search(url)
+    return int(width.group(1)) if width else 0
 
 
 class RadioBrowserAPI:
@@ -125,58 +150,6 @@ class RadioBrowserAPI:
             f"All Radio Browser mirrors failed for /{endpoint}: {last_error}"
         )
 
-    async def _fetch_stations_by_query(self, query: str) -> List[Dict[str, Any]]:
-        """
-        Gets all stations matching a search query via the API
-        Global search among all stations from all countries
-
-        Args:
-            query: Search term (station name)
-
-        Returns:
-            List of normalized and filtered stations
-            (empty list on network failure — preserves the pre-rotation contract
-            for callers like get_stations_by_ids' favicon-fallback loop)
-        """
-        try:
-            # Exact-name lookup (favicon resolution): a station rarely has more
-            # than a handful of URL variants, so a broad limit was waste.
-            # Order server-side by bitrate so the strongest variants survive the
-            # cap even when a name is very common (final ranking is client-side).
-            stations = await self._request(
-                "stations/search",
-                params={
-                    "name": query,
-                    "limit": 100,
-                    "order": "bitrate",
-                    "reverse": "true",
-                    "hidebroken": "true",
-                },
-                timeout=15,
-            )
-        except NetworkUnavailableError as e:
-            self.logger.info(f"Network unavailable for query '{query}': {e}")
-            return []
-
-        if not stations:
-            return []
-
-        self.logger.debug(f"Fetched {len(stations)} stations for query '{query}'")
-
-        valid_stations = [
-            self._normalize_station(station)
-            for station in stations
-            if self._is_valid_station(station)
-        ]
-
-        deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-        self.logger.info(
-            f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'"
-        )
-
-        return deduplicated_stations
-
     async def fetch_remote_station(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
         Gets station by ID via the API
@@ -231,19 +204,7 @@ class RadioBrowserAPI:
         if not stations:
             return []
 
-        self.logger.debug(f"Fetched {len(stations)} top stations")
-
-        valid_stations = [
-            self._normalize_station(station)
-            for station in stations
-            if self._is_valid_station(station)
-        ]
-
-        deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-        self.logger.info(f"Returning {len(deduplicated_stations)} top stations")
-
-        return deduplicated_stations
+        return self._prepare(stations, "top stations")
 
     def _is_valid_station(self, station: Dict[str, Any]) -> bool:
         """Search-result quality filter: keep only stations worth *offering*.
@@ -277,78 +238,36 @@ class RadioBrowserAPI:
         """
         return bool(station.get('url_resolved') and station.get('name'))
 
-    def _get_favicon_quality(self, url: str) -> int:
-        """
-        Evaluates the quality of a favicon to prioritize the best sources
+    def _favicon_rank(self, url: str) -> int:
+        """Orders a station's candidate logos; 0 or less means "not a logo".
 
-        Args:
-            url: Favicon URL
-
-        Returns:
-            Quality score (higher = better)
+        Only an ordering: whether a URL really is a usable image is settled by
+        the logo cache (`logos.py`), which fetches and checks it. So the rank
+        rejects nothing but URLs that are not images at all, and otherwise
+        prefers what the URL says is large. It used to guess quality from the
+        file's *name* too, and dropped every PNG called "favicon": measured on
+        the 3000 most played stations, the images it dropped were 180 px at
+        the median, and the `.ico` files it kept 62 px.
         """
         if not url:
             return -1
-
         url_lower = url.lower()
-
-        # Reject URLs that cause CORS problems or are temporary
-        problematic_domains = [
-            'facebook.com', 'fbcdn.net', 'dropbox.com',
-            'googledrive.com', 'onedrive.com', 'sharepoint.com',
-            'syncusercontent.com'
-        ]
-
-        if any(domain in url_lower for domain in problematic_domains):
-            return 0  # Very poor quality
-
-        # Reject URLs with tokens/timestamps (often temporary)
-        if any(param in url_lower for param in ['?timestamp=', '?token=', '?signature=']):
+        if any(marker in url_lower for marker in _NOT_AN_IMAGE):
             return 0
 
-        # Reject Wikipedia pages (not direct images)
-        if 'wikipedia.org/wiki/' in url_lower or '#/media/' in url_lower:
-            return 5  # Very poor quality (web page, not image)
-
-        # favicon.ico = low quality
-        if 'favicon.ico' in url_lower:
-            return 10
-
-        # Prefer direct images from reliable sources
-        quality = 50
-
-        # Bonus for Wikimedia (direct images, not Wikipedia pages)
+        size = _size_hint(url_lower)
+        if 0 < size < MIN_LOGO_PX:
+            # The logo cache refuses it: any URL that says nothing is a better bet.
+            rank = 50
+        else:
+            rank = 100 + min(size, 1024)
         if 'upload.wikimedia.org' in url_lower:
-            quality += 100
-
-        # Detect if the name contains "favicon" (e.g.: cropped-favicon.png)
-        # Penalize these images as they are generally of lower quality than "official" images
-        contains_favicon = 'favicon' in url_lower and 'favicon.ico' not in url_lower
-
-        # Bonus for image formats. The "favicon" penalty applies to raster
-        # formats only: it exists because a file named "favicon" is usually a
-        # small cropped bitmap, and a vector has no resolution to be cropped out
-        # of — SVG keeping its full bonus is the rule, not an oversight.
+            rank += 100  # reliable once logos.repair_url fixes the width
         if '.svg' in url_lower:
-            quality += 30
-        elif '.png' in url_lower:
-            quality += 20 if not contains_favicon else -50
-        elif '.webp' in url_lower:
-            quality += 20 if not contains_favicon else -50
-        elif '.jpg' in url_lower or '.jpeg' in url_lower:
-            quality += 15 if not contains_favicon else -50
-
-        # Bonus for resolution detected in URL (e.g.: 1260x1260, 180x180)
-        # Search for all occurrences of widthxheight pattern
-        resolution_matches = re.findall(r'(\d+)x(\d+)', url_lower)
-        if resolution_matches:
-            # Take the LAST occurrence (e.g.: image-400x400-resized-180x180.png → 180x180)
-            width, height = map(int, resolution_matches[-1])
-            # Bonus = minimum dimension (works for squares and rectangles)
-            resolution_bonus = min(width, height)
-            quality += resolution_bonus
-
-        return quality
+            rank += 30
+        if '.ico' in url_lower:
+            rank -= 40
+        return rank
 
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -360,13 +279,9 @@ class RadioBrowserAPI:
         Returns:
             Normalized station
         """
-        # Clean the favicon (avoid problematic URLs)
-        favicon = station.get('favicon', '')
-        if favicon:
-            # Filter low quality favicons
-            if self._get_favicon_quality(favicon) < 10:
-                favicon = ''
-            # Note: No HTTP→HTTPS conversion, the backend proxy will handle redirects
+        favicon = (station.get('favicon') or '').strip()
+        if self._favicon_rank(favicon) <= 0:
+            favicon = ''
 
         # `or 0` (not `.get(k, 0)`): radio-browser can send an explicit null for a
         # numeric field, and `.get` only defaults a *missing* key — a null would
@@ -418,97 +333,70 @@ class RadioBrowserAPI:
             station.get('score', 0),
         )
 
-    async def _deduplicate_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _deduplicate(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """One entry per station: the best stream of its variants, with the best logo.
+
+        radio-browser lists a station once per stream URL anyone submitted, so
+        its variants are grouped — by name *and country*. Grouping by name
+        alone merged different stations that share one: searching "Fun Radio"
+        returned the Slovak stream wearing the Slovak logo, and never the
+        French one. A variant with no country joins its name's group when that
+        name has exactly one country, since it is then that station too.
+
+        Order is the first appearance of each group; the stream comes from
+        `_ranking_key`, the logo from `_favicon_rank`.
         """
-        Deduplicates station list by name (case-insensitive)
-        For each group of duplicates, merges the best audio URL with the best image
-
-        Optimized strategy (WITHOUT blocking HTTP HEAD requests):
-        1. Group all versions of the same station by name
-        2. Choose the version with the best audio stream (highest score + bitrate)
-        3. Choose the best favicon based on URL quality only (no HEAD request)
-        4. Merge both to create the optimal station
-
-        Args:
-            stations: List of normalized stations
-
-        Returns:
-            List of deduplicated stations (preserves original order)
-        """
-        if not stations:
-            return []
-
-        # Group all versions of each station by name
-        stations_by_name = {}
-
+        by_key: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
         for station in stations:
-            station_key = station['name'].lower().strip()
+            key = (station['name'].casefold().strip(), station.get('countrycode') or '')
+            by_key.setdefault(key, []).append(station)
 
-            if station_key not in stations_by_name:
-                stations_by_name[station_key] = []
+        countries: Dict[str, set] = {}
+        for name, country in by_key:
+            if country:
+                countries.setdefault(name, set()).add(country)
 
-            stations_by_name[station_key].append(station)
+        groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+        for (name, country), versions in by_key.items():
+            if not country and len(countries.get(name, ())) == 1:
+                country = next(iter(countries[name]))
+            groups.setdefault((name, country), []).extend(versions)
 
-        # For each group of duplicates, create a merged station
         deduplicated = []
-
-        for station_name, versions in stations_by_name.items():
+        for versions in groups.values():
             if len(versions) == 1:
-                # No duplicates, keep as is
                 deduplicated.append(versions[0])
-            else:
-                # Multiple versions: merge best audio + best image
-
-                # 1. Find version with best audio stream (quality-first, then
-                #    metadata-likelihood, reliability, popularity — see _ranking_key)
-                best_audio = max(versions, key=self._ranking_key)
-
-                # 2. Find best favicon based on URL quality only (fast)
-                best_favicon = ""
-                best_favicon_quality = -1
-
-                for version in versions:
-                    favicon = version.get('favicon', '')
-                    # Always evaluate quality, even if empty (returns -1)
-                    url_quality = self._get_favicon_quality(favicon)
-                    if url_quality > best_favicon_quality:
-                        best_favicon_quality = url_quality
-                        best_favicon = favicon
-
-                # 3. Create merged station (best audio + best image)
-                merged_station = best_audio.copy()
-                merged_station['favicon'] = best_favicon
-
-                deduplicated.append(merged_station)
-
-                # Concise log for debug (only if duplicates merged)
-                if len(versions) > 1:
-                    self.logger.debug(
-                        f"Merged {len(versions)} versions of '{versions[0]['name']}' "
-                        f"(score={best_audio.get('score', 0)}, bitrate={best_audio.get('bitrate', 0)}, "
-                        f"favicon_quality={best_favicon_quality})"
-                    )
-
-        self.logger.debug(f"Deduplication: {len(stations)} → {len(deduplicated)} stations")
-
+                continue
+            merged = max(versions, key=self._ranking_key).copy()
+            merged['favicon'] = max(
+                (v.get('favicon', '') for v in versions), key=self._favicon_rank
+            )
+            deduplicated.append(merged)
         return deduplicated
+
+    def _prepare(self, raw: List[Dict[str, Any]], description: str) -> List[Dict[str, Any]]:
+        """Directory rows → the stations Milō offers: valid, normalized, deduplicated."""
+        valid = [self._normalize_station(s) for s in raw if self._is_valid_station(s)]
+        stations = self._deduplicate(valid)
+        self.logger.info(
+            f"[{description}] {len(raw)} raw → {len(valid)} valid → {len(stations)} deduplicated"
+        )
+        return stations
 
     def _build_search_params(
         self,
         query: str = "",
         country: str = "",
         genre: str = "",
-        order: str = "votes",
         limit: int = MAX_SEARCH_RESULTS
     ) -> Dict[str, Any]:
         """
-        Intelligently builds search parameters for the RadioBrowser API
+        Builds search parameters for the RadioBrowser API, most voted first
 
         Args:
             query: Search term
             country: Country filter
             genre: Genre filter (tag)
-            order: Sorting (votes, clickcount, name, etc.)
             limit: Max number of results
 
         Returns:
@@ -516,7 +404,7 @@ class RadioBrowserAPI:
         """
         params = {
             "limit": limit,
-            "order": order,
+            "order": "votes",
             "reverse": "true",  # Descending sort (best first)
             "hidebroken": "true"  # Hide non-functional stations
         }
@@ -563,23 +451,7 @@ class RadioBrowserAPI:
         if not stations:
             return []
 
-        self.logger.debug(f"Fetched {len(stations)} raw stations [{description}]")
-
-        valid_stations = [
-            self._normalize_station(station)
-            for station in stations
-            if self._is_valid_station(station)
-        ]
-
-        deduplicated_stations = await self._deduplicate_stations(valid_stations)
-
-        self.logger.info(
-            f"[{description}] {len(stations)} raw → "
-            f"{len(valid_stations)} valid → "
-            f"{len(deduplicated_stations)} deduplicated"
-        )
-
-        return deduplicated_stations
+        return self._prepare(stations, description)
 
     async def search_stations(
         self,
@@ -716,76 +588,6 @@ class RadioBrowserAPI:
         station = await self.fetch_remote_station(station_id)
 
         return station
-
-    async def get_stations_by_ids(self, station_ids: List[str]) -> List[Dict[str, Any]]:
-        """
-        Gets multiple stations by IDs in batch (includes custom stations)
-        For stations with missing/poor favicons, searches by name
-        to find better versions. Applies final deduplication.
-
-        Args:
-            station_ids: List of station UUIDs
-
-        Returns:
-            List of found stations with improved favicons
-        """
-        if not station_ids:
-            return []
-
-        stations = []
-        stations_needing_better_favicon = []
-
-        # Separate custom stations from regular stations
-        custom_ids = [sid for sid in station_ids if sid.startswith("custom_")]
-        regular_ids = [sid for sid in station_ids if not sid.startswith("custom_")]
-
-        if custom_ids and self.station_manager:
-            for station_id in custom_ids:
-                custom_station = self.station_manager.get_custom_station_by_id(station_id)
-                if custom_station:
-                    stations.append(custom_station)
-
-        for station_id in regular_ids:
-            station = await self.fetch_remote_station(station_id)
-
-            if station:
-                stations.append(station)
-
-                # If the favicon is empty or of poor quality, we'll try to find a better version
-                favicon_quality = self._get_favicon_quality(station.get('favicon', ''))
-                if favicon_quality < 20:  # Low threshold = no favicon or poor quality
-                    stations_needing_better_favicon.append(station)
-
-        # For stations with missing/poor favicons, search for better versions by name
-        if stations_needing_better_favicon:
-            self.logger.info(f"Searching better favicons for {len(stations_needing_better_favicon)} stations")
-
-            additional_stations = []
-            for station in stations_needing_better_favicon:
-                station_name = station.get('name', '')
-                if station_name:
-                    # Search by name to find other versions of this station
-                    search_results = await self._fetch_stations_by_query(station_name)
-
-                    # Keep only results that match the same name (case-insensitive)
-                    # to avoid adding irrelevant stations
-                    matching_results = [
-                        s for s in search_results
-                        if s.get('name', '').lower().strip() == station_name.lower().strip()
-                    ]
-
-                    additional_stations.extend(matching_results)
-
-            # Add found alternative versions
-            stations.extend(additional_stations)
-            self.logger.info(f"Found {len(additional_stations)} alternative versions with better favicons")
-
-        # IMPORTANT: Apply deduplication to merge versions and keep the best favicons
-        # Deduplication will compare all versions of each station (ID + alternatives by name)
-        # and keep the best favicon for each unique station
-        deduplicated_stations = await self._deduplicate_stations(stations)
-
-        return deduplicated_stations
 
     @handle_errors(default=False, level='debug')
     async def increment_station_clicks(self, station_id: str) -> bool:

@@ -34,6 +34,42 @@ from backend.shared.persistence import load_versioned_json, save_versioned_json
 REQUIRED_TOP_LEVEL_KEYS = ("favorites", "modified_metadata", "manual_stations", "favorites_cache")
 
 
+WEBP_QUALITY = 80
+JPEG_QUALITY = 88
+
+
+def has_alpha(image: Image.Image) -> bool:
+    """True when the image can carry transparency — what decides how it encodes."""
+    return image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info)
+
+
+def encode_webp(image: Image.Image) -> bytes:
+    """WebP, keeping transparency when the image has any."""
+    image = image.convert("RGBA" if has_alpha(image) else "RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="WEBP", quality=WEBP_QUALITY)
+    return buffer.getvalue()
+
+
+def encode_jpeg(image: Image.Image) -> bytes:
+    """JPEG, for the callers that cannot draw WebP (iOS).
+
+    A station logo is routinely transparent, and JPEG has no alpha: flattening
+    onto white keeps the artwork readable, where the default black turns a dark
+    logo into a square.
+    """
+    if image.mode in ("RGBA", "LA", "P"):
+        image = image.convert("RGBA")
+        flat = Image.new("RGB", image.size, (255, 255, 255))
+        flat.paste(image, mask=image.split()[-1])
+        image = flat
+    else:
+        image = image.convert("RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=JPEG_QUALITY)
+    return buffer.getvalue()
+
+
 class ImageManager:
     """
     Manages storage, validation, and cleanup of radio station images.
@@ -50,8 +86,6 @@ class ImageManager:
     MAX_FILE_SIZE_MB = 5
     MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
     MAX_DIMENSIONS = (1024, 1024)
-    WEBP_QUALITY = 80
-    JPEG_QUALITY = 88
 
     def __init__(self):
         self.logger = logging.getLogger("source.radio.images")
@@ -90,41 +124,10 @@ class ImageManager:
             if original_ext not in self.ALLOWED_EXTENSIONS:
                 return False, None, f"Unsupported format. Accepted: {', '.join(self.ALLOWED_EXTENSIONS)}"
 
-            # Open and validate image with PIL
-            try:
-                image = Image.open(io.BytesIO(file_content))
-                image.verify()
-                image = Image.open(io.BytesIO(file_content))
-
-                if image.format not in self.ALLOWED_FORMATS:
-                    return False, None, f"Unsupported image format: {image.format}"
-
-                width, height = image.size
-                if width < 50 or height < 50:
-                    return False, None, f"Image too small ({width}x{height}). Minimum: 50x50px"
-
-            except Exception as e:
-                self.logger.warning(f"Image validation failed: {e}")
-                return False, None, "Invalid or corrupted file"
-
-            # Process image: resize if needed and convert to WebP
-            try:
-                if width > self.MAX_DIMENSIONS[0] or height > self.MAX_DIMENSIONS[1]:
-                    image.thumbnail(self.MAX_DIMENSIONS, Image.Resampling.LANCZOS)
-
-                output_buffer = io.BytesIO()
-                if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
-                    image = image.convert('RGBA')
-                    image.save(output_buffer, format='WEBP', quality=self.WEBP_QUALITY, lossless=False)
-                else:
-                    image = image.convert('RGB')
-                    image.save(output_buffer, format='WEBP', quality=self.WEBP_QUALITY)
-
-                webp_content = output_buffer.getvalue()
-
-            except Exception as e:
-                self.logger.error(f"Image processing failed: {e}")
-                return False, None, "Error processing image"
+            # PIL is synchronous; the event loop also answers the WebSocket.
+            webp_content, error = await asyncio.to_thread(self._to_stored_webp, file_content)
+            if error:
+                return False, None, error
 
             # Generate unique file name
             unique_id = uuid.uuid4().hex[:12]
@@ -141,6 +144,34 @@ class ImageManager:
         except Exception as e:
             self.logger.error(f"Error saving image: {e}")
             return False, None, f"Error saving file: {str(e)}"
+
+    def _to_stored_webp(self, file_content: bytes) -> Tuple[Optional[bytes], Optional[str]]:
+        """Validate an upload and re-encode it as the stored WebP. Blocking.
+
+        Returns (webp, None) or (None, the reason shown to the user).
+        """
+        try:
+            image = Image.open(io.BytesIO(file_content))
+            image.verify()
+            image = Image.open(io.BytesIO(file_content))
+
+            if image.format not in self.ALLOWED_FORMATS:
+                return None, f"Unsupported image format: {image.format}"
+
+            width, height = image.size
+            if width < 50 or height < 50:
+                return None, f"Image too small ({width}x{height}). Minimum: 50x50px"
+
+        except Exception as e:
+            self.logger.warning(f"Image validation failed: {e}")
+            return None, "Invalid or corrupted file"
+
+        try:
+            image.thumbnail(self.MAX_DIMENSIONS, Image.Resampling.LANCZOS)
+            return encode_webp(image), None
+        except Exception as e:
+            self.logger.error(f"Image processing failed: {e}")
+            return None, "Error processing image"
 
     @handle_errors(default=False)
     async def delete_image(self, filename: str) -> bool:
@@ -197,19 +228,7 @@ class ImageManager:
         def _convert() -> Optional[bytes]:
             try:
                 with Image.open(source_path) as image:
-                    # A station logo is routinely transparent, and JPEG has no
-                    # alpha: flattening onto white keeps the artwork readable,
-                    # where the default black turns a dark logo into a square.
-                    if image.mode in ("RGBA", "LA", "P"):
-                        image = image.convert("RGBA")
-                        flat = Image.new("RGB", image.size, (255, 255, 255))
-                        flat.paste(image, mask=image.split()[-1])
-                        image = flat
-                    else:
-                        image = image.convert("RGB")
-                    buffer = io.BytesIO()
-                    image.save(buffer, format="JPEG", quality=self.JPEG_QUALITY)
-                    return buffer.getvalue()
+                    return encode_jpeg(image)
             except Exception as e:
                 self.logger.error(f"JPEG conversion failed for {filename}: {e}")
                 return None
@@ -765,10 +784,14 @@ class StationDataService:
             if station_id not in self._modified_metadata:
                 return {"success": False, "error": "Station has no modified metadata"}
 
-            if radio_api:
-                stations = await radio_api.get_stations_by_ids([station_id])
-                if stations:
-                    cached = stations[0].copy()
+            # A hand-added station has no directory record: its creation
+            # record is the original. A directory station is refetched by its
+            # own id — never matched by name, which could bring back another
+            # station's stream under this one's id.
+            if radio_api and station_id not in self._manual_stations:
+                station = await radio_api.fetch_remote_station(station_id)
+                if station:
+                    cached = station.copy()
                     cached.pop('id', None)
                     self._favorites_cache[station_id] = cached
 

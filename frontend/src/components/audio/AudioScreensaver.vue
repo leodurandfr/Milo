@@ -53,7 +53,8 @@
           </div>
 
           <div v-if="showBottomBar" class="station-bar stagger-4">
-            <img v-if="stationFavicon" :src="stationFavicon" alt="" class="station-favicon" />
+            <img v-if="shownStationFavicon" :src="shownStationFavicon" alt="" class="station-favicon"
+              @error="failedStationFavicon = shownStationFavicon" />
             <AppIcon v-else-if="stationIcon" :name="stationIcon" :size="40" class="station-icon" />
             <span class="station-name heading-4">{{ stationName }}</span>
           </div>
@@ -86,7 +87,7 @@
 </template>
 
 <script setup>
-import { computed, toRef } from 'vue';
+import { computed, ref, toRef } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import ProgressBar from './ProgressBar.vue';
@@ -208,6 +209,14 @@ const haloUrl = computed(() => {
 // Deliberate — a receiver session not fully up publishes no sender name, and
 // useScreensaver passes `stationIcon` unconditionally, expecting the bar to hide.
 const showBottomBar = computed(() => !!props.stationName);
+
+// A station logo the backend has no usable image for answers 204: drop it
+// rather than draw a broken image beside the name. Keyed on the URL, so the
+// next station's logo is tried afresh.
+const failedStationFavicon = ref(null);
+const shownStationFavicon = computed(() =>
+  props.stationFavicon !== failedStationFavicon.value ? props.stationFavicon : null
+);
 
 // Emit immediately; the parent flips isVisible and <Transition> plays the leave
 // animation. So a programmatic close (playback paused/stopped) fades out exactly

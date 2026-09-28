@@ -350,8 +350,13 @@ charts down, since its episodes come from the publisher.
 - IPC Socket: /run/milo/radio-ipc.sock
 - Audio output: ALSA (milo_radio)
 - API Endpoint: https://all.api.radio-browser.info/json
-- Cache duration: 60 minutes
-- Max image size: 10MB (JPG, PNG, WEBP, GIF)
+- Country list cache: 24 hours (stale copy served while every mirror is down)
+- Max upload size: 5MB (JPG, PNG, WEBP, GIF)
+- Station logos: every external logo goes through `GET /api/radio/favicon`, the
+  cache in `backend/sources/radio/logos.py` — Wikimedia thumbnail widths repaired
+  (hotlinks at a non-standard width answer 400), images under 48 px refused so the
+  generated avatar shows instead, wide logos padded to a square, WebP for browsers
+  and JPEG for iOS
 
 ### 5. Podcasts (mpv + Apple discovery + publisher RSS feeds)
 
@@ -866,7 +871,8 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 ```
 
 **radio_data.json** - Radio favorites and custom stations. Durable (`schema_version: 1`).
-**radio_images/** - Station artwork (WebP, ≤1024×1024): both auto-cached RadioBrowser logos and manually-uploaded custom-station art. Durable — the auto-cached share is regenerable, but user-uploaded art isn't, so the directory as a whole is treated as durable.
+**radio_images/** - Station artwork the user uploaded (custom stations, edited favorites), stored as WebP ≤1024×1024 with a JPEG rendition beside each for callers that cannot draw WebP. Durable — it is the user's own work.
+**radio_logos/** - External station logos (radio-browser's `favicon` URLs) as `GET /api/radio/favicon` serves them: fetched once, checked, padded to a square, WebP plus a lazy JPEG rendition, keyed by the SHA-256 of the repaired URL; `.miss` files remember a host that answered without a logo for 6 h. Disposable derived cache: no `schema_version`, safe to wipe, entries expire after 30 days. See `backend/sources/radio/logos.py`.
 **podcast_data.json** - Subscriptions, favorites, playback progress, playback-speed preference. Durable (`schema_version: 2`).
 **cd_data.json** - MusicBrainz disc-TOC/metadata lookup cache, keyed by disc ID. Disposable — no `schema_version`; re-fetched on next disc read if lost.
 **cd_covers/** - Downloaded CD cover art, keyed by disc ID. Disposable cache (re-downloadable from Cover Art Archive).

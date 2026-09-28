@@ -96,7 +96,7 @@ async def resolve_snapclient_config(settings_service) -> tuple:
 def _write_atomically(path: str, content: str, temp_path: str) -> None:
     """Write file atomically: temp file + fsync + os.replace. Blocking.
 
-    Twin of ``shared/persistence.py::_write_atomically`` for the three plain-text
+    Twin of ``shared/persistence.py::_write_bytes_atomically`` for the three plain-text
     env files, which carry no schema and cannot go through the versioned-JSON
     primitive. Every syscall runs on the same (worker) thread — see
     :func:`_atomic_write`.

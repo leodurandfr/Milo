@@ -56,6 +56,10 @@ MUSIC_LIBRARY_DATA_FILE = MILO_DATA_DIR / "music_library_data.json"
 # artist art is off — see artist_images.py). A disposable derived cache: no
 # schema_version, safe to delete, refills on demand one artist at a time.
 ARTIST_IMAGES_DIR = MILO_DATA_DIR / "artist_images"
+# External radio station logos, fetched once through /api/radio/favicon, checked,
+# squared and kept (see sources/radio/logos.py). A disposable derived cache: no
+# schema_version, safe to delete, refills on demand one logo at a time.
+RADIO_LOGOS_DIR = MILO_DATA_DIR / "radio_logos"
 NAVIDROME_DATA_DIR = MILO_DATA_DIR / "navidrome"   # Navidrome DataFolder (DB, cache)
 # Service-account credentials, provisioned once on first boot by
 # milo-navidrome-provision (milo-owned, 0600). Never in settings.json or WS.
