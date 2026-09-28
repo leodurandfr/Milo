@@ -25,7 +25,7 @@ from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB
 
-from .conftest import WebSocketEventCollector
+from backend.tests.conftest import WebSocketEventCollector
 from backend.tests.volume_world import world
 
 

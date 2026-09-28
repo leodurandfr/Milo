@@ -16,8 +16,11 @@ import aiofiles.threadpool
 import pytest
 from unittest.mock import Mock, AsyncMock
 from backend.config.constants import ERROR_LOG_FILE, MILO_DATA_DIR
-from backend.core.models.audio_state import NetworkRequirement
+from typing import Any, Dict, List
+
+from backend.core.models.audio_state import AudioSource, NetworkRequirement
 from backend.core.models.audio_wire import SourceView
+from backend.core.state import AudioStateMachine
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -373,6 +376,33 @@ def attach_registry_broadcaster(registry, state_machine) -> None:
     registry.subscribe(_forward)
 
 
+def shortened_wait_for(seconds: float = 0.05):
+    """`asyncio.wait_for` with its timeout cut to `seconds`, for a test that
+    drives a deadline and measures nothing about its value.
+
+    The production call still goes through a genuine wait_for, which cancels
+    the awaitable at the deadline — a stand-in that just raises TimeoutError
+    leaves it an un-awaited coroutine, and skips the very cancellation the
+    code under test relies on. The real function is captured here, so the
+    replacement never calls the name it replaces.
+    """
+    real_wait_for = asyncio.wait_for
+    return lambda awaitable, timeout=None: real_wait_for(
+        awaitable, seconds if timeout is None else min(timeout, seconds)
+    )
+
+
+def closing_spawn() -> Mock:
+    """A stand-in for `BackgroundTaskSet.spawn` that records the call and
+    closes the coroutine it was handed.
+
+    A bare Mock keeps the coroutine and drops it un-awaited: Python reports that
+    as a RuntimeWarning when it is garbage-collected — in whichever test runs
+    then, naming a coroutine that test never touched.
+    """
+    return Mock(side_effect=lambda coro, *args, **kwargs: coro.close())
+
+
 def events_of(broadcast_mock, category: str, type_: str) -> list:
     """Typed events of a (category, type) pair captured by a mocked
     `state_machine.broadcast` (AsyncMock)."""
@@ -439,6 +469,34 @@ def no_satellite_network(monkeypatch):
 
     monkeypatch.setattr(aiohttp, "ClientSession", _Session)
     return sent
+
+
+TESTS_ROOT = Path(__file__).parent
+
+
+def _in_tests_dir(request, name: str) -> bool:
+    """Whether the requesting test lives under tests/<name>/ — read relative to
+    this directory, so a checkout under a folder of that name matches nothing."""
+    return request.path.relative_to(TESTS_ROOT).parts[0] == name
+
+
+@pytest.fixture(autouse=True)
+def keep_integration_tests_off_the_satellite_api(request):
+    """Stand in for the satellite HTTP surface across tests/integration/.
+
+    Those tests mount components "without requiring actual system resources
+    (systemd, ALSA, network)", and the reconnection sync pushes the snapclient
+    buffer config to the client's registry IP — 192.168.1.1 through .10 here,
+    the operator's own LAN. Autouse, because the push is spawned deep inside
+    the sync. Scoped to the directory by path rather than by a conftest there:
+    pytest 9.1 does not load a directory's conftest again when one command line
+    comes back to it after another (`pytest integration/a.py b.py
+    integration/c.py` — c.py ran without it, the push went out for real). The
+    rest of the suite keeps the real aiohttp, so a transport a test forgot is
+    still caught by `fail_when_a_test_reaches_off_this_host`.
+    """
+    if _in_tests_dir(request, "integration"):
+        request.getfixturevalue("no_satellite_network")
 
 
 @pytest.fixture
@@ -617,3 +675,165 @@ def mock_camilla_client(camilla_daemon):
     client.get_playback_peak.return_value = [-25.0, -25.0]
 
     return client
+
+
+# --------------------------------------------------------------------------
+# The state machine with mocked I/O, and the WS events it broadcasts.
+#
+# All fixtures live in this one conftest, none in a sub-directory's: pytest
+# 9.1 does not load a directory's conftest again when a command line comes back
+# to that directory after another one (`pytest integration/a.py b.py
+# integration/c.py` — c.py ran without any of its fixtures, measured), so a
+# fixture declared there held or not depending on how the suite was invoked.
+# One meant for a directory alone checks the path (`_in_tests_dir`).
+# --------------------------------------------------------------------------
+
+class WebSocketEventCollector:
+    """
+    Collects WebSocket events for test assertions.
+
+    Mimics WebSocketManager.broadcast_dict() to capture all events
+    broadcast through the state machine during tests.
+    """
+
+    def __init__(self):
+        self.events: List[Dict[str, Any]] = []
+        self._lock = asyncio.Lock()
+
+    async def broadcast_dict(self, event_data: Dict[str, Any]) -> None:
+        """Capture event for later inspection (same signature as WebSocketManager)."""
+        async with self._lock:
+            self.events.append(event_data)
+
+    def clear(self) -> None:
+        """Clear collected events."""
+        self.events.clear()
+
+    def get_events_by_type(self, event_type: str) -> List[Dict[str, Any]]:
+        """Filter events by type."""
+        return [e for e in self.events if e.get("type") == event_type]
+
+
+def create_mock_source(source: AudioSource, start_success: bool = True) -> Mock:
+    """
+    Factory function to create a mock audio source for testing.
+
+    Args:
+        source: The audio source this mock represents
+        start_success: Whether source.start() should succeed
+
+    Returns:
+        Mock source implementing AudioSource interface
+    """
+    mock = Mock()
+    mock.source = source
+    mock.is_initialized = True
+
+    # Core interface methods
+    mock.initialize = AsyncMock(return_value=True)
+    mock.start = AsyncMock(return_value=start_success)
+    mock.stop = AsyncMock(return_value=True)
+    mock.command = AsyncMock(return_value={"success": True})
+    # What the state machine composes the state from: no session, available.
+    mock.view = SourceView()
+    mock.availability = Mock(return_value=None)
+    mock.NETWORK_REQUIREMENT = NetworkRequirement.NONE
+
+    return mock
+
+
+@pytest.fixture
+def websocket_collector() -> WebSocketEventCollector:
+    """
+    Fixture providing a WebSocket event collector.
+
+    Use this to capture and inspect events broadcast during tests.
+    """
+    return WebSocketEventCollector()
+
+
+@pytest.fixture
+def mock_routing_service() -> Mock:
+    """
+    Mock routing service to avoid systemd/ALSA calls.
+    """
+    service = Mock()
+    service.multiroom_enabled = False
+    service.get_state = Mock(return_value={
+        "multiroom_enabled": False,
+        "equalizer_effects_enabled": True
+    })
+    service.set_multiroom_enabled = AsyncMock(return_value=True)
+    service.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+    return service
+
+
+@pytest.fixture
+def mock_sources() -> Dict[AudioSource, Mock]:
+    """
+    Dictionary of mock sources for all audio sources.
+
+    Returns:
+        Dict mapping AudioSource to mock source
+    """
+    return {
+        AudioSource.SPOTIFY: create_mock_source(AudioSource.SPOTIFY),
+        AudioSource.RADIO: create_mock_source(AudioSource.RADIO),
+        AudioSource.PODCAST: create_mock_source(AudioSource.PODCAST),
+        AudioSource.BLUETOOTH: create_mock_source(AudioSource.BLUETOOTH),
+        AudioSource.MAC: create_mock_source(AudioSource.MAC),
+    }
+
+
+@pytest.fixture
+def integration_state_machine(
+    websocket_collector: WebSocketEventCollector,
+    mock_routing_service: Mock
+) -> AudioStateMachine:
+    """
+    Create a real state machine with mock dependencies for integration testing.
+
+    This fixture provides a fully functional state machine that can be used
+    to test transitions and state management without requiring actual
+    system resources.
+
+    The state machine is configured with:
+    - WebSocket collector to capture broadcast events
+    - Mock routing service to avoid systemd calls
+    - No sources registered (register them in tests as needed)
+    """
+    state_machine = AudioStateMachine()
+    state_machine.routing_service = mock_routing_service
+    state_machine.ws_manager = websocket_collector
+    return state_machine
+
+
+@pytest.fixture
+def state_machine_with_sources(
+    integration_state_machine: AudioStateMachine,
+    mock_sources: Dict[AudioSource, Mock]
+) -> AudioStateMachine:
+    """
+    State machine with all mock sources pre-registered.
+
+    Use this fixture when you need a state machine ready for transitions
+    without manually registering sources.
+    """
+    for source, mock in mock_sources.items():
+        integration_state_machine.register_source(source, mock)
+    return integration_state_machine
+
+
+@pytest.fixture(autouse=True)
+def golden_wall(request, monkeypatch):
+    """Anchors stamped on the golden wall clock, reset for each scenario, so a
+    recording never holds a real clock. A world with a VirtualClock replaces
+    it (`use_virtual_wall`). The golden scenarios only: for every other test
+    the wall clock is the real one."""
+    if not _in_tests_dir(request, "golden"):
+        return
+    from backend.core import audio_source
+    from backend.tests.golden.harness import EPOCH, GOLDEN_WALL
+
+    GOLDEN_WALL[0] = EPOCH
+    monkeypatch.setattr(audio_source, "wall_time", lambda: GOLDEN_WALL[0])

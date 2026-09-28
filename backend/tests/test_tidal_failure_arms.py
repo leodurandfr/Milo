@@ -37,6 +37,7 @@ from backend.core.models.audio_state import AudioSource
 from backend.sources.tidal import controller_socket as controller_module
 from backend.sources.tidal.controller_socket import TidalControllerSocket
 from backend.tests.tidal_world import TidalWorld
+from backend.tests.conftest import shortened_wait_for
 
 START = b"\xff\x02"
 END = b"\xff\x03"
@@ -370,11 +371,7 @@ class TestTheSourceBoot:
         world = TidalWorld(monkeypatch, tmp_path)
         refusing(world, "startService")
         # wait_ready's real timeout, shortened: nothing here measures it.
-        real_wait_for = asyncio.wait_for
-        monkeypatch.setattr(
-            controller_module.asyncio, "wait_for",
-            lambda aw, timeout: real_wait_for(aw, min(timeout, 0.05)),
-        )
+        monkeypatch.setattr(controller_module.asyncio, "wait_for", shortened_wait_for())
         try:
             with caplog.at_level("ERROR", logger="source.tidal"):
                 assert await world.source.start() is False

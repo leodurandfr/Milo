@@ -4,10 +4,20 @@ Pytest fixtures for Milo Client tests.
 import pytest
 from unittest.mock import AsyncMock, patch
 import sys
+import warnings
 from pathlib import Path
 
 # Add app directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# The suite raises no warning of its own; this one is third party: FastAPI's
+# TestClient still runs on httpx, and the replacement is upstream's to ship. It
+# is raised once, at the first import, so that import is made here with the
+# warning silenced — not from a milo-client/pytest.ini, which would ship to
+# every satellite and move its payload fingerprint for a test setting.
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient`")
+    import fastapi.testclient  # noqa: F401 -- imported for the side effect above
 
 
 @pytest.fixture

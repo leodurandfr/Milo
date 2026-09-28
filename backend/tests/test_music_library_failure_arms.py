@@ -36,6 +36,7 @@ from backend.sources.music_library.storage import StorageManager
 from backend.tests.golden.harness import settle
 from backend.tests.golden.test_wire_music_library import FakeNavidrome
 from backend.tests.test_mpv_sessions import LibraryRig
+from backend.tests.conftest import closing_spawn
 from backend.tests.test_music_library_source import (
     TRACKS, NoCredFile, anchor_ms, details, lengths, loads_since, phase, play, session,
     session_ends,
@@ -395,7 +396,7 @@ class TestReconcilerPlumbing:
         """Two mount events during a Navidrome outage would otherwise each spawn
         a loop, and each loop reconciles the same set for ever."""
         service._get_admin = AsyncMock(return_value=None)
-        service._bg = MagicMock()
+        service._bg = MagicMock(spawn=closing_spawn())
 
         await service.reconcile({"/media/milo/nas": "NAS"}, set())
         await service.reconcile({"/media/milo/nas": "NAS"}, set())

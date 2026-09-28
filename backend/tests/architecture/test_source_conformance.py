@@ -378,12 +378,12 @@ def test_collaborator_extraction_reaches_every_source_but_the_named_ones():
     }
     assert none_found == NO_COLLABORATOR_SOURCES, (
         f"sources constructing no collaborator: {sorted(none_found)}; expected "
-        f"{sorted(NO_COLLABORATOR_SOURCES)}. A source that stops yielding one is "
-        f"skipped by test_collaborators_are_exposed_not_proxied, not checked by it."
+        f"{sorted(NO_COLLABORATOR_SOURCES)}. Keep the set exact: "
+        f"test_collaborators_are_exposed_not_proxied runs on every source outside it."
     )
 
 
-@pytest.mark.parametrize("source_id", SOURCE_IDS)
+@pytest.mark.parametrize("source_id", sorted(set(SOURCE_IDS) - NO_COLLABORATOR_SOURCES))
 def test_collaborators_are_exposed_not_proxied(source_id):
     """A collaborator a public source method touches is exposed as a property.
 
@@ -405,8 +405,7 @@ def test_collaborators_are_exposed_not_proxied(source_id):
     assert methods, f"{source_id}: no methods parsed — the extractor is broken"
 
     collaborators = _collaborators(cls, package_names)
-    if not collaborators:
-        pytest.skip(f"{source_id} constructs no collaborator from its own package")
+    assert collaborators, f"{source_id}: no collaborator found — the extractor is broken"
 
     exposed = set()
     for method in methods:
@@ -698,7 +697,18 @@ def test_the_controls_extractor_reads_every_override():
     )
 
 
-@pytest.mark.parametrize("source_id", SOURCE_IDS)
+# The sources that take the base's controls, none: the passive senders, whose
+# transport is the sender's own.
+BASE_CONTROLS = {"airplay", "mac", "qobuz"}
+
+
+def test_the_sources_on_the_base_controls_are_the_named_ones():
+    """The rule below runs on every other source, for the same reason as
+    NO_OWN_COLLABORATOR: named both ways, never skipped."""
+    assert {s for s in SOURCE_IDS if _control_literals(s) is None} == BASE_CONTROLS
+
+
+@pytest.mark.parametrize("source_id", sorted(set(SOURCE_IDS) - BASE_CONTROLS))
 def test_controls_name_commands_the_source_takes(source_id):
     """`controls` is the command vocabulary, not a second one (docs: "le fil", §4).
 
@@ -710,8 +720,7 @@ def test_controls_name_commands_the_source_takes(source_id):
     pause/resume applies).
     """
     literals = _control_literals(source_id)
-    if literals is None:
-        pytest.skip(f"{source_id} takes the base's controls (none)")
+    assert literals is not None, f"{source_id}: no _controls() — the extractor is broken"
     commands = set(source_class(source_id).COMMANDS)
     unknown = sorted(literals - commands)
     assert not unknown, (

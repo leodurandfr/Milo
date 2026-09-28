@@ -49,7 +49,7 @@ DUMP = os.environ.get("MILO_DUMP_WIRE")
 
 
 # The wall clock position anchors are stamped with, in every scenario and world
-# (`audio_source.wall_time`): frozen here by the golden conftest, advanced with
+# (`audio_source.wall_time`): frozen here by the `golden_wall` fixture (tests/conftest.py), advanced with
 # a world's VirtualClock by `use_virtual_wall`.
 EPOCH = 1790270000.0
 

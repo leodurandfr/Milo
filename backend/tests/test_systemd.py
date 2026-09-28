@@ -4,9 +4,10 @@ Tests for SystemdServiceManager — the single centralized privileged-exec path
 (sudo systemctl) for service control + power actions (see invariant #1).
 """
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from backend.core.systemd import SystemdServiceManager
+from backend.tests.conftest import shortened_wait_for
 
 
 @pytest.fixture
@@ -18,7 +19,7 @@ def _make_mock_proc(returncode=0, stdout=b"", stderr=b""):
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
     proc.returncode = returncode
-    proc.kill = AsyncMock()
+    proc.kill = Mock()  # asyncio.subprocess.Process.kill is synchronous
     return proc
 
 
@@ -98,7 +99,6 @@ class TestRestartSelf:
 
 import asyncio
 import logging
-from unittest.mock import Mock
 
 
 def _hanging_proc():
@@ -140,11 +140,7 @@ def _short_wait_for(monkeypatch):
     reader.py), so the production code still goes through a genuine wait_for and
     a mutation that removes it is still visible.
     """
-    real_wait_for = asyncio.wait_for
-    monkeypatch.setattr(
-        "backend.core.systemd.asyncio.wait_for",
-        lambda coro, _timeout: real_wait_for(coro, 0.05),
-    )
+    monkeypatch.setattr("backend.core.systemd.asyncio.wait_for", shortened_wait_for())
 
 
 class TestGetStatus:

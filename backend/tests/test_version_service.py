@@ -6,9 +6,10 @@ import asyncio
 import time
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from backend.core.updates.version import VersionService
+from backend.tests.conftest import shortened_wait_for
 
 
 @pytest.fixture
@@ -118,12 +119,16 @@ class TestExecuteVersionCommand:
 
     @pytest.mark.asyncio
     async def test_timeout_raises(self, version_service):
+        async def hangs():
+            await asyncio.Event().wait()
+
         mock_proc = AsyncMock()
-        mock_proc.kill = AsyncMock()
+        mock_proc.communicate = hangs
+        mock_proc.kill = Mock()  # asyncio.subprocess.Process.kill is synchronous
         mock_proc.wait = AsyncMock()
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            with patch("asyncio.wait_for", shortened_wait_for()):
                 with pytest.raises(Exception, match="Command timeout"):
                     await version_service._execute_version_command(["cmd"], r"(\d+)")
 

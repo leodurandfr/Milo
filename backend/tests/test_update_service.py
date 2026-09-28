@@ -30,6 +30,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
 from backend.core.systemd import SystemdServiceManager
+from backend.tests.conftest import shortened_wait_for
 
 # This checkout's root, so a path the service builds can be checked against the
 # tree that actually ships rather than against a literal repeated in the test.
@@ -134,7 +135,7 @@ def _make_mock_proc(returncode=0, stdout=b"", stderr=b""):
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
     proc.returncode = returncode
-    proc.kill = AsyncMock()
+    proc.kill = Mock()  # asyncio.subprocess.Process.kill is synchronous
     proc.wait = AsyncMock()
     return proc
 
@@ -1114,6 +1115,11 @@ class TestUpdateMiloApp:
         commit_proc = _make_mock_proc(stdout=b"abc123\n")
         fetch_proc = _make_mock_proc()
 
+        async def hangs():
+            await asyncio.Event().wait()
+
+        fetch_proc.communicate = hangs
+
         call_count = 0
 
         async def mock_exec(*args, **kwargs):
@@ -1121,13 +1127,10 @@ class TestUpdateMiloApp:
             call_count += 1
             return commit_proc if call_count == 1 else fetch_proc
 
-        async def mock_wait_for(coro, **kwargs):
-            raise asyncio.TimeoutError()
-
         with ExitStack() as stack:
             stack.enter_context(patch("pathlib.Path.exists", return_value=True))
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
-            stack.enter_context(patch("asyncio.wait_for", side_effect=mock_wait_for))
+            stack.enter_context(patch("asyncio.wait_for", shortened_wait_for()))
             rollback = stack.enter_context(
                 patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
             )

@@ -41,6 +41,7 @@ from backend.sources.bluetooth import (
     monitor as monitor_module,
 )
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
+from backend.tests.conftest import shortened_wait_for
 
 
 @pytest.fixture(autouse=True)
@@ -556,8 +557,7 @@ class TestNamingADevice:
 
         mon._read_device_name = never
 
-        with patch.object(monitor_module.asyncio, "wait_for",
-                          AsyncMock(side_effect=asyncio.TimeoutError)):
+        with patch.object(monitor_module.asyncio, "wait_for", shortened_wait_for()):
             name = await mon.resolve_device_name("AA:BB:CC:DD:EE:FF")
 
         assert name == "Device AA:BB:CC:DD:EE:FF"

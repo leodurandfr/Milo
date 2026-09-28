@@ -22,13 +22,10 @@ What breaks when these fail:
 import asyncio
 import json
 
-import pytest
 
 from backend.core.multiroom.models import Client, EqualizerSettings, Zone
 from backend.core.system.diagnostic import render, satellite
 from backend.core.system.diagnostic.service import DiagnosticService
-
-pytestmark = pytest.mark.asyncio
 
 
 # --------------------------------------------------------------------------- #

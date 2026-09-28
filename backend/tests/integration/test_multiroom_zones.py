@@ -9,13 +9,12 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock
 
-from backend.tests.conftest import attach_registry_broadcaster
+from backend.tests.conftest import WebSocketEventCollector, attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.models import EqualizerSettings
 
-from .conftest import WebSocketEventCollector
 
 
 # ==============================================================================

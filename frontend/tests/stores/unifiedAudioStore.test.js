@@ -104,13 +104,22 @@ describe('unifiedAudioStore', () => {
       // Strict on purpose: a permissive default is how a renamed field became a
       // silent "nothing is playing". The spec forbids coercing.
       store.updateState(stateEvent(VALID_STATE));
+      // Each refusal is reported (a dev-only console.warn in schemas/api.js):
+      // captured here, so it is asserted rather than printed.
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        store.updateState(stateEvent({ ...VALID_STATE, source: 'gramophone' }));
+        store.updateState(stateEvent({ ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'stopped' } }));
+        const { controls: _dropped, ...missingKey } = VALID_STATE;
+        store.updateState(stateEvent(missingKey));
 
-      store.updateState(stateEvent({ ...VALID_STATE, source: 'gramophone' }));
-      store.updateState(stateEvent({ ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'stopped' } }));
-      const { controls: _dropped, ...missingKey } = VALID_STATE;
-      store.updateState(stateEvent(missingKey));
-
-      expect(store.systemState).toEqual(VALID_STATE);
+        expect(store.systemState).toEqual(VALID_STATE);
+        expect(warn).toHaveBeenCalledTimes(3);
+      } finally {
+        // Restored even when an assertion fails: left mocked, it would swallow
+        // the warnings of every later test in the file.
+        warn.mockRestore();
+      }
     });
 
     it('replaces the session wholesale so a field cleared by the backend disappears', () => {

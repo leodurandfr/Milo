@@ -37,6 +37,7 @@ from unittest.mock import AsyncMock, Mock
 
 from backend.api import system as api_system
 from backend.api.system import create_system_router
+from backend.tests.conftest import shortened_wait_for
 
 
 class _Proc:
@@ -299,11 +300,7 @@ class TestTemperature:
         # The production bound is 5 s and nothing here asserts on its value;
         # paying it would put five seconds into the suite for one branch.
         with pytest.MonkeyPatch.context() as mp:
-            real_wait_for = asyncio.wait_for
-            mp.setattr(
-                api_system.asyncio, "wait_for",
-                lambda aw, _timeout: real_wait_for(aw, 0.05),
-            )
+            mp.setattr(api_system.asyncio, "wait_for", shortened_wait_for())
             data = client.get("/api/system/temperature").json()
 
         assert proc.killed, "the hung process was left running"

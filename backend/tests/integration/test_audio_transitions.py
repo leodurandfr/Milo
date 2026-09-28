@@ -20,7 +20,7 @@ from backend.core.models.audio_state import AudioSource
 from backend.core.models.audio_wire import SessionView, SourceView
 from backend.core.state import AudioStateMachine
 
-from .conftest import WebSocketEventCollector, create_mock_source
+from backend.tests.conftest import WebSocketEventCollector, create_mock_source
 
 
 def _playing(title: str, session_id: str = "s1") -> SourceView:

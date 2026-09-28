@@ -19,6 +19,7 @@ import pytest
 from unittest.mock import Mock
 
 from backend.core.log_handler import WebSocketLogHandler
+from backend.tests.conftest import closing_spawn
 
 
 def _record(message="disaster"):
@@ -28,7 +29,7 @@ def _record(message="disaster"):
 @pytest.fixture
 def handler():
     h = WebSocketLogHandler()
-    h._bg = Mock()
+    h._bg = Mock(spawn=closing_spawn())
     return h
 
 

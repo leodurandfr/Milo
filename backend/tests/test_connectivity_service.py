@@ -29,6 +29,7 @@ from backend.core.connectivity.service import (
     ConnectivityService,
 )
 from backend.core.models.audio_state import ConnectivityLevel
+from backend.tests.conftest import closing_spawn
 
 NM_FULL = 4
 NM_NONE = 1
@@ -105,8 +106,7 @@ async def test_initialize_reads_cached_property_without_forcing_a_probe():
     message_bus_patch, properties_iface = _patch_dbus(nm_iface)
 
     service = make_service()
-    with patch.object(service._bg, "spawn") as spawn_mock:
-        spawn_mock.side_effect = lambda coro, label: coro.close()  # avoid "never awaited"
+    with patch.object(service._bg, "spawn", closing_spawn()) as spawn_mock:
         with message_bus_patch:
             ok = await service.initialize()
 
@@ -132,7 +132,7 @@ async def test_initialize_keeps_the_level_nm_reports():
     message_bus_patch, _properties_iface = _patch_dbus(nm_iface)
 
     service = make_service()
-    with patch.object(service._bg, "spawn"):
+    with patch.object(service._bg, "spawn", closing_spawn()):
         with message_bus_patch:
             ok = await service.initialize()
 
@@ -212,7 +212,7 @@ async def test_limited_is_kept_distinct_from_none():
     message_bus_patch, _properties_iface = _patch_dbus(nm_iface)
 
     service = make_service()
-    with patch.object(service._bg, "spawn"):
+    with patch.object(service._bg, "spawn", closing_spawn()):
         with message_bus_patch:
             await service.initialize()
 
@@ -227,7 +227,7 @@ async def test_unknown_nm_value_fails_open():
     message_bus_patch, _properties_iface = _patch_dbus(nm_iface)
 
     service = make_service()
-    with patch.object(service._bg, "spawn"):
+    with patch.object(service._bg, "spawn", closing_spawn()):
         with message_bus_patch:
             await service.initialize()
 

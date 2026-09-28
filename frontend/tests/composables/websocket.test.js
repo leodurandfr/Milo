@@ -151,6 +151,10 @@ describe('showDisconnectedBanner', () => {
 describe('onReconnect on the first connection of a page load', () => {
   async function freshHost() {
     vi.resetModules();
+    // The fresh module graph holds a fresh logger too, back at its DEV level:
+    // silenced here as tests/setup.js silences the first one.
+    const { logger } = await import('@/services/logger');
+    logger.setLevel('none');
     const { default: freshUseWebSocket } = await import('@/services/websocket');
     const onReconnect = vi.fn();
     const host = mount(defineComponent({
