@@ -805,10 +805,11 @@
     "ssh": {
       "title": "SSH",
       "description": "Opens a terminal session on Milō from another computer on your local network. Off by default.",
-      "factoryPassword": "Milō still has its factory password. Change it below."
+      "factoryPassword": "Milō still has its factory password."
     },
     "password": {
       "title": "Device password",
+      "change": "Change password",
       "description": "Used for SSH and for administration commands on the unit itself. Every Milō ships with the same factory password.",
       "newPlaceholder": "New password",
       "confirmPlaceholder": "Confirm password",

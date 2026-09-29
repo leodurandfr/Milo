@@ -135,7 +135,10 @@
 
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
-      <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content" />
+      <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content"
+        @open-password="push('system-password')" />
+
+      <SystemPasswordSettings v-else-if="currentView === 'system-password'" key="system-password" class="view-content" />
 
     </Transition>
     </div>
@@ -206,6 +209,7 @@ import WizardBrowse from '@/components/settings/categories/music-library/WizardB
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import SystemSettings from '@/components/settings/categories/SystemSettings.vue';
+import SystemPasswordSettings from '@/components/settings/categories/SystemPasswordSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadNetworkStatus } from '@/composables/useNetwork';
 import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -392,6 +396,7 @@ const headerTitle = computed(() => {
     'music-library-share-manual': t('musicLibrary.shares.wizard.manualTitle'),
     'music-library-share-edit': t('musicLibrary.shares.editTitle'),
     'music-library-usb-edit': t('musicLibrary.usb.renameTitle'),
+    'system-password': t('system.password.title'),
   };
   return titles[currentView.value] || t('settings.title');
 });
