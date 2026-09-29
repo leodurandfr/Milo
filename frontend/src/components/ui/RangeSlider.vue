@@ -1,34 +1,41 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
   <div :class="['slider-container', orientation, { disabled, muted, dragging: isDragging }]" :style="cssVars">
-    <div ref="track" class="range-track"></div>
+    <div class="slider-rail">
+      <div ref="track" class="range-track"></div>
 
-    <span
-      v-for="index in visibleTickIndexes"
-      :key="index"
-      class="range-tick"
-      :style="tickStyle(index)"
-    ></span>
+      <span
+        v-for="index in tickIndexes"
+        :key="index"
+        class="range-tick"
+        :style="tickStyle(index)"
+      ></span>
 
-    <div
-      ref="thumbRef"
-      class="range-thumb"
-      :class="{ dragging: isDragging }"
-      :style="thumbStyle"
-      @pointerdown="startDrag"
-    ></div>
+      <div
+        ref="thumbRef"
+        class="range-thumb"
+        :class="{ dragging: isDragging }"
+        :style="thumbStyle"
+        @pointerdown="startDrag"
+      ></div>
+    </div>
 
-    <div v-if="orientation === 'horizontal' && !hideInlineValue" ref="valueRef" class="slider-value text-mono-medium" :class="{ dragging: isDragging, muted: muted, stepped: isStepped }">
+    <!-- Beside the track, never on it: a thumb at either end covered it. -->
+    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono-medium">
       <template v-if="isStepped">
         <!-- Every label in one cell, all but the current one hidden: the box is as
-             wide as the widest, so the ticks it hides do not change mid-drag. -->
+             wide as the widest, so the track does not resize mid-drag. -->
         <span
           v-for="(stop, index) in steps"
           :key="stop.value"
           :class="{ 'slider-value__other': index !== position }"
         >{{ stop.label }}</span>
       </template>
-      <template v-else>{{ effectiveValue }}{{ valueUnit }}</template>
+      <template v-else>
+        <!-- The widest reachable label, hidden, holds the box at its width for the same reason. -->
+        <span class="slider-value__other">{{ widestLabel }}</span>
+        <span>{{ effectiveValue }}{{ valueUnit }}</span>
+      </template>
     </div>
   </div>
 </template>
@@ -60,10 +67,6 @@ const thumbRef = ref(null);
 // Layout (untransformed) sizes — for CSS positioning, which uses % of the parent's layout box.
 const trackSize = ref({ width: 0, height: 0 });
 const thumbAxisSize = ref(54);
-const valueRef = ref(null);
-// Left edge of the inline value (right-anchored, so it moves with the text's width).
-const valueLeft = ref(Infinity);
-const TICK_CLEARANCE = 8;
 
 // Local value during drag - prevents external updates (WebSocket echo) from causing jumps
 const localDragValue = ref(null);
@@ -97,17 +100,17 @@ const posMin = computed(() => (isStepped.value ? 0 : props.min));
 const posMax = computed(() => (isStepped.value ? props.steps.length - 1 : props.max));
 const position = computed(() => (isStepped.value ? stepIndex(effectiveValue.value) : effectiveValue.value));
 
-// Interior stops only — the track's ends already mark the first and last — and
-// none under the inline value, which on a phone-width track covers a quarter
-// of it. Same unscaled layout units as trackSize.
-const visibleTickIndexes = computed(() => {
+// Every stop, ends included.
+const tickIndexes = computed(() => {
   if (!isStepped.value) return [];
-  const last = props.steps.length - 1;
-  const size = thumbAxisSize.value;
-  const usable = trackSize.value.width - size;
-  const indexes = Array.from({ length: last - 1 }, (_, i) => i + 1);
-  if (props.orientation !== 'horizontal') return indexes;
-  return indexes.filter(i => size / 2 + (i / last) * usable < valueLeft.value - TICK_CLEARANCE);
+  return props.steps.map((_, i) => i);
+});
+
+// Mono digits: the longest of the two bounds, at the step's precision, is the widest label.
+const widestLabel = computed(() => {
+  const decimals = (String(props.step).split('.')[1] ?? '').length;
+  const [low, high] = [props.min, props.max].map(bound => `${bound.toFixed(decimals)}${props.valueUnit}`);
+  return high.length > low.length ? high : low;
 });
 
 function clamp(value, min, max) {
@@ -138,7 +141,8 @@ function placeAt(pct) {
 }
 
 function tickStyle(index) {
-  return placeAt(index / (props.steps.length - 1));
+  const last = props.steps.length - 1;
+  return placeAt(last > 0 ? index / last : 0);
 }
 
 // Progress percentage for CSS gradient (accounts for thumb size)
@@ -247,9 +251,6 @@ function updateSizes() {
   if (track.value) {
     trackSize.value = { width: track.value.offsetWidth, height: track.value.offsetHeight };
   }
-  if (valueRef.value) {
-    valueLeft.value = valueRef.value.offsetLeft;
-  }
   if (thumbRef.value) {
     thumbAxisSize.value = props.orientation === 'horizontal'
       ? thumbRef.value.offsetWidth
@@ -262,7 +263,6 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(updateSizes);
   if (track.value) resizeObserver.observe(track.value);
   if (thumbRef.value) resizeObserver.observe(thumbRef.value);
-  if (valueRef.value) resizeObserver.observe(valueRef.value);
 });
 
 onUnmounted(() => {
@@ -295,9 +295,16 @@ onUnmounted(() => {
   --slider-accent: var(--color-text-secondary);
   transition: --slider-accent var(--transition-fast);
   display: flex;
+  gap: var(--space-02);
+}
+
+/* The positioning box of the thumb and ticks: the track alone, never the value beside it */
+.slider-rail {
+  display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
+  flex: 1;
 }
 
 /* Animate value changes smoothly (e.g. EQ loading), but not during drag */
@@ -314,9 +321,17 @@ onUnmounted(() => {
   height: 36px;
 }
 
+.slider-container.horizontal .slider-rail {
+  min-width: 0;
+}
+
 .slider-container.vertical {
   width: 36px;
   flex: 1;
+  flex-direction: column;
+}
+
+.slider-container.vertical .slider-rail {
   flex-direction: column;
 }
 
@@ -375,7 +390,7 @@ onUnmounted(() => {
   transform: translate(-50%, 50%);
 }
 
-/* Step ticks — under the thumb and the inline value */
+/* Step ticks — under the thumb */
 .range-tick {
   position: absolute;
   width: 4px;
@@ -412,19 +427,18 @@ onUnmounted(() => {
 
 /* Inline value */
 .slider-value {
-  position: absolute;
-  right: var(--space-04);
-  color: var(--slider-accent);
-  pointer-events: none;
-  z-index: 3;
-}
-
-.slider-value.stepped {
   display: grid;
-  justify-items: end;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 96px;
+  padding: 0 var(--space-03);
+  border-radius: var(--radius-full);
+  background: var(--color-background);
+  color: var(--slider-accent);
+  white-space: nowrap;
 }
 
-.slider-value.stepped > span {
+.slider-value > span {
   grid-area: 1 / 1;
 }
 
@@ -432,7 +446,7 @@ onUnmounted(() => {
   visibility: hidden;
 }
 
-.slider-value.dragging {
+.slider-container.dragging .slider-value {
   color: var(--color-brand);
 }
 

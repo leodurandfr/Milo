@@ -696,6 +696,11 @@ onMounted(async () => {
     var(--color-background-neutral) 100%);
 }
 
+/* The value pill follows the track onto this box's darker background */
+.crossover-info :deep(.slider-value) {
+  background: var(--color-background-neutral);
+}
+
 .crossover-info p {
   color: var(--color-text-secondary);
   margin: 0;

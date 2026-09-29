@@ -1,32 +1,40 @@
-<!-- frontend/src/components/ui/DoubleRangeSlider.vue - Full embedded values -->
+<!-- frontend/src/components/ui/DoubleRangeSlider.vue -->
 <template>
   <div class="double-range-slider" :style="cssVars">
-    <div
-      class="range-track"
-      ref="track"
-    ></div>
-    
-    <div
-      ref="thumbRef"
-      class="range-thumb thumb-min"
-      :class="{ dragging: isDraggingMin }"
-      :style="{ left: minPosition }"
-      @pointerdown="startDrag($event, 'min')"
-    ></div>
-
-    <div
-      class="range-thumb thumb-max"
-      :class="{ dragging: isDraggingMax }"
-      :style="{ left: maxPosition }"
-      @pointerdown="startDrag($event, 'max')"
-    ></div>
-    
-    <div class="slider-value-min text-mono-medium" :class="{ dragging: isDraggingMin }">
-      {{ modelValue.min }}{{ valueUnit }}
+    <!-- Each value beside its own end of the track, never on it: a thumb at
+         that end covered it. -->
+    <div class="slider-value slider-value--min text-mono-medium" :class="{ dragging: isDraggingMin }">
+      <!-- The widest reachable label, hidden, holds the pill at its width: a
+           pill growing mid-drag would narrow the track under both thumbs. -->
+      <span class="slider-value__widest">{{ widestLabel }}</span>
+      <span>{{ modelValue.min }}{{ valueUnit }}</span>
     </div>
-    
-    <div class="slider-value-max text-mono-medium" :class="{ dragging: isDraggingMax }">
-      {{ modelValue.max }}{{ valueUnit }}
+
+    <div class="slider-rail">
+      <div
+        class="range-track"
+        ref="track"
+      ></div>
+
+      <div
+        ref="thumbRef"
+        class="range-thumb thumb-min"
+        :class="{ dragging: isDraggingMin }"
+        :style="{ left: minPosition }"
+        @pointerdown="startDrag($event, 'min')"
+      ></div>
+
+      <div
+        class="range-thumb thumb-max"
+        :class="{ dragging: isDraggingMax }"
+        :style="{ left: maxPosition }"
+        @pointerdown="startDrag($event, 'max')"
+      ></div>
+    </div>
+
+    <div class="slider-value slider-value--max text-mono-medium" :class="{ dragging: isDraggingMax }">
+      <span class="slider-value__widest">{{ widestLabel }}</span>
+      <span>{{ modelValue.max }}{{ valueUnit }}</span>
     </div>
   </div>
 </template>
@@ -60,6 +68,13 @@ const thumbAxisSize = ref(54);
 let resizeObserver = null;
 // Scaled thumb size captured fresh at drag start (drag math runs in viewport/scaled coords).
 let dragThumbSize = 0;
+
+// Mono digits: the longest of the two bounds, at the step's precision, is the widest label.
+const widestLabel = computed(() => {
+  const decimals = (String(props.step).split('.')[1] ?? '').length;
+  const [low, high] = [props.min, props.max].map(bound => `${bound.toFixed(decimals)}${props.valueUnit}`);
+  return high.length > low.length ? high : low;
+});
 
 // Pixel positions (clean)
 const minPosition = computed(() => {
@@ -233,11 +248,19 @@ onUnmounted(() => {
 <style scoped>
 /* Container */
 .double-range-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "min rail max";
+  gap: var(--space-02);
+  width: 100%;
+}
+
+/* The positioning box of the thumbs: the track alone, never the values beside it */
+.slider-rail {
+  grid-area: rail;
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 100%;
   height: 36px;
 }
 
@@ -283,38 +306,64 @@ onUnmounted(() => {
   z-index: 4;
 }
 
-/* Minimum value on the left - above the thumbs */
-.slider-value-min {
-  position: absolute;
-  left: var(--space-04);
+/* Values — the same pill as RangeSlider's */
+.slider-value {
+  display: grid;
+  place-items: center;
+  min-width: 96px;
+  padding: 0 var(--space-03);
+  border-radius: var(--radius-full);
+  background: var(--color-background);
   color: var(--color-text-secondary);
+  white-space: nowrap;
   transition: color var(--transition-fast);
-  pointer-events: none;
-  z-index: 5;
 }
 
-.slider-value-min.dragging {
-  color: var(--color-brand);
+.slider-value > span {
+  grid-area: 1 / 1;
 }
 
-/* Maximum value on the right - above the thumbs */
-.slider-value-max {
-  position: absolute;
-  right: var(--space-04);
-  color: var(--color-text-secondary);
-  transition: color var(--transition-fast);
-  pointer-events: none;
-  z-index: 5;
+.slider-value__widest {
+  visibility: hidden;
 }
 
-.slider-value-max.dragging {
+.slider-value--min {
+  grid-area: min;
+}
+
+.slider-value--max {
+  grid-area: max;
+}
+
+.slider-value.dragging {
   color: var(--color-brand);
 }
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+  /* Two pills beside a phone-width track leave the thumbs no travel: they go
+     under it, each below its own end. */
   .double-range-slider {
+    grid-template-columns: auto auto;
+    grid-template-areas:
+      "rail rail"
+      "min max";
+  }
+
+  .slider-rail {
     height: 30px;
+  }
+
+  .slider-value {
+    height: 30px;
+  }
+
+  .slider-value--min {
+    justify-self: start;
+  }
+
+  .slider-value--max {
+    justify-self: end;
   }
 
   .range-track {
