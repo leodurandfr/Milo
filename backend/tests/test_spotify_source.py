@@ -1060,13 +1060,136 @@ class TestLogBridge:
 
     @pytest.mark.asyncio
     async def test_an_unremarkable_line_is_left_alone(self, spotify_source, wired):
-        """The journal is mostly noise; only the five patterns above may fire."""
+        """The journal is mostly noise; only the patterns above may fire."""
         await spotify_source._handle_log_line(
             'level=debug msg="websocket closed" error="StatusNormalClosure"'
         )
 
         assert self._broadcast(spotify_source) is None
         assert spotify_source._connection_error_count == 0
+
+    @staticmethod
+    def _banners(source):
+        """Every SourceError the source broadcast, in order."""
+        return [
+            call.args[0].reason for call in source.state_machine.broadcast.call_args_list
+            if isinstance(call.args[0], SourceError)
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("error, reason", [
+        # Measured 2026-09-29: Spotify's login5 answered 503 "no healthy upstream".
+        ("failed authenticating with login5: failed requesting login5 endpoint: faield "
+         "unmarshalling LoginResponse: proto: cannot parse invalid wire-format data",
+         SourceErrorReason.PROVIDER_UNAVAILABLE),
+        ("failed authenticating accesspoint with stored credentials: "
+         "accesspoint login failed: PremiumAccountRequired <nil>",
+         SourceErrorReason.PREMIUM_REQUIRED),
+        ("failed authenticating accesspoint with stored credentials: "
+         "accesspoint login failed: BadCredentials <nil>",
+         SourceErrorReason.CREDENTIALS_REFUSED),
+        ("failed authenticating with login5: INVALID_CREDENTIALS",
+         SourceErrorReason.CREDENTIALS_REFUSED),
+        ("failed getting accesspoint from resolver: dial tcp: i/o timeout",
+         SourceErrorReason.SERVICE_UNREACHABLE),
+        ("login5 code challenge not supported", SourceErrorReason.CONNECTION_REFUSED),
+    ])
+    async def test_a_refused_connect_says_why(self, spotify_source, wired, error, reason):
+        """Picking Milō in the Spotify app and being refused was silent: the
+        app shows nothing either, so the banner is the only place to say it."""
+        await spotify_source._handle_log_line(
+            f'level=error msg="failed creating new session from Mac mini" error="{error}"'
+        )
+
+        assert self._banners(spotify_source) == [reason]
+
+    @pytest.mark.asyncio
+    async def test_every_retry_of_a_refusal_keeps_the_banner_up(
+        self, spotify_source, wired, caplog
+    ):
+        """The app retries every ~3 s, each retry authenticating the AP first.
+
+        The AP line used to clear the banner, so the retry that followed the
+        failure erased it within the minute. Each retry re-sends it, because a
+        page loaded after the first never received it (measured: a rebuilt
+        frontend reloaded mid-outage showed nothing). Only the first is an
+        error line — each one is a second, raw backend banner.
+        """
+        attempt = [
+            'level=info msg="authenticated AP" username="p6xy"',
+            'level=error msg="failed creating new session from Mac mini" error="failed '
+            'authenticating with login5: failed requesting login5 endpoint: faield '
+            'unmarshalling LoginResponse: proto: cannot parse invalid wire-format data"',
+            'level=info msg="refused zeroconf from Mac mini" username="p6xy"',
+        ]
+        for _ in range(3):
+            for line in attempt:
+                await spotify_source._handle_log_line(line)
+
+        assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE] * 3
+        assert spotify_source._error_active is True
+        refusals = [r for r in caplog.records if "failed creating new session" in r.getMessage()]
+        assert [r.levelname for r in refusals] == ["ERROR", "WARNING", "WARNING"]
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_after_a_login_that_went_through_is_a_new_one(
+        self, spotify_source, wired, caplog
+    ):
+        """Only retries of a standing refusal are held back to warning: one
+        that follows a success is a new outage and must reach errors.log."""
+        refused = ('level=error msg="failed creating new session from Mac mini" '
+                   'error="failed authenticating with login5: TRY_AGAIN_LATER"')
+        await spotify_source._handle_log_line(refused)
+        await spotify_source._handle_log_line('level=info msg="authenticated Login5"')
+        await spotify_source._handle_log_line(refused)
+
+        refusals = [r for r in caplog.records if "failed creating new session" in r.getMessage()]
+        assert [r.levelname for r in refusals] == ["ERROR", "ERROR"]
+
+    @pytest.mark.asyncio
+    async def test_a_login5_outage_mid_session_is_not_blamed_on_the_track(
+        self, spotify_source, wired
+    ):
+        """Measured 2026-09-29: the token renewal failed and playback stopped
+        at the next track, which read as "could not load this track"."""
+        await spotify_source._handle_log_line(
+            'level=error msg="failed advancing to next track" error="failed loading current '
+            'track (advance to spotify:track:x): failed creating stream for spotify:track:x: '
+            'failed getting track metadata: spclient request failed: failed obtaining spclient '
+            'access token: failed renewing login5 access token: failed requesting login5 '
+            'endpoint: faield unmarshalling LoginResponse: proto: cannot parse invalid '
+            'wire-format data"'
+        )
+
+        assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_account_is_not_an_unreachable_accesspoint(
+        self, spotify_source, wired
+    ):
+        """The AP retries an account refusal five times; counted as outages,
+        they would put "unreachable" up ahead of the refusal's real reason."""
+        line = ('level=warning msg="failed connecting to accesspoint, retrying" '
+                'error="accesspoint login failed: PremiumAccountRequired <nil>"')
+        for _ in range(3):
+            await spotify_source._handle_log_line(line)
+
+        assert self._banners(spotify_source) == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("line", [
+        'level=info msg="authenticated Login5" username="p6xy"',
+        'level=info msg="accepted zeroconf from Mac mini" username="p6xy"',
+    ])
+    async def test_a_login_that_goes_through_withdraws_the_refusal(
+        self, spotify_source, wired, line
+    ):
+        spotify_source.broadcast_error(SourceErrorReason.PROVIDER_UNAVAILABLE)
+
+        await spotify_source._handle_log_line(line)
+
+        assert spotify_source._error_active is False
+        assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
 
     @pytest.mark.parametrize("line, expected", [
         ('msg="failed loading current track" error="no tracks"',

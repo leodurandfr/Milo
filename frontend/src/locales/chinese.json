@@ -70,6 +70,10 @@
       "playbackFailed": "播放失败",
       "serviceUnreachable": "无法连接服务",
       "discUnreadable": "无法读取此光盘",
+      "premiumRequired": "需要 {source} Premium 账户",
+      "credentialsRefused": "{source} 拒绝了账户凭据",
+      "providerUnavailable": "{source} 服务暂时不可用",
+      "connectionRefused": "{source} 拒绝了连接",
       "generic": "发生错误"
     },
     "cdSource": {

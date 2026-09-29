@@ -637,7 +637,7 @@ onMounted(async () => {
       const source = event.data?.source || 'source';
       currentError.value = {
         title: t('notification.sourceErrorTitle', { source: sourceLabel(source) }),
-        detail: t(SOURCE_ERROR_KEYS[event.data?.reason] || SOURCE_ERROR_FALLBACK_KEY),
+        detail: t(SOURCE_ERROR_KEYS[event.data?.reason] || SOURCE_ERROR_FALLBACK_KEY, { source: sourceLabel(source) }),
         source,
       };
     }),

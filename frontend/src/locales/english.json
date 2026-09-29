@@ -70,6 +70,10 @@
       "playbackFailed": "Playback failed",
       "serviceUnreachable": "The service could not be reached",
       "discUnreadable": "This disc cannot be read",
+      "premiumRequired": "A {source} Premium account is required",
+      "credentialsRefused": "{source} refused the account credentials",
+      "providerUnavailable": "The {source} service is unavailable right now",
+      "connectionRefused": "{source} refused the connection",
       "generic": "Something went wrong"
     },
     "cdSource": {

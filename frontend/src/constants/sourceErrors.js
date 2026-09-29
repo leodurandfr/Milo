@@ -18,6 +18,10 @@ export const SOURCE_ERROR_KEYS = {
   playback_failed: 'audioSources.errors.playbackFailed',
   service_unreachable: 'audioSources.errors.serviceUnreachable',
   disc_unreadable: 'audioSources.errors.discUnreadable',
+  premium_required: 'audioSources.errors.premiumRequired',
+  credentials_refused: 'audioSources.errors.credentialsRefused',
+  provider_unavailable: 'audioSources.errors.providerUnavailable',
+  connection_refused: 'audioSources.errors.connectionRefused',
 };
 
 export const SOURCE_ERROR_FALLBACK_KEY = 'audioSources.errors.generic';

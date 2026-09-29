@@ -69,6 +69,39 @@ class _Unreadable:
 UNREADABLE = _Unreadable()
 
 
+def login_failure(line: str) -> Optional[str]:
+    """Why Spotify refused a login, read off go-librespot's error chain.
+
+    The chain carries the accesspoint's `ErrorCode` name and login5's
+    `LoginError` name verbatim. A login5 answer that is not a LoginResponse
+    at all (measured 2026-09-29: a 503 "no healthy upstream" body) is Spotify
+    down, not a refusal. Wording is go-librespot 0.10.2's, misspelling
+    included — re-read it on every bump.
+    """
+    if "PremiumAccountRequired" in line:
+        return SourceErrorReason.PREMIUM_REQUIRED
+    if any(m in line for m in (
+        "BadCredentials", "CouldNotValidateCredentials", "login5: INVALID_CREDENTIALS",
+    )):
+        return SourceErrorReason.CREDENTIALS_REFUSED
+    if any(m in line for m in (
+        "unmarshalling LoginResponse", "failed requesting login5:",
+        "failed reading login5 response", "login5: TRY_AGAIN_LATER", "TryAnotherAP",
+    )):
+        return SourceErrorReason.PROVIDER_UNAVAILABLE
+    if any(m in line for m in ("dial tcp", "i/o timeout", "no such host")):
+        return SourceErrorReason.SERVICE_UNREACHABLE  # Milō's own network, not a refusal
+    return None
+
+
+# Refusals of the account itself: the accesspoint retries them, and each retry
+# is not an outage of the accesspoint.
+ACCOUNT_REFUSALS = (SourceErrorReason.PREMIUM_REQUIRED, SourceErrorReason.CREDENTIALS_REFUSED)
+LOGIN_FAILURES = ACCOUNT_REFUSALS + (
+    SourceErrorReason.PROVIDER_UNAVAILABLE, SourceErrorReason.CONNECTION_REFUSED,
+)
+
+
 @dataclass(eq=False)
 class SpotifySession(Session):
     """One Connect session: the track on screen (its playhead is the
@@ -165,6 +198,10 @@ class SpotifySource(BaseAudioSource):
         self._log_monitor_task: Optional[asyncio.Task] = None
         self._connection_error_count = 0
         self._last_error_time = 0.0
+        # The banner standing, and the last refused login: the Spotify app
+        # retries a refused Connect every ~3 s for a minute, one banner for all.
+        self._standing_reason: Optional[str] = None
+        self._last_login_failure: Optional[tuple] = None
 
     async def _do_start(self) -> bool:
         """Start go-librespot service and WebSocket."""
@@ -842,19 +879,34 @@ class SpotifySource(BaseAudioSource):
 
     async def _handle_log_line(self, line: str) -> None:
         """Parse and handle a log line from go-librespot."""
-        # Success: connection established - clear any error
-        if "authenticated AP" in line or "authenticated Login5" in line:
+        # The accesspoint is back. A refused login is not answered by it: a
+        # Connect attempt authenticates the AP, then fails login5 10 ms later.
+        if "authenticated AP" in line:
+            self._connection_error_count = 0
+            if self._standing_reason not in LOGIN_FAILURES:
+                self.broadcast_error_cleared()
+            return
+
+        # Success: logged in, a sender accepted, or a track loaded
+        if any(m in line for m in ("authenticated Login5", "accepted zeroconf", "loaded track")):
             self.broadcast_error_cleared()
             self._connection_error_count = 0
+            self._last_login_failure = None
             return
 
-        # Success: track loaded - clear any error
-        if "loaded track" in line:
-            self.broadcast_error_cleared()
+        # A Connect attempt from the Spotify app was refused
+        if "failed creating new session" in line:
+            self._report_login_failure(
+                login_failure(line) or SourceErrorReason.CONNECTION_REFUSED, line
+            )
             return
 
-        # Critical error: track loading failed
+        # Critical error: track loading failed — a login5 outage mid-session lands here
         if "failed loading current track" in line:
+            reason = login_failure(line)
+            if reason:
+                self._report_login_failure(reason, line)
+                return
             self._logger.error(self._extract_log_message(line))
             self.broadcast_error(SourceErrorReason.TRACK_LOAD_FAILED)
             return
@@ -864,6 +916,8 @@ class SpotifySource(BaseAudioSource):
         # 60s: long enough to cover the ~5-15s systemd restart cadence on
         # zeroconf crashes, short enough to stay tied to a real outage.
         if "failed connecting to accesspoint" in line or "failed running zeroconf" in line:
+            if login_failure(line) in ACCOUNT_REFUSALS:
+                return  # the session line that follows names the refusal
             now = time.time()
             if now - self._last_error_time < 60:
                 self._connection_error_count += 1
@@ -878,6 +932,26 @@ class SpotifySource(BaseAudioSource):
 
         # Ignore normal WebSocket closures (StatusNormalClosure)
         # These are expected when stopping the service
+
+    LOGIN_RETRY_WINDOW_S = 60.0
+
+    def _report_login_failure(self, reason: str, line: str) -> None:
+        """Every retry re-sends the banner; only the first is logged at error.
+
+        Re-sent because the banner is not part of the state: a page loaded
+        after the first refusal never received it (measured — the retries were
+        held back and the reloaded page showed nothing). Logged at warning
+        after the first, because an error line reaches the screen as a second,
+        raw backend banner.
+        """
+        now = time.monotonic()
+        previous, self._last_login_failure = self._last_login_failure, (reason, now)
+        message = self._extract_log_message(line)
+        if previous and previous[0] == reason and now - previous[1] < self.LOGIN_RETRY_WINDOW_S:
+            self._logger.warning(message)
+        else:
+            self._logger.error(message)
+        self.broadcast_error(reason)
 
     def _extract_log_message(self, line: str) -> str:
         """
@@ -914,18 +988,24 @@ class SpotifySource(BaseAudioSource):
 
         # What /events posted and nobody handled belongs to this daemon run.
         self._discard_feed()
-        # The daemon that did not answer is gone with it: so is what it put up.
-        if self._unanswered:
+        # The daemon that did not answer, or refused a login, is gone with it:
+        # so is what it put up.
+        if self._unanswered or self._standing_reason in (
+            *LOGIN_FAILURES, SourceErrorReason.SERVICE_UNREACHABLE,
+        ):
             self.broadcast_error_cleared()
+        self._last_login_failure = None
 
     def broadcast_error(self, reason: str) -> None:
         # The banner standing is no longer the unanswered start's: /events
         # connecting later must not withdraw this one.
         self._unanswered = False
+        self._standing_reason = reason
         super().broadcast_error(reason)
 
     def broadcast_error_cleared(self) -> None:
         self._unanswered = False
+        self._standing_reason = None
         super().broadcast_error_cleared()
 
     # === The view (docs: "le fil") ===

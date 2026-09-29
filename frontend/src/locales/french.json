@@ -70,6 +70,10 @@
       "playbackFailed": "Échec de la lecture",
       "serviceUnreachable": "Service injoignable",
       "discUnreadable": "Disque illisible",
+      "premiumRequired": "Un compte {source} Premium est requis",
+      "credentialsRefused": "{source} a refusé les identifiants du compte",
+      "providerUnavailable": "Le service {source} est indisponible pour le moment",
+      "connectionRefused": "{source} a refusé la connexion",
       "generic": "Une erreur est survenue"
     },
     "cdSource": {

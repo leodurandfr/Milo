@@ -180,6 +180,12 @@ class SourceErrorReason:
     PLAYBACK_FAILED = "playback_failed"           # playback could not start
     SERVICE_UNREACHABLE = "service_unreachable"   # the external service is down
     DISC_UNREADABLE = "disc_unreadable"           # the disc in the drive is not an audio CD Milō can read
+    # A login the service refused, and why. Kept apart because the user's next
+    # step differs: upgrade the account, sign in again, or wait for the service.
+    PREMIUM_REQUIRED = "premium_required"         # the account's tier is refused
+    CREDENTIALS_REFUSED = "credentials_refused"   # the account's credentials are refused
+    PROVIDER_UNAVAILABLE = "provider_unavailable"  # the service's own servers are down
+    CONNECTION_REFUSED = "connection_refused"     # refused for any other reason
 
 
 class SourceError(WsEvent):

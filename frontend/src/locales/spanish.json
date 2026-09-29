@@ -70,6 +70,10 @@
       "playbackFailed": "Error de reproducción",
       "serviceUnreachable": "No se pudo contactar con el servicio",
       "discUnreadable": "No se puede leer el disco",
+      "premiumRequired": "Se requiere una cuenta {source} Premium",
+      "credentialsRefused": "{source} rechazó las credenciales de la cuenta",
+      "providerUnavailable": "El servicio {source} no está disponible en este momento",
+      "connectionRefused": "{source} rechazó la conexión",
       "generic": "Se produjo un error"
     },
     "cdSource": {
