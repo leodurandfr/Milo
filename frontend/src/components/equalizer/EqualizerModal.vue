@@ -26,20 +26,18 @@
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
           <SettingsSection>
             <template #header>
-              <div class="eq-header">
-                <div class="eq-header__title">
-                  <h2 class="heading-2">{{ t('equalizer.equalizer.title') }}</h2>
-                  <span v-if="selectedZoneName" class="eq-header__subtitle text-mono-medium">{{ selectedZoneName }}</span>
-                </div>
-                <Button v-if="equalizerStore.isPresetEdited" variant="brand" size="small"
-                  @click="handleSaveCustomPreset">
-                  {{ t('equalizer.presets.save') }}
-                </Button>
-                <Dropdown :model-value="currentPresetValue" :options="presetOptions"
-                  :display-override="presetDisplayOverride" :placeholder="t('equalizer.selectPreset')"
-                  size="small" class="eq-header__dropdown"
-                  @update:model-value="handlePresetChange" />
-              </div>
+              <SectionHeader :title="t('equalizer.equalizer.title')" :subtitle="selectedZoneName">
+                <template #actions>
+                  <Button v-if="equalizerStore.isPresetEdited" variant="brand" size="small"
+                    @click="handleSaveCustomPreset">
+                    {{ t('equalizer.presets.save') }}
+                  </Button>
+                  <Dropdown :model-value="currentPresetValue" :options="presetOptions"
+                    :display-override="presetDisplayOverride" :placeholder="t('equalizer.selectPreset')"
+                    size="small" class="eq-preset-dropdown"
+                    @update:model-value="handlePresetChange" />
+                </template>
+              </SectionHeader>
             </template>
             <ParametricEQ :filters="equalizerStore.filters" :filters-loaded="equalizerStore.filtersLoaded"
               :is-mobile="isMobile" @update:filter="handleFilterUpdate"
@@ -131,6 +129,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ItemSelector from './ItemSelector.vue';
 import ParametricEQ from './ParametricEQ.vue';
@@ -340,26 +339,12 @@ onUnmounted(() => {
 }
 
 /* EQ section header layout */
-.eq-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-02);
-}
-
-.eq-header__title {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-  min-width: 0;
-}
-.eq-header__subtitle {
-  color: var(--color-text-secondary);
-}
-
-.eq-header__dropdown {
-  max-width: 256px;
+/* The dropdown fills its parent, and the actions slot sizes to its content: it
+   needs a width of its own on desktop, and takes the rest of the row once the
+   header stacks. `.dropdown` doubles the class to outrank the component's own
+   `flex: 1`, which would otherwise collapse it inside a content-sized slot. */
+.eq-preset-dropdown.dropdown {
+  flex: 0 0 256px;
 }
 
 /* Loudness / Compressor controls grid */
@@ -381,17 +366,8 @@ onUnmounted(() => {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .eq-header {
-    flex-wrap: wrap;
-  }
-
-  .eq-header__dropdown {
-    flex: 0 0 100%;
-    order: 3;
-  }
-
-  .eq-header__dropdown {
-    max-width: none;
+  .eq-preset-dropdown.dropdown {
+    flex: 1 1 auto;
   }
 
   .effect-controls {

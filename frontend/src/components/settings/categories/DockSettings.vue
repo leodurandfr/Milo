@@ -4,16 +4,17 @@
     <!-- Audio sources -->
     <SettingsSection class="audio-sources-section">
       <template #header>
-        <div class="section-header">
-          <h2 class="heading-2">{{ t('audioSources.title') }}</h2>
-          <Button
-            size="small"
-            :variant="isReordering ? 'brand' : 'background-strong'"
-            @click="toggleReorderMode"
-          >
-            {{ isReordering ? t('applicationsSettings.done') : t('applicationsSettings.reorder') }}
-          </Button>
-        </div>
+        <SectionHeader :title="t('audioSources.title')">
+          <template #actions>
+            <Button
+              size="small"
+              :variant="isReordering ? 'brand' : 'outline'"
+              @click="toggleReorderMode"
+            >
+              {{ isReordering ? t('applicationsSettings.done') : t('applicationsSettings.reorder') }}
+            </Button>
+          </template>
+        </SectionHeader>
       </template>
 
       <div class="app-list" :class="{ 'app-list--reordering': isReordering }">
@@ -119,6 +120,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Button from '@/components/ui/Button.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 const { t } = useI18n();
@@ -261,12 +263,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .app-list {
   display: grid;
   grid-template-columns: 1fr 1fr;

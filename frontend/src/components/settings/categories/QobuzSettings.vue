@@ -30,22 +30,19 @@
   <!-- Connected -->
   <SettingsContainer v-else>
     <SettingsSection>
-      <!-- Title + email are one group on the left; Disconnect aligns with it on the right. -->
       <template #header>
-        <div class="qobuz-header">
-          <div class="qobuz-account-text">
-            <h2 class="heading-2">{{ t('qobuzSettings.accountTitle') }}</h2>
-            <p v-if="account.email" class="text-mono-medium qobuz-email">{{ account.email }}</p>
-          </div>
-          <Button
-            variant="background-strong"
-            size="medium"
-            :loading="disconnecting"
-            @click="disconnect"
-          >
-            {{ t('qobuzSettings.disconnect') }}
-          </Button>
-        </div>
+        <SectionHeader :title="t('qobuzSettings.accountTitle')" :subtitle="account.email">
+          <template #actions>
+            <Button
+              variant="outline"
+              size="small"
+              :loading="disconnecting"
+              @click="disconnect"
+            >
+              {{ t('qobuzSettings.disconnect') }}
+            </Button>
+          </template>
+        </SectionHeader>
       </template>
     </SettingsSection>
 
@@ -70,6 +67,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
@@ -191,26 +189,3 @@ onUnmounted(() => {
   // timer.clearAll() runs automatically on unmount.
 });
 </script>
-
-<style scoped>
-.qobuz-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-04);
-}
-
-.qobuz-account-text {
-  margin-right: auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.qobuz-email {
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>

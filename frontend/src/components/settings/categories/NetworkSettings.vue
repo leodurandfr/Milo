@@ -70,7 +70,7 @@
         <div class="wifi-group">
           <div class="network-subheader">
             <span class="heading-3 network-subheader__title">{{ t('network.otherNetworks') }}</span>
-            <Button variant="background-strong" size="small" left-icon="arrowClockwise"
+            <Button variant="outline" size="small" left-icon="arrowClockwise"
               :loading="scanning" :disabled="scanning"
               @click="scanNetworks">
               {{ t('network.refresh') }}

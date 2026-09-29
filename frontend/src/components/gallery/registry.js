@@ -104,6 +104,7 @@ import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
 import TriggerSample from './samples/TriggerSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
+import HeaderActionSample from './samples/HeaderActionSample.vue';
 import SourceStage from './SourceStage.vue';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
@@ -1010,9 +1011,13 @@ export const REGISTRY = {
     component: SectionHeader,
     args: { title: 'Stations', subtitle: '24 saved', class: 'canvas-column' },
     slots: {
+      title: {
+        'none — the title prop shows': null,
+        'text override': { text: 'Slotted title' }
+      },
       actions: {
         none: null,
-        'IconButton — add': { component: IconButton, props: { icon: 'plus', variant: 'brand' } }
+        'Button — add': { component: HeaderActionSample }
       }
     }
   }

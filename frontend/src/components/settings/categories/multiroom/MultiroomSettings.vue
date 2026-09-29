@@ -31,7 +31,7 @@
             <template #header>
               <SectionHeader :title="t('multiroom.zonesAndSystems')">
                 <template #actions>
-                  <Button v-if="ungroupedClients.length >= 2" variant="brand" size="small" @click="handleCreateZone">
+                  <Button v-if="ungroupedClients.length >= 2" variant="outline" size="small" @click="handleCreateZone">
                     {{ t('equalizer.zones.createZone') }}
                   </Button>
                 </template>
