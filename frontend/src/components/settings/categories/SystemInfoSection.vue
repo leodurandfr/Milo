@@ -153,9 +153,11 @@ const diskPercent = computed(() => {
   return Math.round((disk.value.used_gb / disk.value.total_gb) * 100);
 });
 
+// MB/s takes over at 1000 KB/s, not 1024, so KB/s never shows 4 digits.
 function formatRate(bytesPerSec) {
-  if (bytesPerSec < 1024) return `${bytesPerSec} B/s`;
-  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+  if (bytesPerSec < 1000) return `${Math.round(bytesPerSec)} B/s`;
+  const kb = Math.round(bytesPerSec / 1024);
+  if (kb < 1000) return `${kb} KB/s`;
   return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
 }
 
