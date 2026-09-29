@@ -194,10 +194,6 @@ const DIVERGENCE_ALLOWED = {
   // (par appui). The translations are more precise than the English here.
   'Volume step per click': 'BT remote is a rotary, IR remote is a button — the locales say which',
 
-  // A search placeholder ("Nom d'une station") against a field label
-  // ("Nom de la station").
-  'Station name': 'a placeholder against a field label',
-
   // The EQ preset catalogue is its own naming family (Amplificateur de basses /
   // Réducteur de basses / Amplificateur vocal…). A preset that happens to share
   // an English label with a loudness control is not that control, and renaming
