@@ -57,8 +57,7 @@ const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 
 const isDragging = ref(false);
 const track = ref(null);
 const thumbRef = ref(null);
-// Layout (unscaled) sizes — for CSS positioning, which uses % of unscaled parent.
-// Using BCR here would mix scaled px with unscaled % when an ancestor has transform: scale (ui_scale).
+// Layout (untransformed) sizes — for CSS positioning, which uses % of the parent's layout box.
 const trackSize = ref({ width: 0, height: 0 });
 const thumbAxisSize = ref(54);
 const valueRef = ref(null);

@@ -134,7 +134,8 @@ def _create_service(name: str) -> Any:
         "screen_controller": lambda: _import("backend.hardware.screen", "ScreenController")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
-            hardware_service=get_service("hardware_service")
+            hardware_service=get_service("hardware_service"),
+            systemd_manager=get_service("systemd_manager")
         ),
         "bt_remote_controller": lambda: _import("backend.hardware.bt_remote", "BtRemoteController")(
             volume_service=get_service("volume_service"),

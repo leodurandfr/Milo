@@ -43,6 +43,14 @@ Environment=XCURSOR_SIZE=24
 Environment=WLR_XCURSOR_THEME=Adwaita
 Environment=WLR_XCURSOR_SIZE=24
 
+# The interface scale (Settings > Screen), written by the backend before it
+# answers, applied as Chromium's default page zoom by milo-kiosk-zoom (see why
+# there, not --force-device-scale-factor); restarting the kiosk is how a new
+# value reaches Chromium. The default covers a first boot that has not written it.
+Environment=MILO_UI_SCALE=1
+EnvironmentFile=-/var/lib/milo/kiosk.env
+ExecStartPre=/usr/local/bin/milo-kiosk-zoom
+
 # Launch Cage with Chromium in kiosk mode
 ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --user-data-dir=/run/milo-kiosk/chromium \

@@ -284,7 +284,7 @@
     "screensaver": "Screensaver",
     "screensaverDelay": "Start the screensaver after:",
     "uiScale": "Display",
-    "uiScaleLevel": "Interface scale",
+    "uiScaleLevel": "Interface scale on Milō's touchscreen",
     "colorFilter": "Warm color filter",
     "colorFilterWarmth": "Warmth"
   },

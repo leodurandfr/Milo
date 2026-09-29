@@ -57,6 +57,9 @@ class TestSettingsRoutes:
         """Screen controller mock"""
         controller = Mock()
         controller.reload_timeout_config = AsyncMock(return_value=True)
+        controller.write_kiosk_env = AsyncMock(return_value=True)
+        controller.restart_kiosk = AsyncMock()
+        controller.take_reopen_screen_settings = Mock(return_value=True)
         controller.brightness_on = 5
         controller.screen_type = "official"
         controller.screen_on = True
@@ -746,14 +749,51 @@ class TestSettingsRoutes:
         client._mock_settings.set_setting.assert_awaited_once_with("volume.step_ir_remote_db", 3.0)
         assert client._mock_state_machine.broadcast.call_args.args[0].TYPE == "ir_remote_steps_changed"
 
-    def test_set_screen_ui_scale_writes_the_scale(self, client):
-        """The kiosk re-renders on this event; a wrong key leaves the panel at
-        the old scale with the slider showing the new one."""
+    def test_set_screen_ui_scale_writes_the_scale(self, client, mock_screen_controller):
+        """Chromium reads the factor only at launch: a scale stored but never
+        written to kiosk.env, or written with no kiosk restart, leaves the panel
+        at the old scale with the setting showing the new one."""
         response = client.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.15})
 
         assert response.status_code == 200
         client._mock_settings.set_setting.assert_awaited_once_with("screen.ui_scale", 1.15)
         assert response.json()["config"] == {"ui_scale": 1.15}
+        mock_screen_controller.write_kiosk_env.assert_awaited_once_with(1.15)
+        mock_screen_controller.restart_kiosk.assert_awaited_once()
+
+    def test_only_a_scale_changed_on_the_kiosk_reopens_its_screen_settings(
+        self, client, mock_screen_controller
+    ):
+        """Changed from a phone, the kiosk restarts too — but nobody there was
+        in the Screen settings, so it must not come back on them."""
+        client.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.2},
+                   headers={"X-Real-IP": "127.0.0.1"})
+        client.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.25},
+                   headers={"X-Real-IP": "192.168.1.20"})
+
+        asked = [c.kwargs["reopen_screen_settings"]
+                 for c in mock_screen_controller.restart_kiosk.await_args_list]
+        assert asked == [True, False]
+
+    def test_a_remote_browser_cannot_take_the_kiosks_resume(self, client, mock_screen_controller):
+        """The answer is given once; a phone opening the app while the kiosk
+        restarts would otherwise consume it."""
+        remote = client.post("/api/settings/kiosk-resume", headers={"X-Real-IP": "192.168.1.20"})
+        kiosk = client.post("/api/settings/kiosk-resume", headers={"X-Real-IP": "127.0.0.1"})
+
+        assert remote.json()["reopen_screen_settings"] is False
+        mock_screen_controller.take_reopen_screen_settings.assert_called_once()
+        assert kiosk.json()["reopen_screen_settings"] is True
+
+    def test_an_unwritten_kiosk_env_restarts_nothing(self, client, mock_screen_controller):
+        """A restart would relaunch Chromium at the old factor: a black screen
+        for nothing, reported as applied."""
+        mock_screen_controller.write_kiosk_env = AsyncMock(side_effect=OSError("read-only"))
+
+        response = client.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.2})
+
+        assert response.json()["reload_success"] is False
+        mock_screen_controller.restart_kiosk.assert_not_awaited()
 
     def test_set_music_library_settings_writes_the_section(self, client):
         """Decides whether the library shows one tab per storage space or one

@@ -443,7 +443,7 @@ watch(isReady, (ready) => {
 
 // === Warm color filter overlay (Night Shift-like) ===
 // Only applied on the Pi kiosk (localhost). Remote browsers (e.g. milo.local
-// from another device) keep their native colors — same pattern as ui_scale.
+// from another device) keep their native colors.
 const COLOR_FILTER_MAX_ALPHA = 0.40;
 
 // App furniture the current route may opt out of: the Dock and the warm colour
@@ -474,6 +474,17 @@ const settingsInitialView = ref('home');
 function openSettings(initialView = 'home') {
   settingsInitialView.value = initialView;
   isSettingsOpen.value = true;
+}
+
+// A scale change restarts the kiosk, whose incognito profile keeps nothing, so
+// the backend remembers — once — that it came from the Screen settings.
+async function resumeAfterKioskRestart() {
+  const { ok, data } = await apiCall.post('/api/settings/kiosk-resume', null, {
+    category: 'screen',
+    message: 'Kiosk resume check failed',
+    logLevel: 'debug',
+  });
+  if (ok && data.reopen_screen_settings) openSettings('screen');
 }
 
 function closeSettings() {
@@ -751,6 +762,8 @@ onMounted(async () => {
   await resyncStores('boot');
 
   adoptBrowserTimezone();
+
+  if (isKiosk()) resumeAfterKioskRestart();
 
   // Preload modals in background for instant display when user opens them
   Promise.all([

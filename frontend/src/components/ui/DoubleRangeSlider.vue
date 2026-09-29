@@ -53,8 +53,7 @@ const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
 const track = ref(null);
 const thumbRef = ref(null);
-// Layout (unscaled) sizes — for CSS positioning, which uses % of unscaled parent.
-// Using BCR here would mix scaled px with unscaled % when an ancestor has transform: scale (ui_scale).
+// Layout (untransformed) sizes — for CSS positioning, which uses % of the parent's layout box.
 const trackWidth = ref(0);
 const thumbAxisSize = ref(54);
 

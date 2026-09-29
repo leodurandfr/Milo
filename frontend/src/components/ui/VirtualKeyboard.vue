@@ -240,20 +240,12 @@ function handleClose() {
 }
 
 // ===== KEY PRESS POPUP =====
-// The layout-vs-visual px conversion the placement helpers need — see keyboard/geometry.js.
-function getKeyboardScale() {
-  if (!keyboardRef.value) return 1;
-  const w = keyboardRef.value.offsetWidth;
-  return w ? keyboardRef.value.getBoundingClientRect().width / w : 1;
-}
-
 function showPressPopup(event, key) {
   if (!keyboardRef.value) return;
 
   const { left, bottom, width } = pressPopupPlacement(
     event.target.getBoundingClientRect(),
-    keyboardRef.value.getBoundingClientRect(),
-    getKeyboardScale()
+    keyboardRef.value.getBoundingClientRect()
   );
 
   pressPopup.char = key;
@@ -277,7 +269,6 @@ function showAccentPopup(event, key) {
   const { left, bottom } = accentPopupPlacement(
     event.target.getBoundingClientRect(),
     keyboardRef.value.getBoundingClientRect(),
-    getKeyboardScale(),
     mappedVariants.length
   );
 
@@ -337,7 +328,6 @@ function onDocumentPointerMove(event) {
   accentPopup.selectedIndex = accentIndexAt(
     event.clientX,
     keyboardRef.value.getBoundingClientRect().left,
-    getKeyboardScale(),
     parseFloat(accentPopup.style.left),
     accentPopup.variants.length
   );

@@ -94,9 +94,8 @@ function refreshRect() {
 function track(clientY) {
   if (!stripRect) return;
   const ratio = (clientY - stripRect.top) / stripRect.height;
-  // Placed as a percentage of the strip: pointer coordinates are screen pixels
-  // and a CSS offset is laid-out ones, which differ by ui_scale on the kiosk —
-  // a fraction of the strip's own height is the same number in both.
+  // Placed as a percentage of the strip, the one number the pointer ratio and
+  // the CSS offset share.
   bubblePercent.value = Math.min(100, Math.max(0, ratio * 100));
   // Over what is DRAWN, not over the whole index: on an abridged rail the two
   // differ by up to a rung, and a press has to answer with the letter printed
@@ -158,9 +157,7 @@ onBeforeUnmount(() => {
    --space-07 above the bottom of the window, with the letters centred in it.
    Its sticky offset is that same resting position, so it stays exactly where it
    was drawn as the list scrolls under it.
-   The viewport unit counts screen pixels while the app is laid out in the fewer
-   ones ui_scale magnifies (published by applyUiScale), hence the division; the
-   floor leaves a short window with a small rail rather than none.
+   The floor leaves a short window with a small rail rather than none.
    svh, NOT dvh: the dynamic unit grows as a phone browser retracts its toolbar
    on the way down the list, and the band is pinned at the top — so it grew
    downwards and carried the centred strip with it, which is the rail visibly
@@ -174,7 +171,7 @@ onBeforeUnmount(() => {
   top: var(--rail-top, 0px);
   height: max(
     var(--space-09),
-    calc(100svh / var(--ui-scale, 1) - var(--rail-top, 0px) - var(--space-07))
+    calc(100svh - var(--rail-top, 0px) - var(--space-07))
   );
   align-self: flex-start;
   flex-shrink: 0;

@@ -4,7 +4,6 @@ import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
-import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
 const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'settings'];
@@ -218,7 +217,6 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(screenScreensaver, d.screen_screensaver);
 
         setIfChanged(screenUiScale, d.screen_ui_scale);
-        applyUiScale(screenUiScale.value.ui_scale);
 
         setIfChanged(screenColorFilter, d.screen_color_filter);
         setIfChanged(radioSettings, d.radio_settings);
@@ -461,36 +459,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateScreenScreensaver = makeUpdater(screenScreensaver);
   const updateScreenColorFilter = makeUpdater(screenColorFilter);
 
-  function updateScreenUiScale(config) {
-    screenUiScale.value = { ...screenUiScale.value, ...config };
-    applyUiScale(screenUiScale.value.ui_scale);
-  }
-
-  function applyUiScale(scale) {
-    const appEl = document.getElementById('app');
-    if (!appEl) return;
-    if (!isKiosk() || scale === 1.0) {
-      appEl.style.transform = '';
-      appEl.style.transformOrigin = '';
-      appEl.style.width = '';
-      appEl.style.height = '';
-      appEl.style.overflow = '';
-      document.documentElement.style.removeProperty('--ui-scale');
-    } else {
-      appEl.style.transform = `scale(${scale})`;
-      appEl.style.transformOrigin = 'top left';
-      appEl.style.width = `calc(100vw / ${scale})`;
-      appEl.style.height = `calc(100vh / ${scale})`;
-      appEl.style.overflow = 'hidden';
-      // Published for the CSS under the transform: the app is laid out in
-      // 100vh/scale pixels, so a rule sizing anything against dvh counts screen
-      // pixels the layout never gets. Dividing by this is how such a rule reads
-      // the height the app actually has. On the root rather than on #app, so
-      // that what teleports OUT of #app can read it too and re-apply the scale
-      // it no longer inherits — the dropdown menu is the one such element.
-      document.documentElement.style.setProperty('--ui-scale', String(scale));
-    }
-  }
+  const updateScreenUiScale = makeUpdater(screenUiScale);
   const updateRadioSettings = makeUpdater(radioSettings);
   const updateMusicLibrarySettings = makeUpdater(musicLibrarySettings);
   const updateQobuzSettings = makeUpdater(qobuzSettings);

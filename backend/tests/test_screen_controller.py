@@ -8,6 +8,9 @@ stderr — and neither was consulted, so a panel that took nothing reported the
 same success as one that took everything.
 """
 import asyncio
+import json
+import types
+from pathlib import Path
 from time import monotonic
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
@@ -56,6 +59,7 @@ def controller():
         state_machine=state_machine,
         settings_service=settings,
         hardware_service=hardware,
+        systemd_manager=AsyncMock(),
     )
 
 
@@ -553,7 +557,7 @@ class TestPanelsWithNoBacklightToDrive:
             return backlight_root
 
         monkeypatch.setattr("backend.hardware.screen.Path", redirected)
-        controller = ScreenController(Mock(), settings, hardware)
+        controller = ScreenController(Mock(), settings, hardware, AsyncMock())
         assert asked == ["/sys/class/backlight"], (
             "the DSI backlight is enumerated from the kernel class directory; "
             f"this asked for {asked}"
@@ -583,3 +587,115 @@ class TestPanelsWithNoBacklightToDrive:
         assert controller.backlight_path == str(node)
         assert str(node) in controller.screen_on_cmd
         assert controller.screen_off_cmd.endswith(f"echo 0 > {node}'")
+
+
+_REPO = Path(__file__).parents[2]
+
+
+def _load_kiosk_zoom():
+    """The ExecStartPre script, which has no .py suffix to import by. Executed
+    from source rather than imported, so no __pycache__ lands in rootfs/."""
+    path = _REPO / "rootfs" / "usr" / "local" / "bin" / "milo-kiosk-zoom"
+    module = types.ModuleType("milo_kiosk_zoom")
+    exec(compile(path.read_text(), str(path), "exec"), module.__dict__)
+    return module
+
+
+def _stored_level(profile_root):
+    prefs = json.loads((profile_root / "Default" / "Preferences").read_text())
+    return prefs["partition"]["default_zoom_level"]["x"]
+
+
+class TestKioskScale:
+    """The interface scale reaches Chromium through kiosk.env and a restart."""
+
+    async def test_the_written_variable_is_the_one_the_kiosk_zoom_reads(
+        self, controller, tmp_path, monkeypatch
+    ):
+        """Writer, unit and script name the variable and the script separately;
+        if they drift, the kiosk starts at 100% whatever the setting says."""
+        env = tmp_path / "kiosk.env"
+        monkeypatch.setattr(ScreenController, "KIOSK_ENV_PATH", str(env))
+        await controller.write_kiosk_env(1.25)
+
+        written = dict(
+            line.split("=", 1) for line in env.read_text().splitlines()
+            if line and not line.startswith("#")
+        )
+        unit = (_REPO / "system" / "milo-kiosk.service").read_text()
+        assert "ExecStartPre=/usr/local/bin/milo-kiosk-zoom" in unit
+        zoom = _load_kiosk_zoom()
+        monkeypatch.setattr(zoom, "PREFERENCES", str(tmp_path / "Default" / "Preferences"))
+        for name, value in written.items():
+            monkeypatch.setenv(name, value)
+
+        zoom.main()
+
+        assert 1.2 ** _stored_level(tmp_path) == pytest.approx(1.25)
+
+    def test_the_kiosk_zoom_keeps_the_rest_of_the_profile(self, tmp_path, monkeypatch):
+        """The profile survives restarts and Chromium keeps its own state in the
+        same file; replacing it would wipe that state on every scale change."""
+        prefs = tmp_path / "Default" / "Preferences"
+        prefs.parent.mkdir()
+        prefs.write_text(json.dumps({"browser": {"window": 1}, "partition": {"per_host_zoom_levels": {}}}))
+        zoom = _load_kiosk_zoom()
+        monkeypatch.setattr(zoom, "PREFERENCES", str(prefs))
+        monkeypatch.setenv("MILO_UI_SCALE", "1.1")
+
+        zoom.main()
+
+        stored = json.loads(prefs.read_text())
+        assert stored["browser"] == {"window": 1}
+        assert stored["partition"]["per_host_zoom_levels"] == {}
+        assert 1.2 ** _stored_level(tmp_path) == pytest.approx(1.1)
+
+    async def test_an_enabled_kiosk_is_restarted_even_while_still_restarting(self, controller):
+        """A second change made while the first restart is under way must still
+        restart it — probing `active` then answered no and dropped the change."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        controller.systemd_manager.probe_active = AsyncMock(return_value=False)
+
+        await controller.restart_kiosk()
+
+        controller.systemd_manager.restart.assert_awaited_once_with("milo-kiosk.service")
+
+    async def test_a_disabled_kiosk_is_not_started(self, controller):
+        """A unit set up with no screen has the kiosk disabled; a restart would
+        start it."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=False)
+
+        await controller.restart_kiosk()
+
+        controller.systemd_manager.restart.assert_not_awaited()
+
+    async def test_the_kiosk_brought_up_takes_the_screen_settings_once(self, controller):
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        controller.systemd_manager.restart = AsyncMock(return_value=True)
+
+        await controller.restart_kiosk(reopen_screen_settings=True)
+
+        assert controller.take_reopen_screen_settings() is True
+        assert controller.take_reopen_screen_settings() is False
+
+    async def test_a_restart_that_failed_leaves_nothing_to_reopen(self, controller):
+        """The old kiosk is still up; reopening the settings on its next boot,
+        hours later, would answer a change nobody remembers."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        controller.systemd_manager.restart = AsyncMock(return_value=False)
+
+        await controller.restart_kiosk(reopen_screen_settings=True)
+
+        assert controller.take_reopen_screen_settings() is False
+
+    def test_a_profile_that_cannot_be_written_still_lets_the_kiosk_start(
+        self, tmp_path, monkeypatch
+    ):
+        """ExecStartPre failing fails the unit: no Chromium, a blank panel."""
+        blocker = tmp_path / "not-a-dir"
+        blocker.write_text("")
+        zoom = _load_kiosk_zoom()
+        monkeypatch.setattr(zoom, "PREFERENCES", str(blocker / "Default" / "Preferences"))
+        monkeypatch.setenv("MILO_UI_SCALE", "1.2")
+
+        assert zoom.main() == 0

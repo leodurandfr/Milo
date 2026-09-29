@@ -1,0 +1,74 @@
+#!/usr/bin/python3
+"""milo-kiosk-zoom — set the kiosk's default page zoom from MILO_UI_SCALE.
+
+The interface scale (Settings > Screen) is Chromium's page zoom, the same
+mechanism as Ctrl+: the page is laid out in a smaller viewport, so viewport
+units, fixed positioning and media queries all follow. Two other mechanisms
+were measured and refused:
+- --force-device-scale-factor at a non-integer value drew the page into the
+  top-left quarter of the panel under cage (0.2.0), with or without
+  WaylandFractionalScaleV1;
+- CSS `zoom` on the root scales viewport units with everything else, so
+  100vh overflowed the panel by the factor.
+
+No switch sets a default page zoom, so it is written into the profile's
+Preferences. Wired as ExecStartPre of milo-kiosk.service, as the `milo` user:
+Chromium rewrites Preferences on exit, so the file is edited only while no
+Chromium runs. The profile survives a restart (RuntimeDirectoryPreserve), so
+the key is merged in rather than the file replaced.
+"""
+import contextlib
+import json
+import math
+import os
+import sys
+
+PREFERENCES = "/run/milo-kiosk/chromium/Default/Preferences"
+# Chromium stores zoom as a level: factor = 1.2 ** level.
+ZOOM_BASE = 1.2
+# The default storage partition's key in `partition.default_zoom_level`.
+DEFAULT_PARTITION = "x"
+
+
+def main() -> int:
+    try:
+        scale = float(os.environ.get("MILO_UI_SCALE", "1"))
+    except ValueError:
+        print("milo-kiosk-zoom: invalid MILO_UI_SCALE, page zoom left unchanged", file=sys.stderr)
+        return 0
+    if scale <= 0:
+        print(f"milo-kiosk-zoom: invalid MILO_UI_SCALE={scale}, page zoom left unchanged", file=sys.stderr)
+        return 0
+
+    try:
+        with open(PREFERENCES) as f:
+            prefs = json.load(f)
+    except FileNotFoundError:
+        prefs = {}
+    except (OSError, json.JSONDecodeError) as e:
+        # Chromium would rebuild an unreadable file anyway; replace it.
+        print(f"milo-kiosk-zoom: unreadable {PREFERENCES} ({e}), starting a new one", file=sys.stderr)
+        prefs = {}
+
+    level = math.log(scale) / math.log(ZOOM_BASE)
+    prefs.setdefault("partition", {}).setdefault("default_zoom_level", {})[DEFAULT_PARTITION] = level
+
+    # A failed write must not fail the unit: Chromium would never start, and
+    # Restart= would loop on a blank panel. It starts at its previous zoom.
+    temp = f"{PREFERENCES}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(PREFERENCES), mode=0o700, exist_ok=True)
+        with open(temp, "w") as f:
+            json.dump(prefs, f)
+        os.replace(temp, PREFERENCES)
+    except OSError as e:
+        print(f"milo-kiosk-zoom: cannot write {PREFERENCES} ({e}), page zoom left unchanged", file=sys.stderr)
+        with contextlib.suppress(OSError):
+            os.remove(temp)
+        return 0
+    print(f"milo-kiosk-zoom: page zoom {scale} (level {level:.4f})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -45,7 +45,7 @@ def keep_the_suite_out_of_the_operator_log():
 
 @pytest.fixture(scope="session", autouse=True)
 def keep_the_suite_out_of_the_live_env_files(tmp_path_factory):
-    """Repoint the three env writers at a temp dir for the whole run.
+    """Repoint the four env writers at a temp dir for the whole run.
 
     Same reason as the handler above, one directory further: this checkout is
     also the appliance, so a plain `pytest backend/` rewrote the real
@@ -57,18 +57,20 @@ def keep_the_suite_out_of_the_live_env_files(tmp_path_factory):
     because the file was read by hand; nothing failed, and on CI the write fails
     open against a path that does not exist.
 
-    Session-scoped and autouse rather than opt-in: three writers are reached
+    Session-scoped and autouse rather than opt-in: the writers are reached
     through several call paths, and a test that acquires one more must not have
     to know this exists. `test_routing_env.py` still repoints them per-test —
     function-scoped monkeypatch wins over this, which is what that file wants.
     """
     from backend.core.multiroom.routing import MacEnv, RoutingEnv, SnapclientEnv
+    from backend.hardware.screen import ScreenController
 
     tmp = tmp_path_factory.mktemp("env")
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(RoutingEnv, "PATH", str(tmp / "routing.env"))
         mp.setattr(MacEnv, "PATH", str(tmp / "mac.env"))
         mp.setattr(SnapclientEnv, "PATH", str(tmp / "snapclient.env"))
+        mp.setattr(ScreenController, "KIOSK_ENV_PATH", str(tmp / "kiosk.env"))
         yield
 
 

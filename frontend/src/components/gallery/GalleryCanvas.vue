@@ -236,9 +236,8 @@ let observer = null;
 onMounted(() => {
   window.addEventListener('message', handleMessage);
 
-  // `clientWidth/Height` rather than a rect: they are layout pixels, so the
-  // kiosk's own `ui_scale` transform on an ancestor cannot skew the fit. The
-  // observed element sits inside the stage's inset, which is why the inset needs
+  // `clientWidth/Height` rather than a rect: they are layout pixels, so no
+  // transform on an ancestor can skew the fit. The observed element sits inside the stage's inset, which is why the inset needs
   // no constant here — including when it is dropped at `fill`.
   observer = new ResizeObserver(([entry]) => {
     const box = entry.target;

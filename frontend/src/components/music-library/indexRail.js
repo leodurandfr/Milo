@@ -46,14 +46,11 @@ export function letterAtRatio(letters, ratio) {
 /**
  * The element `el` scrolls in, or null.
  *
- * The rail needs it twice, and both times because the alternative moves the
- * wrong box: measuring the room for letters against `window.innerHeight` counts
- * screen pixels, while the app is laid out in the fewer ones the kiosk's
- * ui_scale transform then magnifies — and `scrollIntoView()` scrolls EVERY
- * scrollable ancestor, `#app` included (`overflow: hidden` still scrolls under
- * script), which slid the whole interface up by the offset it wanted and never
- * slid it back. Both are answered by the one container the view actually
- * scrolls in, whose own metrics are in the space everything else is laid out in.
+ * The rail needs it twice, and both times because the alternative moves or
+ * measures the wrong box: the room for letters is the scroll container's, not
+ * the window's, and `scrollIntoView()` scrolls EVERY scrollable ancestor (an
+ * `overflow: hidden` one included — it still scrolls under script), which slid
+ * the whole interface up by the offset it wanted and never slid it back.
  */
 export function scrollParentOf(el) {
   for (let node = el?.parentElement; node; node = node.parentElement) {
@@ -66,7 +63,7 @@ export function scrollParentOf(el) {
 /**
  * `el`'s top in the laid-out pixels of `ancestor`, summed up the offsetParent
  * chain rather than taken from a bounding rect: both operands are then in the
- * same space as scrollTop, so the kiosk's ui_scale never enters the arithmetic.
+ * same space as scrollTop.
  */
 export function offsetWithin(el, ancestor) {
   let top = 0;

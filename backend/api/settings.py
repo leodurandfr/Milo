@@ -112,6 +112,19 @@ def create_settings_router(
     router = APIRouter()
     settings = settings_service
 
+    def _from_kiosk(request: Request) -> bool:
+        """Whether a request comes from the Pi's own kiosk.
+
+        The same frontend runs on the Pi's touchscreen and on remote browsers
+        (milo.local from a Mac/iPhone). The kiosk loads http://localhost and
+        thus reaches the backend over loopback; nginx sets X-Real-IP to the real
+        client address authoritatively (remote clients cannot spoof it).
+        """
+        client_ip = request.headers.get("x-real-ip") or (
+            request.client.host if request.client else ""
+        )
+        return client_ip in ("127.0.0.1", "::1")
+
     async def _handle_setting_update(
         setter: Callable,
         event: SettingsEvent,
@@ -582,13 +595,32 @@ def create_settings_router(
 
     # Screen UI scale
     @router.put("/screen-ui-scale")
-    async def set_screen_ui_scale(payload: ScreenUiScaleRequest):
-        return await _handle_setting_update(
+    async def set_screen_ui_scale(
+        payload: ScreenUiScaleRequest, request: Request, background_tasks: BackgroundTasks
+    ):
+        # Chromium reads its default page zoom at launch only: the kiosk restarts,
+        # after the response so the kiosk asking is answered first — and, when
+        # it asked, comes back on the Screen settings it asked from.
+        response = await _handle_setting_update(
             setter=lambda: settings.set_setting('screen.ui_scale', payload.ui_scale),
             event=ScreenUiScaleChanged(
                 config=ScreenUiScaleConfig(ui_scale=payload.ui_scale)
-            )
+            ),
+            reload_callback=lambda: screen_controller.write_kiosk_env(payload.ui_scale)
         )
+        if response["reload_success"]:
+            background_tasks.add_task(
+                screen_controller.restart_kiosk, reopen_screen_settings=_from_kiosk(request)
+            )
+        return response
+
+    @router.post("/kiosk-resume")
+    async def resume_kiosk(request: Request):
+        """What a freshly started kiosk returns to: the Screen settings, once,
+        after a scale change made on it. A remote browser takes nothing, so it
+        cannot consume the kiosk's answer."""
+        reopen = _from_kiosk(request) and screen_controller.take_reopen_screen_settings()
+        return {"status": "success", "reopen_screen_settings": reopen}
 
     # Screen warm color filter
     @router.put("/screen-color-filter")
@@ -616,18 +648,11 @@ def create_settings_router(
     async def notify_screen_activity(request: Request):
         """Wake the physical screen on activity from the *local* Pi kiosk only.
 
-        The same frontend runs on the Pi's touchscreen and on remote browsers
-        (milo.local from a Mac/iPhone), so we must not let a remote interaction
-        wake the Pi. The kiosk loads http://localhost and thus reaches the backend
-        over loopback; nginx sets X-Real-IP to the real client address
-        authoritatively (remote clients cannot spoof it). Non-loopback requests are
-        acknowledged but ignored.
+        A remote interaction must not wake the Pi (see `_from_kiosk`), so
+        non-kiosk requests are acknowledged but ignored.
         """
         async with api_error_handler("Error notifying screen activity", logger):
-            client_ip = request.headers.get("x-real-ip") or (
-                request.client.host if request.client else ""
-            )
-            if client_ip not in ("127.0.0.1", "::1"):
+            if not _from_kiosk(request):
                 return {"status": "success", "activity_time_reset": False}
             await screen_controller.on_touch_detected()
             return {"status": "success", "activity_time_reset": True}

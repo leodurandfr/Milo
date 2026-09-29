@@ -9,7 +9,7 @@
       </SettingItem>
     </SettingsSection>
 
-    <!-- UI Scale (kiosk only) -->
+    <!-- UI Scale: the kiosk's device scale factor, applied by a kiosk restart -->
     <SettingsSection :title="t('screenSettings.uiScale')">
       <SettingItem :label="t('screenSettings.uiScaleLevel')">
         <ButtonGroup
@@ -142,12 +142,12 @@ const delaySteps = computed(() => [
 ]);
 
 const uiScalePresets = [
-  { value: 0.9, label: '90%' },
-  { value: 0.95, label: '95%' },
   { value: 1.0, label: '100%' },
-  { value: 1.05, label: '105%' },
   { value: 1.1, label: '110%' },
-  { value: 1.15, label: '115%' }
+  { value: 1.15, label: '115%' },
+  { value: 1.2, label: '120%' },
+  { value: 1.25, label: '125%' },
+  { value: 1.3, label: '130%' }
 ];
 
 function setUiScale(value) {

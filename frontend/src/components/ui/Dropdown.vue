@@ -104,32 +104,13 @@ const selectedLabel = computed(() => {
 });
 
 /**
- * The kiosk `ui_scale`, which the menu applies to itself.
- *
- * The menu teleports to `body`, outside the `#app` that transform sizes, so it
- * inherits nothing — `.dropdown-menu` re-applies the scale so its typography
- * matches the trigger's. Its own layout sizes are therefore app-space, and
- * every one of them has to be multiplied back to be compared with a viewport
- * distance. Read from the custom property rather than measured, so the number
- * here is by construction the one the CSS used.
- */
-function getUiScale() {
-  const scale = parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')
-  );
-  return scale > 0 ? scale : 1;
-}
-
-/**
  * The trigger's viewport box *at rest*.
  *
  * The menu is positioned one tick after the click, while v-press still holds
  * its scale-down on the trigger — reading the raw BCR there is what made the
  * menu narrower than the button and nudged it right. So take the untransformed
- * layout size (`offsetWidth`, transform-immune), scale it by whatever the
- * ancestors apply (the kiosk `ui_scale` on #app — the menu teleports outside
- * it, so it must be positioned in scaled viewport coordinates), and rebuild the
- * box around the centre, which the press transform leaves in place.
+ * layout size (`offsetWidth`, transform-immune) and rebuild the box around the
+ * centre, which the press transform leaves in place.
  */
 function getTriggerRestRect() {
   const wrapper = dropdownRef.value;
@@ -137,12 +118,8 @@ function getTriggerRestRect() {
   if (!trigger) return null;
 
   const pressed = trigger.getBoundingClientRect();
-  // The wrapper carries no transform of its own, so it reveals the ancestor scale.
-  const scale = wrapper.offsetWidth > 0
-    ? wrapper.getBoundingClientRect().width / wrapper.offsetWidth
-    : 1;
-  const width = trigger.offsetWidth * scale;
-  const height = trigger.offsetHeight * scale;
+  const width = trigger.offsetWidth;
+  const height = trigger.offsetHeight;
   const centerX = pressed.left + pressed.width / 2;
   const centerY = pressed.top + pressed.height / 2;
 
@@ -165,18 +142,14 @@ function calculateDropdownDirection() {
   const triggerRect = getTriggerRestRect();
   if (!triggerRect) return;
 
-  const menuScale = getUiScale();
-  const GAP = 4 * menuScale; // 4px gap below the trigger, in the menu's own space
-  // `min-width` is a layout size of the scaled menu, so it is app-space — unlike
-  // top/left, which are viewport coordinates the transform leaves alone.
-  const menuLayoutWidth = triggerRect.width / menuScale;
+  const GAP = 4; // 4px gap below the trigger
 
   // Get actual menu height if available (after render), otherwise use max
-  const actualMenuHeight = (menuRef.value?.offsetHeight || MENU_MAX_HEIGHT) * menuScale;
+  const actualMenuHeight = menuRef.value?.offsetHeight || MENU_MAX_HEIGHT;
 
   // Horizontal: the preferred edge, unless the menu would leave the viewport.
   const MENU_MIN_WIDTH = 200; // CSS min-width of dropdown-menu
-  const menuWidth = (menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, menuLayoutWidth)) * menuScale;
+  const menuWidth = menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, triggerRect.width);
   const fitsRightward = window.innerWidth - triggerRect.left >= menuWidth;
   const fitsLeftward = triggerRect.right >= menuWidth;
   openLeftward.value = props.placement === 'top-end'
@@ -203,7 +176,7 @@ function calculateDropdownDirection() {
   menuPosition.value = {
     top: `${openUpward.value ? triggerRect.top - actualMenuHeight - GAP : triggerRect.bottom + GAP}px`,
     left: `${openLeftward.value ? triggerRect.right - menuWidth : triggerRect.left}px`,
-    width: `${menuLayoutWidth}px`
+    width: `${triggerRect.width}px`
   };
 }
 
@@ -399,14 +372,6 @@ onBeforeUnmount(() => {
   max-height: 340px;
   overflow-y: auto;
   min-width: 200px;
-
-  /* The menu teleports to `body`, outside the `#app` the kiosk scale transforms,
-     so it has to re-apply that scale itself: without it the list renders in
-     screen px while the trigger renders in app px x ui_scale, and the two
-     typographies disagree by exactly that factor. Origin top-left leaves the box
-     anchored on the viewport coordinates calculateDropdownDirection() computes. */
-  transform: scale(var(--ui-scale, 1));
-  transform-origin: top left;
 }
 
 /* Size: small — the menu carries the trigger's metrics, not the base ones. */
@@ -469,16 +434,7 @@ onBeforeUnmount(() => {
   color: var(--color-brand);
 }
 
-/* Transition animations.
-
-   Every state below restates the scale: `transform` is one property, so a
-   keyframe that named only the translation would drop the kiosk scale for the
-   duration of the animation and snap it back at the end. The translation is
-   written after the scale on purpose — it then reads in the menu's own space,
-   like its padding. No `transform-origin` here either: a translation is
-   origin-independent, so the origins this block used to set were inert, and an
-   origin other than the top-left one `.dropdown-menu` sets would now displace
-   the scaled box mid-animation. */
+/* Transition animations. */
 .dropdown-menu-enter-active {
   transition:
     opacity var(--transition-fast),
@@ -493,22 +449,22 @@ onBeforeUnmount(() => {
 
 .dropdown-menu-enter-from {
   opacity: 0;
-  transform: scale(var(--ui-scale, 1)) translateY(-8px);
+  transform: translateY(-8px);
 }
 
 .dropdown-menu.open-upward.dropdown-menu-enter-from {
   opacity: 0;
-  transform: scale(var(--ui-scale, 1)) translateY(8px);
+  transform: translateY(8px);
 }
 
 .dropdown-menu-leave-to {
   opacity: 0;
-  transform: scale(var(--ui-scale, 1)) translateY(-8px);
+  transform: translateY(-8px);
 }
 
 .dropdown-menu.open-upward.dropdown-menu-leave-to {
   opacity: 0;
-  transform: scale(var(--ui-scale, 1)) translateY(8px);
+  transform: translateY(8px);
 }
 
 /* Mobile adjustments */

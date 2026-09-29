@@ -539,11 +539,9 @@ onUnmounted(() => {
      actually above the dock; .additional-apps-container scrolls inside it.
      --dock-height is published by updateDockMetrics; --dock-raise is the dock
      container's own offset, read from there so the two can't drift.
-     --space-03 is this panel's own lift. The viewport unit counts screen pixels
-     while the app is laid out in the fewer ones ui_scale magnifies (published
-     by applyUiScale), hence the division. */
+     --space-03 is this panel's own lift. */
   max-height: calc(
-    100dvh / var(--ui-scale, 1)
+    100dvh
     - var(--dock-raise) - var(--dock-height, 0px) - var(--space-03) - var(--space-06)
   );
   overflow: hidden;
