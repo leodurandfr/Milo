@@ -703,7 +703,6 @@
         "indexingCount": "{count} Titel gefunden | {count} Titel gefunden",
         "indexedTitle": "Bibliothek verbunden und importiert",
         "indexedShare": "{count} Titel auf diesem Server gefunden. | {count} Titel auf diesem Server gefunden.",
-        "indexedTotal": "{count} Titel in Ihrer Bibliothek. | {count} Titel in Ihrer Bibliothek.",
         "indexedEmpty": "Verbunden, aber in diesem Ordner wurde keine Musik gefunden."
       },
       "pathLabel": "Zugriffspfad"

@@ -703,7 +703,6 @@
         "indexingCount": "{count} faixa encontrada | {count} faixas encontradas",
         "indexedTitle": "Biblioteca conectada e importada",
         "indexedShare": "{count} faixa encontrada neste servidor. | {count} faixas encontradas neste servidor.",
-        "indexedTotal": "{count} faixa na sua biblioteca. | {count} faixas na sua biblioteca.",
         "indexedEmpty": "Conectado, mas não foi encontrada música nesta pasta."
       },
       "pathLabel": "Caminho de acesso"

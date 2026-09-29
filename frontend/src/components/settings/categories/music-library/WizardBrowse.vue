@@ -21,9 +21,7 @@
       :title="t('musicLibrary.shares.wizard.indexedTitle')"
       :subtitle="indexEmpty
         ? t('musicLibrary.shares.wizard.indexedEmpty')
-        : (indexTotalMode
-          ? t('musicLibrary.shares.wizard.indexedTotal', { count: finalFound })
-          : t('musicLibrary.shares.wizard.indexedShare', { count: finalFound }))"
+        : t('musicLibrary.shares.wizard.indexedShare', { count: finalFound })"
       :cta-label="t('musicLibrary.shares.wizard.done')" :cta-variant="indexEmpty ? 'background-strong' : 'brand'"
       :cta-click="leave" />
 

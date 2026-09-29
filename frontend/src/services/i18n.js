@@ -85,11 +85,14 @@ class I18nService {
 
     // A count reaches the screen as a number, so it is grouped the way the
     // language groups thousands — 10 069, 10,069 or 10,069 by Indian grouping.
+    // French groups with a narrow no-break space (U+202F), which Neue Montreal
+    // has no glyph for: "1 204" rendered as "1204". A plain no-break space
+    // keeps the grouping visible and still never wraps.
     const locale = bcp47For(this.currentLanguage.value);
     return template.replace(/\{(\w+)\}/g, (match, key) => {
       if (!params.hasOwnProperty(key)) return match;
       const value = params[key];
-      return typeof value === 'number' ? value.toLocaleString(locale) : value;
+      return typeof value === 'number' ? value.toLocaleString(locale).replace(/ /g, ' ') : value;
     });
   }
 

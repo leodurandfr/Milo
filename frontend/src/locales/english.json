@@ -703,7 +703,6 @@
         "indexingCount": "{count} track found | {count} tracks found",
         "indexedTitle": "Library connected and imported",
         "indexedShare": "{count} track found on this server. | {count} tracks found on this server.",
-        "indexedTotal": "{count} track in your library. | {count} tracks in your library.",
         "indexedEmpty": "Connected, but no music was found in this folder."
       },
       "pathLabel": "Access path"

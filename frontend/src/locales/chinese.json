@@ -703,7 +703,6 @@
         "indexingCount": "找到 {count} 首曲目",
         "indexedTitle": "音乐库已连接并导入",
         "indexedShare": "在此服务器中找到 {count} 首曲目。",
-        "indexedTotal": "您的音乐库中共有 {count} 首曲目。",
         "indexedEmpty": "已连接，但在此文件夹中未找到音乐。"
       },
       "pathLabel": "访问路径"

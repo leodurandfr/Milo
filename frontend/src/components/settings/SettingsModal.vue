@@ -84,7 +84,7 @@
         @configure-system="handleConfigureSystem" />
 
       <ZoneEdit v-else-if="currentView === 'multiroom-zone-edit'" key="multiroom-zone-edit" class="view-content"
-        :group-id="zoneGroupId" :enable-client-renaming="true" @back="handleZoneSaved" />
+        :group-id="zoneGroupId" @back="handleZoneSaved" />
 
       <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
         :mac-id="macIdToEdit" @back="handleClientSaved" />

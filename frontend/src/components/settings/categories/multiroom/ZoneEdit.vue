@@ -7,7 +7,6 @@
       <InputText
         v-model="zoneName"
         :placeholder="t('equalizer.zones.zoneNamePlaceholder')"
-        size="medium"
         :maxlength="16"
         @blur="saveZoneName"
       />

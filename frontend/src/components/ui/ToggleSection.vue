@@ -14,6 +14,8 @@
       </div>
     </template>
 
+    <p v-if="description" class="text-mono-medium toggle-section-description">{{ description }}</p>
+
     <div v-if="hasContent" ref="expandRef" class="toggle-section-expand" :class="{ 'is-open': enabled, 'no-transition': skipInitialTransition }">
       <div class="toggle-section-expand__inner">
         <slot />
@@ -29,6 +31,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
   title: { type: String, default: '' },
+  description: { type: String, default: '' },
   enabled: { type: Boolean, required: true },
   heading: { type: [String, Number], default: 2, validator: (v) => ['2', '3', 2, 3].includes(v) }
 });
@@ -99,6 +102,10 @@ function handleToggle(newEnabled) {
 .toggle-section-header > .heading-3 {
   margin-right: auto;
   min-width: 0;
+}
+
+.toggle-section-description {
+  color: var(--color-text-secondary);
 }
 
 .toggle-section-header__actions {

@@ -95,7 +95,7 @@ const showMessage = computed(() => {
 });
 
 const messageIcon = computed(() => {
-  return multiroomStore.transitionState === 'error' ? 'error' : 'multiroom';
+  return multiroomStore.transitionState === 'error' ? 'stop' : 'multiroom';
 });
 
 const messageTitle = computed(() => {

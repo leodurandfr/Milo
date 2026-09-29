@@ -703,7 +703,6 @@
         "indexingCount": "{count} ट्रैक मिले",
         "indexedTitle": "लाइब्रेरी कनेक्ट और आयात हो गई",
         "indexedShare": "इस सर्वर पर {count} ट्रैक मिले।",
-        "indexedTotal": "आपकी लाइब्रेरी में {count} ट्रैक।",
         "indexedEmpty": "कनेक्टेड, लेकिन इस फ़ोल्डर में कोई संगीत नहीं मिला।"
       },
       "pathLabel": "एक्सेस पथ"

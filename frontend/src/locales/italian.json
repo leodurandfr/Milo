@@ -703,7 +703,6 @@
         "indexingCount": "{count} brano trovato | {count} brani trovati",
         "indexedTitle": "Libreria connessa e importata",
         "indexedShare": "{count} brano trovato su questo server. | {count} brani trovati su questo server.",
-        "indexedTotal": "{count} brano nella sua libreria. | {count} brani nella sua libreria.",
         "indexedEmpty": "Connesso, ma non è stata trovata musica in questa cartella."
       },
       "pathLabel": "Percorso di accesso"

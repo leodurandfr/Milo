@@ -29,7 +29,6 @@
         <InputText
           v-model="speakerName"
           :placeholder="t('multiroom.pending.namePlaceholder')"
-          size="medium"
           :maxlength="16"
         />
       </SettingsSection>
