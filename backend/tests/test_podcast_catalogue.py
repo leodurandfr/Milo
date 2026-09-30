@@ -237,6 +237,46 @@ class TestTheSearchThatSucceeds:
         assert [p["name"] for p in recovered["podcasts"]] == ["Radiolab"]
 
 
+class TestTheStorefront:
+    """`storefront()` — which Apple store every chart, search and feed lookup
+    reads. A wrong one answers with a full, plausible, foreign catalogue, so
+    nothing on screen says it is wrong: a Portuguese unit showed Brazil's charts,
+    because the store came from the language and Portuguese is two countries."""
+
+    async def test_the_units_country_decides_over_the_language(self, api):
+        """A Brazilian unit with the UI in (European) Portuguese reads Brazil."""
+        session = _answers_with(api, _FakeResponse(200, text="{}"))
+
+        assert await api.storefront("BR", "portuguese") == "br"
+        assert "/br/" in session.get.call_args.args[0]
+
+    async def test_with_no_country_the_language_decides_and_apple_is_not_asked(self, api):
+        session = _answers_with(api, _FakeResponse(200, text="{}"))
+
+        assert await api.storefront("", "portuguese") == "pt"
+        assert await api.storefront("", "klingon") == "us"
+        session.get.assert_not_called()
+
+    async def test_a_country_apple_has_no_store_in_falls_back_once_and_for_all(self, api):
+        """Apple answers 400 for such a country (Iran, measured). The answer is
+        kept: every chart, search and episode would otherwise ask again."""
+        session = _answers_with(api, _FakeResponse(400))
+
+        assert await api.storefront("IR", "english") == "us"
+        assert await api.storefront("IR", "english") == "us"
+        assert session.get.call_count == 1
+
+    async def test_a_failed_probe_settles_nothing(self, api):
+        """Offline, the country is read as it is and asked again next time: a
+        network failure is not Apple saying the store does not exist."""
+        import aiohttp
+        session = _raises(api, aiohttp.ClientConnectionError("down"))
+
+        assert await api.storefront("FR", "english") == "fr"
+        assert await api.storefront("FR", "english") == "fr"
+        assert session.get.call_count == 2
+
+
 class TestTheGenreCharts:
     def test_every_genre_key_the_frontend_offers_has_an_apple_id(self):
         """Derived from the production table rather than restated: a Milō genre

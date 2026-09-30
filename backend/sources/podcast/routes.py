@@ -23,7 +23,6 @@ from backend.sources.podcast.models import (
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.podcast_catalog import (
     is_upstream_error,
-    map_milo_language_to_itunes_country,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,21 +41,23 @@ def setup_podcast_routes(source_provider) -> APIRouter:
     return router
 
 
-async def _user_locale() -> tuple[str, str]:
-    """(Milō language, iTunes country) — which Apple storefront to read.
+async def _user_locale(source: PodcastSource) -> tuple[str, str]:
+    """(Milō language, iTunes storefront) — which Apple storefront to read.
 
     The charts are per-country, and the product-page tier of feed resolution
-    takes the same storefront, so both come from one place.
+    takes the same storefront, so both come from one place: the catalogue's
+    `storefront()`, which playback asks too.
     """
     from backend.dependencies import get_service
     settings = await get_service("settings_service").load_settings()
     milo_language = settings['language']
-    return milo_language, map_milo_language_to_itunes_country(milo_language)
+    storefront = await source.podcast_api.storefront(settings['wifi']['country'], milo_language)
+    return milo_language, storefront
 
 
-async def _itunes_country() -> str:
+async def _itunes_country(source: PodcastSource) -> str:
     """The storefront alone, for the routes that do not report the language."""
-    return (await _user_locale())[1]
+    return (await _user_locale(source))[1]
 
 
 # === Discovery Routes ===
@@ -68,7 +69,7 @@ async def get_top_charts(
 ) -> Dict[str, Any]:
     """Get Apple Podcasts top charts (iTunes RSS, podcasts-only) using user's language."""
     async with api_error_handler("Error getting top charts", logger):
-        milo_language, itunes_country = await _user_locale()
+        milo_language, itunes_country = await _user_locale(source)
 
         result = await source.podcast_api.get_itunes_top_podcasts(
             country_code=itunes_country,
@@ -95,7 +96,7 @@ async def get_content_by_genre(
 ) -> Dict[str, Any]:
     """Get top podcasts for a specific genre using user's language."""
     async with api_error_handler("Error getting content by genre", logger):
-        milo_language, itunes_country = await _user_locale()
+        milo_language, itunes_country = await _user_locale(source)
 
         podcasts_result = await source.podcast_api.get_itunes_top_podcasts_by_genre(
             genre=genre,
@@ -137,7 +138,7 @@ async def search_podcasts(
             term=term,
             page=page,
             limit=limit,
-            country=await _itunes_country(),
+            country=await _itunes_country(source),
         )
 
         # Enrich with subscription status. A hit's uuid is its Apple id, which
@@ -175,7 +176,7 @@ async def get_podcast_series(
             episodes_page=page,
             episodes_limit=limit,
             sort_order=sort_order,
-            country=await _itunes_country(),
+            country=await _itunes_country(source),
         )
 
         if is_upstream_error(series):
@@ -211,7 +212,7 @@ async def get_episode(
     """Get episode details."""
     async with api_error_handler("Error getting episode", logger):
         episode = await source.podcast_api.get_episode(
-            uuid, country=await _itunes_country()
+            uuid, country=await _itunes_country(source)
         )
         if is_upstream_error(episode):
             logger.error("Podcast catalog unreachable for episode: %s", uuid)
@@ -300,7 +301,7 @@ async def get_latest_episodes_from_subscriptions(
             itunes_ids=[s['uuid'] for s in subscriptions if s.get('uuid')],
             page=page,
             limit=limit,
-            country=await _itunes_country(),
+            country=await _itunes_country(source),
         )
 
         # Add progress to episodes

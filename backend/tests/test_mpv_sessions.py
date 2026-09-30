@@ -59,7 +59,7 @@ class Rig(WireReader):
         monkeypatch.setattr(state_module.AudioStateMachine, "ALSA_RELEASE_SETTLE_S", 0)
         self.machine, self.recorder = make_state_machine()
         self.settings = make_settings(settings)
-        self.settings.load_settings = AsyncMock(return_value={"language": "english"})
+        self.settings.load_settings = AsyncMock(return_value={"language": "english", "wifi": {"country": ""}})
         self.systemd = make_systemd()
 
     def register(self, source) -> None:

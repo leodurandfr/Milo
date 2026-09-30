@@ -7,6 +7,7 @@ import pytest
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.shared import mpv_audio_source
+from backend.sources.podcast.podcast_catalog import PodcastCatalog
 from backend.sources.podcast.source import PodcastSource
 from backend.tests.golden.harness import (
     AsyncioProxy, EventMpv, TickGate, Wire, check_recording, instant_short_sleep,
@@ -82,6 +83,10 @@ class FakeCatalog:
     def __init__(self) -> None:
         self.countries = []
 
+    async def storefront(self, country, language):
+        # The real resolution: with no Wi-Fi country it asks Apple nothing.
+        return await PodcastCatalog().storefront(country, language)
+
     async def get_episode(self, episode_uuid, country="us"):
         self.countries.append(country)
         episode = EPISODES.get(episode_uuid)
@@ -105,7 +110,7 @@ class Podcast:
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         settings_service = make_settings(settings)
-        settings_service.load_settings = AsyncMock(return_value={"language": "french"})
+        settings_service.load_settings = AsyncMock(return_value={"language": "french", "wifi": {"country": ""}})
         self.source = PodcastSource(
             {"mpv_socket": "/nonexistent/podcast.sock"},
             state_machine=self.machine,

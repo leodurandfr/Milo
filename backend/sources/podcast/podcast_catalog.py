@@ -65,16 +65,18 @@ GENRE_TO_ITUNES_ID = {
     'PODCASTSERIES_TV_AND_FILM': 1309,
 }
 
-# Map Milō languages to iTunes RSS country codes (for Apple Podcasts charts)
+# The storefront a language stands for when the unit has no country of its own
+# (see PodcastCatalog.storefront). Each is the variant the locale file is written
+# in: portuguese.json is European Portuguese, so Portugal, not Brazil.
 MILO_LANGUAGE_TO_ITUNES_COUNTRY = {
-    'english': 'us',      # United States
-    'french': 'fr',       # France
-    'spanish': 'es',      # Spain (or 'mx' for Mexico)
-    'german': 'de',       # Germany
-    'italian': 'it',      # Italy
-    'portuguese': 'br',   # Brazil (or 'pt' for Portugal)
-    'chinese': 'cn',      # China
-    'hindi': 'in',        # India
+    'english': 'us',
+    'french': 'fr',
+    'spanish': 'es',
+    'german': 'de',
+    'italian': 'it',
+    'portuguese': 'pt',
+    'chinese': 'cn',
+    'hindi': 'in',
 }
 
 
@@ -147,6 +149,10 @@ class PodcastCatalog:
         self.cache_duration = timedelta(minutes=cache_duration_minutes)
         self.resolver = FeedUrlResolver(cache_duration_minutes)
 
+        # Whether Apple has a storefront in a country: Apple's answer, kept for
+        # the life of the process (a storefront does not come and go).
+        self._storefronts: Dict[str, bool] = {}
+
         # Caches
         self._search_cache: Dict[str, tuple[datetime, Any]] = {}
         self._feed_cache: Dict[str, tuple[datetime, Any]] = {}
@@ -179,6 +185,52 @@ class PodcastCatalog:
         if len(cache) > self.MAX_CACHE_ENTRIES:
             oldest_key = min(cache, key=lambda k: cache[k][0])
             del cache[oldest_key]
+
+    # ========== STOREFRONT ==========
+
+    async def storefront(self, country: str, language: str) -> str:
+        """The Apple storefront to read: the unit's country, when Apple has a
+        store there, else the one the UI language stands for.
+
+        A language names no country — Portuguese is Portugal and Brazil, English
+        the US and the UK, French France and Quebec — while the charts are per
+        country, so the country the unit is in decides. That is the Wi-Fi
+        regulatory domain (`wifi.country`), which the first-boot wizard requires
+        and which may still be empty on a unit set up another way.
+
+        Apple answers HTTP 400 for a country it has no store in (Iran, measured
+        2026-09-30), so the answer is asked of Apple rather than kept in a list
+        that would age. A failed request settles nothing and is asked again.
+        """
+        fallback = map_milo_language_to_itunes_country(language)
+        code = country.lower()
+        if not code:
+            return fallback
+        if code not in self._storefronts:
+            exists = await self._probe_storefront(code)
+            if exists is None:
+                return code
+            self._storefronts[code] = exists
+            if not exists:
+                self.logger.info(f"No Apple Podcasts storefront for '{code}', using '{fallback}'")
+        return code if self._storefronts[code] else fallback
+
+    async def _probe_storefront(self, code: str) -> Optional[bool]:
+        """True/False when Apple said whether `code` is a storefront, None when
+        it could not be asked."""
+        await self._ensure_session()
+        url = f"https://itunes.apple.com/{code}/rss/toppodcasts/limit=1/json"
+        try:
+            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    return True
+                if resp.status in (400, 404):
+                    return False
+                self.logger.warning(f"Storefront probe for '{code}': HTTP {resp.status}")
+                return None
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            self.logger.warning(f"Storefront probe for '{code}' failed: {e}")
+            return None
 
     # ========== DISCOVERY (iTunes RSS — exact Apple Podcasts charts) ==========
 

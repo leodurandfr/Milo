@@ -216,16 +216,13 @@ class PodcastSource(MpvAudioSource):
         """The Apple storefront to resolve against — the same one the routes
         use. Playback resolving against a different store than the screen that
         listed the episode is how a podcast opens but refuses to play."""
-        from backend.sources.podcast.podcast_catalog import (
-            map_milo_language_to_itunes_country,
-        )
         if not self._settings_service:
             return "us"
-        # `language` is guaranteed by SettingsService.defaults, so it is read
-        # straight — restating a fallback here would be a second declaration of
-        # a default that lives in one place.
+        # `language` and `wifi.country` are guaranteed by SettingsService.defaults,
+        # so they are read straight — restating a fallback here would be a second
+        # declaration of a default that lives in one place.
         settings = await self._settings_service.load_settings()
-        return map_milo_language_to_itunes_country(settings["language"])
+        return await self._podcast_api.storefront(settings["wifi"]["country"], settings["language"])
 
     # === Command Handlers ===
 

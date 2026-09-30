@@ -9,10 +9,12 @@ podcast screens show.
 
 Three things the handlers do that the services underneath cannot:
 
-* **the language → iTunes-country translation.** Discovery and search each read
-  `settings['language']` and turn it into a country code before calling the
-  catalogue. Lose that and a French unit browses the US charts, with no error
-  anywhere.
+* **which Apple storefront to read.** Discovery and search each read
+  `settings['language']` and `settings['wifi']['country']` and hand them to the
+  catalogue's `storefront()` before calling it. Lose that and a French unit
+  browses the US charts, with no error anywhere. The routes run the real
+  `storefront()` with no Wi-Fi country, which asks Apple nothing; what it does
+  with a country is `test_podcast_catalogue.py`'s.
 * **the subscribed flag.** The catalogue does not know what this appliance is
   subscribed to; the route joins the two. It is what draws the filled/hollow
   subscribe button on every card, and the join is not the same in all three
@@ -32,6 +34,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.sources.podcast.podcast_catalog import PodcastCatalog
 from backend.sources.podcast.routes import setup_podcast_routes
 from backend.sources.podcast.source import VALID_PLAYBACK_SPEEDS
 
@@ -55,7 +58,7 @@ def settings(monkeypatch):
     on 2026-09-10 while `pytest` stayed green on the unit.
     """
     svc = Mock()
-    svc.load_settings = AsyncMock(return_value={"language": "french"})
+    svc.load_settings = AsyncMock(return_value={"language": "french", "wifi": {"country": ""}})
     monkeypatch.setattr("backend.dependencies.get_service", lambda name: svc)
     return svc
 
@@ -64,6 +67,7 @@ def settings(monkeypatch):
 def source():
     src = Mock()
     src.podcast_api = Mock()
+    src.podcast_api.storefront = PodcastCatalog().storefront
     src.podcast_data = Mock()
     src.podcast_api.get_itunes_top_podcasts = AsyncMock(return_value={"results": []})
     src.podcast_api.get_itunes_top_podcasts_by_genre = AsyncMock(
@@ -104,7 +108,7 @@ class TestTopCharts:
         """`french` must reach the catalogue as `fr`. The iTunes RSS charts are
         per-store: asking for the wrong one returns a full, plausible, entirely
         foreign chart — there is nothing to notice."""
-        settings.load_settings.return_value = {"language": "french"}
+        settings.load_settings.return_value = {"language": "french", "wifi": {"country": ""}}
 
         resp = client.get("/api/podcast/discover/top-charts")
 
@@ -118,7 +122,7 @@ class TestTopCharts:
     ):
         """The fallback is what keeps discovery working on a language Milō
         translates but Apple has no store for."""
-        settings.load_settings.return_value = {"language": "esperanto"}
+        settings.load_settings.return_value = {"language": "esperanto", "wifi": {"country": ""}}
 
         client.get("/api/podcast/discover/top-charts")
 
