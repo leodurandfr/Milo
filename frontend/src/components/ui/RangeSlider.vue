@@ -430,7 +430,7 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  min-width: 96px;
+  min-width: 80px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
   background: var(--color-background);
