@@ -1,6 +1,7 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
-  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="close">
+  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay"
+    @pointerdown.capture="backdrop.onPointerdown" @click="backdrop.onClick">
     <div class="modal-wrapper">
       <div ref="closeButtonWrapper" class="close-btn-wrapper">
         <IconButton ref="closeButton" icon="close" variant="rounded" size="large"
@@ -27,6 +28,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
 import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 import { useTimer } from '@/composables/useTimer';
+import { useBackdropDismiss } from '@/composables/useBackdropDismiss';
 import { useI18n } from '@/services/i18n';
 
 const props = defineProps({
@@ -173,6 +175,8 @@ const ANIMATION_TIMINGS = {
 function close() {
   emit('close');
 }
+
+const backdrop = useBackdropDismiss(close);
 
 // === ANIMATIONS ===
 async function openModal() {

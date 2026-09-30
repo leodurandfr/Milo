@@ -73,9 +73,10 @@
          offset, so the swipe-drag and the animation share one position value and
          never fight over the transform. -->
     <Transition :css="false" @enter="onExpandEnter" @leave="onExpandLeave">
-      <div v-if="expanded" class="audio-player-expanded" :style="scrimStyle" @click.self="collapse">
+      <div v-if="expanded" class="audio-player-expanded" :style="scrimStyle"
+        @pointerdown.capture="backdrop.onPointerdown" @click="backdrop.onClick">
         <!-- Dim layer: pointer-events none so taps fall through to the scrim's
-             @click.self; its opacity fades with the sheet position. -->
+             dismiss; its opacity fades with the sheet position. -->
         <div class="expanded-dim" :style="dimStyle"></div>
         <!-- Wrapper carries the positioning transform; the button keeps its own
              press-scale transform (which is !important and would otherwise clobber
@@ -126,6 +127,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
+import { useBackdropDismiss } from '@/composables/useBackdropDismiss'
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { artworkFallback } from '@/utils/nowPlayingArtwork'
@@ -303,6 +305,8 @@ const dimStyle = computed(() => ({
 function collapse() {
   expanded.value = false // fires the <Transition> leave hook, which animates offsetY out
 }
+
+const backdrop = useBackdropDismiss(collapse)
 
 function onBarClick() {
   if (!expandable.value || expanded.value) return
