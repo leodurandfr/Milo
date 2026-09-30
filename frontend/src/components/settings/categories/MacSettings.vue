@@ -6,7 +6,7 @@
       <SettingsSection :title="t('macSettings.receiver')">
         <SettingItem :label="t('macSettings.targetLatency')">
           <RangeSlider :model-value="draft.target_latency_ms" :min="caps.target_latency_ms.min"
-            :max="caps.target_latency_ms.max" :step="5" value-unit="ms" :disabled="busy"
+            :max="caps.target_latency_ms.max" :step="5" unit="ms" :disabled="busy"
             @update:model-value="set('target_latency_ms', $event)" />
         </SettingItem>
 
@@ -60,7 +60,7 @@
 
         <ProgressStrip :open="calibration.running" :percent="progressPercent" :step-ms="PROGRESS_TICK_MS"
           :label="calibration.running ? stageLabel : ''"
-          :hint="calibration.running ? t('macSettings.remaining', { seconds: remainingSeconds }) : ''" />
+          :hint="calibration.running ? t('macSettings.remaining', { time: formatUnit(remainingSeconds, 's') }) : ''" />
 
         <p v-if="!calibration.running && analysisNote" class="text-mono-medium analysis-note">
           {{ analysisNote }}
@@ -72,18 +72,18 @@
             <div class="analysis-item__metrics">
               <div class="analysis-item__metric">
                 <span class="text-mono-medium analysis-item__label">{{ t('macSettings.roundTrip') }}</span>
-                <span class="text-mono-medium analysis-item__value">{{ measured.rtt_max_ms }} ms</span>
+                <span class="text-mono-medium analysis-item__value">{{ formatUnit(measured.rtt_max_ms, 'ms') }}</span>
               </div>
               <div class="analysis-item__metric">
                 <span class="text-mono-medium analysis-item__label">{{ t('macSettings.loss') }}</span>
                 <span class="text-mono-medium analysis-item__value"
-                  :class="{ 'analysis-item__value--warn': measured.loss_pct > 0 }">{{ measured.loss_pct }} %</span>
+                  :class="{ 'analysis-item__value--warn': measured.loss_pct > 0 }">{{ formatUnit(measured.loss_pct, '%') }}</span>
               </div>
               <div class="analysis-item__metric">
                 <span class="text-mono-medium analysis-item__label">
                   {{ burstAssumed ? t('macSettings.burstAssumed') : t('macSettings.burst') }}
                 </span>
-                <span class="text-mono-medium analysis-item__value">{{ measured.mac_burst_ms }} ms</span>
+                <span class="text-mono-medium analysis-item__value">{{ formatUnit(measured.mac_burst_ms, 'ms') }}</span>
               </div>
             </div>
           </div>
@@ -93,12 +93,12 @@
             <div class="analysis-item__metrics">
               <div class="analysis-item__metric">
                 <span class="text-mono-medium analysis-item__label">{{ t('macSettings.current') }}</span>
-                <span class="text-mono-medium analysis-item__value">≈ {{ predicted.current }} ms</span>
+                <span class="text-mono-medium analysis-item__value">≈ {{ formatUnit(predicted.current, 'ms') }}</span>
               </div>
               <div class="analysis-item__metric">
                 <span class="text-mono-medium analysis-item__label">{{ t('macSettings.proposed') }}</span>
                 <span class="text-mono-medium analysis-item__value analysis-item__value--brand">
-                  ≈ {{ predicted.proposed }} ms
+                  ≈ {{ formatUnit(predicted.proposed, 'ms') }}
                 </span>
               </div>
             </div>
@@ -135,7 +135,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const settingsStore = useSettingsStore();
 const macLinkStore = useMacLinkStore();
 
@@ -158,7 +158,7 @@ const profileOptions = computed(() => {
 });
 
 function msOptions(values) {
-  return values.map((value) => ({ label: `${value} ms`, value }));
+  return values.map((value) => ({ label: formatUnit(value, 'ms'), value }));
 }
 
 // === ANALYSIS ===

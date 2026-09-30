@@ -58,7 +58,7 @@ export function useScreensaver() {
   const musicLibraryStore = useMusicLibraryStore();
   const settingsStore = useSettingsStore();
   const lyricsStore = useLyricsStore();
-  const { t } = useI18n();
+  const { t, formatUnit } = useI18n();
   const timer = useTimer();
 
   // One playhead per source that can draw a bar; only the selected one moves.
@@ -225,7 +225,7 @@ export function useScreensaver() {
       const genre = station?.genre
         ? station.genre.charAt(0).toUpperCase() + station.genre.slice(1)
         : null;
-      const bitrate = station?.bitrate > 0 ? `${station.bitrate} kbps` : null;
+      const bitrate = station?.bitrate > 0 ? formatUnit(station.bitrate, 'kbit/s') : null;
       const metaParts = [genre, bitrate].filter(Boolean);
 
       return {

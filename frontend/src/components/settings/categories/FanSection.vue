@@ -17,12 +17,12 @@
       </div>
       <div class="fan-item">
         <span class="fan-label text-mono-medium">{{ t('fanSettings.rpm') }}</span>
-        <span class="fan-value text-mono-medium">{{ fanStore.status.rpm }} {{ t('fanSettings.rpmUnit') }}</span>
+        <span class="fan-value text-mono-medium">{{ formatNumber(fanStore.status.rpm) }}&nbsp;{{ t('fanSettings.rpmUnit') }}</span>
       </div>
       <div class="fan-item fan-item-bar">
         <div class="fan-item-top">
           <span class="fan-label text-mono-medium">{{ t('fanSettings.speed') }}</span>
-          <span class="fan-value text-mono-medium">{{ fanStore.status.pwm_percent }}%</span>
+          <span class="fan-value text-mono-medium">{{ formatUnit(fanStore.status.pwm_percent, '%') }}</span>
         </div>
         <div class="bar-container">
           <div class="bar-fill" :style="{ width: fanStore.status.pwm_percent + '%' }"></div>
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote') }}</p>
+    <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote', { temperature: formatUnit(85, '°C') }) }}</p>
 
     <template v-else>
       <ButtonGroup :model-value="config.mode" :options="modeOptions" @change="setMode" />
@@ -41,7 +41,7 @@
           :min="0"
           :max="100"
           :step="5"
-          value-unit="%"
+          unit="%"
           @input="onManualInput"
           @change="onManualChange"
         />
@@ -53,7 +53,7 @@
           :min="55"
           :max="76"
           :step="1"
-          value-unit="°C"
+          unit="°C"
           @change="onTargetChange"
         />
       </SettingItem>
@@ -72,7 +72,7 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 
-const { t } = useI18n();
+const { t, formatNumber, formatUnit } = useI18n();
 const fanStore = useFanStore();
 const timer = useTimer();
 
@@ -90,7 +90,7 @@ const modeOptions = computed(() => [
 ]);
 
 const tempDisplay = computed(() =>
-  fanStore.status.temp_c ? `${fanStore.status.temp_c}°C` : '—'
+  fanStore.status.temp_c ? formatUnit(fanStore.status.temp_c, '°C') : '—'
 );
 
 function syncFromStore() {

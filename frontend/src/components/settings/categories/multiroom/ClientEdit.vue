@@ -86,11 +86,11 @@
             <ListItemButton :title="t('multiroom.crossover.autoFrequency')" variant="background" action="toggle"
               :model-value="crossoverAuto" @click="toggleCrossoverAuto" />
             <SettingItem v-if="!crossoverAuto" :label="t('multiroom.crossover.crossoverFrequency')">
-              <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
+              <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" unit="Hz"
                 @change="handleCrossoverChange" />
             </SettingItem>
             <p v-else class="text-mono-medium">
-              {{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}
+              {{ t('multiroom.crossover.highpassDescription', { frequency: formatUnit(zoneCrossoverFrequency, 'Hz') }) }}
             </p>
             <p class="crossover-warning text-mono-medium">{{ t('multiroom.crossover.disablePhysicalCrossover') }}</p>
           </template>
@@ -98,7 +98,7 @@
           <!-- Case 3: Non-subwoofer in zone with subwoofer -->
           <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
             <h3 class="info-title heading-4">{{ t('multiroom.crossover.highpassActive') }}</h3>
-            <p class="text-mono-medium">{{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}</p>
+            <p class="text-mono-medium">{{ t('multiroom.crossover.highpassDescription', { frequency: formatUnit(zoneCrossoverFrequency, 'Hz') }) }}</p>
           </template>
         </div>
       </SettingsSection>
@@ -122,7 +122,7 @@
           @change="handleGainToggle"
         >
           <SettingItem :label="t('multiroom.tuning.gainHint')">
-            <RangeSlider v-model="gainDb" :min="-12" :max="12" :step="0.5" value-unit="dB"
+            <RangeSlider v-model="gainDb" :min="-12" :max="12" :step="0.5" unit="dB"
               @change="handleGainChange" />
           </SettingItem>
         </ToggleSection>
@@ -134,7 +134,7 @@
           @change="handleDelayToggle"
         >
           <SettingItem :label="t('multiroom.tuning.delayHint')">
-            <RangeSlider v-model="delayMs" :min="1" :max="100" :step="1" value-unit="ms"
+            <RangeSlider v-model="delayMs" :min="1" :max="100" :step="1" unit="ms"
               @change="handleDelayChange" />
           </SettingItem>
         </ToggleSection>
@@ -201,7 +201,7 @@ const props = defineProps({
 
 const emit = defineEmits(['back']);
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const timer = useTimer();
 const snapcastStore = useSnapcastStore();
 const multiroomClientStore = useMultiroomStore();

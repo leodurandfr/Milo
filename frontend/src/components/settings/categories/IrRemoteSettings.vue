@@ -62,7 +62,7 @@ import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSe
 
 const emit = defineEmits(['open-hardware']);
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const { hardwareConfig } = useHardwareConfig();
@@ -132,7 +132,7 @@ const messageTitle = computed(() => {
 const messageDetails = computed(() => {
   switch (fsmState.value) {
     case 'idle':         return t('irRemoteSettings.wizard.idleDetails');
-    case 'waiting':      return t('irRemoteSettings.wizard.waitingDetails', { seconds: remainingSeconds.value });
+    case 'waiting':      return t('irRemoteSettings.wizard.waitingDetails', { time: formatUnit(remainingSeconds.value, 's') });
     case 'timeout':      return t('irRemoteSettings.wizard.timeoutDetails');
     case 'unsupported':  return t('irRemoteSettings.wizard.unsupportedDetails');
     case 'error':        return errorMessage.value || t('irRemoteSettings.wizard.errorDetails');

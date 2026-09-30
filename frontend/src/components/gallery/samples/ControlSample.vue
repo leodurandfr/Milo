@@ -8,7 +8,7 @@
   instead, so what a reader drags behaves like the real thing.
 -->
 <template>
-  <RangeSlider v-model="value" value-unit="%" />
+  <RangeSlider v-model="value" unit="%" />
 </template>
 
 <script setup>

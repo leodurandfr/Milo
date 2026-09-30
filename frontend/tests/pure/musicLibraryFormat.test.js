@@ -52,13 +52,15 @@ describe('totalMinutes', () => {
 
 describe('formatAudioQuality', () => {
   it('drops the decimal for whole kHz rates', () => {
-    expect(formatAudioQuality(24, 96000)).toBe('24B-96kHz');
-    expect(formatAudioQuality(16, 48000)).toBe('16B-48kHz');
+    // A value and its unit are joined by a no-break space; the slash is not.
+    expect(formatAudioQuality(24, 96000, 'english')).toBe('24\u00a0bit / 96\u00a0kHz');
+    expect(formatAudioQuality(16, 48000, 'english')).toBe('16\u00a0bit / 48\u00a0kHz');
   });
 
-  it('keeps one decimal for 44.1 kHz', () => {
-    expect(formatAudioQuality(16, 44100)).toBe('16B-44.1kHz');
-    expect(formatAudioQuality(24, 88200)).toBe('24B-88.2kHz');
+  it('keeps one decimal for 44.1 kHz, in the language\'s digits', () => {
+    expect(formatAudioQuality(16, 44100, 'english')).toContain('44.1');
+    expect(formatAudioQuality(16, 44100, 'french')).toContain('44,1');
+    expect(formatAudioQuality(24, 88200, 'german')).toContain('88,2');
   });
 
   it('renders nothing when either value is missing', () => {

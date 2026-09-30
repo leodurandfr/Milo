@@ -44,7 +44,7 @@
       <RangeSlider
         :model-value="modelValue"
         :min="1" :max="6" :step="1"
-        value-unit=" dB"
+        unit="dB"
         @update:model-value="$emit('update:modelValue', $event)"
         @change="$emit('step-change', $event)"
       />

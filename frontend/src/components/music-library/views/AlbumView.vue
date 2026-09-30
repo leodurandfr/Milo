@@ -64,7 +64,7 @@ const props = defineProps({
 
 const emit = defineEmits(['select-artist']);
 
-const { t } = useI18n();
+const { t, formatUnit, currentLanguage } = useI18n();
 const store = useMusicLibraryStore();
 
 const album = ref(null);
@@ -158,8 +158,8 @@ const subtitleMeta = computed(() => {
   if (album.value.year) parts.push(String(album.value.year));
   parts.push(t('musicLibrary.tracksCount', { count: album.value.songCount || songs.value.length }));
   const mins = totalMinutes(album.value.duration);
-  if (mins) parts.push(`${mins} ${t('musicLibrary.minutesShort')}`);
-  const quality = formatAudioQuality(songs.value[0]?.bitDepth, songs.value[0]?.samplingRate);
+  if (mins) parts.push(formatUnit(mins, 'min'));
+  const quality = formatAudioQuality(songs.value[0]?.bitDepth, songs.value[0]?.samplingRate, currentLanguage.value);
   if (quality) parts.push(quality);
   return parts.join(' · ');
 });

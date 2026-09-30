@@ -112,10 +112,14 @@ import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStat
 import { SOURCE_PAGES, audioState, session, anchor, replayedState } from './sources';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
+import { UNITS, formatDuration } from '@/utils/units';
 
 /** `null` first so a nullable icon prop can be cleared from the select. */
 const OPTIONAL_ICON = { kind: 'enum', options: [null, ...ICON_NAMES] };
 const REQUIRED_ICON = { kind: 'enum', options: ICON_NAMES };
+/** A slider's `unit`: none, or one formatUnit() writes. */
+const UNIT_OPTIONS = { kind: 'enum', options: ['', ...UNITS] };
+
 const PIXEL_SIZE = { kind: 'enum', options: [16, 24, 32, 48, 64] };
 
 const SELECT_OPTIONS = [
@@ -345,26 +349,25 @@ export const REGISTRY = {
   RangeSlider: {
     component: RangeSlider,
     args: { modelValue: 60 },
-    overrides: { orientation: { kind: 'enum', options: ['horizontal', 'vertical'] } },
+    overrides: {
+      orientation: { kind: 'enum', options: ['horizontal', 'vertical'] },
+      // The validator defers to UNITS, so the list is borrowed from it.
+      unit: UNIT_OPTIONS
+    },
     // Log-spaced values on evenly spaced stops, the shape the delay settings use.
     presets: {
       steps: {
         'Continuous': null,
-        'Delays (log)': [
-          { value: 10, label: '10 sec' },
-          { value: 30, label: '30 sec' },
-          { value: 60, label: '1 min' },
-          { value: 300, label: '5 min' },
-          { value: 1800, label: '30 min' },
-          { value: 3600, label: '1 h' }
-        ]
+        'Delays (log)': [10, 30, 60, 300, 1800, 3600]
+          .map(value => ({ value, label: formatDuration(value, 'english') }))
       }
     }
   },
 
   DoubleRangeSlider: {
     component: DoubleRangeSlider,
-    args: { modelValue: { min: 20, max: 80 } }
+    args: { modelValue: { min: 20, max: 80 } },
+    overrides: { unit: UNIT_OPTIONS }
   },
 
   LoadingSpinner: {

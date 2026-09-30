@@ -51,14 +51,14 @@
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.loudness.lowBoost') }}</label>
                 <RangeSlider :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5"
-                  value-unit=" dB" @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
+                  unit="dB" @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
                   @change="handleLoudnessChange('low_boost', $event)" />
               </div>
 
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.loudness.highBoost') }}</label>
                 <RangeSlider :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5"
-                  value-unit=" dB" @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
+                  unit="dB" @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
                   @change="handleLoudnessChange('high_boost', $event)" />
               </div>
             </div>
@@ -71,35 +71,35 @@
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.compressor.ratio') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5"
-                  value-unit=":1" @update:model-value="(v) => equalizerStore.compressor.ratio = v"
+                  unit=":1" @update:model-value="(v) => equalizerStore.compressor.ratio = v"
                   @change="handleCompressorChange('ratio', $event)" />
               </div>
 
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.compressor.threshold') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1"
-                  value-unit=" dB" @update:model-value="(v) => equalizerStore.compressor.threshold = v"
+                  unit="dB" @update:model-value="(v) => equalizerStore.compressor.threshold = v"
                   @change="handleCompressorChange('threshold', $event)" />
               </div>
 
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.compressor.attack') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1"
-                  value-unit=" ms" @update:model-value="(v) => equalizerStore.compressor.attack = v"
+                  unit="ms" @update:model-value="(v) => equalizerStore.compressor.attack = v"
                   @change="handleCompressorChange('attack', $event)" />
               </div>
 
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.compressor.release') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10"
-                  value-unit=" ms" @update:model-value="(v) => equalizerStore.compressor.release = v"
+                  unit="ms" @update:model-value="(v) => equalizerStore.compressor.release = v"
                   @change="handleCompressorChange('release', $event)" />
               </div>
 
               <div class="control-item">
                 <label class="text-mono-small">{{ t('equalizer.compressor.makeup') }}</label>
                 <RangeSlider :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5"
-                  value-unit=" dB" @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
+                  unit="dB" @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
                   @change="handleCompressorChange('makeup_gain', $event)" />
               </div>
             </div>

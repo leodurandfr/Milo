@@ -4,7 +4,7 @@
     <!-- Brightness -->
     <SettingsSection :title="t('screenSettings.brightness')">
       <SettingItem :label="t('screenSettings.brightnessIntensity')">
-        <RangeSlider v-model="config.brightness_on" :min="1" :max="10" :step="1" value-unit=""
+        <RangeSlider v-model="config.brightness_on" :min="1" :max="10" :step="1"
           @input="handleBrightnessChange" @change="saveBrightness" />
       </SettingItem>
     </SettingsSection>
@@ -33,7 +33,7 @@
           :min="0"
           :max="100"
           :step="1"
-          value-unit="%"
+          unit="%"
           @input="previewColorFilterWarmth"
           @change="saveColorFilterWarmth"
         />
@@ -89,7 +89,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
-const { t } = useI18n();
+const { t, formatDuration, formatUnit } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const timer = useTimer();
 const settingsStore = useSettingsStore();
@@ -128,27 +128,11 @@ function syncFromStore() {
   }
 }
 
-const delaySteps = computed(() => [
-  { value: 10, label: t('time.10sec') },
-  { value: 20, label: t('time.20sec') },
-  { value: 30, label: t('time.30sec') },
-  { value: 60, label: t('time.1min') },
-  { value: 120, label: t('time.2min') },
-  { value: 300, label: t('time.5min') },
-  { value: 600, label: t('time.10min') },
-  { value: 1200, label: t('time.20min') },
-  { value: 1800, label: t('time.30min') },
-  { value: 3600, label: t('time.1h') }
-]);
+const delaySteps = computed(() => [10, 20, 30, 60, 120, 300, 600, 1200, 1800, 3600]
+  .map(value => ({ value, label: formatDuration(value) })));
 
-const uiScalePresets = [
-  { value: 1.0, label: '100%' },
-  { value: 1.1, label: '110%' },
-  { value: 1.15, label: '115%' },
-  { value: 1.2, label: '120%' },
-  { value: 1.25, label: '125%' },
-  { value: 1.3, label: '130%' }
-];
+const uiScalePresets = computed(() => [1.0, 1.1, 1.15, 1.2, 1.25, 1.3]
+  .map(value => ({ value, label: formatUnit(Math.round(value * 100), '%') })));
 
 function setUiScale(value) {
   config.value.ui_scale = value;

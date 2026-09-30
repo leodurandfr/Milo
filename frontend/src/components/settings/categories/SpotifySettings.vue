@@ -24,7 +24,7 @@
           :min="1"
           :max="12"
           :step="1"
-          value-unit=" s"
+          unit="s"
           @change="handleCrossfadeChange"
         />
       </SettingItem>

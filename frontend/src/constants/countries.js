@@ -13,7 +13,7 @@
 
 /**
  * Maps Milō UI language codes (see services/i18n.js) to BCP-47 tags
- * understood by Intl.DisplayNames and Intl.Collator.
+ * understood by Intl.DisplayNames, Intl.Collator and Intl.NumberFormat.
  */
 const LANGUAGE_TO_BCP47 = {
   french: 'fr',
@@ -21,7 +21,8 @@ const LANGUAGE_TO_BCP47 = {
   spanish: 'es',
   italian: 'it',
   german: 'de',
-  portuguese: 'pt',
+  // portuguese.json is European Portuguese; a bare 'pt' resolves to Brazil.
+  portuguese: 'pt-PT',
   hindi: 'hi',
   chinese: 'zh',
 };

@@ -34,7 +34,7 @@
       <template v-else>
         <!-- The widest reachable label, hidden, holds the box at its width for the same reason. -->
         <span class="slider-value__other">{{ widestLabel }}</span>
-        <span>{{ effectiveValue }}{{ valueUnit }}</span>
+        <span>{{ valueLabel(effectiveValue) }}</span>
       </template>
     </div>
   </div>
@@ -42,6 +42,8 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { useI18n } from '@/services/i18n';
+import { UNITS } from '@/utils/units';
 
 const props = defineProps({
   modelValue: { type: Number, required: true },
@@ -51,11 +53,12 @@ const props = defineProps({
   orientation: { type: String, default: 'horizontal' },
   disabled: { type: Boolean, default: false },
   muted: { type: Boolean, default: false },
-  valueUnit: { type: String, default: '' },
+  // Written the way the UI language writes it (spacing, decimal comma); '' is a bare number.
+  unit: { type: String, default: '', validator: (value) => value === '' || UNITS.includes(value) },
   hideInlineValue: { type: Boolean, default: false },
   // Discrete stops [{ value, label }], spread evenly along the track whatever
   // their values — log-spaced values give a log scale. Overrides min/max/step/
-  // valueUnit; the inline value shows the stop's label.
+  // unit; the inline value shows the stop's label.
   steps: { type: Array, default: null }
 });
 
@@ -106,10 +109,17 @@ const tickIndexes = computed(() => {
   return props.steps.map((_, i) => i);
 });
 
+const { formatNumber, formatUnit } = useI18n();
+
+const decimals = computed(() => (String(props.step).split('.')[1] ?? '').length);
+
+function valueLabel(value, options = { maximumFractionDigits: decimals.value }) {
+  return props.unit ? formatUnit(value, props.unit, options) : formatNumber(value, options);
+}
+
 // Mono digits: the longest of the two bounds, at the step's precision, is the widest label.
 const widestLabel = computed(() => {
-  const decimals = (String(props.step).split('.')[1] ?? '').length;
-  const [low, high] = [props.min, props.max].map(bound => `${bound.toFixed(decimals)}${props.valueUnit}`);
+  const [low, high] = [props.min, props.max].map(bound => valueLabel(bound, { minimumFractionDigits: decimals.value }));
   return high.length > low.length ? high : low;
 });
 

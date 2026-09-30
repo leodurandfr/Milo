@@ -3,6 +3,8 @@
 // catalog payloads (album/song/playlist `duration`) are seconds — these helpers
 // only ever see seconds.
 
+import { formatUnit } from '@/utils/units';
+
 /** "m:ss" or "h:mm:ss" for a track/album duration in seconds. */
 export function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds || 0));
@@ -20,9 +22,10 @@ export function totalMinutes(totalSeconds) {
   return Math.round((totalSeconds || 0) / 60);
 }
 
-export function formatAudioQuality(bitDepth, samplingRate) {
+/** "24 bit / 96 kHz" in the UI language — 44.1 keeps its decimal, 48 has none. */
+export function formatAudioQuality(bitDepth, samplingRate, language) {
   if (!bitDepth || !samplingRate) return '';
-  const khz = samplingRate / 1000;
-  const khzLabel = Number.isInteger(khz) ? khz : khz.toFixed(1);
-  return `${bitDepth}B-${khzLabel}kHz`;
+  const bits = formatUnit(bitDepth, 'bit', language);
+  const rate = formatUnit(samplingRate / 1000, 'kHz', language, { maximumFractionDigits: 1 });
+  return `${bits} / ${rate}`;
 }

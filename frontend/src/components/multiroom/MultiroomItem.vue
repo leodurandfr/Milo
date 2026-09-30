@@ -104,7 +104,7 @@
             :disabled="isLoading"
             :muted="client.equalizerMuted"
             show-value
-            value-unit=" dB"
+            unit="dB"
             @input="handleVolumeInput"
             @drag-end="handleVolumeRelease"
           />
@@ -186,7 +186,7 @@
               :disabled="isLoading"
               :muted="zoneClient.equalizerMuted"
               show-value
-              value-unit=" dB"
+              unit="dB"
               @input="(v) => handleClientVolumeInput(zoneClient.mac_id, v)"
               @drag-end="handleClientVolumeRelease(zoneClient.mac_id)"
             />

@@ -157,7 +157,7 @@ const actionTitle = computed(() =>
     : t('radio.manageStation.confirmDelete')
 );
 
-const { t, getCurrentLanguage } = useI18n();
+const { t, getCurrentLanguage, formatUnit } = useI18n();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 
@@ -388,7 +388,7 @@ function handleFileSelect(event) {
 
   const maxSize = 5 * 1024 * 1024;
   if (file.size > maxSize) {
-    errorMessage.value = t('radio.manageStation.imageTooLarge');
+    errorMessage.value = t('radio.manageStation.imageTooLarge', { size: formatUnit(5, 'MB') });
     return;
   }
 

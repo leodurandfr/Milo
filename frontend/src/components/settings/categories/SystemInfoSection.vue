@@ -22,7 +22,7 @@
             <span class="info-label text-mono-medium">{{ t('info.cpu') }}</span>
             <span class="info-value text-mono-medium">
               <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 36px"></span>
-              <span v-else-if="cpuPercent !== null">{{ cpuPercent }}%</span>
+              <span v-else-if="cpuPercent !== null">{{ formatUnit(cpuPercent, '%') }}</span>
               <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
             </span>
           </div>
@@ -36,7 +36,7 @@
             <span class="info-label text-mono-medium">{{ t('info.ram') }}</span>
             <span class="info-value text-mono-medium">
               <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
-              <span v-else-if="ram !== null">{{ ram.used_mb }} / {{ ram.total_mb }} MB</span>
+              <span v-else-if="ram !== null">{{ formatNumber(ram.used_mb) }} / {{ formatUnit(ram.total_mb, 'MB') }}</span>
               <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
             </span>
           </div>
@@ -50,7 +50,7 @@
             <span class="info-label text-mono-medium">{{ t('info.temperature') }}</span>
             <span class="info-value text-mono-medium">
               <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
-              <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
+              <span v-else-if="systemTemperature !== null">{{ formatUnit(systemTemperature, '°C', ONE_DECIMAL) }}</span>
               <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
             </span>
           </div>
@@ -64,7 +64,7 @@
             <span class="info-label text-mono-medium">{{ t('info.disk') }}</span>
             <span class="info-value text-mono-medium">
               <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
-              <span v-else-if="disk !== null">{{ disk.used_gb }} / {{ disk.total_gb }} GB</span>
+              <span v-else-if="disk !== null">{{ formatNumber(disk.used_gb) }} / {{ formatUnit(disk.total_gb, 'GB') }}</span>
               <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
             </span>
           </div>
@@ -111,7 +111,9 @@ import { apiCall } from '@/services/apiCall';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import { useTimer } from '@/composables/useTimer';
 
-const { t } = useI18n();
+const { t, formatNumber, formatUnit } = useI18n();
+
+const ONE_DECIMAL = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
 const timer = useTimer();
 
 const miloVersion = ref(null);
@@ -153,12 +155,13 @@ const diskPercent = computed(() => {
   return Math.round((disk.value.used_gb / disk.value.total_gb) * 100);
 });
 
-// MB/s takes over at 1000 KB/s, not 1024, so KB/s never shows 4 digits.
+// Decimal prefixes, as the unit names say (a kilobyte is 1000 bytes), so each
+// unit hands over at 1000 and none ever shows four digits.
 function formatRate(bytesPerSec) {
-  if (bytesPerSec < 1000) return `${Math.round(bytesPerSec)} B/s`;
-  const kb = Math.round(bytesPerSec / 1024);
-  if (kb < 1000) return `${kb} KB/s`;
-  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
+  if (bytesPerSec < 1000) return formatUnit(Math.round(bytesPerSec), 'B/s');
+  const kb = Math.round(bytesPerSec / 1000);
+  if (kb < 1000) return formatUnit(kb, 'kB/s');
+  return formatUnit(bytesPerSec / 1e6, 'MB/s', ONE_DECIMAL);
 }
 
 async function loadMiloVersion() {

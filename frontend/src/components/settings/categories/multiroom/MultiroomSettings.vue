@@ -54,7 +54,7 @@
                   <!-- Crossover badge -->
                   <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono-medium"
                     :title="t('multiroom.crossover.badgeActive')">
-                    {{ zone.crossover_frequency}} Hz
+                    {{ formatUnit(zone.crossover_frequency, 'Hz') }}
                   </span>
                   <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono-medium"
                     :title="t('multiroom.crossover.subwooferOffline')">
@@ -98,17 +98,17 @@
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
               <RangeSlider v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="100"
-                value-unit="ms" :disabled="busy" />
+                unit="ms" :disabled="busy" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.chunkSize')">
               <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5"
-                value-unit="ms" :disabled="busy" />
+                unit="ms" :disabled="busy" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.snapclientBuffer')">
               <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
-                value-unit="ms" :disabled="busy" />
+                unit="ms" :disabled="busy" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.codec')">
@@ -134,7 +134,7 @@
             <ProgressStrip :open="calibration.running" :percent="progressPercent"
               :step-ms="PROGRESS_TICK_MS"
               :label="calibration.running ? stageLabel : ''"
-              :hint="calibration.running ? t('multiroomSettings.remaining', { seconds: remainingSeconds }) : ''" />
+              :hint="calibration.running ? t('multiroomSettings.remaining', { time: formatUnit(remainingSeconds, 's') }) : ''" />
 
             <p v-if="!calibration.running && analysisNote" class="text-mono-medium analysis-note">
               {{ analysisNote }}
@@ -168,7 +168,7 @@
                       <span class="text-mono-medium analysis-item__label">
                         {{ t('multiroomSettings.latency') }}
                       </span>
-                      <span class="text-mono-medium analysis-item__value">{{ row.rtt_max_ms }} ms</span>
+                      <span class="text-mono-medium analysis-item__value">{{ formatUnit(row.rtt_max_ms, 'ms') }}</span>
                     </div>
                     <div class="analysis-item__metric">
                       <span class="text-mono-medium analysis-item__label">
@@ -176,7 +176,7 @@
                       </span>
                       <span class="text-mono-medium analysis-item__value"
                         :class="{ 'analysis-item__value--warn': row.loss_pct > 0 }">
-                        {{ row.loss_pct }} %
+                        {{ formatUnit(row.loss_pct, '%') }}
                       </span>
                     </div>
                   </div>
@@ -217,7 +217,7 @@ import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-system']);
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomClientStore = useMultiroomStore();

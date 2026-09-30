@@ -104,7 +104,7 @@ const props = defineProps({
 
 const emit = defineEmits(['deleted']);
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const store = useMusicLibraryStore();
 
 const playlist = ref(null);
@@ -124,7 +124,7 @@ const subtitle = computed(() => {
   if (!playlist.value) return '';
   const parts = [t('musicLibrary.tracksCount', { count: tracks.value.length })];
   const mins = totalMinutes(playlist.value.duration);
-  if (mins && !editing.value) parts.push(`${mins} ${t('musicLibrary.minutesShort')}`);
+  if (mins && !editing.value) parts.push(formatUnit(mins, 'min'));
   return parts.join(' · ');
 });
 

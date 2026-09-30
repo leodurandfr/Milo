@@ -80,8 +80,8 @@
     <GalleryVariant :label="`horizontal — ${level}`" stacked>
       <RangeSlider v-model="level" @drag-start="dragging = true" @drag-end="dragging = false" />
     </GalleryVariant>
-    <GalleryVariant label="valueUnit / hideInlineValue / muted / disabled" stacked>
-      <RangeSlider v-model="gain" :min="-40" :max="6" :step="0.5" value-unit="dB" />
+    <GalleryVariant label="unit / hideInlineValue / muted / disabled" stacked>
+      <RangeSlider v-model="gain" :min="-40" :max="6" :step="0.5" unit="dB" />
       <RangeSlider v-model="level" hide-inline-value />
       <RangeSlider v-model="level" muted />
       <RangeSlider v-model="level" disabled />
@@ -99,7 +99,7 @@
       <DoubleRangeSlider v-model="band" />
     </GalleryVariant>
     <GalleryVariant label="a crossover range in Hz, gap 200" stacked>
-      <DoubleRangeSlider v-model="crossover" :min="20" :max="20000" :step="10" :gap="200" value-unit="Hz" />
+      <DoubleRangeSlider v-model="crossover" :min="20" :max="20000" :step="10" :gap="200" unit="Hz" />
     </GalleryVariant>
   </GalleryItem>
 

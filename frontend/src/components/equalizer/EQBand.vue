@@ -25,7 +25,7 @@
     </div>
 
     <div class="gain-value text-mono-small" :class="{ 'dragging': isDragging }">
-      {{ loaded ? `${gainValue > 0 ? '+' : ''}${gainValue.toFixed(1)}` : '—' }}
+      {{ loaded ? formatNumber(gainValue, GAIN_FORMAT) : '—' }}
     </div>
   </div>
 </template>
@@ -33,6 +33,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import { useI18n } from '@/services/i18n';
 
 const props = defineProps({
   gain: { type: Number, default: 0 },
@@ -51,6 +52,10 @@ const emit = defineEmits(['update:gain', 'change']);
 const isDragging = ref(false);
 
 const gainValue = computed(() => props.gain);
+
+const { formatNumber } = useI18n();
+// +2,5 / -1,0 / 0,0: the sign on every non-zero gain, one decimal always.
+const GAIN_FORMAT = { signDisplay: 'exceptZero', minimumFractionDigits: 1, maximumFractionDigits: 1 };
 
 const sliderOrientation = computed(() => props.orientation === 'horizontal' ? 'horizontal' : 'vertical');
 

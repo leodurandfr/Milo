@@ -29,7 +29,7 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
-const { t } = useI18n();
+const { t, formatDuration } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
@@ -43,17 +43,8 @@ const lastAutoStop = ref(120);
 
 const autoStopEnabled = computed(() => config.value.auto_stop_delay !== 0);
 
-const autoStopSteps = computed(() => [
-  { value: 30, label: t('time.30sec') },
-  { value: 60, label: t('time.1min') },
-  { value: 120, label: t('time.2min') },
-  { value: 300, label: t('time.5min') },
-  { value: 600, label: t('time.10min') },
-  { value: 1200, label: t('time.20min') },
-  { value: 1800, label: t('time.30min') },
-  { value: 3600, label: t('time.1h') },
-  { value: 7200, label: t('time.2h') }
-]);
+const autoStopSteps = computed(() => [30, 60, 120, 300, 600, 1200, 1800, 3600, 7200]
+  .map(value => ({ value, label: formatDuration(value) })));
 
 function syncFromStore() {
   const playback = settingsStore.audioPlayback;

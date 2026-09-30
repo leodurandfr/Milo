@@ -31,7 +31,7 @@
         class="bt-remote-battery"
         :class="{ 'is-low': settingsStore.btRemote.battery_percentage < 20 }"
         :title="settingsStore.btRemote.battery_percentage < 20 ? t('btRemoteSettings.batteryLow') : undefined"
-      > · {{ settingsStore.btRemote.battery_percentage }}%</span></template>
+      > · {{ formatUnit(settingsStore.btRemote.battery_percentage, '%') }}</span></template>
     </RemoteStatusSection>
   </SettingsContainer>
 </template>
@@ -45,7 +45,7 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 

@@ -2,28 +2,11 @@ import { computed } from 'vue';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
-
-const LANGUAGE_TO_LOCALE = {
-  english: 'en-US',
-  french: 'fr-FR',
-  spanish: 'es-ES',
-  german: 'de-DE',
-  italian: 'it-IT',
-  portuguese: 'pt-BR',
-  chinese: 'zh-CN',
-  hindi: 'hi-IN',
-};
-
-function formatDuration(seconds) {
-  if (!seconds || seconds <= 0) return '0 min';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}min`;
-  return `${m} min`;
-}
+import { bcp47For } from '@/constants/countries';
 
 export function useEpisodePlaybackStatus(episodeRef) {
-  const { t, currentLanguage } = useI18n();
+  const { t, currentLanguage, formatDuration } = useI18n();
+  const toMinutes = (seconds) => formatDuration(seconds, { smallest: 'minute' });
   const podcastStore = usePodcastStore();
   const unifiedStore = useUnifiedAudioStore();
 
@@ -77,17 +60,17 @@ export function useEpisodePlaybackStatus(episodeRef) {
       return t('podcasts.episodeCompleted');
     }
 
-    return formatDuration(remaining) + ' ' + t('podcasts.remaining');
+    return t('podcasts.remaining', { time: toMinutes(remaining) });
   });
 
   const formattedDuration = computed(() => {
     // If this is the current episode and its file announced a duration, use it
     // (ms → s); a loading one has none yet.
     if (isCurrentEpisode.value && live.value?.durationMs) {
-      return formatDuration(Math.floor(live.value.durationMs / 1000));
+      return toMinutes(live.value.durationMs / 1000);
     }
     // Otherwise, use episode's static duration
-    return formatDuration(episodeRef.value?.duration || 0);
+    return toMinutes(episodeRef.value?.duration || 0);
   });
 
   const statusLabel = computed(() => {
@@ -106,7 +89,7 @@ export function useEpisodePlaybackStatus(episodeRef) {
     if (days === 0) return t('podcasts.today');
     if (days === 1) return t('podcasts.yesterday');
 
-    const locale = LANGUAGE_TO_LOCALE[currentLanguage.value] || 'en-US';
+    const locale = bcp47For(currentLanguage.value);
     const day = date.getDate();
     const month = date.toLocaleDateString(locale, { month: 'short' }).replace('.', '');
     const capitalized = month.charAt(0).toUpperCase() + month.slice(1);

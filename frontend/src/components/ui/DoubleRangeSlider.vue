@@ -7,7 +7,7 @@
       <!-- The widest reachable label, hidden, holds the pill at its width: a
            pill growing mid-drag would narrow the track under both thumbs. -->
       <span class="slider-value__widest">{{ widestLabel }}</span>
-      <span>{{ modelValue.min }}{{ valueUnit }}</span>
+      <span>{{ valueLabel(modelValue.min) }}</span>
     </div>
 
     <div class="slider-rail">
@@ -34,13 +34,15 @@
 
     <div class="slider-value slider-value--max text-mono-medium" :class="{ dragging: isDraggingMax }">
       <span class="slider-value__widest">{{ widestLabel }}</span>
-      <span>{{ modelValue.max }}{{ valueUnit }}</span>
+      <span>{{ valueLabel(modelValue.max) }}</span>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useI18n } from '@/services/i18n';
+import { UNITS } from '@/utils/units';
 
 const props = defineProps({
   modelValue: {
@@ -52,7 +54,8 @@ const props = defineProps({
   max: { type: Number, default: 100 },
   step: { type: Number, default: 1 },
   gap: { type: Number, default: 10 },
-  valueUnit: { type: String, default: '' }
+  // Written the way the UI language writes it (spacing, decimal comma); '' is a bare number.
+  unit: { type: String, default: '', validator: (value) => value === '' || UNITS.includes(value) }
 });
 
 const emit = defineEmits(['update:modelValue', 'change']);
@@ -69,10 +72,17 @@ let resizeObserver = null;
 // Scaled thumb size captured fresh at drag start (drag math runs in viewport/scaled coords).
 let dragThumbSize = 0;
 
+const { formatNumber, formatUnit } = useI18n();
+
+const decimals = computed(() => (String(props.step).split('.')[1] ?? '').length);
+
+function valueLabel(value, options = { maximumFractionDigits: decimals.value }) {
+  return props.unit ? formatUnit(value, props.unit, options) : formatNumber(value, options);
+}
+
 // Mono digits: the longest of the two bounds, at the step's precision, is the widest label.
 const widestLabel = computed(() => {
-  const decimals = (String(props.step).split('.')[1] ?? '').length;
-  const [low, high] = [props.min, props.max].map(bound => `${bound.toFixed(decimals)}${props.valueUnit}`);
+  const [low, high] = [props.min, props.max].map(bound => valueLabel(bound, { minimumFractionDigits: decimals.value }));
   return high.length > low.length ? high : low;
 });
 

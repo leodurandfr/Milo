@@ -15,6 +15,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useI18n } from '@/services/i18n';
 
 defineProps({
   // The tone of the surface the bar is drawn on, not the tone of the bar itself
@@ -30,8 +31,9 @@ defineProps({
 });
 
 const unifiedStore = useUnifiedAudioStore();
+const { formatUnit } = useI18n();
 
-const volumeDisplay = computed(() => `${Math.round(unifiedStore.volumeState.global_volume_db)} dB`);
+const volumeDisplay = computed(() => formatUnit(Math.round(unifiedStore.volumeState.global_volume_db), 'dB'));
 
 // The server's own 0..1 over the limits it applied — the span the level was
 // measured on travels with it, so the fill never mixes a new level with old
