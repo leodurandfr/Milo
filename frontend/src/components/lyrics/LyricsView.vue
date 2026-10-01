@@ -1,8 +1,8 @@
 <!-- LyricsView.vue — Lyrics app, rendered by AudioSourceView as one more slot in
-     its source-switching Transition, instead of overlaying a modal. Both
-     opening and closing are a plain opacity fade — no slide/scale (see the
-     .lyrics-slot override in AudioSourceView.vue, which skips the generic
-     spring/slide used for regular source switches). Mounted only while
+     its source-switching Transition, instead of overlaying a modal. The slot
+     only fades, both ways; on opening, the body (not the backdrop) also rises
+     with the shared source-switch spring, through its .source-motion marker
+     (see the .lyrics-slot override in AudioSourceView.vue). Mounted only while
      lyricsStore.isOpen, so lyrics are fetched on open (see lyricsStore.open())
      and refetched when the track changes while open. -->
 
@@ -24,7 +24,7 @@
         :aria-label="t('common.close')" @click="lyricsStore.close()" />
     </div>
 
-    <div class="lyrics-view-body">
+    <div class="lyrics-view-body source-motion">
       <Transition name="lyrics-fade" mode="out-in">
         <!-- Deliberately empty while the lookup is in flight: the loader below
              covers this slot, and keeping the slot blank is what lets the real

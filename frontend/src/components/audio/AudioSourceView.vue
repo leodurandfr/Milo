@@ -217,15 +217,21 @@ const contentKey = computed(() => {
    a second thing to keep true. Only the lyrics exception is local — being
    scoped, it outranks the shared rules it overrides. */
 
-/* Lyrics fades in/out in place. The rise is no longer something to opt out of —
-   it only reaches an element marked `.source-motion`, and this slot marks none,
-   which is exactly what keeps the spring from dragging the blurred backdrop
-   along with it. What is still local is the timing: one symmetric curve rather
-   than the shared normal-in/fast-out pair. (The backdrop's own progressive
-   reveal is a separate transition, see .lyrics-bg in LyricsView.vue.) */
-.lyrics-slot.audio-content-enter-active,
+/* Lyrics fades in/out on one symmetric curve rather than the shared
+   normal-in/fast-out pair. On opening, LyricsView's body — marked
+   `.source-motion`, unlike its blurred backdrop — rises with the shared spring;
+   the transform here only declares that envelope, so Vue keeps the enter
+   classes until the rise ends. Closing stays a plain fade: the leave rise is
+   cancelled below. (The backdrop's own progressive reveal is a separate
+   transition, see .lyrics-bg in LyricsView.vue.) */
+.lyrics-slot.audio-content-enter-active {
+  transition: opacity var(--transition-in-out), transform var(--transition-spring);
+}
 .lyrics-slot.audio-content-leave-active {
   transition: opacity var(--transition-in-out);
+}
+.lyrics-slot.audio-content-leave-to :deep(.source-motion) {
+  transform: none;
 }
 
 </style>

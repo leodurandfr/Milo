@@ -736,8 +736,9 @@
 
    So the rise lives one level down, on whatever element the view marks
    `.source-motion` — its content, never its clipping box nor the background that
-   box is welded to. A view that marks nothing simply fades (lyrics, and the
-   sticky player pane, which on mobile is teleported clear of the slot anyway).
+   box is welded to. A view that marks nothing simply fades (the sticky player
+   pane, which on mobile is teleported clear of the slot anyway). Lyrics marks
+   its body and not its backdrop, and rises on opening only.
 
    Lives here rather than in AudioSourceView because the gallery's source pages
    replay the same swap, and a transition copied into a second file is one that
