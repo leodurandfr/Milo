@@ -285,6 +285,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   width: 33.333%;
 }
 
+.lyrics-view-state :deep(.mc-title) {
+  text-wrap: balance;
+}
+
 @media (max-aspect-ratio: 4/3) {
   .lyrics-view-state :deep(.message-content),
   .lyrics-view-loader :deep(.message-content) {
