@@ -128,35 +128,6 @@ The time zone is picked up from the phone or computer you set Milō up from; Set
 Language and region changes it. The WiFi country is asked for in the wizard and cannot be
 skipped — it is what the radio's legal transmit power depends on.
 
-After setup:
-
-- **Web interface** → http://milo.local
-- **Spotify** → Select "Milō" in Spotify app
-- **Qobuz** → Select "Milo" in the Qobuz app (requires a one-time login in Milō's settings)
-- **Tidal** → Select "Milō" in the Tidal app
-- **AirPlay** → Select "Milō" in your iPhone/iPad/Mac AirPlay outputs
-- **Bluetooth** → Connect to "Milō · Bluetooth"
-- **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
-
-### SSH
-
-SSH is **off** by default. The image ships a factory password (`milo`) that is the same on every
-unit and published with this repository, so change it before you leave the door open — the
-settings screen says so as long as you haven't. To open a shell from another computer on your
-LAN:
-
-1. Settings → Device → System → **Device password**: set your own.
-2. Same page → **SSH**: turn it on.
-3. `ssh milo@milo.local`
-
-The same password is what `sudo` asks for on the unit itself. Nothing else on Milō's API
-authenticates — being on the local network *is* the credential — so the LAN it sits on is the
-security boundary.
-
-If the interface is unreachable — or on a **satellite**, which has no interface of its own —
-create an empty file named `ssh` on the SD card's boot partition. Raspberry Pi OS enables the
-server on the next boot and removes the file.
-
 ### Multiroom (Additional Speakers)
 
 Flash the same image on additional Raspberry Pis. On first boot the device looks for your
@@ -223,6 +194,5 @@ Control Milō from your other devices:
 
 ## License
 
-[PolyForm Shield 1.0.0](LICENSE) — source-available. Read it, run it, change it,
-self-host it, commercially or not. The one thing it withholds is using Milō to build
-a product or service that competes with Milō.
+[PolyForm Shield 1.0.0](LICENSE) — source-available. Read it, run it, change it and
+self-host it, at home or in your business.
