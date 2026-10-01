@@ -355,8 +355,8 @@ const HOME_SECTIONS = [
     rows: [
       { view: 'network', titleKey: 'settings.network', icon: networkIcon, alt: 'Network' },
       { view: 'hardware', titleKey: 'settings.hardware', icon: hardwareIcon, alt: 'Hardware' },
-      { view: 'system', titleKey: 'settings.system', icon: systemIcon, alt: 'System' },
       { view: 'updates', titleKey: 'settings.updates', icon: updatesIcon, alt: 'Updates' },
+      { view: 'system', titleKey: 'settings.system', icon: systemIcon, alt: 'System' },
     ],
   },
 ];
