@@ -299,6 +299,8 @@
     "screenModel": "Modèle",
     "rotaryEncoder": "Encodeur rotatif",
     "irRemote": "Récepteur infrarouge",
+    "powerButton": "Bouton d'alimentation",
+    "powerButtonDescription": "Milō attend un appui sur ce bouton pour démarrer. Sans bouton, il démarre dès qu'il est alimenté.",
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmReboot": "Confirmer le redémarrage",
     "rebooting": "Redémarrage…"

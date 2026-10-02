@@ -293,10 +293,10 @@ def test_the_consumer_extractor_sees_both_kinds():
 def test_every_consumer_sources_common_first():
     """A module sourced without `provisioning/common.sh` dies on `log_info: not found`.
 
-    Measured: `bash -c 'source provisioning/power-button.sh && configure_power_on_behavior'`
+    Measured: `bash -c 'source provisioning/<module>.sh && configure_<module>'`
     exits **127**. In a stage block that is a `set -e` abort an hour into a
-    three-hour build CI never runs; in `milo-eeprom-setup.service` it is a unit
-    that fails on the appliance, so the bootloader EEPROM is never configured.
+    three-hour build CI never runs; in a unit like `milo-navidrome-config.service`
+    it is a oneshot that fails on the appliance, so what it configures never is.
 
     The modules used to carry `if ! type log_info; then source
     "$(dirname "$0")/common.sh"; fi`, which repaired this — but only when a module
@@ -318,8 +318,8 @@ def test_every_consumer_sources_common_first():
 
 def test_the_ordering_rule_discriminates():
     """A rule that passed on any input would prove nothing about the real blocks."""
-    good = ["provisioning/common.sh", "provisioning/power-button.sh"]
-    bad = ["provisioning/power-button.sh", "provisioning/common.sh"]
+    good = ["provisioning/common.sh", "provisioning/navidrome.sh"]
+    bad = ["provisioning/navidrome.sh", "provisioning/common.sh"]
     assert good[0] == "provisioning/common.sh"
     assert bad[0] != "provisioning/common.sh"
     # ...and the extractor must read a real block, not an empty one.

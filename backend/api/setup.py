@@ -140,6 +140,11 @@ def create_setup_router(
                 # strips the IR block from config.txt unless ir_remote.enabled is
                 # True here, so dropping the key would disable the receiver.
                 "ir_remote": current["ir_remote"],
+                # Carried for the same reason: the apply writes the EEPROM from
+                # it, and a reflash leaves the EEPROM as the last unit set it,
+                # so the wizard's apply is what brings a reflashed board back
+                # to starting on power.
+                "power_button": current["power_button"],
             }
 
             await hardware_service.save_config(config)

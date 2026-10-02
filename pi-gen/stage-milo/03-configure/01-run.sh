@@ -17,7 +17,6 @@ systemctl enable milo-readiness.service
 systemctl enable milo-kiosk.service
 systemctl enable milo-bluealsa.service
 systemctl enable milo-bluealsa-aplay.service
-systemctl enable milo-eeprom-setup.service
 systemctl enable milo-cpu-governor.service
 systemctl enable milo-camilladsp.service
 systemctl enable nqptp.service

@@ -299,6 +299,8 @@
     "screenModel": "Modelo",
     "rotaryEncoder": "Codificador rotativo",
     "irRemote": "Receptor infrarrojo",
+    "powerButton": "Botón de encendido",
+    "powerButtonDescription": "Milō espera una pulsación de este botón para arrancar. Sin botón, arranca en cuanto recibe alimentación.",
     "applyAndReboot": "Aplicar y reiniciar",
     "confirmReboot": "Confirmar reinicio",
     "rebooting": "Reiniciando…"

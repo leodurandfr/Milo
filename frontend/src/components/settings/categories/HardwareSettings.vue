@@ -4,7 +4,7 @@
     <!-- Live, outside isDirty: the fan never waits for Apply & Reboot. -->
     <FanSection v-if="fanStore.available" />
 
-    <!-- What is wired to the board, one card: four groups apart by a rule.
+    <!-- What is wired to the board, one card: groups apart by a rule.
          Not four ToggleSections — nested, each would draw a card in a card. -->
     <SettingsSection>
       <div class="hardware-groups">
@@ -108,7 +108,7 @@
               />
             </SettingItem>
             <SettingItem label="VCC">
-              <div class="ir-fixed-pin">
+              <div class="fixed-pin">
                 <Dropdown
                   :model-value="'3.3V'"
                   :options="[{ label: '3.3V', value: '3.3V' }]"
@@ -117,7 +117,7 @@
               </div>
             </SettingItem>
             <SettingItem label="GND">
-              <div class="ir-fixed-pin">
+              <div class="fixed-pin">
                 <Dropdown
                   :model-value="'GND'"
                   :options="[{ label: 'GND', value: 'GND' }]"
@@ -127,6 +127,44 @@
             </SettingItem>
           </div>
         </div>
+
+        <!-- Pi 5 only: no other board's bootloader can wait for its button. -->
+        <template v-if="powerButtonSupported">
+          <div class="hardware-divider"></div>
+
+          <div class="hardware-group">
+            <div class="hardware-group__header">
+              <h3 class="heading-3">{{ t('hardwareSettings.powerButton') }}</h3>
+              <Toggle :model-value="config.power_button_enabled" :disabled="isRebooting"
+                @change="togglePowerButton" />
+            </div>
+            <span class="hardware-description text-mono-medium">
+              {{ t('hardwareSettings.powerButtonDescription') }}
+            </span>
+            <div v-if="config.power_button_enabled" class="encoder-pins">
+              <SettingItem label="LED −">
+                <Dropdown
+                  :model-value="config.power_led_gpio_pin"
+                  :options="gpioPinOptions"
+                  :disabled="isRebooting"
+                  :placeholder="t('common.selectOption')"
+                  @change="onPowerLedPinChange"
+                />
+              </SettingItem>
+              <SettingItem label="LED +">
+                <div class="fixed-pin">
+                  <Dropdown :model-value="'5V'" :options="[{ label: '5V', value: '5V' }]" disabled />
+                </div>
+              </SettingItem>
+              <!-- J2: the PMIC's own input on the Pi 5 board, not a GPIO. -->
+              <SettingItem label="BTN">
+                <div class="fixed-pin">
+                  <Dropdown :model-value="'J2'" :options="[{ label: 'J2', value: 'J2' }]" disabled />
+                </div>
+              </SettingItem>
+            </div>
+          </div>
+        </template>
       </div>
     </SettingsSection>
 
@@ -177,6 +215,8 @@ const config = ref({
   sw_pin: 23,
   ir_enabled: true,
   ir_gpio_pin: 17,
+  power_button_enabled: false,
+  power_led_gpio_pin: 26,
 });
 
 // Saved config (for dirty check)
@@ -184,6 +224,7 @@ const savedConfig = ref(null);
 
 const audioCardOptions = ref([]);
 const screenOptions = ref([]);
+const powerButtonSupported = ref(false);
 
 const confirmReboot = ref(false);
 const isApplying = ref(false);
@@ -199,7 +240,9 @@ const isDirty = computed(() => {
     config.value.dt_pin !== savedConfig.value.dt_pin ||
     config.value.sw_pin !== savedConfig.value.sw_pin ||
     config.value.ir_enabled !== savedConfig.value.ir_enabled ||
-    config.value.ir_gpio_pin !== savedConfig.value.ir_gpio_pin
+    config.value.ir_gpio_pin !== savedConfig.value.ir_gpio_pin ||
+    config.value.power_button_enabled !== savedConfig.value.power_button_enabled ||
+    config.value.power_led_gpio_pin !== savedConfig.value.power_led_gpio_pin
   );
 });
 
@@ -242,6 +285,8 @@ function syncFromData(data) {
     sw_pin: current.rotary_encoder?.sw_pin ?? 23,
     ir_enabled: current.ir_remote?.enabled !== false,
     ir_gpio_pin: current.ir_remote?.gpio_pin ?? 17,
+    power_button_enabled: current.power_button.enabled,
+    power_led_gpio_pin: current.power_button.led_gpio_pin,
   };
   config.value = { ...snapshot };
   savedConfig.value = { ...snapshot };
@@ -254,6 +299,7 @@ function syncFromData(data) {
   audioCardOptions.value = data.options.audio_cards;
   screenOptions.value = data.options.screens;
   gpioPinOptions.value = data.options.gpio_pins;
+  powerButtonSupported.value = data.options.power_button_supported;
 }
 
 const applyButtonLabel = computed(() => {
@@ -312,6 +358,16 @@ function toggleIrRemote(enabled) {
   confirmReboot.value = false;
 }
 
+function togglePowerButton(enabled) {
+  config.value.power_button_enabled = enabled;
+  confirmReboot.value = false;
+}
+
+function onPowerLedPinChange(value) {
+  config.value.power_led_gpio_pin = value;
+  confirmReboot.value = false;
+}
+
 async function applyAndReboot() {
   isApplying.value = true;
   confirmReboot.value = false;
@@ -328,6 +384,10 @@ async function applyAndReboot() {
     ir_remote: {
       enabled: config.value.ir_enabled,
       gpio_pin: config.value.ir_gpio_pin,
+    },
+    power_button: {
+      enabled: config.value.power_button_enabled,
+      led_gpio_pin: config.value.power_led_gpio_pin,
     },
   };
 
@@ -402,6 +462,10 @@ onMounted(async () => {
   gap: var(--space-04);
 }
 
+.hardware-description {
+  color: var(--color-text-secondary);
+}
+
 .hardware-divider {
   height: 1px;
   background: var(--color-border);
@@ -430,10 +494,10 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-/* IR receiver: VCC and GND are physical rails, not configurable GPIOs.
-   They are rendered as visually consistent disabled dropdowns with the caret
-   removed so they don't suggest a hidden option list. */
-.ir-fixed-pin :deep(.dropdown-icon) {
+/* Physical rails and fixed pads (IR VCC/GND, the power button's 5V and J2),
+   not configurable GPIOs. They are rendered as visually consistent disabled
+   dropdowns with the caret removed so they don't suggest a hidden option list. */
+.fixed-pin :deep(.dropdown-icon) {
   display: none;
 }
 

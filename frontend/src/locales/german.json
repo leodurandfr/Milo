@@ -299,6 +299,8 @@
     "screenModel": "Modell",
     "rotaryEncoder": "Drehregler",
     "irRemote": "Infrarot-Empfänger",
+    "powerButton": "Ein-/Aus-Taste",
+    "powerButtonDescription": "Milō wartet auf einen Druck dieser Taste, um zu starten. Ohne Taste startet es, sobald es Strom erhält.",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
     "rebooting": "Neustart…"

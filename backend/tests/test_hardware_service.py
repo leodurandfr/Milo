@@ -23,6 +23,7 @@ import pytest
 from backend.hardware.registry import (
     AUDIO_CARDS,
     DEFAULT_IR_REMOTE,
+    DEFAULT_POWER_BUTTON,
     DEFAULT_ROTARY_PINS,
     SCREENS,
 )
@@ -220,7 +221,7 @@ class TestTheRotaryPins:
 class TestTheFullConfig:
     """`get_full_config` was at 0 %. It is the body of
     `GET /api/settings/hardware-config` and the read that `api/setup.py` uses
-    to preserve the rotary and IR blocks it is not editing — so a section it
+    to preserve the rotary, IR and power-button blocks it is not editing — so a section it
     drops is a section the setup wizard erases from hardware.json.
     """
 
@@ -229,6 +230,7 @@ class TestTheFullConfig:
         "screen": {"type": "waveshare_8_dsi", "resolution": "1280x800"},
         "rotary_encoder": {"enabled": False, "clk_pin": 5, "dt_pin": 6, "sw_pin": 13},
         "ir_remote": {"enabled": False, "gpio_pin": 26},
+        "power_button": {"enabled": True, "led_gpio_pin": 5},
     }
 
     def test_every_section_the_wizard_re_saves_is_present_and_whole(self, service):
@@ -239,6 +241,7 @@ class TestTheFullConfig:
             "screen": self.STORED["screen"],
             "rotary_encoder": {"enabled": False, "clk_pin": 5, "dt_pin": 6, "sw_pin": 13},
             "ir_remote": {"enabled": False, "gpio_pin": 26},
+            "power_button": {"enabled": True, "led_gpio_pin": 5},
         }
 
     def test_an_empty_file_still_answers_a_complete_shape(self, service):
@@ -249,10 +252,11 @@ class TestTheFullConfig:
 
         config = service.get_full_config()
 
-        assert set(config) == {"audio", "screen", "rotary_encoder", "ir_remote"}
+        assert set(config) == {"audio", "screen", "rotary_encoder", "ir_remote", "power_button"}
         assert config["screen"] == {"type": "none", "resolution": None}
         assert config["rotary_encoder"]["clk_pin"] == DEFAULT_ROTARY_PINS["clk_pin"]
         assert config["ir_remote"]["gpio_pin"] == DEFAULT_IR_REMOTE["gpio_pin"]
+        assert config["power_button"] == DEFAULT_POWER_BUTTON
 
 
 class TestWritingBackToHardwareJson:

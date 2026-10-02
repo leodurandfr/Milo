@@ -95,6 +95,7 @@ def services():
         "screen": {"type": "none", "resolution": None},
         "rotary_encoder": {"enabled": True, "clk_pin": 22, "dt_pin": 27, "sw_pin": 23},
         "ir_remote": {"enabled": True, "gpio_pin": 17},
+        "power_button": {"enabled": True, "led_gpio_pin": 5},
     })
     hardware.save_config = AsyncMock()
     hardware.apply_and_reboot = AsyncMock()
@@ -357,6 +358,16 @@ class TestCompleteSetup:
         current = services.hardware.get_full_config.return_value
         assert saved["ir_remote"] == current["ir_remote"]
         assert saved["rotary_encoder"] == current["rotary_encoder"]
+
+    def test_the_power_button_survives_the_wizard(self, client, services):
+        """The apply writes the bootloader EEPROM from this block. Dropped, a
+        reset-setup on a unit with a wired button would leave it booting on
+        power and its button LED dark — undoing a choice the wizard never
+        offered."""
+        client.post("/api/setup/complete", json=self._payload())
+
+        saved = services.hardware.save_config.await_args.args[0]
+        assert saved["power_button"] == services.hardware.get_full_config.return_value["power_button"]
 
     def test_the_chosen_card_reaches_the_file_with_its_overlay(self, client, services):
         """The overlay is what config.txt gets; the wizard is the only thing

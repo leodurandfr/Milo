@@ -37,21 +37,21 @@ source provisioning/display.sh
 configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
 CHROOT
 
-# ── Boot config.txt (silent boot, fan, power-button LED) ─────────────────────
+# ── Boot config.txt (silent boot, fan) ───────────────────────────────────────
 # Single source of truth: reuse the provisioning/ functions rather than duplicating
 # their sed/cat here.
-# The EEPROM "wait for power button" half cannot be baked into an image — it is
-# applied on the device by milo-eeprom-setup.service (enabled in 01-run.sh).
+# The power button — its LED in config.txt and the bootloader EEPROM — is not
+# set here: it is declared on the Hardware page and applied by
+# milo-apply-hardware (the wizard's apply included), on the device, since a
+# chroot has no EEPROM.
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
 source provisioning/common.sh
 source provisioning/boot-common.sh
 source provisioning/system.sh
-source provisioning/power-button.sh
 configure_silent_boot
 configure_fan_control
-configure_power_led
 CHROOT
 
 # ── IR remote (Apple Remote via TSOP4838 on GPIO17) ──────────────────────────

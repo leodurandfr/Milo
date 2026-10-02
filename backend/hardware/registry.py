@@ -135,3 +135,18 @@ DEFAULT_IR_REMOTE = {
     "enabled": True,
     "gpio_pin": 17,
 }
+
+# =============================================================================
+# POWER BUTTON
+# =============================================================================
+# A momentary button on the Pi 5's J2 pads, and its LED. Declaring one makes
+# the board wait for a press before booting (bootloader EEPROM
+# WAIT_FOR_POWER_BUTTON=1); without one, Milō starts as soon as it is powered,
+# which is what a unit in a closed case or on a smart plug needs. The button
+# itself needs no GPIO (J2 is the PMIC's own input) and the LED's anode sits on
+# 5V; its cathode is sunk by led_gpio_pin, driven low only while a button is
+# declared. Physically pin 37, next to a GND and clear of the HAT's I2S lines.
+DEFAULT_POWER_BUTTON = {
+    "enabled": False,
+    "led_gpio_pin": 26,
+}

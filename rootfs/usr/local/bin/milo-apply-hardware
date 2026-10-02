@@ -4,12 +4,15 @@
 # Usage: milo-apply-hardware [--no-reboot]
 #
 # Reads /var/lib/milo/hardware.json and updates /boot/firmware/config.txt
-# with the correct dtoverlay for audio and screen parameters.
+# with the correct dtoverlay for audio and screen parameters, and — on a Pi 5 —
+# the bootloader EEPROM's power-on behaviour from the declared power button.
 # Must be run as root (via sudoers rule).
 #
 # Managed blocks in config.txt:
 #   # BEGIN MILO AUDIO ... # END MILO AUDIO
 #   # BEGIN MILO SCREEN ... # END MILO SCREEN
+#   # BEGIN MILO IR ... # END MILO IR
+#   # BEGIN MILO POWER LED ... # END MILO POWER LED
 #
 # --no-reboot exists for the setup wizard alone. The wizard has to persist
 # `setup_completed` before the box goes down, or it reappears after a
@@ -44,6 +47,8 @@ AUDIO_OVERLAY=$(read_json "audio.overlay")
 SCREEN_TYPE=$(read_json "screen.type")
 IR_ENABLED=$(read_json "ir_remote.enabled")
 IR_GPIO_PIN=$(read_json "ir_remote.gpio_pin")
+POWER_BUTTON_ENABLED=$(read_json "power_button.enabled")
+POWER_BUTTON_LED_GPIO=$(read_json "power_button.led_gpio_pin")
 
 validate_audio_overlay "$AUDIO_OVERLAY"
 
@@ -55,6 +60,14 @@ if [[ "$IR_ENABLED" == "True" && -n "$IR_GPIO_PIN" ]]; then
     fi
 fi
 
+# Validate the power button LED's GPIO pin (same range) — only if a button is declared
+if [[ "$POWER_BUTTON_ENABLED" == "True" ]]; then
+    if ! [[ "$POWER_BUTTON_LED_GPIO" =~ ^[0-9]+$ ]] || (( POWER_BUTTON_LED_GPIO < 2 || POWER_BUTTON_LED_GPIO > 27 )); then
+        echo "ERROR: Invalid power button LED GPIO pin '$POWER_BUTTON_LED_GPIO' (must be 2..27)" >&2
+        exit 1
+    fi
+fi
+
 # Validate screen type against allowlist
 VALID_SCREENS="waveshare_7_usb waveshare_8_dsi none"
 if [[ -n "$SCREEN_TYPE" ]]; then
@@ -62,6 +75,95 @@ if [[ -n "$SCREEN_TYPE" ]]; then
         echo "ERROR: Unknown screen type '$SCREEN_TYPE'" >&2
         exit 1
     fi
+fi
+
+# =============================================================================
+# Power-on behaviour (bootloader EEPROM, Raspberry Pi 5 only)
+# =============================================================================
+# With a power button declared the board waits for a press before booting
+# (WAIT_FOR_POWER_BUTTON=1); without one it boots as soon as it is powered, so a
+# unit in a closed case or behind a smart plug comes back after a power cut.
+# POWER_OFF_ON_HALT=1 either way: after a shutdown the PMIC drops to standby, and
+# the board wakes on the button or when power comes back.
+#
+# Before config.txt is touched, so a refused EEPROM write leaves the unit as it
+# was rather than half-applied. The EEPROM survives a reflash, which is why
+# every apply writes it — the setup wizard's included — not only a change.
+
+apply_power_on_behaviour() {
+    local wait="$1"
+
+    if ! tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'brcm,bcm2712'; then
+        echo "Not a Raspberry Pi 5 — bootloader power-on behaviour left as is"
+        return 0
+    fi
+
+    # Compare against what the next boot will run: a staged update if there is
+    # one (rpi-eeprom-config --edit reads it the same way), else the running
+    # config. Applying on top of the staged image keeps a pending firmware
+    # update rather than reverting it.
+    local pending base effective
+    pending="$(rpi-eeprom-update -b)/pieeprom.upd"
+    if [[ -f "$pending" ]]; then
+        base="$pending"
+        effective="$(rpi-eeprom-config "$pending")"
+    else
+        local cur_date
+        cur_date="$(vcgencmd bootloader_version | head -1 | sed 's#/#-#g; s/ .*//')"
+        base="$(ls /lib/firmware/raspberrypi/bootloader-2712/*/pieeprom-"${cur_date}".bin 2>/dev/null | head -1 || true)"
+        effective="$(rpi-eeprom-config)"
+    fi
+
+    if grep -qx 'POWER_OFF_ON_HALT=1' <<< "$effective" \
+        && grep -qx "WAIT_FOR_POWER_BUTTON=$wait" <<< "$effective"; then
+        echo "Bootloader power-on behaviour already set (WAIT_FOR_POWER_BUTTON=$wait)"
+        return 0
+    fi
+
+    local conf
+    conf="$(mktemp)"
+    printf '%s\n' "$effective" > "$conf"
+    set_eeprom_key "$conf" POWER_OFF_ON_HALT 1
+    set_eeprom_key "$conf" WAIT_FOR_POWER_BUTTON "$wait"
+
+    # Staged, never immediate. On a Pi 5 rpi-eeprom-update writes the SPI flash
+    # at once by default (flashrom, or both A/B partitions), and the running
+    # config keeps the old values until the next boot — so the comparison above
+    # would answer "already set" against a flash that now says otherwise.
+    # Measured 2026-10-02: apply 0 then apply 1 before a reboot left
+    # WAIT_FOR_POWER_BUTTON=0 in both partitions. Staged, the next boot applies
+    # pieeprom.upd and the pending check sees it until then; this script always
+    # ends in a reboot anyway.
+    #
+    # No base image on disk (a package upgrade removed the running bootloader's
+    # file): rpi-eeprom-config falls back to the latest one, which updates the
+    # firmware along with the config.
+    if [[ -n "$base" ]]; then
+        RPI_EEPROM_IMMEDIATE_UPDATE=0 rpi-eeprom-config --apply "$conf" "$base" > /dev/null
+    else
+        RPI_EEPROM_IMMEDIATE_UPDATE=0 rpi-eeprom-config --apply "$conf" > /dev/null
+    fi
+    rm -f "$conf"
+    echo "Bootloader power-on behaviour staged for the next boot (WAIT_FOR_POWER_BUTTON=$wait)"
+}
+
+# Replace a key wherever it is set, or add it at the top of the [all] section:
+# appended at the end it could land under a conditional section.
+set_eeprom_key() {
+    local file="$1" key="$2" value="$3"
+    if grep -q "^${key}=" "$file"; then
+        sed -i "s/^${key}=.*/${key}=${value}/" "$file"
+    elif grep -qx '\[all\]' "$file"; then
+        sed -i "0,/^\[all\]$/s//[all]\n${key}=${value}/" "$file"
+    else
+        sed -i "1i ${key}=${value}" "$file"
+    fi
+}
+
+if [[ "$POWER_BUTTON_ENABLED" == "True" ]]; then
+    apply_power_on_behaviour 1
+else
+    apply_power_on_behaviour 0
 fi
 
 # =============================================================================
@@ -152,6 +254,24 @@ if [[ "$IR_ENABLED" == "True" && -n "$IR_GPIO_PIN" ]]; then
 # BEGIN MILO IR
 dtoverlay=gpio-ir,gpio_pin=$IR_GPIO_PIN
 # END MILO IR
+EOF
+fi
+
+# =============================================================================
+# Power button LED
+# =============================================================================
+# gpio=N=op,dl drives the pin low from the firmware on, sinking the LED while the
+# Pi runs; at halt the RP1 pad goes high-impedance and the LED goes out. Only
+# with a button declared: otherwise the pin is free for the other peripherals.
+
+remove_block "MILO POWER LED"
+
+if [[ "$POWER_BUTTON_ENABLED" == "True" ]]; then
+    cat >> "$CONFIG_FILE" << EOF
+
+# BEGIN MILO POWER LED
+gpio=${POWER_BUTTON_LED_GPIO}=op,dl
+# END MILO POWER LED
 EOF
 fi
 

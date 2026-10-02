@@ -99,8 +99,10 @@ class TestSettingsRoutes:
             "screen": {"type": "waveshare_7_usb", "resolution": {"width": 1024, "height": 600}},
             "rotary_encoder": {"enabled": True, "clk_pin": 22, "dt_pin": 27, "sw_pin": 23},
             "ir_remote": {"enabled": False, "gpio_pin": 17},
+            "power_button": {"enabled": False, "led_gpio_pin": 26},
         })
         service.get_volume_control = Mock(return_value=False)
+        service.power_button_supported = Mock(return_value=True)
         return service
 
     @pytest.fixture
@@ -894,6 +896,7 @@ class TestSettingsRoutes:
                     "clk_pin": spares[0], "dt_pin": spares[1], "sw_pin": spares[2],
                 },
                 "ir_remote": {"enabled": True, "gpio_pin": pin},
+                "power_button": {"enabled": False},
             })
 
 class TestHardwareConfigRequest:
@@ -901,13 +904,14 @@ class TestHardwareConfigRequest:
     applies the config and reboots the unit."""
 
     @staticmethod
-    def _payload(ir_gpio_pin, ir_enabled=True):
+    def _payload(ir_gpio_pin, ir_enabled=True, power_button=False, sw_pin=23, led_pin=26):
         """A config valid in every respect but the IR data line."""
         return {
             "audio": {"id": "hifiberry_amp2"},
             "screen": {"type": "waveshare_7_usb"},
-            "rotary_encoder": {"enabled": True, "clk_pin": 22, "dt_pin": 27, "sw_pin": 23},
+            "rotary_encoder": {"enabled": True, "clk_pin": 22, "dt_pin": 27, "sw_pin": sw_pin},
             "ir_remote": {"enabled": ir_enabled, "gpio_pin": ir_gpio_pin},
+            "power_button": {"enabled": power_button, "led_gpio_pin": led_pin},
         }
 
     def test_a_free_pin_is_accepted(self):
@@ -926,6 +930,28 @@ class TestHardwareConfigRequest:
         """The stored pin of a disabled remote drives nothing; rejecting it
         would block a legitimate encoder config."""
         assert HardwareConfigRequest(**self._payload(22, ir_enabled=False))
+
+    def test_the_power_button_led_cannot_share_the_ir_line(self):
+        """config.txt holds the LED's GPIO low from the firmware on, so an IR
+        receiver on it reads a line pinned to ground: a remote that never
+        answers, after a reboot nothing explains."""
+        with pytest.raises(ValidationError, match="power button LED"):
+            HardwareConfigRequest(**self._payload(17, power_button=True, led_pin=17))
+
+    def test_the_power_button_led_cannot_share_an_encoder_pin(self):
+        """Same line, the other peripheral: an encoder push that never fires."""
+        with pytest.raises(ValidationError, match="power button LED"):
+            HardwareConfigRequest(**self._payload(17, power_button=True, led_pin=23))
+
+    def test_the_power_button_led_moves_off_a_pin_another_peripheral_wants(self):
+        """The pin is the LED's only while it is set there: an IR receiver on
+        the default LED pin is legitimate once the LED is wired elsewhere."""
+        assert HardwareConfigRequest(**self._payload(26, power_button=True, led_pin=5))
+
+    def test_without_a_power_button_its_led_pin_is_free(self):
+        """No button declared, no LED block in config.txt: the stored pin
+        drives nothing and refusing it would take a GPIO off every unit."""
+        assert HardwareConfigRequest(**self._payload(17, led_pin=17))
 
 
 class TestBulkSettings:

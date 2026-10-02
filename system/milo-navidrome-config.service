@@ -7,9 +7,9 @@ Documentation=https://www.navidrome.org/docs/usage/configuration/persistent-ids/
 # re-syncs system/ and rootfs/ — never refreshes it. This oneshot re-emits it
 # from the single source of truth (provisioning/navidrome.sh) before Navidrome starts,
 # so a unit provisioned before an album-grouping/PID change picks it up. It reuses
-# configure_navidrome() exactly like milo-eeprom-setup.service reuses its install
-# function, and is idempotent: an unchanged rewrite is a no-op and Navidrome
-# hashes the PID *value*, so only a genuine change forces the (full) rescan.
+# configure_navidrome() rather than restating it, and is idempotent: an unchanged
+# rewrite is a no-op and Navidrome hashes the PID *value*, so only a genuine
+# change forces the (full) rescan.
 ConditionPathExists=/home/milo/milo/provisioning/navidrome.sh
 After=local-fs.target
 Before=milo-navidrome.service
@@ -20,7 +20,7 @@ RemainAfterExit=yes
 # common.sh MUST be sourced before navidrome.sh: the latter's fallback
 # `source "$(dirname "$0")/common.sh"` guard resolves $0 to /bin/bash here, so it
 # would look for /bin/common.sh. Sourcing common.sh first defines log_* and makes
-# that guard a no-op (same reason as milo-eeprom-setup.service).
+# that guard a no-op.
 ExecStart=/bin/bash -c 'cd /home/milo/milo && source provisioning/common.sh && source provisioning/navidrome.sh && configure_navidrome'
 
 StandardOutput=journal

@@ -607,12 +607,20 @@ class HardwareIrRemoteRequest(BaseModel):
     gpio_pin: int = Field(default=17, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
 
 
+class HardwarePowerButtonRequest(BaseModel):
+    """Power button on the Pi 5's J2 pads (wired means the board waits for a press
+    to boot) + the GPIO sinking its LED's cathode"""
+    enabled: bool = False
+    led_gpio_pin: int = Field(default=26, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
+
+
 class HardwareConfigRequest(BaseModel):
     """Full hardware configuration request"""
     audio: HardwareAudioRequest
     screen: HardwareScreenRequest
     rotary_encoder: HardwareRotaryEncoderRequest
     ir_remote: HardwareIrRemoteRequest
+    power_button: HardwarePowerButtonRequest
 
     @model_validator(mode='after')
     def validate_no_pin_collision(self):
@@ -631,6 +639,28 @@ class HardwareConfigRequest(BaseModel):
                     f'GPIO {self.ir_remote.gpio_pin} cannot be the IR data line: '
                     'the rotary encoder already uses it'
                 )
+        return self
+
+    @model_validator(mode='after')
+    def validate_power_led_pin_is_free(self):
+        """The power button's LED holds its GPIO low from the first instant of
+        boot (config.txt), so a peripheral declared on the same pin would read a
+        line pinned to ground."""
+        if not self.power_button.enabled:
+            return self
+        led_pin = self.power_button.led_gpio_pin
+        users = []
+        if self.rotary_encoder.enabled and led_pin in {
+            self.rotary_encoder.clk_pin, self.rotary_encoder.dt_pin, self.rotary_encoder.sw_pin,
+        }:
+            users.append('the rotary encoder')
+        if self.ir_remote.enabled and self.ir_remote.gpio_pin == led_pin:
+            users.append('the IR receiver')
+        if users:
+            raise ValueError(
+                f'GPIO {led_pin} cannot drive the power button LED: '
+                f'{" and ".join(users)} already uses it'
+            )
         return self
 
 

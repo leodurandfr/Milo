@@ -299,6 +299,8 @@
     "screenModel": "型号",
     "rotaryEncoder": "旋转编码器",
     "irRemote": "红外接收器",
+    "powerButton": "电源按钮",
+    "powerButtonDescription": "Milō 需按下此按钮才会启动。没有按钮时，接通电源即自动启动。",
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
     "rebooting": "正在重启…"

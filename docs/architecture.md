@@ -1054,7 +1054,6 @@ milo-ir-keytable          # Boot oneshot: enable NEC decoding + reload paired Ap
 milo-kiosk                # Chromium kiosk (touchscreen)
 milo-readiness            # System readiness check
 milo-first-boot           # Boot oneshot: first-boot/role setup (consumes pending_client_role.json)
-milo-eeprom-setup         # Boot oneshot: Pi EEPROM/bootloader configuration
 milo-cpu-governor         # Boot oneshot: pin the CPU governor
 ```
 

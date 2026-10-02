@@ -164,13 +164,6 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Dependencies**: `ConditionPathExists=/sys/class/rc`; After systemd-modules-load.service; Before milo-backend.service
 - **Startup**: Enabled at boot (`provisioning/ir-remote.sh`)
 
-#### milo-eeprom-setup.service
-- **Role**: Applies power-on behaviour (wait for power button) to the Raspberry Pi bootloader EEPROM
-- **Type**: oneshot (`RemainAfterExit=yes`)
-- **Dependencies**: `ConditionPathExists=/home/milo/milo/provisioning/power-button.sh`; After local-fs.target
-- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`)
-- **Notes**: The EEPROM lives on the board's SPI flash, not the SD card, so it can't be baked into the pi-gen image — this reuses `configure_power_on_behavior()` from `provisioning/power-button.sh` and re-flashes only when needed, so running every boot is harmless.
-
 ### Utility Services (Always Enabled)
 
 #### milo-cpu-governor.service
@@ -184,7 +177,7 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 
 ```
 (boot-time oneshots, pi-gen image build or provisioning/*.sh — see Boot-Time Oneshot Services)
-  milo-first-boot.service → milo-eeprom-setup.service → milo-ir-keytable.service
+  milo-first-boot.service → milo-ir-keytable.service
 
 graphical.target
   └─ milo-kiosk.service

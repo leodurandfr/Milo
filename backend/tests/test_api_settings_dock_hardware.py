@@ -451,6 +451,7 @@ class TestTheHardwareConfig:
         "screen": {"type": "waveshare_7_usb"},
         "rotary_encoder": {"enabled": False, "clk_pin": 5, "dt_pin": 6, "sw_pin": 13},
         "ir_remote": {"enabled": False, "gpio_pin": 17},
+        "power_button": {"enabled": False, "led_gpio_pin": 26},
     }
 
     def test_the_config_is_saved_before_anything_is_applied(self, client, hardware):
@@ -475,6 +476,19 @@ class TestTheHardwareConfig:
         assert saved["audio"]["id"] == "hifiberry_amp2"
         assert saved["audio"]["overlay"], "the overlay was not resolved"
         assert saved["screen"]["resolution"] is not None
+
+    def test_a_declared_power_button_reaches_the_file_the_apply_reads(self, client, hardware):
+        """`milo-apply-hardware` writes the bootloader EEPROM and the LED block
+        from `power_button` in hardware.json. A route that dropped the flag
+        would reboot into a board still starting on power, with the toggle back
+        off; one that dropped the pin would drive the LED from the default pin
+        while it is wired elsewhere."""
+        payload = {**self.PAYLOAD, "power_button": {"enabled": True, "led_gpio_pin": 5}}
+
+        client.put("/api/settings/hardware-config", json=payload)
+
+        saved = hardware.save_config.await_args.args[0]["power_button"]
+        assert saved == {"enabled": True, "led_gpio_pin": 5}
 
     def test_a_dac_card_is_stored_as_not_managing_its_own_volume(self, client, hardware):
         """This flag is the whole DAC mode: False means an external amp owns the

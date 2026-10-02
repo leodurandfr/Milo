@@ -57,9 +57,14 @@ Inputs use internal pull-ups — no external resistors.
 
 ## 4. Software power button (clean shutdown + wake)
 
-A **momentary / self-reset** button with a white LED. Short press = clean shutdown;
-press while asleep = boot. Applying power does **not** auto-boot — you press the button
-to start, like a PC (configured by the image build).
+Optional. A **momentary / self-reset** button with a white LED. Short press = clean
+shutdown; press while asleep = boot.
+
+Declare it under **Settings → Hardware → Power button** (Raspberry Pi 5 only). Declared,
+applying power does **not** boot Milō — you press the button to start, like a PC.
+Undeclared (the default), Milō starts as soon as it is powered, so a unit in a closed
+case or behind a smart plug comes back on its own after a power cut. Either way the
+Pi 5's own on-board button does the same as a wired one.
 
 - **Button** (2 terminals) → **J2 pads 1 & 2**. J2 is a small 2-pin header **on the Pi 5
   board itself** (next to the round RTC-battery connector) — *not* the 40-pin header.
@@ -73,10 +78,11 @@ to start, like a PC (configured by the image build).
    running → GPIO26 LOW → LED ON     |     halted → GPIO26 hi-Z → LED OFF
 ```
 
-The image build configures this automatically: the status LED (GPIO26, lit while running,
-off once halted) **and** "wait for the power button on power-up" (applying power keeps
-Milō off until you press the button). If the LED draws > ~16 mA, drive it through an NPN
-transistor.
+Declaring the button applies both halves on the next reboot: the status LED (lit while
+running, off once halted) **and** the bootloader's "wait for the power button on
+power-up". The LED cathode's GPIO is chosen next to the toggle (GPIO26 by default, as
+wired above); the rotary encoder and the IR receiver cannot share it. If the LED draws
+> ~16 mA, drive it through an NPN transistor.
 
 ## 5. Hard power switch (master cut)
 
@@ -90,8 +96,9 @@ A **latching** switch, **no LED**, wired on the amp's DC input. It fully cuts po
    DC brick (−) ─────────────────────────► AMP4 Pro DC −
 ```
 
-**Order of use:** shut down with the software button (section 4) first, wait until the Pi
-is off, *then* flip this latching switch off. Never flip it while Milō is running.
+**Order of use:** shut Milō down first (the power button of section 4, or from
+Settings), wait until the Pi is off, *then* flip this latching switch off. Never flip it
+while Milō is running.
 
 ## 6. Screen — Waveshare 8" DSI
 

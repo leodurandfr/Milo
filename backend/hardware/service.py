@@ -1,8 +1,8 @@
 # backend/hardware/service.py
 """Hardware management service — read/write hardware.json configuration.
 
-Handles screen type, audio card, rotary encoder GPIO pins, and IR remote
-configuration. Uses the schema_version protocol — see CLAUDE.md
+Handles screen type, audio card, rotary encoder GPIO pins, IR remote and power
+button configuration. Uses the schema_version protocol — see CLAUDE.md
 §"Persistence & schema-version protocol".
 """
 import asyncio
@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 from backend.config.constants import HARDWARE_FILE
-from backend.hardware.registry import DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE
+from backend.hardware.registry import DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE, DEFAULT_POWER_BUTTON
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 
 class HardwareService:
-    """Service to read and write hardware configuration (screen, audio, rotary encoder, IR)."""
+    """Service to read and write hardware configuration (screen, audio, rotary encoder, IR, power button)."""
 
     SCHEMA_VERSION: int = 2
 
@@ -115,6 +115,29 @@ class HardwareService:
         config = self._ensure_cache()
         return config.get('ir_remote', {}).get('gpio_pin', DEFAULT_IR_REMOTE['gpio_pin'])
 
+    def get_power_button_enabled(self) -> bool:
+        """Returns True if a power button is wired, so the board waits for a press to boot."""
+        config = self._ensure_cache()
+        return config.get('power_button', {}).get('enabled', DEFAULT_POWER_BUTTON['enabled'])
+
+    def get_power_button_led_pin(self) -> int:
+        """Returns the GPIO sinking the power button LED's cathode."""
+        config = self._ensure_cache()
+        return config.get('power_button', {}).get('led_gpio_pin', DEFAULT_POWER_BUTTON['led_gpio_pin'])
+
+    def power_button_supported(self) -> bool:
+        """True on a Raspberry Pi 5, the only board whose bootloader can wait for its button.
+
+        Read from the device tree rather than the model string, which carries a
+        revision. False wherever the tree is unreadable (a dev host), so the
+        Hardware page hides a setting nothing could apply.
+        """
+        try:
+            compatible = Path("/proc/device-tree/compatible").read_bytes()
+        except OSError:
+            return False
+        return b"brcm,bcm2712" in compatible.split(b"\0")
+
     def get_volume_control(self) -> bool:
         """Returns False if audio card is a DAC with external amp managing volume.
 
@@ -148,6 +171,10 @@ class HardwareService:
             "screen": config.get('screen', {'type': 'none', 'resolution': None}),
             "rotary_encoder": {"enabled": self.get_rotary_enabled(), "clk_pin": clk, "dt_pin": dt, "sw_pin": sw},
             "ir_remote": {"enabled": self.get_ir_enabled(), "gpio_pin": self.get_ir_gpio_pin()},
+            "power_button": {
+                "enabled": self.get_power_button_enabled(),
+                "led_gpio_pin": self.get_power_button_led_pin(),
+            },
         }
 
     def get_missing_audio_card(self) -> Optional[str]:
@@ -201,7 +228,7 @@ class HardwareService:
         self._cache = None
 
     async def apply_and_reboot(self, reboot: bool = True) -> None:
-        """Apply hardware config to config.txt via milo-apply-hardware.
+        """Apply hardware config to config.txt and the bootloader EEPROM via milo-apply-hardware.
 
         `reboot=False` returns instead of taking the box down, and exists for
         the setup wizard alone: the wizard must persist `setup_completed`

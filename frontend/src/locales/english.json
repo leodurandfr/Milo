@@ -299,6 +299,8 @@
     "screenModel": "Model",
     "rotaryEncoder": "Rotary encoder",
     "irRemote": "Infrared receiver",
+    "powerButton": "Power button",
+    "powerButtonDescription": "Milō waits for a press on this button to start. Without one, it starts as soon as it is powered.",
     "applyAndReboot": "Apply and reboot",
     "confirmReboot": "Confirm reboot",
     "rebooting": "Rebooting…"

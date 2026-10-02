@@ -719,13 +719,14 @@ def create_settings_router(
                     "audio_cards": audio_options,
                     "screens": screen_options,
                     "gpio_pins": gpio_pin_options,
+                    "power_button_supported": hardware_service.power_button_supported(),
                 }
             }
 
     @router.put("/hardware-config")
     async def set_hardware_config(payload: HardwareConfigRequest, background_tasks: BackgroundTasks):
         """
-        Save hardware config, apply to config.txt, and reboot.
+        Save hardware config, apply to config.txt and the bootloader EEPROM, and reboot.
 
         Resolves full audio card properties from registry before saving,
         then runs the privileged milo-apply-hardware script.
@@ -762,6 +763,10 @@ def create_settings_router(
                 "ir_remote": {
                     "enabled": payload.ir_remote.enabled,
                     "gpio_pin": payload.ir_remote.gpio_pin,
+                },
+                "power_button": {
+                    "enabled": payload.power_button.enabled,
+                    "led_gpio_pin": payload.power_button.led_gpio_pin,
                 },
             }
 
