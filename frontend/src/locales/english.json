@@ -792,7 +792,7 @@
     },
     "ssh": {
       "title": "SSH",
-      "description": "Opens a terminal session on Milō from another computer on your local network. Off by default.",
+      "description": "Opens a terminal session on Milō from another computer on your local network.",
       "factoryPassword": "Milō still has its factory password."
     },
     "password": {
@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "Diagnostic",
-      "description": "Builds a text report about this Milō — its versions, its audio path, its speakers and its recent errors — that you can send when something goes wrong. It holds no password, no network name and none of your file names, and you can read it before sending it.",
+      "description": "A text report about this Milō (version, audio path, speakers, recent errors), to send if something goes wrong.",
       "generate": "Generate a report",
       "generating": "Generating…",
       "download": "Download",

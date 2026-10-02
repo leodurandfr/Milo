@@ -792,7 +792,7 @@
     },
     "ssh": {
       "title": "SSH",
-      "description": "Apre una sessione terminale su Milō da un altro computer della rete locale. Disattivato per impostazione predefinita.",
+      "description": "Apre una sessione terminale su Milō da un altro computer della rete locale.",
       "factoryPassword": "Milō ha ancora la password di fabbrica."
     },
     "password": {
@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "Diagnostica",
-      "description": "Produce un rapporto testuale su questo Milō — le sue versioni, il suo percorso audio, i suoi diffusori e i suoi errori recenti — che può inviare quando qualcosa non funziona. Non contiene alcuna password, alcun nome di rete né alcuno dei suoi nomi di file, e può leggerlo prima di inviarlo.",
+      "description": "Un rapporto testuale su questo Milō (versione, percorso audio, diffusori, errori recenti), da inviare in caso di problemi.",
       "generate": "Genera un rapporto",
       "generating": "Generazione…",
       "download": "Scarica",

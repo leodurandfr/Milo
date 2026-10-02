@@ -792,7 +792,7 @@
     },
     "ssh": {
       "title": "SSH",
-      "description": "从局域网内的另一台电脑打开 Milō 的终端会话。默认关闭。",
+      "description": "从局域网内的另一台电脑打开 Milō 的终端会话。",
       "factoryPassword": "Milō 仍在使用出厂密码。"
     },
     "password": {
@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "诊断",
-      "description": "生成一份关于本台 Milō 的文本报告——版本、音频通路、音箱和近期错误——在出现问题时您可以将它发送出去。报告不含任何密码、任何网络名称，也不含您的任何文件名，发送前您可以先阅读。",
+      "description": "一份关于本台 Milō 的文本报告（版本、音频通路、音箱、近期错误），出现问题时可发送。",
       "generate": "生成报告",
       "generating": "正在生成…",
       "download": "下载",
