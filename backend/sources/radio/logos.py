@@ -14,9 +14,9 @@ played stations, what arrives there is:
   everything else answers 400 — France Culture, FIP, France Musique, Mouv' all
   carry `1024px-`. `repair_url` rounds the width up to one that is served.
 - **An image in a format one client cannot draw.** iOS draws neither WebP nor
-  SVG; Wikimedia hands out WebP to whoever advertises it. Every raster logo is
-  therefore stored once as WebP and served as JPEG to a caller that does not
-  ask for WebP, as `/api/radio/images/` already does for uploads.
+  SVG; Wikimedia hands out WebP to whoever advertises it. Every logo, an SVG
+  included (rasterized here by cairosvg — see `_rasterize_svg`), is therefore stored once as WebP and served as JPEG to a caller
+  that does not ask for WebP, as `/api/radio/images/` already does for uploads.
 - **Something that is not an image at all.** A page answering 200 with HTML, a
   16 px icon. Re-served from Milō's origin, the first would render foreign HTML
   on `milo.local`; drawn full-screen, the second is a smear. Neither passes:
@@ -25,6 +25,9 @@ played stations, what arrives there is:
 - **A wide logo.** Every renderer fills a square with `object-fit: cover`,
   which cut the sides off one logo in ten. A logo is padded to a square here,
   once, for all of them.
+- **A transparent logo.** One in three; drawn on the screensaver's black, a
+  dark one vanishes, and drawn on white a white one does. Each is flattened
+  here onto the ground its own ink reads on (`_backdrop`).
 
 A dead host used to cost a 5 s timeout on every render, for every client. An
 answer that settles the question — a logo, or a server saying there is none —
@@ -39,6 +42,7 @@ import ipaddress
 import logging
 import re
 import socket
+import sys
 import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -46,13 +50,13 @@ from urllib.parse import urljoin, urlparse
 
 import aiofiles
 import aiohttp
-from PIL import Image, ImageStat
+from PIL import Image, ImageChops, ImageStat
 
 from backend.config.constants import RADIO_LOGOS_DIR
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import write_bytes_atomically
-from backend.sources.radio.data import ImageManager, encode_jpeg, encode_webp, has_alpha
+from backend.sources.radio.data import ImageManager, encode_jpeg, encode_webp, flatten, has_alpha
 
 logger = logging.getLogger("source.radio.logos")
 
@@ -80,10 +84,37 @@ MAX_RETRY_AFTER_S = 2
 MAX_BYTES = ImageManager.MAX_FILE_SIZE_BYTES
 # Below this a logo upscales into a smear; the generated avatar reads better.
 MIN_LOGO_PX = 48
-# Decodes, resizes and encodes at once. A search page opens ~40 uncached logos
+# Decodes, resizes and encodes (or renders an SVG) at once. A search page opens ~40 uncached logos
 # together; unbounded, that is every core of the Pi busy with PIL while the
 # multiroom stream needs it.
 PIL_CONCURRENCY = 2
+
+# The two grounds a transparent logo is flattened onto: white, unless its ink
+# is light (mean relative luminance past LIGHT_INK) and sparse (under
+# SPARSE_INK of the square) — white text on nothing, which white would erase.
+# A dense light logo is a tile with rounded corners: white extends it
+# seamlessly. Calibrated 2026-10-02 against the ~500 transparent logos of a
+# unit's cache. The dark ground is the frontend's --color-background-contrast.
+LIGHT_BACKDROP = (255, 255, 255)
+DARK_BACKDROP = (0x18, 0x1D, 0x1E)
+LIGHT_INK = 0.45
+SPARSE_INK = 0.6
+# sRGB → linear light, the scale relative luminance is defined on.
+_LINEAR = [round(255 * ((v / 255) / 12.92 if v <= 10 else ((v / 255 + 0.055) / 1.055) ** 2.4))
+           for v in range(256)]
+
+# An SVG is a program for its renderer: nested <use> multiplies the work at
+# each level (a 1.2 KB file measured 14 s of CPU on the Pi at 1024 px), and a
+# thread cannot be stopped. It is drawn in a niced child process, killed past
+# this — a real logo took 0.23 s, plus 0.38 s to start the child.
+SVG_RENDER_TIMEOUT_S = 5
+# cairosvg's default (unsafe=False) fetches nothing an SVG references but a
+# data: URL — no host on the network, no file on the unit.
+_SVG_RENDERER = (
+    "import os, sys, cairosvg; os.nice(10); "
+    "sys.stdout.buffer.write(cairosvg.svg2png(bytestring=sys.stdin.buffer.read(), "
+    "output_width={0}, output_height={1}))"
+).format(*ImageManager.MAX_DIMENSIONS)
 
 LOGO_TTL_S = 30 * 24 * 3600
 MISS_TTL_S = 6 * 3600
@@ -240,9 +271,9 @@ def _is_svg(body: bytes) -> bool:
 def _border_fill(image: Image.Image) -> Tuple[int, ...]:
     """What to pad a logo with so the padding reads as its own background.
 
-    Transparent when any border pixel is — the logo then sits on whatever the
-    client draws behind it. Otherwise the border's mean color, which extends a
-    flat background seamlessly.
+    Transparent when any border pixel is — `_backdrop` then chooses the ground
+    for the padding and the logo alike. Otherwise the border's mean color,
+    which extends a flat background seamlessly.
     """
     w, h = image.size
     strips = [
@@ -268,20 +299,54 @@ def _square(image: Image.Image) -> Image.Image:
     return canvas
 
 
-def _process(body: bytes) -> Optional[Tuple[bytes, str]]:
-    """The body as a stored logo — (bytes, suffix) — or None if it is not one.
+def _backdrop(image: Image.Image) -> Tuple[int, int, int]:
+    """The ground a transparent RGBA logo reads on (see LIGHT_INK)."""
+    alpha = image.getchannel("A")
+    coverage = ImageStat.Stat(alpha).mean[0] / 255
+    if coverage == 0 or coverage >= SPARSE_INK:
+        return LIGHT_BACKDROP
+    linear = Image.merge("RGB", [band.point(_LINEAR) for band in image.convert("RGB").split()])
+    luminance = linear.convert("L", matrix=(0.2126, 0.7152, 0.0722, 0))
+    ink = ImageStat.Stat(ImageChops.multiply(luminance, alpha)).mean[0] / 255 / coverage
+    return DARK_BACKDROP if ink > LIGHT_INK else LIGHT_BACKDROP
+
+
+async def _rasterize_svg(body: bytes) -> Optional[bytes]:
+    """The SVG as a PNG filling a MAX_DIMENSIONS square, centered, aspect kept
+    — or None if it does not render within SVG_RENDER_TIMEOUT_S."""
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-c", _SVG_RENDERER,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        png, _ = await asyncio.wait_for(proc.communicate(body), SVG_RENDER_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.warning("Station logo SVG took over %d s to render, refused", SVG_RENDER_TIMEOUT_S)
+        return None
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+    return png if proc.returncode == 0 else None
+
+
+def _process(body: bytes) -> Optional[bytes]:
+    """The raster body as a stored logo (WebP), or None if it is not one.
 
     Blocking (PIL): call via `to_thread`.
     """
-    if _is_svg(body):
-        return body, ".svg"
     try:
-        with Image.open(io.BytesIO(body)) as image:
-            image.load()
-            if min(image.size) < MIN_LOGO_PX:
+        with Image.open(io.BytesIO(body)) as source:
+            source.load()
+            if min(source.size) < MIN_LOGO_PX:
                 return None
-            image.thumbnail(ImageManager.MAX_DIMENSIONS, Image.Resampling.LANCZOS)
-            return encode_webp(_square(image)), ".webp"
+            source.thumbnail(ImageManager.MAX_DIMENSIONS, Image.Resampling.LANCZOS)
+            image = _square(source.copy())
+        if has_alpha(image):
+            image = image.convert("RGBA")
+            image = flatten(image, _backdrop(image))
+        return encode_webp(image)
     except Exception as e:
         # Bytes from any host on the internet: PIL's decoders answer a malformed
         # file with OSError, EOFError, SyntaxError, struct.error, IndexError…
@@ -332,30 +397,25 @@ class StationLogos:
     async def get(self, url: str, accept: str) -> Optional[Tuple[bytes, str]]:
         """The logo for `url` as (bytes, media type) the caller can draw, or None.
 
-        `accept` is the caller's own Accept header: a browser names WebP and
-        SVG, iOS's URLSession sends `*/*` and draws neither.
+        `accept` is the caller's own Accept header: a browser names WebP,
+        iOS's URLSession sends `*/*` and cannot draw it.
         """
         repaired = repair_url(url)
         key = hashlib.sha256(repaired.encode()).hexdigest()
-        entry = await self._entry(key, repaired)
-        if entry is None:
+        data = await self._entry(key, repaired)
+        if data is None:
             return None
-        data, suffix = entry
-        if suffix == ".svg":
-            return (data, "image/svg+xml") if "image/svg+xml" in accept else None
         if "image/webp" in accept:
             return data, "image/webp"
         return await self._jpeg(key, data), "image/jpeg"
 
-    async def _entry(self, key: str, url: str) -> Optional[Tuple[bytes, str]]:
-        for suffix in (".webp", ".svg"):
-            path = self.LOGOS_DIR / f"{key}{suffix}"
-            if self._fresh(path, LOGO_TTL_S):
-                try:
-                    async with aiofiles.open(path, "rb") as f:
-                        return await f.read(), suffix
-                except FileNotFoundError:
-                    break  # expired and swept under us: fetch it again
+    async def _entry(self, key: str, url: str) -> Optional[bytes]:
+        path = self.LOGOS_DIR / f"{key}.webp"
+        if self._fresh(path, LOGO_TTL_S):
+            # Expired and swept under us: fetch it again.
+            with contextlib.suppress(FileNotFoundError):
+                async with aiofiles.open(path, "rb") as f:
+                    return await f.read()
         if self._fresh(self.LOGOS_DIR / f"{key}.miss", MISS_TTL_S):
             return None
 
@@ -369,30 +429,31 @@ class StationLogos:
         # Shielded: a client that gives up leaves the fetch to finish for the next.
         return await asyncio.shield(task)
 
-    async def _resolve(self, key: str, url: str) -> Optional[Tuple[bytes, str]]:
+    async def _resolve(self, key: str, url: str) -> Optional[bytes]:
         try:
             body = await _download(url)
         except _NoAnswer as e:
             logger.debug("Station logo %s not reachable, not remembered: %s", url, e)
             return None
 
-        entry = None
-        if body:
-            async with self._pil:
-                entry = await asyncio.to_thread(_process, body)
+        data = None
+        async with self._pil:
+            if body and _is_svg(body):
+                body = await _rasterize_svg(body)
+            if body:
+                data = await asyncio.to_thread(_process, body)
         try:
-            if entry is None:
+            if data is None:
                 logger.debug("Station logo %s is not a usable image", url)
                 await write_bytes_atomically(self.LOGOS_DIR / f"{key}.miss", b"")
             else:
-                data, suffix = entry
-                await write_bytes_atomically(self.LOGOS_DIR / f"{key}{suffix}", data)
+                await write_bytes_atomically(self.LOGOS_DIR / f"{key}.webp", data)
                 # A rendition of the previous version must not outlive it.
                 (self.LOGOS_DIR / f"{key}.jpg").unlink(missing_ok=True)
                 (self.LOGOS_DIR / f"{key}.miss").unlink(missing_ok=True)
         except OSError as e:
             logger.warning("Could not cache station logo %s: %s", url, e)
-        return entry
+        return data
 
     async def _jpeg(self, key: str, webp: bytes) -> bytes:
         path = self.LOGOS_DIR / f"{key}.jpg"

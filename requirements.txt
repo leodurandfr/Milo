@@ -13,6 +13,7 @@ aiofiles>=23.2.1
 lgpio>=0.2.2.0; platform_machine == "aarch64"  # Pi GPIO (rotary encoder) — needs liblgpio, unavailable on x86 CI
 evdev>=1.7.0
 Pillow>=10.0.0
+cairosvg>=2.7.0  # rasterizes SVG station logos (sources/radio/logos.py); dlopens libcairo2 at import
 python-multipart>=0.0.6
 pyyaml>=6.0.0
 shazamio>=0.7.0

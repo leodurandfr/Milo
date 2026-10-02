@@ -51,20 +51,24 @@ def encode_webp(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
+def flatten(image: Image.Image, backdrop: Tuple[int, int, int] = (255, 255, 255)) -> Image.Image:
+    """The image as opaque RGB, any transparency filled with `backdrop`."""
+    if image.mode in ("RGBA", "LA", "P"):
+        image = image.convert("RGBA")
+        flat = Image.new("RGB", image.size, backdrop)
+        flat.paste(image, mask=image.split()[-1])
+        return flat
+    return image.convert("RGB")
+
+
 def encode_jpeg(image: Image.Image) -> bytes:
     """JPEG, for the callers that cannot draw WebP (iOS).
 
-    A station logo is routinely transparent, and JPEG has no alpha: flattening
-    onto white keeps the artwork readable, where the default black turns a dark
-    logo into a square.
+    An uploaded station image is often transparent, and JPEG has no alpha:
+    flattening onto white keeps the artwork readable, where the default black
+    turns a dark logo into a square.
     """
-    if image.mode in ("RGBA", "LA", "P"):
-        image = image.convert("RGBA")
-        flat = Image.new("RGB", image.size, (255, 255, 255))
-        flat.paste(image, mask=image.split()[-1])
-        image = flat
-    else:
-        image = image.convert("RGB")
+    image = flatten(image)
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=JPEG_QUALITY)
     return buffer.getvalue()

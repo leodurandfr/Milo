@@ -22,10 +22,10 @@ import aiohttp
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from backend.sources.radio import logos as logos_module
-from backend.sources.radio.logos import StationLogos, repair_url
+from backend.sources.radio.logos import DARK_BACKDROP, LIGHT_BACKDROP, StationLogos, repair_url
 from backend.sources.radio.routes import setup_radio_routes
 
 BROWSER = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
@@ -42,7 +42,9 @@ def _png(width, height, mode="RGB", background=(10, 20, 30), center=(220, 30, 30
     return buffer.getvalue()
 
 
-SVG = b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>'
+# White ink on nothing, a quarter of the square: BBC Radio 2's case.
+SVG = (b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+       b'<rect x="2.5" y="2.5" width="5" height="5" fill="#fafafa"/></svg>')
 
 
 class _Resp:
@@ -138,6 +140,11 @@ def public(dns):
 
 def _decode(data):
     return Image.open(io.BytesIO(data))
+
+
+def _near(pixel, color, tolerance=6):
+    """Equal within what lossy WebP moves a flat color by."""
+    return all(abs(a - b) <= tolerance for a, b in zip(pixel, color))
 
 
 class TestRepairUrl:
@@ -370,16 +377,43 @@ class TestWhatIsALogo:
         middle = image.getpixel((200, 200))
         assert middle[0] > 180, "the logo itself must sit in the middle"
 
-    async def test_a_transparent_logo_is_padded_with_transparency(self, fetches, public):
-        """The client draws its own background behind it, as it did before."""
+    async def test_a_dark_logo_on_transparency_is_flattened_onto_white(self, fetches, public):
+        """Radio Meuh is black on nothing: it vanished on the screensaver's black."""
         fetches(_Resp(200, _png(400, 100, mode="RGBA", background=(0, 0, 0, 0),
-                                center=(220, 30, 30, 255))))
+                                center=(20, 20, 20, 255))))
 
-        data, _ = await StationLogos().get(LOGO_URL, BROWSER)
-        image = _decode(data).convert("RGBA")
+        image = _decode((await StationLogos().get(LOGO_URL, BROWSER))[0])
 
-        assert image.size == (400, 400)
-        assert image.getpixel((0, 0))[3] == 0
+        assert image.mode == "RGB" and image.size == (400, 400)
+        for xy in [(0, 0), (20, 200)]:  # the padding, then the logo's own transparency
+            assert _near(image.getpixel(xy), LIGHT_BACKDROP), (xy, image.getpixel(xy))
+        assert max(image.getpixel((200, 200))) < 60, "the logo itself must keep its color"
+
+    async def test_a_white_logo_on_transparency_is_flattened_onto_the_dark_ground(
+        self, fetches, public
+    ):
+        """BBC Radio 2 is white on nothing: on white it was an empty square."""
+        fetches(_Resp(200, _png(400, 100, mode="RGBA", background=(0, 0, 0, 0),
+                                center=(250, 250, 250, 255))))
+
+        image = _decode((await StationLogos().get(LOGO_URL, BROWSER))[0])
+
+        assert _near(image.getpixel((0, 0)), DARK_BACKDROP), image.getpixel((0, 0))
+        assert min(image.getpixel((200, 200))) > 230
+
+    async def test_a_white_tile_with_transparent_corners_stays_on_white(self, fetches, public):
+        """A light logo that fills its square (WDR, a white disc) is a tile:
+        white extends it, where a dark ground would draw dark corners round it."""
+        disc = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+        ImageDraw.Draw(disc).ellipse((0, 0, 199, 199), fill=(250, 250, 250, 255))
+        disc.paste((0, 60, 140, 255), (80, 80, 120, 120))
+        buffer = io.BytesIO()
+        disc.save(buffer, format="PNG")
+        fetches(_Resp(200, buffer.getvalue()))
+
+        image = _decode((await StationLogos().get(LOGO_URL, BROWSER))[0])
+
+        assert _near(image.getpixel((0, 0)), LIGHT_BACKDROP), image.getpixel((0, 0))
 
     async def test_a_truncated_image_is_not_a_logo(self, fetches, public):
         body = _png(200, 200)
@@ -396,10 +430,9 @@ class TestWhatIsALogo:
     ):
         """What vector editors export. Read as a raster, it failed and was
         remembered as missing."""
-        svg = prefix + b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>'
-        fetches(_Resp(200, svg))
+        fetches(_Resp(200, prefix + SVG.split(b"\n", 1)[1]))
 
-        assert await StationLogos().get(LOGO_URL, BROWSER) == (svg, "image/svg+xml")
+        assert await StationLogos().get(LOGO_URL, BROWSER) is not None
 
     async def test_a_page_that_inlines_an_svg_is_still_a_page(self, fetches, public):
         fetches(_Resp(200, b"<!doctype html><html><body><svg></svg></body></html>"))
@@ -418,6 +451,48 @@ class TestNegotiation:
     """One URL, two formats: browsers take WebP, iOS draws neither WebP nor
     SVG (see `get_station_image`)."""
 
+    @pytest.mark.parametrize("accept,media_type", [
+        (BROWSER, "image/webp"), (URLSESSION, "image/jpeg"),
+    ])
+    async def test_an_svg_is_drawn_for_every_client(self, fetches, public, accept, media_type):
+        """Served verbatim, an SVG reached browsers only: the iOS lock screen
+        stayed blank, and nothing chose a ground for it."""
+        fetches(_Resp(200, SVG))
+
+        data, served = await StationLogos().get(LOGO_URL, accept)
+        image = _decode(data).convert("RGB")
+
+        assert served == media_type
+        assert image.size == (1024, 1024)
+        assert _near(image.getpixel((0, 0)), DARK_BACKDROP), "white ink, sparse: the dark ground"
+        assert min(image.getpixel((512, 512))) > 230, "the logo itself is drawn"
+
+    async def test_an_svg_fetches_nothing_it_references(self, fetches, public):
+        """A directory entry is anyone's to edit: rendering it must not make the
+        unit request a URL (or read a file) the SVG names."""
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg" '
+               b'xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">'
+               b'<image xlink:href="http://192.168.1.1/admin" width="10" height="10"/>'
+               b'<image xlink:href="file:///etc/passwd" width="10" height="10"/>'
+               b'<rect x="2" y="2" width="6" height="6" fill="#123456"/></svg>')
+        fetches(_Resp(200, svg))
+
+        # cairosvg fetches with urllib, outside the faked session: a real
+        # connect is refused by the conftest guard, and a fetched file is no
+        # image — either way the logo would come back None.
+        assert await StationLogos().get(LOGO_URL, BROWSER) is not None
+
+    async def test_an_svg_that_outlasts_its_budget_is_no_logo(
+        self, fetches, public, monkeypatch, logos_dir
+    ):
+        """Nested <use> made a 1.2 KB SVG cost 14 s of CPU; uncapped, two such
+        logos held both PIL slots and the Pi the multiroom stream needs."""
+        monkeypatch.setattr(logos_module, "SVG_RENDER_TIMEOUT_S", 0.01)
+        fetches(_Resp(200, SVG))
+
+        assert await StationLogos().get(LOGO_URL, BROWSER) is None
+        assert [p.suffix for p in logos_dir.iterdir()] == [".miss"]
+
     async def test_a_browser_gets_webp(self, fetches, public):
         fetches(_Resp(200, _png(200, 200)))
 
@@ -433,17 +508,6 @@ class TestNegotiation:
 
         assert media_type == "image/jpeg"
         assert data[:3] == b"\xff\xd8\xff"
-
-    async def test_an_svg_reaches_a_browser_verbatim(self, fetches, public):
-        fetches(_Resp(200, SVG))
-
-        assert await StationLogos().get(LOGO_URL, BROWSER) == (SVG, "image/svg+xml")
-
-    async def test_an_svg_is_nothing_to_a_caller_that_cannot_draw_it(self, fetches, public):
-        fetches(_Resp(200, SVG))
-
-        assert await StationLogos().get(LOGO_URL, URLSESSION) is None
-
 
 class TestTheCache:
     async def test_a_logo_is_fetched_once(self, fetches, public):
@@ -506,14 +570,14 @@ class TestTheRoute:
 
     def test_a_logo_is_served_so_nothing_it_carries_can_run(self, client, fetches, public):
         """The bytes come from a host the directory named, served from Milō's
-        own origin: a tab opened on this URL must not run an SVG's script."""
-        fetches(_Resp(200, SVG))
+        own origin: a tab opened on this URL must not run anything they carry."""
+        fetches(_Resp(200, _png(200, 200)))
 
         response = client.get("/api/radio/favicon", params={"url": LOGO_URL},
                               headers={"Accept": BROWSER})
 
         assert response.status_code == 200
-        assert response.headers["content-type"] == "image/svg+xml"
+        assert response.headers["content-type"] == "image/webp"
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["content-security-policy"].startswith("default-src 'none'")
         assert response.headers["vary"] == "Accept"
