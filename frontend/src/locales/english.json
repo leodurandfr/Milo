@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "Diagnostic",
-      "description": "A text report about this Milō (version, audio path, speakers, recent errors), to send if something goes wrong.",
+      "description": "A text report about your Milō (version, audio path, speakers, recent errors), to send if something goes wrong.",
       "generate": "Generate a report",
       "generating": "Generating…",
       "download": "Download",

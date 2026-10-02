@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "Diagnostica",
-      "description": "Un rapporto testuale su questo Milō (versione, percorso audio, diffusori, errori recenti), da inviare in caso di problemi.",
+      "description": "Un rapporto testuale sul suo Milō (versione, percorso audio, diffusori, errori recenti), da inviare in caso di problemi.",
       "generate": "Genera un rapporto",
       "generating": "Generazione…",
       "download": "Scarica",

@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "Diagnose",
-      "description": "Ein Textbericht über dieses Milō (Version, Audiopfad, Lautsprecher, jüngste Fehler), zum Senden, falls etwas nicht stimmt.",
+      "description": "Ein Textbericht über Ihr Milō (Version, Audiopfad, Lautsprecher, jüngste Fehler), zum Senden, falls etwas nicht stimmt.",
       "generate": "Bericht erstellen",
       "generating": "Wird erstellt…",
       "download": "Herunterladen",

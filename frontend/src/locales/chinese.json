@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "诊断",
-      "description": "一份关于本台 Milō 的文本报告（版本、音频通路、音箱、近期错误），出现问题时可发送。",
+      "description": "一份关于您的 Milō 的文本报告（版本、音频通路、音箱、近期错误），出现问题时可发送。",
       "generate": "生成报告",
       "generating": "正在生成…",
       "download": "下载",

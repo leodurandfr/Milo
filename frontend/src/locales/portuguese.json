@@ -808,7 +808,7 @@
     },
     "diagnostic": {
       "title": "Diagnóstico",
-      "description": "Um relatório de texto sobre este Milō (versão, caminho de áudio, colunas, erros recentes), para enviar se algo não estiver bem.",
+      "description": "Um relatório de texto sobre o seu Milō (versão, caminho de áudio, colunas, erros recentes), para enviar se algo não estiver bem.",
       "generate": "Gerar um relatório",
       "generating": "A gerar…",
       "download": "Transferir",
