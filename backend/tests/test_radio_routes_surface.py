@@ -24,6 +24,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.sources.radio.genres import extract_valid_genre
 from backend.sources.radio.routes import setup_radio_routes
 
 
@@ -202,6 +203,21 @@ class TestSearch:
         body = client.get("/api/radio/countries").json()
 
         assert body == [{"name": "France", "stationcount": 12}]
+
+
+class TestGenres:
+    """`GET /api/radio/genres` — the search dropdown's whole vocabulary."""
+
+    def test_the_dropdown_offers_the_genres_the_backend_validates_against(self, client):
+        """A genre is offered by the frontend and recognised by `extract_valid_genre`;
+        two copies of the list are how one side offers a genre the other drops."""
+        body = client.get("/api/radio/genres").json()
+        genres = body["genres"]
+
+        assert body["status"] == "success"
+        assert len(genres) > 50
+        # Each one, found in a station's tags, is the genre that station is given.
+        assert [extract_valid_genre(f"mp3,{g},128kbps") for g in genres] == genres
 
 
 class TestCustomStations:

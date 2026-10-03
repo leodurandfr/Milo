@@ -18,6 +18,7 @@ from backend.api.responses import RadioStationsResponse
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
+from backend.sources.radio.genres import VALID_GENRES
 from backend.sources.radio.source import RadioSource
 from backend.sources.radio.models import (
     PlayStationRequest,
@@ -146,6 +147,12 @@ async def search_stations(
             if result.get("api_error"):
                 response["api_error"] = True
             return response
+
+
+@router.get("/genres")
+async def get_genres() -> Dict[str, Any]:
+    """Return the genres a station's tags are matched against, for the search filter."""
+    return {"status": "success", "genres": sorted(VALID_GENRES)}
 
 
 @router.get("/countries")

@@ -1,9 +1,10 @@
 /**
- * Curated music-genre list for the Radio source.
+ * Genre labels for the Radio source.
  *
- * Mirrors `backend/sources/radio/genres.py::VALID_GENRES`. Used to build the
- * SearchView genre filter dropdown. Values are sent to Radio Browser as the
- * `tag` query parameter (substring match on station tags).
+ * The list itself is the backend's (`GET /api/radio/genres`, the set
+ * `sources/radio/genres.py` matches station tags against), fetched by the radio
+ * store. Values are sent to Radio Browser as the `tag` query parameter
+ * (substring match on station tags).
  *
  * Most genre names are language-invariant. Only the few entries listed in
  * `radio.genres.*` translation keys differ across locales; everything else
@@ -11,116 +12,6 @@
  */
 import { bcp47For } from '@/constants/countries';
 import { i18n } from '@/services/i18n';
-
-const MUSIC_GENRES = [
-  '60s',
-  '70s',
-  '80s',
-  '90s',
-  '1990s',
-  '2010s',
-  'acoustic',
-  'afrobeats',
-  'alternative',
-  'alternative rock',
-  'ambient',
-  'americana',
-  'art rock',
-  'avant-garde',
-  'bachata',
-  'big band',
-  'blues',
-  'bluegrass',
-  'bossa nova',
-  'britpop',
-  'celtic',
-  'chill',
-  'chillout',
-  'classic jazz',
-  'classic rock',
-  'classical',
-  'country',
-  'dance',
-  'dancehall',
-  'darkwave',
-  'death metal',
-  'deep house',
-  'disco',
-  'downtempo',
-  'drum and bass',
-  'dub',
-  'dubstep',
-  'edm',
-  'electro',
-  'electronic',
-  'eurodance',
-  'flamenco',
-  'folk',
-  'folk rock',
-  'funk',
-  'garage',
-  'gospel',
-  'groove',
-  'grunge',
-  'hard rock',
-  'hardcore',
-  'hip-hop',
-  'house',
-  'indie',
-  'italo disco',
-  'jazz',
-  'jazz fusion',
-  'k-pop',
-  'latin',
-  'latin music',
-  'latin pop',
-  'lo-fi',
-  'lounge',
-  'merengue',
-  'metal',
-  'minimal',
-  'minimal techno',
-  'new age',
-  'new wave',
-  'news',
-  'nu disco',
-  'oldies',
-  'opera',
-  'pop',
-  'pop dance',
-  'pop rock',
-  'power metal',
-  'progressive house',
-  'progressive rock',
-  'psychedelic',
-  'psychedelic rock',
-  'punk',
-  'r&b',
-  'rap',
-  'rare groove',
-  'reggae',
-  'reggaeton',
-  'rock',
-  'roots',
-  'salsa',
-  'schlager',
-  'singer-songwriter',
-  'ska',
-  'smooth jazz',
-  'smooth lounge',
-  'soul',
-  'stoner rock',
-  'swing',
-  'synthwave',
-  'talk',
-  'tech house',
-  'techno',
-  'thrash metal',
-  'trance',
-  'trap',
-  'trip-hop',
-  'tropical'
-];
 
 function genreI18nKey(genre) {
   return genre.replace(/[\s&]+/g, '_').replace(/-/g, '_').toLowerCase();
@@ -159,13 +50,14 @@ export function getTranslatedGenreName(language, genre) {
  * using the UI language's collation.
  *
  * @param {string} language - Milō language code
+ * @param {string[]} genres - The backend's genre list (empty until it arrives)
  * @param {string} allGenresLabel - Label for the "All genres" option
  * @returns {Array<{label: string, value: string}>}
  */
-export function genreOptions(language, allGenresLabel) {
+export function genreOptions(language, genres, allGenresLabel) {
   const bcp47 = bcp47For(language);
 
-  const translated = MUSIC_GENRES.map((g) => ({
+  const translated = genres.map((g) => ({
     label: getTranslatedGenreName(language, g),
     value: g,
   }));

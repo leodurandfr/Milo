@@ -50,6 +50,9 @@ export const useRadioStore = defineStore('radio', () => {
   const customStations = ref({});
   const customStationsLoaded = ref(false);
 
+  // The search filter's genres, served by the backend (GET /api/radio/genres).
+  const genres = ref([]);
+
   // Top stations cache (3 minutes, memory only)
   const topStationsCache = ref(null);
   const topStationsCacheTimestamp = ref(null);
@@ -467,6 +470,17 @@ export const useRadioStore = defineStore('radio', () => {
     return result.ok;
   }
 
+  async function loadGenres() {
+    const result = await apiCall.get('/api/radio/genres', {
+      category: 'radio',
+      message: 'Error loading genres',
+      checkStatus: true,
+    });
+    if (result.ok && Array.isArray(result.data.genres)) {
+      genres.value = result.data.genres;
+    }
+  }
+
   /**
    * Load radio settings data (custom stations only — favorites are already
    * kept fresh via preload + WebSocket events)
@@ -563,11 +577,13 @@ export const useRadioStore = defineStore('radio', () => {
     hasMoreStations,
     favoriteStations: enrichedFavorites,
     customStations,
+    genres,
 
     // Actions
     preloadFavorites,
     loadStations,
     loadRadioSettingsData,
+    loadGenres,
     loadMore,
     playStation,
     stopPlayback,

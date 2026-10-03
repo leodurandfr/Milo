@@ -199,7 +199,7 @@ const countryOptions = computed(() => {
 })
 
 const genreOptions = computed(() => {
-  return createGenreOptions(getCurrentLanguage(), t('radio.genre'))
+  return createGenreOptions(getCurrentLanguage(), radioStore.genres, t('radio.genre'))
 })
 
 // === NAVIGATION ===
@@ -209,6 +209,11 @@ async function openSearch() {
   // Set loading AND switch mode immediately to prevent showing favorites
   radioStore.setLoading(true)
   isSearchMode.value = true
+
+  // Genres are not awaited: the dropdown fills in when they arrive.
+  if (radioStore.genres.length === 0) {
+    radioStore.loadGenres()
+  }
 
   // Load countries if not yet loaded
   if (availableCountries.value.length === 0) {
