@@ -219,9 +219,9 @@ class SpotifySource(BaseAudioSource):
                 return False
 
             # 3. HTTP session. Bounded per-request timeout so an unresponsive
-            # daemon can't block /player/stop or the startup poll. The WS
-            # connect passes its own timeout, so the long-lived /events stream
-            # is unaffected.
+            # daemon can't block /player/stop or the startup poll. aiohttp applies
+            # it to the /events upgrade request only, never to the socket after
+            # it, so the long-lived stream is unaffected.
             self._http = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=3.0)
             )

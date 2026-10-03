@@ -460,7 +460,7 @@ class TestConnectionLoop:
             if state["n"] > calls:
                 raise ReachedTheLiveSnapserver("connection loop ran past its bound")
             await _REAL_SLEEP(0)
-            outcome(state["n"])
+            return outcome(state["n"])
 
         service._connect_and_listen = _attempt
         return state
@@ -504,6 +504,36 @@ class TestConnectionLoop:
         assert instant_delays[-1] == 30
         assert max(instant_delays) == 30
 
+    async def test_a_snapserver_that_refuses_backs_the_loop_off(self, instant_delays):
+        """Through the real connect: `_connect_and_listen` catches a refused or
+        timed-out connect itself, so the loop cannot learn of the failure from an
+        exception. Measured before the fix: 5, 5, 5 — every failed attempt read
+        as a connection that worked, and a stopped snapserver was redialled every
+        5 s forever."""
+        service = make_service(multiroom_enabled=False)
+        refused = aiohttp.ClientConnectorError(MagicMock(), OSError(111, "refused"))
+
+        class RefusingSession:
+            connects = 0
+
+            async def ws_connect(self, url, **kwargs):
+                await _REAL_SLEEP(0)
+                RefusingSession.connects += 1
+                if RefusingSession.connects >= 4:
+                    service.should_connect = False
+                if RefusingSession.connects > 10:
+                    raise ReachedTheLiveSnapserver("connection loop ran past its bound")
+                raise refused
+
+        service.session = RefusingSession()
+        service.running = True
+        service.should_connect = True
+
+        await service._connection_loop()
+
+        assert RefusingSession.connects == 4
+        assert instant_delays == [5, 7.5, 11.25]
+
     async def test_a_connection_that_worked_resets_the_delay(self, instant_delays):
         """Without the reset, a fleet that reconnects after a long outage keeps
         paying the 30 s backoff on every later blip."""
@@ -515,7 +545,7 @@ class TestConnectionLoop:
             if n >= 6:
                 service.should_connect = False
             if n in (4, 5):
-                return  # the connection held, then dropped cleanly
+                return True  # the connection held, then dropped cleanly
             raise OSError("refused")
 
         self._bounded(service, calls=8, outcome=_outcome)

@@ -44,6 +44,10 @@ class SnapcastWebSocketService:
     # See _reconcile_loop for why a timer is required at all.
     RECONCILE_INTERVAL_S = 30
 
+    # Bounds the handshake only: the session carries it, and aiohttp applies a
+    # session timeout to the upgrade request, never to the socket after it.
+    CONNECT_TIMEOUT_S = 5
+
     def __init__(
         self,
         state_machine: "AudioStateMachine",
@@ -113,7 +117,9 @@ class SnapcastWebSocketService:
         """Initialize the WebSocket service."""
         try:
             self.logger.info(f"Initializing Snapcast WebSocket service: {self.ws_url}")
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.CONNECT_TIMEOUT_S)
+            )
             self.running = True
 
             # Single source of truth: AudioRoutingService.multiroom_enabled
@@ -245,8 +251,8 @@ class SnapcastWebSocketService:
 
         while self.running and self.should_connect:
             try:
-                await self._connect_and_listen()
-                reconnect_delay = 5
+                if await self._connect_and_listen():
+                    reconnect_delay = 5
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -257,8 +263,14 @@ class SnapcastWebSocketService:
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 1.5, max_delay)
 
-    async def _connect_and_listen(self) -> None:
-        """Connect and listen for WebSocket messages."""
+    async def _connect_and_listen(self) -> bool:
+        """Connect and listen for WebSocket messages.
+
+        Returns whether the connection got as far as ready. A refused or
+        timed-out connect is caught here, not raised, so this is the only way
+        the reconnect loop can tell a failure from a connection that dropped.
+        """
+        ready = False
         # Clear ready state so wait_for_ready() blocks until this connection
         # is fully initialized. Without this, a stale True from a previous
         # connection causes callers to proceed against a dead socket.
@@ -267,8 +279,13 @@ class SnapcastWebSocketService:
         try:
             self.logger.info(f"Connecting to Snapcast WebSocket: {self.ws_url}")
 
-            timeout = aiohttp.ClientTimeout(total=5)
-            self.websocket = await self.session.ws_connect(self.ws_url, timeout=timeout)
+            try:
+                self.websocket = await self.session.ws_connect(self.ws_url)
+            except TimeoutError:
+                self.logger.warning(
+                    f"Snapcast server did not answer the WebSocket handshake within {self.CONNECT_TIMEOUT_S} s"
+                )
+                return False
             self.logger.info("Connected to Snapcast WebSocket")
 
             # Send initial ping to verify connection
@@ -280,6 +297,7 @@ class SnapcastWebSocketService:
             self._bg.spawn(self._clear_init_flag_after_delay(2.0), label="clear_init_flag")
 
             self._ready_event.set()
+            ready = True
             self.logger.info("Snapcast WebSocket ready and initialized")
 
             # Listen for messages
@@ -303,6 +321,7 @@ class SnapcastWebSocketService:
             self.logger.error(f"WebSocket connection failed: {e}")
         finally:
             self.websocket = None
+        return ready
 
     async def _clear_init_flag_after_delay(self, delay: float) -> None:
         """Clear the initialization flag after a delay."""

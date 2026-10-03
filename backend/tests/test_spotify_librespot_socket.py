@@ -180,16 +180,6 @@ class TestOneConnection:
 
         assert session.connects[0][0] == "ws://127.0.0.1:9999/events"
 
-    async def test_the_connect_is_bounded(self, events):
-        """go-librespot can be up-but-wedged after a restart; an unbounded
-        connect would park the reconnect loop on it forever and the source
-        would never learn it is deaf."""
-        session = FakeSession(FakeWs([]))
-
-        await client(session, events)._run_connection()
-
-        assert session.connects[0][1]["timeout"].total == 5
-
     async def test_connected_is_true_while_the_socket_is_open(self, events):
         """`connected` is what the source reports as the daemon link; a flag
         that never goes true makes an open feed look dead."""

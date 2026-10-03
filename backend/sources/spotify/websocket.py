@@ -28,6 +28,10 @@ class LibrespotWebSocket:
     events to registered callback.
     """
 
+    # go-librespot can be up but wedged after a restart; the reconnect loop must
+    # not park on its handshake, whatever timeout the session was built with.
+    CONNECT_TIMEOUT_S = 5
+
     def __init__(
         self,
         ws_url: str,
@@ -99,7 +103,13 @@ class LibrespotWebSocket:
     async def _run_connection(self) -> None:
         """Run a single WebSocket connection."""
         try:
-            async with self._session.ws_connect(self._ws_url, timeout=aiohttp.ClientTimeout(total=5)) as ws:
+            async with contextlib.AsyncExitStack() as stack:
+                try:
+                    async with asyncio.timeout(self.CONNECT_TIMEOUT_S):
+                        ws = await stack.enter_async_context(self._session.ws_connect(self._ws_url))
+                except TimeoutError:
+                    self._logger.warning("go-librespot did not answer the WebSocket handshake")
+                    return
                 self._connected = True
                 self._logger.info("WebSocket connected")
 
