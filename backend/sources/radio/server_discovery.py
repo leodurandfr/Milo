@@ -14,7 +14,7 @@ import asyncio
 import logging
 import random
 import socket
-from datetime import datetime, timedelta
+from time import monotonic
 from typing import List, Optional
 
 
@@ -31,13 +31,14 @@ class ServerDiscovery:
 
     DISCOVERY_HOST = "all.api.radio-browser.info"
     FALLBACK_SERVER = "all.api.radio-browser.info"
-    TTL = timedelta(hours=1)
+    TTL_S = 3600.0
 
     def __init__(self) -> None:
         self._logger = logging.getLogger("source.radio.discovery")
         self._servers: List[str] = []
         self._cursor: int = 0
-        self._resolved_at: Optional[datetime] = None
+        # Monotonic: the unit has no RTC and timesyncd steps the wall clock mid-boot.
+        self._resolved_at: Optional[float] = None
         self._lock = asyncio.Lock()
 
     def base_url(self, server: str) -> str:
@@ -79,7 +80,7 @@ class ServerDiscovery:
     def _is_stale(self) -> bool:
         if self._resolved_at is None:
             return True
-        return datetime.now() - self._resolved_at > self.TTL
+        return monotonic() - self._resolved_at > self.TTL_S
 
     async def _refresh(self) -> None:
         """Resolve A records for DISCOVERY_HOST and reverse-lookup friendly names."""
@@ -99,13 +100,7 @@ class ServerDiscovery:
             self._cursor = 0
             return
 
-        names: List[str] = []
-        for ip in ips:
-            try:
-                host, _, _ = await asyncio.to_thread(socket.gethostbyaddr, ip)
-                names.append(host)
-            except (socket.herror, socket.gaierror, OSError):
-                names.append(ip)
+        names = await asyncio.gather(*(self._friendly_name(ip) for ip in ips))
 
         # Dedupe while preserving order, then shuffle.
         seen = set()
@@ -118,8 +113,16 @@ class ServerDiscovery:
 
         self._servers = unique_names
         self._cursor = 0
-        self._resolved_at = datetime.now()
+        self._resolved_at = monotonic()
         self._logger.info(
             f"Resolved {len(unique_names)} Radio Browser mirrors: "
             f"{', '.join(unique_names)}"
         )
+
+    async def _friendly_name(self, ip: str) -> str:
+        """Reverse-resolve one mirror, falling back to its IP."""
+        try:
+            host, _, _ = await asyncio.to_thread(socket.gethostbyaddr, ip)
+            return host
+        except (socket.herror, socket.gaierror, OSError):
+            return ip

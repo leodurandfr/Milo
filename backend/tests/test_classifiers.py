@@ -18,7 +18,7 @@ import pytest
 
 from backend.config.constants import HOSTNAME_DISPLAY_NAMES, get_client_display_name
 from backend.hardware.registry import AUDIO_CARDS, is_dac_card
-from backend.sources.radio.genres import VALID_GENRES, is_valid_genre
+from backend.sources.radio.genres import VALID_GENRES, canonical_genre
 from backend.shared.network import is_network_error
 
 
@@ -71,25 +71,29 @@ class TestIsDacCard:
         assert is_dac_card("no-such-card") is False
 
 
-class TestIsValidGenre:
-    """`sources/radio/genres.py` — the gate on a genre browse.
+class TestCanonicalGenre:
+    """`sources/radio/genres.py` — how a station's tag becomes its genre.
 
-    Consumer: the radio catalog browse, which sends the genre on to Radio
-    Browser as a tag. Accepting anything turns a typo into an empty station
-    list with no explanation.
+    Consumer: `extract_valid_genre`, which fills each Radio Browser station's
+    `genre` from its tags. The spelling it returns is the one the search
+    dropdown offers, so a tag must come back in the declared spelling.
     """
 
-    def test_a_declared_genre_is_valid_whatever_its_case_and_padding(self):
+    def test_a_declared_genre_matches_whatever_its_case_and_padding(self):
         one = next(iter(VALID_GENRES))
-        assert is_valid_genre(one) is True
-        assert is_valid_genre(f"  {one.upper()}  ") is True
+        assert canonical_genre(one) == one
+        assert canonical_genre(f"  {one.upper()}  ") == one
 
-    def test_a_genre_nobody_declared_is_not(self):
-        assert is_valid_genre("not-a-genre-anyone-declared") is False
+    def test_spaces_and_hyphens_match_each_other(self):
+        assert "hip-hop" in VALID_GENRES
+        assert canonical_genre("Hip Hop") == "hip-hop"
+
+    def test_a_genre_nobody_declared_matches_nothing(self):
+        assert canonical_genre("not-a-genre-anyone-declared") == ""
 
     @pytest.mark.parametrize("blank", ["", "   ", None])
     def test_nothing_at_all_is_not_a_genre(self, blank):
-        assert is_valid_genre(blank) is False
+        assert canonical_genre(blank) == ""
 
 
 class TestClientDisplayName:

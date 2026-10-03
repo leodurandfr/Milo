@@ -7,11 +7,12 @@ Tests cover:
 - Lazy resolution on first get_server() call
 - Server stickiness between rotate() calls
 - rotate() cycles through all mirrors and re-resolves on wrap
-- TTL expiry triggers re-resolution
+- TTL expiry triggers re-resolution, on the monotonic clock
+- Reverse lookups run concurrently
 - Resolution failure → fallback host, no exception
 """
 import socket
-from datetime import timedelta
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -126,24 +127,73 @@ class TestRotation:
         assert discovery.server_count == 3
 
 
+class TestReverseLookups:
+    @pytest.mark.asyncio
+    async def test_the_mirrors_are_named_concurrently(self, discovery):
+        """Resolution runs under the lock every radio request waits on, so one
+        slow PTR answer per mirror must not add up. Each fake lookup waits until
+        all three are in flight; looked up one by one, none ever is."""
+        barrier = threading.Barrier(3, timeout=1)
+
+        def _rendezvous(ip):
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                raise socket.herror("timed out waiting for the other lookups")
+            return REVERSE_MAP[ip]
+
+        with patch(
+            "backend.sources.radio.server_discovery.socket.gethostbyname_ex",
+            return_value=THREE_IPS,
+        ), patch(
+            "backend.sources.radio.server_discovery.socket.gethostbyaddr",
+            side_effect=_rendezvous,
+        ):
+            await discovery.get_server()
+
+        assert discovery.server_count == 3
+        assert all(name.endswith(".api.radio-browser.info") for name in discovery._servers)
+
+
+class FakeClock:
+    """The monotonic clock, advanced by hand. Driving expiry from it is also what
+    pins the clock: a TTL read on the wall clock (stepped mid-boot by timesyncd,
+    the unit has no RTC) would not respond to it."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = FakeClock()
+    monkeypatch.setattr(
+        "backend.sources.radio.server_discovery.monotonic", fake, raising=False
+    )
+    return fake
+
+
 class TestTtlExpiry:
     @pytest.mark.asyncio
-    async def test_ttl_expiry_triggers_re_resolve(self, patched_dns, discovery):
-        await discovery.get_server()
-        original_resolved_at = discovery._resolved_at
-
-        # Force the cached resolution to look older than TTL.
-        discovery._resolved_at = original_resolved_at - ServerDiscovery.TTL - timedelta(
-            seconds=1
-        )
-
-        # Spy on _refresh so we can prove it was actually invoked, not just
-        # infer it from a timestamp comparison.
-        with patch.object(discovery, "_refresh", wraps=discovery._refresh) as spy:
+    async def test_the_pool_is_re_resolved_once_the_ttl_has_elapsed(self, clock, discovery):
+        with patch(
+            "backend.sources.radio.server_discovery.socket.gethostbyname_ex",
+            return_value=THREE_IPS,
+        ) as resolve, patch(
+            "backend.sources.radio.server_discovery.socket.gethostbyaddr",
+            side_effect=_fake_gethostbyaddr,
+        ):
             await discovery.get_server()
-            spy.assert_called_once()
+            clock.now += ServerDiscovery.TTL_S - 1
+            await discovery.get_server()
+            assert resolve.call_count == 1
 
-        assert discovery._resolved_at >= original_resolved_at
+            clock.now += 2
+            await discovery.get_server()
+            assert resolve.call_count == 2
 
     @pytest.mark.asyncio
     async def test_get_server_within_ttl_does_not_re_resolve(

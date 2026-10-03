@@ -136,30 +136,21 @@ def normalize_genre(genre: str) -> str:
     return genre.lower().strip()
 
 
-def is_valid_genre(genre: str) -> bool:
+def canonical_genre(genre: str) -> str:
     """
-    Check if a genre is valid
+    Return the VALID_GENRES spelling a genre string matches, or '' if none
 
-    Args:
-        genre: Genre string to validate
-
-    Returns:
-        True if genre is in VALID_GENRES (case-insensitive)
+    Matching is case-insensitive and treats spaces and hyphens alike
+    (e.g., "Hip Hop" matches "hip-hop").
     """
     normalized = normalize_genre(genre)
     if not normalized:
-        return False
+        return ''
 
-    # Direct match
-    if normalized in VALID_GENRES:
-        return True
-
-    # Handle space/hyphen variations (e.g., "hip hop" vs "hip-hop")
-    normalized_with_hyphen = normalized.replace(' ', '-')
-    normalized_with_space = normalized.replace('-', ' ')
-
-    return (normalized_with_hyphen in VALID_GENRES or
-            normalized_with_space in VALID_GENRES)
+    for candidate in (normalized, normalized.replace(' ', '-'), normalized.replace('-', ' ')):
+        if candidate in VALID_GENRES:
+            return candidate
+    return ''
 
 
 def extract_valid_genre(tags: str) -> str:
@@ -170,7 +161,7 @@ def extract_valid_genre(tags: str) -> str:
         tags: Comma-separated tags from RadioBrowser API (e.g., "aac,groove,public radio")
 
     Returns:
-        First valid genre found, or empty string if none found
+        First valid genre found, in its VALID_GENRES spelling, or empty string if none found
 
     Example:
         >>> extract_valid_genre("aac,groove,public radio,radio france")
@@ -181,25 +172,9 @@ def extract_valid_genre(tags: str) -> str:
     if not tags:
         return ''
 
-    tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
-
-    for tag in tag_list:
-        if is_valid_genre(tag):
-            # Return the normalized version that exists in VALID_GENRES
-            normalized = normalize_genre(tag)
-
-            # Try direct match first
-            if normalized in VALID_GENRES:
-                return normalized
-
-            # Try hyphen variation
-            with_hyphen = normalized.replace(' ', '-')
-            if with_hyphen in VALID_GENRES:
-                return with_hyphen
-
-            # Try space variation
-            with_space = normalized.replace('-', ' ')
-            if with_space in VALID_GENRES:
-                return with_space
+    for tag in tags.split(','):
+        genre = canonical_genre(tag)
+        if genre:
+            return genre
 
     return ''
