@@ -20,7 +20,7 @@
             :subtitle="headerSubtitle"
             :subtitle-meta="t('spotify.tracksCount', { count: tracks.length })"
             @play="play()"
-            @shuffle="play({ shuffle: true })"
+            @shuffle="shufflePlay"
           />
 
           <div class="tracks">
@@ -142,6 +142,17 @@ function isCurrent(track) {
 
 function play({ skipToUri = null, shuffle = false } = {}) {
   store.playContext(props.uri, { skipToUri, shuffle });
+}
+
+// The first track of a shuffled play is picked here, from the whole listing on
+// screen: go-librespot starts a context from a signed-in idle state with its
+// shuffle off, so it cannot be left to pick (measured).
+function shufflePlay() {
+  // A local file in a playlist lists here but cannot be played from Milō.
+  const list = tracks.value.filter((track) => !track.uri.startsWith('spotify:local:'));
+  if (!list.length) return;
+  const start = list[Math.floor(Math.random() * list.length)];
+  play({ skipToUri: start.uri, shuffle: true });
 }
 
 let controller = null;

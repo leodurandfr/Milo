@@ -84,7 +84,7 @@ class _Response:
         self._payload = payload
         self.content_type = "application/json" if payload is not None else ""
 
-    async def json(self) -> Any:
+    async def json(self, **_: Any) -> Any:
         if self.status == 204:
             raise aiohttp.ContentTypeError(Mock(), (), message="204 has no body")
         return copy.deepcopy(self._payload)
@@ -157,6 +157,11 @@ class Librespot:
         self.listing_calls_until_ready = 1   # /context/tracks answers ready on this call
         self.listing_calls: Dict[str, int] = {}
         self.liked: set = set()
+        # Spotify's profile service (spclient user-profile-view): the answer
+        # per account, as measured ({name, image_url, color: int, ...}); None
+        # answers 503.
+        self.profile_answers: Dict[str, Optional[Dict[str, Any]]] = {}
+        self.closed = False
 
     # -- aiohttp.ClientSession surface --------------------------------------
 
@@ -164,6 +169,9 @@ class Librespot:
         return self
 
     def get(self, url: str, *a: Any, **k: Any) -> _Exchange:
+        if "user-profile-view" in url:
+            answer = self.profile_answers.get(url.rsplit("/", 1)[1])
+            return _Exchange(_Response(503) if answer is None else _Response(200, answer))
         if not self.up:
             return _Exchange(error=_refused())
         if url.endswith("/status"):
@@ -283,6 +291,9 @@ class Librespot:
         uri = body.get("skip_to_uri") or f"{body['uri']}:first"
         song = track(uri.rsplit(":", 1)[-1].replace("-", " ").title())
         song["uri"] = uri
+        if not self.session:
+            # A play with no session starts from a fresh state (measured).
+            self.shuffle = False
         self.session, self.account = True, self.stored
         self.context = (body["uri"], "Chill appart")
         self.track, self.paused, self.buffering = song, False, False
@@ -427,13 +438,8 @@ class SpotifyWorld(WireReader):
             systemd_manager=systemd,
         )
         self.machine.register_source(AudioSource.SPOTIFY, self.source)
-        # Spotify's profile service (the internet): what it says of each account.
-        self.identities: Dict[str, Optional[Dict[str, Optional[str]]]] = {}
-
-        async def fetch_profile(username: str):
-            return self.identities.get(username)
-
-        monkeypatch.setattr(self.source.library, "fetch_profile", fetch_profile)
+        # Spotify's profile service (the internet): what it answers per account.
+        self.identities = self.daemon.profile_answers
 
     # === systemd ===
 

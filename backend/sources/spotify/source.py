@@ -23,9 +23,9 @@ start and after every session end. Measured on 0.10.3 (2026-10-03):
 - One sign-in after an iPhone's session ended hung for minutes, unreproduced in
   8 tries: stored credentials that have not signed in within SIGNIN_TIMEOUT get
   the daemon restarted once.
-- With no session, /player/* answers 204; shuffle and repeat are taken as soon
-  as the daemon is signed in, and only a shuffle set before `play` starts the
-  context on a random track.
+- With nobody signed in, /player/* answers 204. Signed in, shuffle and repeat
+  are taken, but a `play` with no session starts from a fresh state, shuffle
+  off (2026-10-04); within a session, shuffle carries over to the next play.
 
 Measured on go-librespot 0.10.0 (2026-09-24, an iPhone), which the phase
 follows:
@@ -597,18 +597,31 @@ class SpotifySource(BaseAudioSource):
         return self.error_response(f"Unhandled command: {cmd}")
 
     async def _play_context(self, params: PlayContextParams) -> Dict[str, Any]:
-        """Play a context on the account the daemon is signed in as. Shuffle is
-        set first: only a shuffle already on when the context loads starts on a
-        random track, and go-librespot keeps it from the last context."""
+        """Play a context on the account the daemon is signed in as.
+
+        go-librespot keeps shuffle from the last context, but a play on a
+        signed-in daemon with no session starts from a fresh state, shuffle off
+        (measured 2026-10-04). So shuffle off is set before the play, and
+        shuffle on after it — the one order that holds from both states. Where
+        a shuffled play starts is `skip_to_uri`, which the browser picks at
+        random from the listing on screen, as Music Library's does."""
         if self._account is None:
             return self.error_response("Spotify is not signed in")
-        result = await self._send_api_command("shuffle_context", {"shuffle_context": params.shuffle})
-        if not result.get("success"):
-            return result
         payload = {"uri": params.uri}
         if params.skip_to_uri:
             payload["skip_to_uri"] = params.skip_to_uri
-        return await self._send_api_command("play", payload)
+        if not params.shuffle:
+            result = await self._send_api_command("shuffle_context", {"shuffle_context": False})
+            if not result.get("success"):
+                return result
+        result = await self._send_api_command("play", payload)
+        if params.shuffle and result.get("success"):
+            # The context plays either way: a shuffle that did not take shows
+            # as off in the player, and is no failure of the play.
+            shuffled = await self._send_api_command("shuffle_context", {"shuffle_context": True})
+            if not shuffled.get("success"):
+                self._logger.warning(f"Shuffle not applied after play: {shuffled.get('error')}")
+        return result
 
     async def _seek_to(self, position_ms: int) -> Dict[str, Any]:
         """Seek, and move the anchor as soon as go-librespot took it: its own
@@ -1032,12 +1045,12 @@ class SpotifySource(BaseAudioSource):
             return
         if await self._profiles.harvest(account, credentials["data"]):
             self._logger.info(f"Spotify profile kept ({len(self._profiles)} stored)")
-        if self._profiles.needs_identity(account):
-            identity = await self._library.fetch_profile(account)
-            if identity is not None:
-                await self._profiles.set_identity(
-                    account, identity["name"], identity["image_url"], identity["color"],
-                )
+        # Read again at every sign-in (once per daemon run): a picture or a
+        # name changed in the Spotify app reaches the profile screen. A failed
+        # read keeps what was kept.
+        identity = await self._library.fetch_profile(account)
+        if identity is not None:
+            await self._profiles.set_identity(account, identity)
 
     async def _read_state_credentials(self) -> Dict[str, Any]:
         """state.json's `credentials`, or {} when it cannot be read."""

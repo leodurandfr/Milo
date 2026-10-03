@@ -46,22 +46,41 @@ async def test_a_stored_account_signs_in_with_no_phone(stored):
     assert stored.state()["controls"] == []
 
 
-@pytest.mark.parametrize("shuffle", [False, True])
-async def test_play_context_starts_one_session_on_the_signed_in_account(stored, shuffle):
-    """One press, one play — and shuffle set first, because only a shuffle
-    already on when the context loads starts on a random track, and the
-    daemon keeps the last context's shuffle otherwise (measured)."""
-    result = await stored.command("play_context", {"uri": PLAYLIST, "skip_to_uri": TRACK, "shuffle": shuffle})
+async def test_play_context_starts_one_session_on_the_signed_in_account(stored):
+    """One press, one play — shuffle turned off first, because go-librespot
+    keeps the last context's shuffle within a session."""
+    result = await stored.command("play_context", {"uri": PLAYLIST, "skip_to_uri": TRACK})
 
     assert result["success"] is True
     assert stored.daemon.posted == [
-        ("shuffle_context", {"shuffle_context": shuffle}),
+        ("shuffle_context", {"shuffle_context": False}),
         ("play", {"uri": PLAYLIST, "skip_to_uri": TRACK}),
     ]
     assert stored.playing()
     assert details(stored)["context_uri"] == PLAYLIST
     assert details(stored)["track_uri"] == TRACK
-    assert details(stored)["shuffle"] is shuffle
+    assert details(stored)["shuffle"] is False
+
+
+@pytest.mark.parametrize("skip_to", [TRACK, None])
+async def test_a_shuffled_play_turns_shuffle_on_after_the_play(stored, skip_to):
+    """A play on a signed-in daemon with no session starts from a fresh state,
+    shuffle off (measured): set before the play, shuffle was lost. So it is
+    turned on once the session exists, and the play starts where the browser
+    said (its random pick) or at the first track."""
+    data = {"uri": PLAYLIST, "shuffle": True}
+    if skip_to:
+        data["skip_to_uri"] = skip_to
+
+    result = await stored.command("play_context", data)
+
+    assert result["success"] is True
+    expected_play = {"uri": PLAYLIST, **({"skip_to_uri": skip_to} if skip_to else {})}
+    assert stored.daemon.posted == [
+        ("play", expected_play),
+        ("shuffle_context", {"shuffle_context": True}),
+    ]
+    assert details(stored)["shuffle"] is True
 
 
 async def test_play_context_with_nobody_signed_in_sends_nothing(nobody):

@@ -55,10 +55,6 @@ class SpotifyProfiles:
         profile = self._profiles.get(username)
         return profile["credentials"] if profile else None
 
-    def needs_identity(self, username: str) -> bool:
-        profile = self._profiles.get(username)
-        return profile is not None and profile["spotify_name"] is None
-
     async def harvest(self, username: str, credentials: str) -> bool:
         """Keep `credentials` for `username`; True when the account is new. A
         known account's blob is refreshed (Spotify rotates it) and its stale
@@ -77,14 +73,16 @@ class SpotifyProfiles:
             await self._save()
             return new
 
-    async def set_identity(
-        self, username: str, spotify_name: Optional[str], avatar_url: Optional[str], color: Optional[str],
-    ) -> None:
+    async def set_identity(self, username: str, identity: Dict[str, Optional[str]]) -> None:
+        """Take what Spotify answered (`spotify_name`, `avatar_url`, `color`):
+        a field it left out keeps what was kept."""
         async with self._lock:
             profile = self._profiles.get(username)
             if profile is None:
                 return
-            profile.update(spotify_name=spotify_name, avatar_url=avatar_url, color=color)
+            if all(profile[key] == value for key, value in identity.items()):
+                return
+            profile.update(identity)
             await self._save()
 
     async def rename(self, username: str, name: Optional[str]) -> bool:

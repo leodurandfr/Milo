@@ -22,10 +22,9 @@ class NextPrevParams(BaseModel):
 class PlayContextParams(BaseModel):
     """Params for `play_context`: play a context (playlist, album, artist, the
     account's Liked Songs collection) from its first track, or from
-    `skip_to_uri`. `shuffle` is the shuffle state the context starts in: it is
-    set before the play, because go-librespot keeps shuffle across contexts and
-    only a shuffle already on when the context loads starts on a random track
-    (measured 2026-10-03)."""
+    `skip_to_uri`. `shuffle` is the shuffle state the context plays in; the
+    browser starts a shuffled play on a track it picks at random, as
+    `skip_to_uri` (see SpotifySource._play_context)."""
     uri: str = Field(min_length=1)
     skip_to_uri: Optional[str] = None
     shuffle: bool = False
