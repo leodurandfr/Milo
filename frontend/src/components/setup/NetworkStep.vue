@@ -100,12 +100,14 @@ const wifiCardSignal = computed(() => {
 
 const wifiBadgeClass = computed(() => {
   if (status.value.wifi.connected) return 'connection-badge--connected';
+  if (status.value.wifi.connecting) return 'connection-badge--connecting';
   if (wifiDisplaySsid.value) return 'connection-badge--ready';
   return 'connection-badge--disconnected';
 });
 
 const wifiBadgeLabel = computed(() => {
   if (status.value.wifi.connected) return t('network.connected');
+  if (status.value.wifi.connecting) return t('network.connecting');
   if (wifiDisplaySsid.value) return t('network.ready');
   return t('network.notConnected');
 });
@@ -197,6 +199,11 @@ onMounted(() => {
 .connection-badge--connected {
   background: var(--color-success-subtle);
   color: var(--color-success);
+}
+
+.connection-badge--connecting {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
 }
 
 .connection-badge--ready {
