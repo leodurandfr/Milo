@@ -235,9 +235,3 @@ class SeekParams(BaseModel):
 
     position_ms: float = Field(ge=0)
 
-
-class SetShuffleParams(BaseModel):
-    """Params for ``set_shuffle``: the desired shuffle state (the player's toggle
-    sends the target, not a flip, so a stale click can't invert it)."""
-
-    shuffle: bool

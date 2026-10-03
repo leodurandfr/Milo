@@ -104,17 +104,27 @@ def _unique_temp(file: Path) -> Path:
     return file.with_name(f"{file.name}.{os.getpid()}.{next(_temp_counter)}.tmp")
 
 
-def _write_bytes_atomically(file: Path, data: bytes, temp_file: Path) -> None:
+def _write_bytes_atomically(file: Path, data: bytes, temp_file: Path, private: bool = False) -> None:
     """Write, fsync and rename into place. Blocking — call via ``to_thread``.
 
     Every syscall of the sequence runs on the same worker thread. Wrapping only
     the write (aiofiles) left mkdir, fsync and replace on the event-loop thread,
     where an fsync on a busy SD card stalls every WS, HTTP and monitor task —
     and this primitive is on the write path of every persisted file.
+
+    ``private`` is for a file holding a secret: the temp is created 0600, so the
+    secret is never readable by anyone else even before the rename, and the
+    rename carries that mode over whatever mode the file had. A directory the
+    call creates is 0700; an existing one is left as it is.
     """
-    file.parent.mkdir(parents=True, exist_ok=True)
+    file.parent.mkdir(mode=0o700 if private else 0o777, parents=True, exist_ok=True)
     try:
-        with open(temp_file, "wb") as f:
+        if private:
+            fd = os.open(temp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            stream = os.fdopen(fd, "wb")
+        else:
+            stream = open(temp_file, "wb")
+        with stream as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -127,16 +137,19 @@ def _write_bytes_atomically(file: Path, data: bytes, temp_file: Path) -> None:
             os.unlink(temp_file)
 
 
-async def write_bytes_atomically(file: Path, data: bytes) -> None:
+async def write_bytes_atomically(file: Path, data: bytes, *, private: bool = False) -> None:
     """Replace ``file`` with ``data`` atomically, off the event loop.
 
     A reader meets the old content or the new one, never a partial file — which
     matters most for caches, where a file's mere existence is the hit.
+    ``private``: written 0600 (see ``_write_bytes_atomically``).
     """
-    await asyncio.to_thread(_write_bytes_atomically, file, data, _unique_temp(file))
+    await asyncio.to_thread(_write_bytes_atomically, file, data, _unique_temp(file), private)
 
 
-def _write_json_atomically(file: Path, payload: Dict[str, Any], temp_file: Path) -> None:
+def _write_json_atomically(
+    file: Path, payload: Dict[str, Any], temp_file: Path, private: bool = False
+) -> None:
     """Serialize, then write atomically. Blocking — call via ``to_thread``.
 
     Serialization belongs on the worker too: `indent=2` over a large payload
@@ -144,14 +157,17 @@ def _write_json_atomically(file: Path, payload: Dict[str, Any], temp_file: Path)
     event loop would otherwise spend not answering the WebSocket.
     """
     text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-    _write_bytes_atomically(file, text.encode("utf-8"), temp_file)
+    _write_bytes_atomically(file, text.encode("utf-8"), temp_file, private)
 
 
-async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) -> None:
+async def save_versioned_json(
+    file: Path, data: Dict[str, Any], version: int, *, private: bool = False
+) -> None:
     """Atomically write a versioned JSON file, stamping ``schema_version`` into the payload.
 
     Stamps ``schema_version`` automatically so callers can't forget it (a
     missing field would raise SchemaVersionMismatch on the next load).
+    ``private``: written 0600 (see ``_write_bytes_atomically``).
     """
     payload = dict(data)
     payload["schema_version"] = version
@@ -160,4 +176,4 @@ async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) ->
     # several uncoordinated paths (e.g. the EQ debounced persist plus the access
     # layer's persist_state/update_cache). os.replace stays atomic, so the final
     # file is always a complete payload (last writer wins).
-    await asyncio.to_thread(_write_json_atomically, file, payload, _unique_temp(file))
+    await asyncio.to_thread(_write_json_atomically, file, payload, _unique_temp(file), private)

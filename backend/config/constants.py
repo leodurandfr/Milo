@@ -52,6 +52,9 @@ MUSIC_LIBRARY_MOUNT_ROOT = Path("/media/milo")     # Navidrome MusicFolder (moun
 # The share secrets (username/password/domain) never land here; they live in a
 # root-only cred file written by milo-mount (see MILO_MOUNT_CMD --network below).
 MUSIC_LIBRARY_DATA_FILE = MILO_DATA_DIR / "music_library_data.json"
+# The Spotify accounts that cast to Milō, with go-librespot's stored credentials
+# (a secret: 0600 in a 0700 directory).
+SPOTIFY_PROFILES_FILE = MILO_DATA_DIR / "spotify" / "profiles.json"
 # Artist photos Milō resolved from Deezer itself (Navidrome's online tier for
 # artist art is off — see artist_images.py). A disposable derived cache: no
 # schema_version, safe to delete, refills on demand one artist at a time.

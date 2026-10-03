@@ -1,6 +1,6 @@
 """Spotify's outside world, as measured on the unit (docs: source architecture,
 phase 3b): go-librespot 0.10.0 — its HTTP API and its /events WebSocket — and
-systemd holding it.
+systemd holding it; the stored account as go-librespot 0.10.3 keeps it.
 
 What go-librespot was measured to say (2026-09-24, the owner's iPhone):
 
@@ -20,6 +20,17 @@ What go-librespot was measured to say (2026-09-24, the owner's iPhone):
 - SIGKILL: /events closes at once, nothing else; systemd's Restart= brings a
   new process 5 s later, with no session.
 
+With stored credentials (0.10.3, `persist_credentials`; measured 2026-10-03):
+
+- At a start the daemon signs in on its own and says nothing on /events;
+  /status answers 200 naming the account, with no track.
+- After a session end (`inactive`, `stopped`) /status answers 204 for about
+  0.25 s, then `playback_ready` and the same 200.
+- POST /player/play on a signed-in daemon opens a session: `will_play`, then
+  `metadata` and `playing` (no `active`). Shuffle and repeat are answered on a
+  signed-in daemon and announced by an event carrying `value`.
+- With nobody signed in, every /player command answers 204.
+
 Time is a VirtualClock the scenario advances; the daemon's death is heard
 through the same pidfd watch the source opens (patched here, as for AirPlay).
 """
@@ -35,6 +46,7 @@ from unittest.mock import AsyncMock, Mock
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
+from backend.sources.spotify import library as library_module
 from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify import websocket as websocket_module
 from backend.sources.spotify.source import SpotifySource
@@ -70,6 +82,7 @@ class _Response:
     def __init__(self, status: int, payload: Any = None) -> None:
         self.status = status
         self._payload = payload
+        self.content_type = "application/json" if payload is not None else ""
 
     async def json(self) -> Any:
         if self.status == 204:
@@ -118,8 +131,15 @@ class Librespot:
 
     def __init__(self) -> None:
         self.up = False
-        self.session = False            # a phone holds the speaker (else /status is 204)
+        self.session = False            # a session is live (else /status is 204, or the signed-in 200)
         self.account: Optional[str] = None
+        self.stored: Optional[str] = None   # the account whose credentials state.json holds
+        self.signed_in = False          # signed in with no session (stored credentials)
+        self.signin_hangs = False       # a sign-in that never completes (seen once, unreproduced)
+        self.context: Optional[Tuple[str, str]] = None   # (uri, name) of what plays
+        self.shuffle = False
+        self.repeat_context = False
+        self.repeat_track = False
         self.track: Optional[Dict[str, Any]] = None
         self.paused = True
         self.buffering = False
@@ -131,6 +151,12 @@ class Librespot:
         self.resume_lag = False
         self.posted: List[Tuple[str, Dict[str, Any]]] = []
         self.socket: Optional[_EventsSocket] = None
+        # The library, as the signed-in account sees it.
+        self.playlists: List[Dict[str, Any]] = []
+        self.listings: Dict[str, List[Dict[str, Any]]] = {}   # uri -> tracks
+        self.listing_calls_until_ready = 1   # /context/tracks answers ready on this call
+        self.listing_calls: Dict[str, int] = {}
+        self.liked: set = set()
 
     # -- aiohttp.ClientSession surface --------------------------------------
 
@@ -143,11 +169,19 @@ class Librespot:
         if url.endswith("/status"):
             if not self.status_answers:
                 return _Exchange(_Response(503))
-            if not self.session:
+            if not self.session and not self.signed_in:
                 return _Exchange(_Response(204))
+            if not self.session:
+                return _Exchange(_Response(200, {
+                    "username": self.stored, "stopped": False, "paused": False,
+                    "buffering": False, "track": None, **self._player_flags(),
+                }))
+            context_uri, context_name = self.context or (None, None)
             return _Exchange(_Response(200, {
                 "username": self.account, "stopped": False, "paused": self.paused,
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
+                "context_uri": context_uri, "context_name": context_name,
+                **self._player_flags(),
             }))
         return _Exchange(_Response(200, {"playback_ready": self.session}))
 
@@ -162,8 +196,17 @@ class Librespot:
                 return _Exchange(_Response(500))
             self.output = body["device"]
             return _Exchange(_Response(200))
+        if not self.session and not self.signed_in:
+            return _Exchange(_Response(204))
+        if command in ("shuffle_context", "repeat_context", "repeat_track"):
+            setattr(self, {"shuffle_context": "shuffle"}.get(command, command), body[command])
+            self._later({"type": command, "value": body[command]})
+            return _Exchange(_Response(200))
+        if command == "play":
+            self._plays(body)
+            return _Exchange(_Response(200))
         if not self.session:
-            return _Exchange(_Response(400))
+            return _Exchange(_Response(204))
         if command == "pause" or (command == "playpause" and not self.paused):
             self.paused = True
             self._later({"type": "paused"})
@@ -180,6 +223,44 @@ class Librespot:
             self._ends()
         return _Exchange(_Response(200))
 
+    def request(self, method: str, url: str, params: Optional[Dict[str, Any]] = None,
+                json: Optional[Dict[str, Any]] = None, **k: Any) -> _Exchange:
+        """The library API (library.py), on the same daemon."""
+        if not self.up:
+            return _Exchange(error=_refused())
+        if not self.session and not self.signed_in:
+            return _Exchange(_Response(204))
+        path = url.split(":3678", 1)[1]
+        params = params or {}
+        if path == "/library/playlists":
+            offset, limit = int(params.get("offset", 0)), int(params.get("limit", 50))
+            return _Exchange(_Response(200, {
+                "items": self.playlists[offset:offset + limit], "total": len(self.playlists),
+                "offset": offset, "limit": limit,
+            }))
+        if path == "/context/tracks":
+            uri = params["uri"]
+            if uri not in self.listings:
+                return _Exchange(_Response(400))
+            calls = self.listing_calls[uri] = self.listing_calls.get(uri, 0) + 1
+            tracks = self.listings[uri]
+            ready = calls >= self.listing_calls_until_ready
+            return _Exchange(_Response(200, {
+                "uri": uri, "ready": ready, "length": len(tracks),
+                "cached": sum(1 for t in tracks if t.get("track")) if ready else 0,
+                "tracks": tracks if ready else [],
+            }))
+        if path == "/library/liked" and method == "GET":
+            return _Exchange(_Response(200, {"items": [
+                {"uri": uri, "liked": uri in self.liked} for uri in params["uris"].split(",")
+            ]}))
+        if path == "/library/liked":
+            (self.liked.update if json["liked"] else self.liked.difference_update)(json["uris"])
+            return _Exchange(_Response(200, None))
+        if path == "/token":
+            return _Exchange(_Response(200, {"token": "access-token"}))
+        return _Exchange(_Response(404))
+
     def ws_connect(self, url: str, *a: Any, **k: Any) -> _Exchange:
         if not self.up:
             return _Exchange(error=_refused())
@@ -188,6 +269,26 @@ class Librespot:
 
     async def close(self) -> None:
         return None
+
+    def _player_flags(self) -> Dict[str, Any]:
+        return {
+            "shuffle_context": self.shuffle,
+            "repeat_context": self.repeat_context,
+            "repeat_track": self.repeat_track,
+        }
+
+    def _plays(self, body: Dict[str, Any]) -> None:
+        """POST /player/play: a session opens on the signed-in account, at
+        `skip_to_uri` or the context's first track."""
+        uri = body.get("skip_to_uri") or f"{body['uri']}:first"
+        song = track(uri.rsplit(":", 1)[-1].replace("-", " ").title())
+        song["uri"] = uri
+        self.session, self.account = True, self.stored
+        self.context = (body["uri"], "Chill appart")
+        self.track, self.paused, self.buffering = song, False, False
+        self._later({"type": "will_play", "uri": uri})
+        self._later({"type": "metadata", "uri": uri})
+        self._later({"type": "playing"})
 
     # -- the daemon's side ----------------------------------------------------
 
@@ -206,8 +307,15 @@ class Librespot:
 
     def _ends(self) -> None:
         self.session, self.track, self.paused, self.buffering = False, None, True, False
+        self.context = None
         self._later({"type": "inactive"})
         self._later({"type": "stopped"})
+        if self.stored is not None and not self.signin_hangs:
+            asyncio.get_running_loop().call_soon(self._signs_back_in)
+
+    def _signs_back_in(self) -> None:
+        self.signed_in = True
+        self.says({"type": "playback_ready"})
 
     def dies(self) -> None:
         self.up = False
@@ -219,6 +327,8 @@ class Librespot:
     def comes_up(self) -> None:
         self.up, self.session, self.track, self.paused, self.buffering = True, False, None, True, False
         self.output = "milo_spotify"
+        self.context = None
+        self.signed_in = self.stored is not None and not self.signin_hangs
 
 
 class _AiohttpProxy:
@@ -240,11 +350,25 @@ def _silent_journal(unit: str, **_: Any):
 class SpotifyWorld(WireReader):
     """The Spotify source on a real state machine, in a world the scenario drives."""
 
-    def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None,
+        stored: Optional[str] = None,
+    ):
+        """`stored`: the account whose credentials go-librespot keeps in
+        state.json (a phone cast to it once, with persist_credentials)."""
         world = self
         self.clock = VirtualClock()
         use_virtual_wall(monkeypatch, self.clock)
         self.daemon = Librespot()
+        self.state_file = tmp_path / "state.json"
+        if stored is not None:
+            self.daemon.stored = stored
+            self.state_file.write_text(json.dumps({
+                "device_id": "0123456789abcdef0123456789abcdef01234567",
+                "event_manager": None,
+                "credentials": {"username": stored, "data": "c3RvcmVkLWJsb2I="},
+                "last_volume": 42,
+            }))
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
         self.watches: List[Tuple[int, Callable[[], None]]] = []
@@ -282,6 +406,8 @@ class SpotifyWorld(WireReader):
             return await self.clock.sleep(delay)
 
         monkeypatch.setattr(spotify_module, "aiohttp", _AiohttpProxy(self.daemon))
+        monkeypatch.setattr(library_module, "aiohttp", _AiohttpProxy(self.daemon))
+        monkeypatch.setattr(library_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(spotify_module, "follow_unit", _silent_journal)
         monkeypatch.setattr(spotify_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(websocket_module, "asyncio", AsyncioProxy(sleep))
@@ -292,20 +418,29 @@ class SpotifyWorld(WireReader):
         config.write_text(
             "server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\nexternal_volume: true\n"
         )
+        self.profiles_file = tmp_path / "spotify" / "profiles.json"
         self.machine, self.recorder = make_state_machine()
         self.source = SpotifySource(
-            {"config_path": str(config)},
+            {"config_path": str(config), "profiles_path": str(self.profiles_file)},
             state_machine=self.machine,
             settings_service=make_settings(settings),
             systemd_manager=systemd,
         )
         self.machine.register_source(AudioSource.SPOTIFY, self.source)
+        # Spotify's profile service (the internet): what it says of each account.
+        self.identities: Dict[str, Optional[Dict[str, Optional[str]]]] = {}
+
+        async def fetch_profile(username: str):
+            return self.identities.get(username)
+
+        monkeypatch.setattr(self.source.library, "fetch_profile", fetch_profile)
 
     # === systemd ===
 
     def _spawn(self) -> None:
         self.pid = next(self._pids)
         self.unit_state = ("active", "success")
+        self.daemon.stored = self.stored_account()   # go-librespot reads state.json at start
         self.daemon.comes_up()
 
     def _die(self) -> None:
@@ -351,6 +486,42 @@ class SpotifyWorld(WireReader):
         self._spawn()
         await self.advance(2.1)
 
+    async def idle(self) -> None:
+        """Let the source finish what it started: the message in hand and the
+        work off the mailbox (keeping a profile, writing state.json) read and
+        write files on a worker thread, which `settle` does not wait for. Each
+        wait is bounded, so a handler parked on a virtual timer is left there."""
+        source = self.source
+        for _ in range(100):
+            await settle()
+            pending = [
+                task for task in (source._actor_handler, *source._bg._tasks)
+                if task is not None and not task.done()
+            ]
+            if not pending and not source._actor_inbox and not source._actor_urgent:
+                return
+            if pending:
+                await asyncio.wait(pending, timeout=0.05)
+
+    # === state.json, as go-librespot keeps it ===
+
+    def stored_state(self) -> Dict[str, Any]:
+        return json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
+
+    def stored_account(self) -> Optional[str]:
+        credentials = self.stored_state().get("credentials") or {}
+        return credentials.get("username") if credentials.get("data") else None
+
+    async def cast_from(self, account: str, song: Dict[str, Any] = None) -> None:
+        """A phone signed in to `account` casts: go-librespot keeps its
+        credentials (written before /status names it, measured), then plays."""
+        state = self.stored_state() or {"device_id": "0123456789abcdef0123456789abcdef01234567",
+                                         "event_manager": None, "last_volume": 42}
+        state["credentials"] = {"username": account, "data": f"blob-of-{account}"}
+        self.state_file.write_text(json.dumps(state))
+        self.daemon.stored = account
+        await self.phone_plays(song or PARAPLUIE, account=account)
+
     # === what a phone does, as measured ===
 
     async def _says(self, *events: Dict[str, Any]) -> None:
@@ -368,10 +539,10 @@ class SpotifyWorld(WireReader):
         d.paused = False
         await self._says({"type": "playing", "resume": True})
 
-    async def phone_plays(self, song: Dict[str, Any] = PARAPLUIE) -> None:
+    async def phone_plays(self, song: Dict[str, Any] = PARAPLUIE, account: str = ACCOUNT) -> None:
         """A phone starts a track here from the top."""
         d = self.daemon
-        d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, None, False, True
+        d.session, d.account, d.track, d.paused, d.buffering = True, account, None, False, True
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         await self.advance(0.07)
         d.track, d.buffering = copy.deepcopy(song), False

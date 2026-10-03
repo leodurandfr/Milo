@@ -42,6 +42,7 @@ import { useTimer } from '@/composables/useTimer';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
+import { BROWSER_SOURCES } from '@/constants/audioSources';
 
 // Lazy-loaded components
 const AudioScreensaver = defineAsyncComponent(() =>
@@ -62,7 +63,7 @@ provide(SCREENSAVER_REVEAL_NONCE, screensaverRevealNonce);
 // at the same spot (the AudioPlayerFull sources). For the AudioSourceLayout
 // sources there's no matching cover, so it rises + fades with the rest.
 const artworkRises = computed(() =>
-  ['radio', 'podcast', 'music_library'].includes(unifiedStore.systemState.source)
+  BROWSER_SOURCES.includes(unifiedStore.systemState.source)
 );
 
 // Whether the screensaver's progress bar should fly to AudioPlayerFull's bar

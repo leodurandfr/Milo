@@ -20,6 +20,12 @@ class SkipParams(BaseModel):
     seconds: float
 
 
+class SetShuffleParams(BaseModel):
+    """Params for `set_shuffle`: the desired shuffle state (the player's toggle
+    sends the target, not a flip, so a stale click can't invert it)."""
+    shuffle: bool
+
+
 def skip_target(from_ms: Optional[int], seconds: float, duration_ms: Optional[int]) -> int:
     """Where a skip of `seconds` from `from_ms` lands, bounded to
     [0, duration_ms] (no upper bound while the duration is unknown)."""

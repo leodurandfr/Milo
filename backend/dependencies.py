@@ -10,6 +10,7 @@ import logging
 import sys
 from typing import Any, Dict, Optional
 
+from backend.config.constants import SPOTIFY_PROFILES_FILE
 from backend.shared.persistence import SchemaVersionMismatch
 
 logger = logging.getLogger(__name__)
@@ -233,7 +234,10 @@ def _create_service(name: str) -> Any:
 
         # Audio sources
         "spotify_source": lambda: _import("backend.sources.spotify", "SpotifySource")(
-            config={"config_path": "/var/lib/milo/go-librespot/config.yml"},
+            config={
+                "config_path": "/var/lib/milo/go-librespot/config.yml",
+                "profiles_path": str(SPOTIFY_PROFILES_FILE),
+            },
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
@@ -502,6 +506,7 @@ async def initialize_services() -> None:
     podcast_source = get_service("podcast_source")
     music_library_source = get_service("music_library_source")
     qobuz_source = get_service("qobuz_source")
+    spotify_source = get_service("spotify_source")
 
     async def init_async():
         """Async initialization with error handling."""
@@ -540,6 +545,8 @@ async def initialize_services() -> None:
             # The account cache: `availability.qobuz` answers from it from boot,
             # not from the first time Qobuz is selected.
             ("qobuz_source", qobuz_source.initialize()),
+            # The kept Spotify profiles (fail-loud on schema_version drift)
+            ("spotify_source", spotify_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
             ("hostname_conflict_service", hostname_conflict_service.check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)

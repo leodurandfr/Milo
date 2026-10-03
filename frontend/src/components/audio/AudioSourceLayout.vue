@@ -124,7 +124,7 @@ const props = defineProps({
   gradient: {
     type: String,
     default: null,
-    validator: (value) => [null, 'radio', 'podcast', 'music_library'].includes(value)
+    validator: (value) => [null, 'radio', 'podcast', 'music_library', 'spotify'].includes(value)
   },
   /**
    * Header title
@@ -384,6 +384,10 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 
 .gradient-music_library {
   background: var(--gradient-source-music-library);
+}
+
+.gradient-spotify {
+  background: var(--gradient-source-spotify);
 }
 
 /* Content container: animates width to make space for player */

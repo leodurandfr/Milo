@@ -41,7 +41,7 @@ from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ReroutePolicy, ResumePolicy,
 )
 from backend.core.models.audio_wire import MusicLibraryDetails, ResumeView
-from backend.core.models.commands import SkipParams
+from backend.core.models.commands import SetShuffleParams, SkipParams
 from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -55,7 +55,6 @@ from backend.sources.music_library.models import (
     PlayContextParams,
     PlayIndexParams,
     SeekParams,
-    SetShuffleParams,
 )
 from backend.sources.music_library.artist_images import ArtistImageService
 from backend.sources.music_library.navidrome_client import NavidromeClient

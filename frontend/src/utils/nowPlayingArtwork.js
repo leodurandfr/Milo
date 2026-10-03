@@ -46,6 +46,8 @@ const FALLBACK_IMAGES = {
   cd: musicPlaceholder,
   music_library: musicPlaceholder,
   podcast: podcastPlaceholder,
+  // Drawn by AudioPlayer, which renders an image or an avatar, never a glyph.
+  spotify: musicPlaceholder,
 };
 
 /**

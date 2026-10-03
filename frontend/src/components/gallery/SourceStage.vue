@@ -5,13 +5,13 @@
 
   It does two things and delegates everything else. It publishes the
   scenario's state into the canvas's own `unifiedAudioStore`, and then it gets
-  out of the way: for 7 of the 10 sources it mounts the real `AudioSourceView`,
+  out of the way: for 6 of the 10 sources it mounts the real `AudioSourceView`,
   the app's own dispatcher, and whatever appears is whatever `richSourceFor()`,
   `displayStateFor()` and the session's `senders` decide from that state.
   Nothing here chooses a player or draws a card, which is why a scenario cannot
   disagree with the app — see sources.js.
 
-  The exception is `via: 'browser'`. Radio, Podcasts and Music Library dispatch
+  The exception is `via: 'browser'`. Radio, Podcasts, Music Library and Spotify dispatch
   to `*Source.vue` files that own feature stores and fetch on mount, so mounting
   *those* would read the real catalogue. What is reassembled here is only that
   wrapper — the header props it forwards, and the pane it puts `AudioPlayer` in.
@@ -21,7 +21,7 @@
   code path — so "radio with no favourites" is the empty state the app draws,
   not a picture of one.
 
-  Three of their scenarios still go through the dispatcher: switching, a failed
+  Some of their scenarios still go through the dispatcher: switching, a failed
   service and a missing link, all of which `richSourceFor()` answers with the
   card before it can reach a `*Source.vue`, so the status card is reached
   honestly there too.
@@ -167,7 +167,7 @@
                 sources replace it. Radio uses a text Button plus a favourite,
                 Podcasts a seek pair around play with a speed Dropdown, Music
                 Library a five-button row — and half of AudioPlayer's CSS keys
-                off those exact class names (.ml-transport-main, .speed-selector,
+                off those exact class names (.track-transport-main, .speed-selector,
                 .desktop-only), so the classes are the contract, not decoration.
                 Same for the four transport roles: they are what the design
                 system sizes each control from, so a button missing one here
@@ -224,15 +224,15 @@
                   </div>
                 </template>
 
-                <div v-else class="ml-controls">
+                <div v-else class="track-controls">
                   <div class="playback-controls">
                     <IconButton
-                      icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
+                      icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
                       :color="controls.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                     />
-                    <div class="ml-transport-main">
+                    <div class="track-transport-main">
                       <IconButton icon="previous" variant="ghost" size="small"
-                        class="ml-transport-extra transport-secondary" />
+                        class="track-transport-extra transport-secondary" />
                       <IconButton
                         :icon="browser.player.isPlaying ? 'pause' : 'play'"
                         variant="ghost"
@@ -242,13 +242,19 @@
                       />
                       <IconButton
                         icon="next" variant="ghost" size="small"
-                        class="ml-transport-extra transport-secondary"
+                        class="track-transport-extra transport-secondary"
                         :disabled="controls.hasNext === false"
                       />
                     </div>
                     <IconButton
+                      v-if="page.source === 'spotify'"
+                      :icon="controls.repeat === 'track' ? 'repeatOnce' : 'repeat'"
+                      variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
+                      :color="controls.repeat && controls.repeat !== 'off' ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
+                    />
+                    <IconButton
                       :icon="controls.starred ? 'heart' : 'heartOff'"
-                      variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
+                      variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
                       :color="controls.starred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                     />
                   </div>
@@ -269,11 +275,14 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useSpotifyStore } from '@/stores/spotifyStore';
 import { sourcePageById, replayedState } from './sources';
 import { setApiFixtures } from './canvasHttp';
 import FavoritesView from '@/components/radio/FavoritesView.vue';
 import LibraryHome from '@/components/music-library/views/LibraryHome.vue';
 import PodcastHome from '@/components/podcasts/HomeView.vue';
+import SpotifyHome from '@/components/spotify/views/SpotifyHome.vue';
+import SpotifyProfilesView from '@/components/spotify/views/SpotifyProfilesView.vue';
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
@@ -312,7 +321,9 @@ const props = defineProps({
 const VIEWS = {
   'radio-favourites': FavoritesView,
   'ml-home': LibraryHome,
-  'podcast-home': PodcastHome
+  'podcast-home': PodcastHome,
+  'spotify-home': SpotifyHome,
+  'spotify-profiles': SpotifyProfilesView
 };
 
 const { t } = useI18n();
@@ -321,7 +332,8 @@ const unifiedStore = useUnifiedAudioStore();
 const stores = {
   radio: useRadioStore(),
   musicLibrary: useMusicLibraryStore(),
-  podcast: usePodcastStore()
+  podcast: usePodcastStore(),
+  spotify: useSpotifyStore()
 };
 
 const page = computed(() => sourcePageById(props.page));

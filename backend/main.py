@@ -24,6 +24,7 @@ from backend.sources.podcast.routes import setup_podcast_routes
 from backend.sources.airplay.routes import setup_airplay_routes
 from backend.sources.cd.routes import setup_cd_routes
 from backend.sources.music_library.routes import setup_music_library_routes
+from backend.sources.spotify.routes import setup_spotify_routes
 from backend.api.settings import create_settings_router
 from backend.api.system import create_system_router
 from backend.api.programs import create_programs_router
@@ -290,6 +291,11 @@ music_library_router = setup_music_library_routes(
     lambda: state_machine.sources.get(AudioSource.MUSIC_LIBRARY)
 )
 app.include_router(music_library_router, prefix="/api")
+
+spotify_router = setup_spotify_routes(
+    lambda: state_machine.sources.get(AudioSource.SPOTIFY)
+)
+app.include_router(spotify_router, prefix="/api")
 
 settings_router = create_settings_router(
     volume_service,

@@ -73,22 +73,22 @@
                the mini-player's swipe gesture covers next (right) / prev (left), the
                rest move into the future expanded mini-player view. -->
           <template #controls>
-            <div class="ml-controls" @click.stop>
+            <div class="track-controls" @click.stop>
               <div class="playback-controls">
-                <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
+                <IconButton icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
                   :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                   :disabled="!store.canSend('set_shuffle')" @click="store.toggleShuffle()" />
-                <div class="ml-transport-main">
-                  <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
+                <div class="track-transport-main">
+                  <IconButton icon="previous" variant="ghost" size="small" class="track-transport-extra transport-secondary"
                     :disabled="!store.canSend('prev')" @click="store.previous()" />
                   <IconButton :icon="pausesOnPress(store.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
                     class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
-                  <IconButton icon="next" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
+                  <IconButton icon="next" variant="ghost" size="small" class="track-transport-extra transport-secondary"
                     :disabled="!store.canSend('next')" @click="store.next()" />
                 </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
                   :color="store.currentStarred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                  class="ml-transport-extra transport-secondary-round" @click="store.toggleCurrentStar()" />
+                  class="track-transport-extra transport-secondary-round" @click="store.toggleCurrentStar()" />
               </div>
             </div>
           </template>
@@ -264,7 +264,7 @@ function togglePlayPause() {
   display: none;
 }
 
-/* The .ml-controls / .ml-transport-main layout lives in AudioPlayer.vue, in
+/* The .track-controls / .track-transport-main layout lives in AudioPlayer.vue, in
    :deep() — this row is slotted into it, and the same row is re-authored by the
    gallery's SourceStage, which scoped CSS here could never reach. */
 </style>

@@ -132,6 +132,7 @@ import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { artworkFallback } from '@/utils/nowPlayingArtwork'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
+import { BROWSER_SOURCES, TRACK_LAYOUT_SOURCES } from '@/constants/audioSources'
 import { useI18n } from '@/services/i18n'
 
 const { isMobile } = useIsMobile()
@@ -144,12 +145,12 @@ const revealing = useScreensaverRevealPulse(1700)
 
 const props = defineProps({
   /**
-   * Audio source type ('radio', 'podcast', 'music_library')
+   * Audio source type ('radio', 'podcast', 'music_library', 'spotify')
    */
   source: {
     type: String,
     required: true,
-    validator: (value) => ['radio', 'podcast', 'music_library'].includes(value)
+    validator: (value) => ['radio', 'podcast', 'music_library', 'spotify'].includes(value)
   },
 
   /**
@@ -215,10 +216,11 @@ const props = defineProps({
 
 const emit = defineEmits(['after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click'])
 
-// Only music_library has album/artist pages to link to — radio/podcast render
+// Only a track player has album/artist pages to link to — radio/podcast render
 // the same artwork frame and #player-info-secondary line but have nothing to
 // navigate to, so they get neither the pointer cursor nor the click emit.
-const hasEntityLinks = computed(() => props.source === 'music_library')
+const trackLayout = computed(() => TRACK_LAYOUT_SOURCES.includes(props.source))
+const hasEntityLinks = trackLayout
 
 // Delegated: .player-info-secondary is rendered by the slotted PlayerInfoText,
 // not by this component, so it's caught by class rather than a direct handler.
@@ -227,9 +229,8 @@ function onInfoClick(e) {
   if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) emit('secondary-click')
 }
 
-const EXPANDABLE_SOURCES = ['radio', 'podcast', 'music_library']
 const expanded = ref(false)
-const expandable = computed(() => isMobile.value && EXPANDABLE_SOURCES.includes(props.source))
+const expandable = computed(() => isMobile.value && BROWSER_SOURCES.includes(props.source))
 
 // One source of truth for the sheet's vertical position, in px (0 = fully open,
 // growing downward → toward closed). The open/close animation AND the swipe drag
@@ -439,7 +440,8 @@ function handleArtworkLoad(e) {
 }
 
 const playerClasses = computed(() => ({
-  [`source-${props.source}`]: true
+  [`source-${props.source}`]: true,
+  'track-layout': trackLayout.value
 }))
 
 // Mobile swipe gesture — only on the fixed docked player. swipeEnabled alone
@@ -962,7 +964,7 @@ img.player-artwork.loaded {
 
 /* Music library: one transport row (shuffle … prev·play·next … like), with the
    trio centred inside it. */
-:deep(.ml-controls) {
+:deep(.track-controls) {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -970,7 +972,7 @@ img.player-artwork.loaded {
   width: 100%;
 }
 
-:deep(.ml-transport-main) {
+:deep(.track-transport-main) {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1023,7 +1025,7 @@ img.player-artwork.loaded {
     border-radius: var(--radius-05);
   }
 
-  .audio-player.source-music_library {
+  .audio-player.track-layout {
     touch-action: pan-y;
   }
 
@@ -1158,7 +1160,7 @@ img.player-artwork.loaded {
      whole card and gets clipped by the card's own border-radius/overflow —
      no manual inset needed for the rounded corners. */
   .audio-player.source-podcast .player-content :deep(.progress-bar),
-  .audio-player.source-music_library .player-content :deep(.progress-bar) {
+  .audio-player.track-layout .player-content :deep(.progress-bar) {
     display: flex;
     position: absolute;
     left: 0;
@@ -1170,18 +1172,18 @@ img.player-artwork.loaded {
   }
 
   .audio-player.source-podcast .player-content :deep(.progress-bar) .time,
-  .audio-player.source-music_library .player-content :deep(.progress-bar) .time {
+  .audio-player.track-layout .player-content :deep(.progress-bar) .time {
     display: none;
   }
 
   .audio-player.source-podcast .player-content :deep(.progress-container),
-  .audio-player.source-music_library .player-content :deep(.progress-container) {
+  .audio-player.track-layout .player-content :deep(.progress-container) {
     height: 100%;
     border-radius: 0;
   }
 
   .audio-player.source-podcast .player-content :deep(.progress),
-  .audio-player.source-music_library .player-content :deep(.progress) {
+  .audio-player.track-layout .player-content :deep(.progress) {
     border-radius: 0;
   }
 
@@ -1210,7 +1212,7 @@ img.player-artwork.loaded {
 
   /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are
      desktop-only — the swipe gesture covers prev/next on mobile instead. */
-  .audio-player.source-music_library :deep(.ml-transport-extra) {
+  .audio-player.track-layout :deep(.track-transport-extra) {
     display: none;
   }
 
@@ -1462,13 +1464,13 @@ img.player-artwork.loaded {
 /* Radio and music-library keep --space-03 (12px) between title/artist in the
    expanded sheet — wider than PlayerInfoText's own default --space-02 (8px). */
 .expanded-card.source-radio .expanded-info :deep(.player-info-text),
-.expanded-card.source-music_library .expanded-info :deep(.player-info-text) {
+.expanded-card.track-layout .expanded-info :deep(.player-info-text) {
   gap: var(--space-03);
 }
 
 /* Music-library only: 32px breathing room from artwork/controls on mobile
    (the only context this renders in) — space-06 would shrink to 24px there. */
-.expanded-card.source-music_library .expanded-info :deep(.player-info-text) {
+.expanded-card.track-layout .expanded-info :deep(.player-info-text) {
   padding: var(--space-07) var(--space-06);
 }
 
@@ -1508,7 +1510,7 @@ img.player-artwork.loaded {
   gap: var(--space-04);
 }
 
-.expanded-card.source-music_library :deep(.ml-controls .playback-controls) {
+.expanded-card.track-layout :deep(.track-controls .playback-controls) {
   width: 100%;
   justify-content: space-around;
   padding: 0 var(--space-02);

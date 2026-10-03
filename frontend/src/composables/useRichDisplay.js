@@ -9,11 +9,7 @@
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
-
-// The three sources played from Milō's own browser: their view is where the
-// first station, episode or album is chosen, so it is shown with nothing
-// playing too (D13).
-const BROWSER_SOURCES = ['radio', 'podcast', 'music_library'];
+import { BROWSER_SOURCES } from '@/constants/audioSources';
 
 // What takes a browser source off its view: the link. The Music Library draws
 // its own storage and catalog states, with the storage wizard at hand (D13).

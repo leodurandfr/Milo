@@ -54,7 +54,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -139,7 +150,18 @@
     "session": null,
     "controls": [],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": null,
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -200,7 +222,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -246,10 +279,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -295,10 +341,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -438,10 +497,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -482,10 +554,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -546,7 +631,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -592,10 +688,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -641,10 +750,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -690,10 +812,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -739,10 +874,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -788,10 +936,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -837,10 +998,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -952,10 +1126,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -996,10 +1183,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -1060,7 +1260,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1106,10 +1317,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1155,10 +1379,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1218,10 +1455,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:holocene",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1267,10 +1517,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:holocene",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1316,10 +1579,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1365,10 +1641,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1480,10 +1769,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:holocene",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -1524,10 +1826,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -1588,7 +1903,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1634,10 +1960,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1683,10 +2022,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1732,10 +2084,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1774,7 +2139,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1876,10 +2252,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -1903,7 +2292,18 @@
     "session": null,
     "controls": [],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": null,
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -1964,7 +2364,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2010,10 +2421,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2052,7 +2476,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2137,7 +2572,18 @@
     "session": null,
     "controls": [],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": null,
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -2198,7 +2644,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2244,10 +2701,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2293,10 +2763,23 @@
       "seek",
       "skip",
       "next",
-      "prev"
+      "prev",
+      "set_shuffle",
+      "set_repeat"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": "spotify:track:breathe",
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2349,7 +2832,18 @@
      "session": null,
      "controls": [],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "spotify",
+      "account": null,
+      "signing_in": false,
+      "context_uri": null,
+      "context_name": null,
+      "track_uri": null,
+      "album_uri": null,
+      "artist_uri": null,
+      "shuffle": false,
+      "repeat": "off"
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2451,10 +2945,23 @@
      "seek",
      "skip",
      "next",
-     "prev"
+     "prev",
+     "set_shuffle",
+     "set_repeat"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": "spotify:track:breathe",
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -2478,7 +2985,18 @@
     "session": null,
     "controls": [],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "spotify",
+     "account": null,
+     "signing_in": false,
+     "context_uri": null,
+     "context_name": null,
+     "track_uri": null,
+     "album_uri": null,
+     "artist_uri": null,
+     "shuffle": false,
+     "repeat": "off"
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }

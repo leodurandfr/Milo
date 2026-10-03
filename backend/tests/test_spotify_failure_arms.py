@@ -518,18 +518,26 @@ class TestTheStartThatFails:
         await source.shutdown()
 
     async def test_a_crash_mid_start_tears_down_what_was_built(self, source):
-        """Half a start leaves an aiohttp session and possibly a WebSocket task
-        with no owner; the teardown is what closes them. Here the readiness
-        poll meets a failure it does not expect (not a refused connection)."""
-        http = MagicMock()
-        http.close = AsyncMock()
-        http.get = Mock(side_effect=RuntimeError("socket exploded"))
+        """Half a start leaves aiohttp sessions (the daemon's, the library's)
+        and possibly a WebSocket task with no owner; the teardown is what
+        closes them. Here the readiness poll meets a failure it does not expect
+        (not a refused connection)."""
+        built = []
 
-        with patch("aiohttp.ClientSession", return_value=http), \
+        def session(*args, **kwargs):
+            http = MagicMock()
+            http.close = AsyncMock()
+            http.get = Mock(side_effect=RuntimeError("socket exploded"))
+            built.append(http)
+            return http
+
+        with patch("aiohttp.ClientSession", side_effect=session), \
                 patch("backend.sources.spotify.source.LibrespotWebSocket", autospec=True) as ws_cls:
             assert await source.start() is False
 
-        http.close.assert_awaited_once()
+        assert built
+        for http in built:
+            http.close.assert_awaited_once()
         ws_cls.assert_not_called()
 
 

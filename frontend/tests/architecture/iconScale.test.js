@@ -205,7 +205,7 @@ describe('transport icon scale', () => {
       const text = readFileSync(file, 'utf8');
       for (const attr of text.matchAll(/:?class="([^"]*)"/g)) {
         // Whole class tokens only: a bare /transport-/ also matches inside
-        // `ml-transport-main`, which is a layout hook and not a scale rung.
+        // `track-transport-main`, which is a layout hook and not a scale rung.
         for (const cls of attr[1].matchAll(/(?:^|[\s'"])(transport-[a-z-]+)(?=$|[\s'"])/g)) {
           worn.set(cls[1], (worn.get(cls[1]) ?? 0) + 1);
         }

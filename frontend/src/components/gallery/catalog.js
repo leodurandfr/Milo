@@ -297,7 +297,7 @@ export const ENTRIES = [
     id: 'TrackRow',
     group: 'player',
     file: 'components/audio/TrackRow.vue',
-    summary: 'The tracklist row, shared by CD and six Music Library views. Its 6 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, showArtist adds the second line.',
+    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 8 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, showArtist adds the second line and artistLink makes it open the artist, liked (null: none) draws the heart.',
   },
   {
     id: 'DetailHeader',
@@ -318,7 +318,7 @@ export const ENTRIES = [
     group: 'layout',
     file: 'components/audio/AudioPlayerFull.vue',
     coupling: 'store',
-    summary: 'The player for the 6 sources with nothing to browse (Spotify, TIDAL, Bluetooth, CD, AirPlay, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing state sits in the State section rather than the props table — and so does every choice the old booleans made: a button is drawn for each command the state lists in `controls`, the transport only when pause or resume is among them (the receivers list neither and get a source bar naming the sender), and the bar is interactive only while seek is. hideContent replaces the column outright, slot and all. It reads the state only while its source matches the source prop — point them at different sources and it draws nothing it was handed, which is the guard against drawing a session that belongs to the source being left.',
+    summary: 'The player for the 5 sources with nothing to browse (TIDAL, Bluetooth, CD, AirPlay, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing state sits in the State section rather than the props table — and so does every choice the old booleans made: a button is drawn for each command the state lists in `controls`, the transport only when pause or resume is among them (the receivers list neither and get a source bar naming the sender), and the bar is interactive only while seek is. hideContent replaces the column outright, slot and all. It reads the state only while its source matches the source prop — point them at different sources and it draws nothing it was handed, which is the guard against drawing a session that belongs to the source being left.',
   },
   {
     id: 'AudioSourceLayout',
@@ -408,7 +408,7 @@ export const ENTRIES = [
     id: 'SettingsSection',
     group: 'settings',
     file: 'components/settings/SettingsSection.vue',
-    summary: 'The settings card, and the most-imported component in the frontend (31). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+    summary: 'The settings card, and the most-imported component in the frontend (32). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
     id: 'ProgressStrip',

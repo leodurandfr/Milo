@@ -29,7 +29,7 @@ describe('useRichDisplay', () => {
   let richSource;
 
   function publish(overrides) {
-    publishState(store, { source: 'spotify', service: 'running', ...overrides });
+    publishState(store, { source: 'tidal', service: 'running', ...overrides });
   }
 
   beforeEach(() => {
@@ -41,7 +41,7 @@ describe('useRichDisplay', () => {
   it('shows the player for a source with a session it can name', () => {
     publish({ session: PLAYING });
 
-    expect(richSource.value).toBe('spotify');
+    expect(richSource.value).toBe('tidal');
   });
 
   it('shows the card for a running source with nothing to name', () => {
@@ -51,26 +51,27 @@ describe('useRichDisplay', () => {
   });
 
   it('falls back to the card when the link blocks the source and nothing is playing', () => {
-    publish({ session: PAUSED, availability: { spotify: 'no_internet' } });
+    publish({ session: PAUSED, availability: { tidal: 'no_internet' } });
 
     expect(richSource.value).toBeNull();
   });
 
   it('keeps the player while sound is still coming out', () => {
     // The appliance must never show a screen with no way to stop the music it
-    // is playing. A buffered stream survives the link dropping — go-librespot
-    // holds a whole track — and swapping in the status card there deletes the
-    // only control that could stop it. Measured with the cable out, 2026-09-04.
-    publish({ session: PLAYING, availability: { spotify: 'no_internet' } });
+    // is playing. A buffered stream survives the link dropping (go-librespot
+    // held a whole track with the cable out, measured 2026-09-04), and
+    // swapping in the status card there deletes the only control that could
+    // stop it.
+    publish({ session: PLAYING, availability: { tidal: 'no_internet' } });
 
-    expect(richSource.value).toBe('spotify');
+    expect(richSource.value).toBe('tidal');
   });
 
   it('lets the card arrive by itself when the source finally gives up', () => {
-    publish({ session: PLAYING, availability: { spotify: 'no_internet' } });
-    expect(richSource.value).toBe('spotify');
+    publish({ session: PLAYING, availability: { tidal: 'no_internet' } });
+    expect(richSource.value).toBe('tidal');
 
-    publish({ session: PAUSED, availability: { spotify: 'no_internet' } });
+    publish({ session: PAUSED, availability: { tidal: 'no_internet' } });
 
     expect(richSource.value).toBeNull();
   });
@@ -78,7 +79,7 @@ describe('useRichDisplay', () => {
   it('never shows a player for a failed service', () => {
     publish({
       service: 'failed',
-      service_error: { reason: 'start_failed', message: 'go-librespot exited' },
+      service_error: { reason: 'start_failed', message: 'tidal-connect exited' },
       session: null,
     });
 
@@ -87,6 +88,23 @@ describe('useRichDisplay', () => {
 
   it('defers to the card while a switch is in flight', () => {
     publish({ session: PLAYING, switching: true });
+
+    expect(richSource.value).toBeNull();
+  });
+
+  it('shows Spotify\'s browser with nothing playing', () => {
+    // Its browser is where a signed-in account's playlist is picked, and where
+    // "cast from your phone" is said when nobody is: never the bare card.
+    publishState(store, { source: 'spotify', service: 'running', session: null });
+
+    expect(richSource.value).toBe('spotify');
+  });
+
+  it('gives Spotify\'s browser up for the card when the link is gone and nothing plays', () => {
+    publishState(store, {
+      source: 'spotify', service: 'running', session: null,
+      availability: { spotify: 'no_internet' },
+    });
 
     expect(richSource.value).toBeNull();
   });

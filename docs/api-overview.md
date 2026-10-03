@@ -40,7 +40,7 @@ else is the static SPA).
 | Errors | `/api/errors` | Receive frontend error reports → `errors.log` |
 | Health | `/api/health`, `/api/ping`, `/api/initial-state` | Liveness + initial-state snapshot |
 | Hardware | `/api/bt-remote`, `/api/ir-remote`, `/api/fan` | Bluetooth/IR remote + fan control |
-| Sources | `/api/radio`, `/api/podcast`, `/api/cd`, `/api/airplay`, `/api/qobuz`, `/api/music-library` | Source-specific endpoints (browsing, favorites, binary/proxied artwork, scan status…) |
+| Sources | `/api/radio`, `/api/podcast`, `/api/cd`, `/api/airplay`, `/api/qobuz`, `/api/music-library`, `/api/spotify` | Source-specific endpoints (browsing, favorites, binary/proxied artwork, scan status…) |
 
 **Every source command travels on `/api/audio/control/{source}`**, whatever its family — a
 per-source command route would only add a second failure contract to keep in sync. A source
@@ -49,9 +49,13 @@ artwork. The two exceptions are documented in [CLAUDE.md](../CLAUDE.md) § *Audi
 a route that composes several commands in one request (`/api/radio/play`)
 and a route Milo-Mac pins.
 
-So Bluetooth, Mac, Spotify and Tidal have no router at all; Qobuz's only surface is the
+So Bluetooth, Mac and Tidal have no router at all; Qobuz's only surface is the
 `/api/qobuz/account/*` one-time-login relay; `/api/airplay` serves proxied
-artwork; `/api/cd` serves disc covers. Music Library is the richest (Subsonic-backed browsing,
+artwork; `/api/cd` serves disc covers. `/api/spotify` is the browser's: the signed-in account's
+home sections, a context's tracks (`/contexts/{uri}`, answered with its progress until
+go-librespot has it all), Liked Songs membership, and the profiles Milō keeps (rename, forget,
+`PUT /active-profile` to sign the daemon in as one) — playback itself is the `play_context`
+command. Music Library is the richest (Subsonic-backed browsing,
 cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the
 per-layer error policy) are spelled out in [CLAUDE.md](../CLAUDE.md) and the
 [Developer Guide](development.md).

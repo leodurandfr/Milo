@@ -184,3 +184,48 @@ async def test_failed_write_leaves_no_temp_file(tmp_path: Path, monkeypatch):
 
     assert not file.exists()
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+@pytest.fixture
+def open_umask():
+    """A permissive umask, so a private write is told apart from a default one:
+    under a 077 umask every file is 0600 whatever the code asked for."""
+    previous = os.umask(0o022)
+    yield
+    os.umask(previous)
+
+
+@pytest.mark.asyncio
+async def test_private_save_is_never_readable_by_others(tmp_path: Path, monkeypatch, open_umask):
+    """A secret (a Spotify account's stored credentials) must be 0600 from the
+    first byte written, not chmod-ed after the fact: a temp file created with
+    the default mode is readable by every local user until the rename."""
+    file = tmp_path / "secrets" / "profiles.json"
+    modes_at_rename = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        modes_at_rename.append(os.stat(src).st_mode & 0o777)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(persistence.os, "replace", recording_replace)
+    await save_versioned_json(file, {"x": 1}, version=1, private=True)
+
+    assert modes_at_rename == [0o600]
+    assert file.stat().st_mode & 0o777 == 0o600
+    assert file.parent.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.asyncio
+async def test_private_save_tightens_an_existing_readable_file(tmp_path: Path, open_umask):
+    """go-librespot's state.json, or a file written before it held a secret,
+    may already be 0644: the private write replaces it with a 0600 file rather
+    than inheriting the old mode."""
+    file = tmp_path / "state.json"
+    file.write_text("{}", encoding="utf-8")
+    file.chmod(0o644)
+
+    await persistence.write_bytes_atomically(file, b'{"credentials": {}}', private=True)
+
+    assert file.stat().st_mode & 0o777 == 0o600
+    assert file.read_bytes() == b'{"credentials": {}}'

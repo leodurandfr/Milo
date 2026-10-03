@@ -69,6 +69,7 @@ import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '../../src/constants/imageQualit
 import { useRadioStore } from '../../src/stores/radioStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
 import { usePodcastStore } from '../../src/stores/podcastStore.js';
+import { useSpotifyStore } from '../../src/stores/spotifyStore.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
@@ -1319,7 +1320,8 @@ describe('component gallery source pages', () => {
         const REQUIRED = {
           radio: () => !!player.station?.name && (!player.track || (!!player.track.title && !!player.track.artist)),
           podcast: () => !!player.episodeName,
-          music_library: () => !!player.title && !!player.artist
+          music_library: () => !!player.title && !!player.artist,
+          spotify: () => !!player.title && !!player.artist
         };
         if (!REQUIRED[page.source]?.()) unsafe.push(`${page.id}.${scenario.id} (player shape)`);
       }
@@ -1348,7 +1350,8 @@ describe('component gallery source pages', () => {
     const stores = {
       radio: useRadioStore(),
       musicLibrary: useMusicLibraryStore(),
-      podcast: usePodcastStore()
+      podcast: usePodcastStore(),
+      spotify: useSpotifyStore()
     };
 
     const orphans = [];
@@ -1477,7 +1480,11 @@ describe('component gallery source pages', () => {
       },
       {
         owner: 'components/music-library/MusicLibrarySource.vue',
-        classes: ['ml-controls', 'ml-transport-main', 'ml-transport-extra']
+        classes: ['track-controls', 'track-transport-main', 'track-transport-extra']
+      },
+      {
+        owner: 'components/spotify/SpotifySource.vue',
+        classes: ['track-controls', 'track-transport-main', 'track-transport-extra']
       }
     ];
 

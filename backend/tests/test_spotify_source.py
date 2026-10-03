@@ -819,6 +819,23 @@ class TestManagedConfig:
         assert written["server"]["port"] == 3678
 
     @pytest.mark.asyncio
+    async def test_keeps_the_account_and_the_listing_cache_on(self, spotify_source):
+        """The browser stands on two daemon keys: persisted credentials (the
+        daemon signs in with no phone) and the metadata cache (/context/tracks
+        answers 404 without it). A config.yml that lost either — a reflash, a
+        hand edit — is put back at the next start."""
+        path = Path(spotify_source._config_path)
+        config = self._read(path)
+        config["credentials"] = {"type": "zeroconf", "zeroconf": {"persist_credentials": False}}
+        path.write_text(yaml.safe_dump(config))
+
+        await spotify_source._apply_managed_config()
+
+        written = self._read(path)
+        assert written["credentials"]["zeroconf"]["persist_credentials"] is True
+        assert written["metadata"]["enabled"] is True
+
+    @pytest.mark.asyncio
     async def test_never_writes_flac_enabled(self, spotify_source):
         """Turning FLAC on costs Spotify entirely, so it must stay out.
 
@@ -1018,7 +1035,9 @@ class TestLogBridge:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("line", [
         'level=warning msg="failed connecting to accesspoint" error="dial tcp: timeout"',
-        'level=warning msg="failed running zeroconf" error="listen udp :5353: in use"',
+        # apresolve down at boot: the daemon exits, systemd restarts it.
+        'level=fatal msg="daemon exited with error" error="failed getting endpoints from '
+        'resolver: failed fetching apresolve URL: dial tcp: i/o timeout"',
     ])
     async def test_a_connection_failure_is_shown_only_on_the_third_inside_a_minute(
         self, spotify_source, wired, line
@@ -1078,10 +1097,10 @@ class TestLogBridge:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("error, reason", [
-        # Measured 2026-09-29: Spotify's login5 answered 503 "no healthy upstream".
-        ("failed authenticating with login5: failed requesting login5 endpoint: faield "
-         "unmarshalling LoginResponse: proto: cannot parse invalid wire-format data",
-         SourceErrorReason.PROVIDER_UNAVAILABLE),
+        # A 4xx fails at once and names no reason: a refusal, not an outage.
+        ("failed authenticating with login5: failed requesting login5 endpoint: "
+         "login5 returned HTTP 400: bad request",
+         SourceErrorReason.CONNECTION_REFUSED),
         ("failed authenticating accesspoint with stored credentials: "
          "accesspoint login failed: PremiumAccountRequired <nil>",
          SourceErrorReason.PREMIUM_REQUIRED),
@@ -1118,8 +1137,7 @@ class TestLogBridge:
         attempt = [
             'level=info msg="authenticated AP" username="p6xy"',
             'level=error msg="failed creating new session from Mac mini" error="failed '
-            'authenticating with login5: failed requesting login5 endpoint: faield '
-            'unmarshalling LoginResponse: proto: cannot parse invalid wire-format data"',
+            'authenticating with login5: TRY_AGAIN_LATER"',
             'level=info msg="refused zeroconf from Mac mini" username="p6xy"',
         ]
         for _ in range(3):
@@ -1130,6 +1148,34 @@ class TestLogBridge:
         assert spotify_source._error_active is True
         refusals = [r for r in caplog.records if "failed creating new session" in r.getMessage()]
         assert [r.levelname for r in refusals] == ["ERROR", "WARNING", "WARNING"]
+
+    @pytest.mark.asyncio
+    async def test_a_login5_outage_at_a_connect_is_reported_by_its_retries(
+        self, spotify_source, wired, caplog
+    ):
+        """During a login5 outage go-librespot retries the Connect's login
+        until Spotify answers, so no "failed creating new session" line ever
+        comes: without reading the retries, picking Milō hangs with no banner.
+        The login going through withdraws it."""
+        retries = [
+            'level=warning msg="login5 request failed, retrying in 700ms" '
+            'error="login5 returned HTTP 503: no healthy upstream"',
+            'level=warning msg="login5 request failed, retrying in 1.1s" '
+            'error="login5 returned HTTP 429"',
+            'level=warning msg="login5 request failed, retrying in 1.6s" error="failed '
+            'requesting login5: Post \\"https://login5.spotify.com/v3/login\\": EOF"',
+        ]
+        await spotify_source._handle_log_line('level=info msg="authenticated AP" username="p6xy"')
+        for line in retries:
+            await spotify_source._handle_log_line(line)
+
+        assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE] * 3
+        reports = [r for r in caplog.records if "login5 request failed" in r.getMessage()]
+        assert [r.levelname for r in reports] == ["ERROR", "WARNING", "WARNING"]
+
+        await spotify_source._handle_log_line('level=info msg="authenticated Login5" username="p6xy"')
+
+        assert spotify_source._error_active is False
 
     @pytest.mark.asyncio
     async def test_a_refusal_after_a_login_that_went_through_is_a_new_one(
@@ -1157,8 +1203,8 @@ class TestLogBridge:
             'track (advance to spotify:track:x): failed creating stream for spotify:track:x: '
             'failed getting track metadata: spclient request failed: failed obtaining spclient '
             'access token: failed renewing login5 access token: failed requesting login5 '
-            'endpoint: faield unmarshalling LoginResponse: proto: cannot parse invalid '
-            'wire-format data"'
+            'endpoint: context deadline exceeded (last attempt: login5 returned HTTP 503: '
+            'no healthy upstream)"'
         )
 
         assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE]

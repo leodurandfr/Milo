@@ -59,6 +59,8 @@ import trashIcon from '@/assets/icons/trash.svg?raw'
 import bluetoothIcon from '@/assets/icons/bluetooth.svg?raw'
 import infraredIcon from '@/assets/icons/infrared.svg?raw'
 import shuffleIcon from '@/assets/icons/shuffle.svg?raw'
+import repeatIcon from '@/assets/icons/repeat.svg?raw'
+import repeatOnceIcon from '@/assets/icons/repeat-once.svg?raw'
 import lyricsIcon from '@/assets/icons/lyrics.svg?raw'
 import arrowExtendedIcon from '@/assets/icons/arrow-extended.svg?raw'
 import hardwareIcon from '@/assets/icons/hardware.svg?raw'
@@ -114,6 +116,8 @@ const icons = {
   bluetooth: bluetoothIcon,
   infrared: infraredIcon,
   shuffle: shuffleIcon,
+  repeat: repeatIcon,
+  repeatOnce: repeatOnceIcon,
   lyrics: lyricsIcon,
   arrowExtended: arrowExtendedIcon,
   hardware: hardwareIcon

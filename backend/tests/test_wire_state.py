@@ -35,7 +35,7 @@ from backend.tests.golden.test_wire_podcast import EPISODE_A
 from backend.tests.golden.test_wire_radio import FIP
 from backend.tests.mac_world import MINI_IP, MINI_NAME, MacWorld
 from backend.tests.qobuz_world import ON_AND_ON, QobuzWorld
-from backend.tests.spotify_world import PARAPLUIE, SpotifyWorld
+from backend.tests.spotify_world import ACCOUNT, PARAPLUIE, SpotifyWorld
 from backend.tests.test_mpv_sessions import LibraryRig, PodcastRig, RadioRig
 from backend.tests.tidal_world import TidalWorld
 
@@ -58,6 +58,7 @@ PARAMS = {
     "skip": {"seconds": 5},
     "set_speed": {"speed": 1.5},
     "set_shuffle": {"shuffle": True},
+    "set_repeat": {"mode": "context"},
     "play_index": {"index": 0},
     "play_track": {"track_number": 1},
 }
@@ -149,13 +150,22 @@ async def _cd(mp, tmp, *, disc="audio", plugged=True, play=False):
     return w
 
 
-async def _spotify(mp, tmp, *, pause=False):
-    w = SpotifyWorld(mp, tmp)
+async def _spotify(mp, tmp, *, pause=False, play=True):
+    w = SpotifyWorld(mp, tmp, stored=ACCOUNT)
     await w.select()
-    await w.phone_plays(PARAPLUIE)
+    if play:
+        await w.phone_plays(PARAPLUIE)
     if pause:
         await w.phone_pauses()
     return w
+
+
+def _spotify_details(**fields):
+    return {
+        "kind": "spotify", "account": ACCOUNT, "signing_in": False,
+        "context_uri": None, "context_name": None, "track_uri": None, "album_uri": None,
+        "artist_uri": None, "shuffle": False, "repeat": "off", **fields,
+    }
 
 
 async def _tidal(mp, tmp, *, pause=False):
@@ -313,11 +323,19 @@ SCENARIOS: List[Scenario] = [
     Scenario("cd no drive", lambda mp, t: _cd(mp, t, plugged=False), expect={
         "session": None, "controls": [], "resume": None, "details": None,
     }),
-    # Spotify — no sender name (an account is an identity, D3).
-    Scenario("spotify playing", _spotify, expect={"controls": ["pause", "seek", "skip", "next", "prev"]},
-             session_has={"phase": "playing", "senders": [], "title": "Parapluie"}),
+    # Spotify — no sender name (an account is an identity, D3); the account is
+    # in `details`, where the browser reads whose library it shows.
+    Scenario("spotify playing", _spotify, expect={
+        "controls": ["pause", "seek", "skip", "next", "prev", "set_shuffle", "set_repeat"],
+        "details": _spotify_details(track_uri=PARAPLUIE["uri"]),
+    }, session_has={"phase": "playing", "senders": [], "title": "Parapluie"}),
     Scenario("spotify paused", lambda mp, t: _spotify(mp, t, pause=True),
-             expect={"controls": ["resume", "seek", "skip", "next", "prev"]}, session_has={"phase": "paused"}),
+             expect={"controls": ["resume", "seek", "skip", "next", "prev", "set_shuffle", "set_repeat"]},
+             session_has={"phase": "paused"}),
+    # Signed in with no phone: nothing plays, the browser can.
+    Scenario("spotify signed in", lambda mp, t: _spotify(mp, t, play=False), expect={
+        "session": None, "controls": [], "resume": None, "details": _spotify_details(),
+    }),
     # Tidal — transport, no seek.
     Scenario("tidal playing", _tidal, expect={"controls": ["pause", "next", "prev"]},
              session_has={"phase": "playing", "senders": []}),
@@ -417,7 +435,7 @@ def test_the_guardrail_meets_every_command_the_spec_lists():
     listed = {c for _, c in CONTROL_CASES}
     assert listed == {
         "stop", "next", "prev", "resume_playback", "pause", "resume", "seek", "skip", "set_speed",
-        "set_shuffle", "play_index", "play_track", "eject", "disconnect",
+        "set_shuffle", "set_repeat", "play_index", "play_track", "eject", "disconnect",
     }
 
 

@@ -176,8 +176,26 @@ class AirPlayDetails(BaseModel):
     artwork_width: Optional[int]
 
 
+class SpotifyDetails(BaseModel):
+    kind: Literal["spotify"] = "spotify"
+    # The account go-librespot is signed in as, or about to be: its stored
+    # credentials sign it back in after every session end and at every start.
+    # Null when nobody is (it waits for a phone).
+    account: Optional[str]
+    # Stored credentials handed to the daemon, no account confirmed yet.
+    signing_in: bool
+    # What plays now; all four null with no session.
+    context_uri: Optional[str]
+    context_name: Optional[str]
+    track_uri: Optional[str]
+    album_uri: Optional[str]
+    artist_uri: Optional[str]       # the first artist: the player's artist line opens it
+    shuffle: bool
+    repeat: Literal["off", "context", "track"]
+
+
 Details = Annotated[
-    Union[RadioDetails, PodcastDetails, MusicLibraryDetails, CdDetails, AirPlayDetails],
+    Union[RadioDetails, PodcastDetails, MusicLibraryDetails, CdDetails, AirPlayDetails, SpotifyDetails],
     Field(discriminator="kind"),
 ]
 

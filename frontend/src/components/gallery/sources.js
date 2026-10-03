@@ -442,6 +442,71 @@ const RADIO_HEADER = { titleKey: 'audioSources.radioSource.favoritesTitle', acti
 const PODCAST_HEADER = { titleKey: 'podcasts.podcasts', actions: ['heartOff', 'queue', 'search'] };
 const ML_HEADER = { titleKey: 'audioSources.musicLibrary', actions: ['queue', 'search'] };
 
+const SPOTIFY_HEADER = { titleKey: 'audioSources.spotify' };
+
+/** `details.spotify` (SpotifyDetails), every field present. */
+function spotifyDetails(overrides = {}) {
+  return {
+    kind: 'spotify',
+    account: 'owner',
+    signing_in: false,
+    context_uri: null,
+    context_name: null,
+    track_uri: null,
+    album_uri: null,
+    artist_uri: null,
+    shuffle: false,
+    repeat: 'off',
+    ...overrides
+  };
+}
+
+const SPOTIFY_PROFILES = [
+  { username: 'owner', name: 'Léo', spotify_name: 'Léo', avatar_url: null, color: '#509bf5', stale: false, active: true },
+  { username: 'guest', name: 'Cla', spotify_name: 'Cla', avatar_url: null, color: '#e8115b', stale: false, active: false }
+];
+
+/** A home as GET /api/spotify/home answers it: covers are the shared placeholder. */
+function spotifyPlaylist(id, name, owner) {
+  return { uri: `spotify:playlist:${id}`, name, description: null, owner, image: null, editable: owner === 'owner' };
+}
+
+const SPOTIFY_HOME = {
+  account: 'owner',
+  liked_songs_uri: 'spotify:user:owner:collection',
+  sections: {
+    shortcuts: [
+      spotifyPlaylist('chill', 'Chill appart', 'owner'),
+      spotifyPlaylist('jazz', 'Jazz', 'owner'),
+      spotifyPlaylist('radar', 'Release Radar', 'spotify'),
+      spotifyPlaylist('trip', 'Trip hop', 'owner'),
+      spotifyPlaylist('mix', 'Jazz Mix', 'spotify'),
+      spotifyPlaylist('house', 'House', 'owner'),
+      spotifyPlaylist('khr', 'Khruangbin Radio', 'spotify')
+    ],
+    made_for_you: [spotifyPlaylist('radar', 'Release Radar', 'spotify'), spotifyPlaylist('mix', 'Jazz Mix', 'spotify')],
+    radios: [spotifyPlaylist('khr', 'Khruangbin Radio', 'spotify')],
+    mine: [spotifyPlaylist('chill', 'Chill appart', 'owner'), spotifyPlaylist('jazz', 'Jazz', 'owner'), spotifyPlaylist('trip', 'Trip hop', 'owner'), spotifyPlaylist('house', 'House', 'owner')],
+    followed: [spotifyPlaylist('funk', "Funk à l'ancienne!", 'furkan_93')]
+  }
+};
+
+function spotifySetup({ profiles = SPOTIFY_PROFILES } = {}) {
+  return {
+    api: {
+      '/api/spotify/home': { status: 'success', ...SPOTIFY_HOME },
+      '/api/spotify/profiles': { status: 'success', profiles },
+      '/api/spotify/liked-tracks': { status: 'success', items: [{ uri: 'spotify:track:says', liked: true }] }
+    },
+    // The loaders are guarded on what is already loaded, and that survives a
+    // scenario change: forced, so each scenario shows its own fixtures.
+    prime: [
+      ['spotify', 'loadHome', { force: true }],
+      ['spotify', 'loadProfiles']
+    ]
+  };
+}
+
 /**
  * Radio stations as the favourites grid receives them — two carrying an image,
  * four with an empty `favicon`, which is the split the page exists to show.
@@ -617,30 +682,64 @@ export const SOURCE_PAGES = [
     id: `${SOURCE_PAGE_PREFIX}spotify`,
     source: 'spotify',
     title: 'Spotify',
-    family: 'C — active player',
-    uses: 'AudioSourceStatus · AudioPlayerFull',
-    via: 'dispatcher',
+    family: 'C — active player, with a browser',
+    uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
+    via: 'browser',
     summary:
-      'The only Connect source Milō drives back with a full transport: `controls` lists pause or resume, next, prev and — once the track plays — seek, and AudioPlayerFull draws a button for each command listed and nothing else. Its rich display needs a title and nothing more: Spotify is a trusted metadata provider, so no cover-quality check. A session opens only at the first track go-librespot can name, so there is no "connected, nothing to draw" screen: the gap before it reads as ready.',
+      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. With several profiles kept and nothing playing it opens on the profile screen; with nobody signed in its home asks for a phone. The player is Music Library\'s track player, plus repeat, without the queue carousel — go-librespot does not say what comes next.',
     scenarios: [
       starting('spotify'),
-      published('spotify', 'Ready', 'Connected to go-librespot, no phone has picked the speaker yet. Nothing in session, so nothing in `controls` either — there is no transport to offer before a phone hands over a queue.'),
-      published('spotify', 'Loading', 'A track is on its way: the play/pause glyph gives way to a spinner and the bar holds 0:00, because `seek` is never listed while loading — scrubbing a track that has not started would be refused.', {
-        session: session({ ...SAYS, phase: 'loading', position: anchor(0) }),
-        controls: ['pause', 'next', 'prev']
+      browsing('spotify', 'Signed in, nothing playing', 'The daemon signed back in with the kept account and holds no session: the home lists that account\'s playlists in the Spotify app\'s sections, sorted by owner, cover path and id prefix — never by name, since go-librespot names Spotify\'s own playlists in the session\'s language.', {
+        condition: ['account', 'sections'],
+        layout: SPOTIFY_HEADER,
+        view: 'spotify-home',
+        state: { details: spotifyDetails() },
+        ...spotifySetup(),
+        player: null
       }),
-      published('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport, the bar interactive because `seek` is listed. The buttons report to the event log instead of reaching the unit.', {
-        session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
-        controls: ['pause', 'seek', 'skip', 'next', 'prev']
+      browsing('spotify', 'Waiting for a phone', 'Nobody signed in and no profile kept: there is no library to list, so the home says what brings one — a cast from the Spotify app, after which the account is kept.', {
+        condition: ['profiles=0'],
+        layout: SPOTIFY_HEADER,
+        view: 'spotify-home',
+        state: { details: spotifyDetails({ account: null }) },
+        ...spotifySetup({ profiles: [] }),
+        player: null
       }),
-      published('spotify', 'Paused', 'Same session, phase paused: `controls` trades pause for resume, the glyph flips, and useSourceProgress stops advancing the anchor.', {
-        session: session({ ...SAYS, phase: 'paused', position: anchor(192000) }),
-        controls: ['resume', 'seek', 'skip', 'next', 'prev']
+      browsing('spotify', 'Playing a playlist', 'A context plays, started from Milō or handed over by a phone: the player shows shuffle, transport, repeat and the heart, each enabled iff `controls` lists its command.', {
+        condition: ['repeat=context'],
+        layout: SPOTIFY_HEADER,
+        view: 'spotify-home',
+        state: {
+          session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
+          controls: ['pause', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat'],
+          details: spotifyDetails({
+            context_uri: 'spotify:playlist:chill', context_name: 'Chill appart',
+            track_uri: 'spotify:track:says', album_uri: 'spotify:album:spaces',
+            artist_uri: 'spotify:artist:nils', shuffle: true, repeat: 'context'
+          })
+        },
+        ...spotifySetup(),
+        player: {
+          title: 'Says',
+          artist: 'Nils Frahm',
+          artwork: musicPlaceholder,
+          isPlaying: true,
+          progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
+          controls: { shuffle: true, repeat: 'context', starred: true, hasNext: true }
+        }
+      }),
+      browsing('spotify', 'Profiles', 'Two accounts kept: the screen a visit opens on while nothing plays. Each tile is the name and picture Spotify\'s profile service gave, the signed-in one ringed; a tap on another restarts go-librespot as that account.', {
+        condition: ['profiles=2'],
+        layout: { titleKey: 'spotify.profiles', showBack: true },
+        view: 'spotify-profiles',
+        state: { details: spotifyDetails() },
+        ...spotifySetup(),
+        player: null
       }),
       offline(
         'spotify',
         'no_internet',
-        'The link is up but has no route out — go-librespot is running and unreachable at once. AudioPlayerFull would keep its transport pointing at a daemon that cannot resolve anything, so the card takes over and names the reason, with the network settings one tap away.'
+        'The link is up but has no route out — go-librespot is running and unreachable at once. With nothing playing there is no library to list either, so the card takes over and names the reason, with the network settings one tap away.'
       ),
       errored(
         'spotify',

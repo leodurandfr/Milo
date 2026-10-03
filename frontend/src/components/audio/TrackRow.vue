@@ -18,7 +18,10 @@
         <p class="track-title text-body">{{ displayTitle }}</p>
         <span v-if="feat" class="track-feat text-mono-small">{{ t('musicLibrary.featuring', { artists: feat }) }}</span>
       </div>
-      <p v-if="showArtist && song.artist" class="track-artist text-mono-medium">{{ song.artist }}</p>
+      <button v-if="showArtist && song.artist && artistLink" v-press type="button"
+        class="track-artist track-artist-link text-mono-medium"
+        @pointerdown.stop @click.stop="$emit('artist')">{{ song.artist }}</button>
+      <p v-else-if="showArtist && song.artist" class="track-artist text-mono-medium">{{ song.artist }}</p>
     </div>
 
     <div v-if="editing" class="track-edit">
@@ -33,8 +36,14 @@
     </div>
     <template v-else>
       <span class="track-duration text-mono-medium">{{ formatDuration(song.duration) }}</span>
+      <button v-if="liked !== null" v-press type="button" class="track-icon-btn track-like"
+        :class="{ liked }" :aria-pressed="liked"
+        :aria-label="liked ? t('spotify.unlike') : t('spotify.like')"
+        @pointerdown.stop @click.stop="$emit('like', !liked)">
+        <SvgIcon :name="liked ? 'heart' : 'heartOff'" :size="20" />
+      </button>
       <button v-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
-        :aria-label="t('musicLibrary.playlists.addToPlaylist')"
+        :aria-label="menuLabel || t('musicLibrary.playlists.addToPlaylist')"
         @pointerdown.stop @click.stop="$emit('menu')">
         <SvgIcon name="threeDots" :size="20" />
       </button>
@@ -97,9 +106,25 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  // Whether the track is in Liked Songs; null draws no heart (a catalogue
+  // without likes). The click emits `like` with the state it asks for.
+  liked: {
+    type: Boolean,
+    default: null,
+  },
+  // The artist line opens the artist's page (emits `artist`).
+  artistLink: {
+    type: Boolean,
+    default: false,
+  },
+  // What the ⋯ button does, for its accessible name.
+  menuLabel: {
+    type: String,
+    default: '',
+  },
 });
 
-const emit = defineEmits(['play', 'menu', 'remove', 'grip-down']);
+const emit = defineEmits(['play', 'menu', 'remove', 'grip-down', 'like', 'artist']);
 
 const { t } = useI18n();
 
@@ -237,6 +262,20 @@ function formatDuration(totalSeconds) {
 
 .track-remove {
   color: var(--color-error);
+}
+
+.track-like.liked {
+  color: var(--color-brand);
+}
+
+.track-artist-link {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 
 .track-edit {

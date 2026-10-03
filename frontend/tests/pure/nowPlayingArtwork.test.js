@@ -71,6 +71,9 @@ describe('artworkFallback', () => {
     // CD and the library are the same silence, so they are the same drawing —
     // they were two files, and the two drifted apart in format and in ground.
     expect(cd).toEqual(music);
+    // Spotify is drawn by AudioPlayer, which renders an image or an avatar:
+    // a glyph there would leave its cover frame empty.
+    expect(artworkFallback('spotify')).toEqual(music);
 
     expect(podcast.kind).toBe('image');
     expect(podcast.src).not.toBe(music.src);
@@ -79,7 +82,7 @@ describe('artworkFallback', () => {
   it('sends every remaining source to its own glyph', () => {
     // The receivers and the connect players: their identity is the source, not
     // a stand-in cover, and AudioPlayerFull already paints exactly that.
-    for (const source of ['spotify', 'tidal', 'bluetooth', 'airplay', 'qobuz', 'mac']) {
+    for (const source of ['tidal', 'bluetooth', 'airplay', 'qobuz', 'mac']) {
       expect(artworkFallback(source)).toEqual({ kind: 'glyph' });
     }
   });

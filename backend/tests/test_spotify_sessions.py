@@ -346,8 +346,7 @@ async def test_a_refused_login_banner_leaves_with_the_source(world):
     would sit over the next source, and the next Spotify start would hold its
     first refusal back as a retry of the old one."""
     refused = ('level=error msg="failed creating new session from Mac mini" error="failed '
-               'authenticating with login5: failed requesting login5 endpoint: faield '
-               'unmarshalling LoginResponse: proto: cannot parse invalid wire-format data"')
+               'authenticating with login5: TRY_AGAIN_LATER"')
     from backend.tests.golden.harness import settle
 
     await world.source._handle_log_line(refused)

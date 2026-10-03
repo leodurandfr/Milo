@@ -59,7 +59,7 @@
         </div>
 
         <!-- Right column: the transport when the source has one — same as
-             AudioPlayer's desktop sidebar (music library's .ml-transport-main):
+             AudioPlayer's desktop sidebar (music library's .track-transport-main):
              ghost IconButtons, no pill behind them. Without a transport it
              stays as an empty column of the same width, so the progress bar
              keeps the exact same centred 44% share whether the transport is
