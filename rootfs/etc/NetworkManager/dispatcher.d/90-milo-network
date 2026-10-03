@@ -101,6 +101,10 @@ apply_avahi_target() {
     # pick up the right one on the next up event.
 }
 
+# dhcp4-change matters on its own, on both interfaces: NM activates a device as
+# soon as IPv6 is up and fires `up` then, so the IPv4 lease — the thing has_ip
+# tests — often lands after the only event we would otherwise see. Measured on
+# wlan0: `up` 1.5 s before its lease, and milo.local stayed published nowhere.
 case "$INTERFACE" in
     eth0)
         case "$ACTION" in
@@ -108,9 +112,6 @@ case "$INTERFACE" in
                 disable_eee eth0
                 apply_avahi_target
                 ;;
-            # dhcp4-change matters on its own: NM activates eth0 as soon as IPv6
-            # is up and fires `up` then, so the IPv4 lease — the thing has_ip
-            # tests — often lands after the only event we would otherwise see.
             dhcp4-change|down)
                 apply_avahi_target
                 ;;
@@ -118,7 +119,7 @@ case "$INTERFACE" in
         ;;
     wlan0)
         case "$ACTION" in
-            up|down)
+            up|dhcp4-change|down)
                 apply_avahi_target
                 ;;
         esac

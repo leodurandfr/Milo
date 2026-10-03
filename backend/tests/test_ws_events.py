@@ -164,7 +164,7 @@ CASES = [
         {"category": "network", "type": "status_changed", "origin": "network",
          "data": {"wifi_enabled": True,
                   "ethernet": {"connected": False, "ip_address": None},
-                  "wifi": {"connected": True, "ssid": "Net",
+                  "wifi": {"connected": True, "connecting": False, "ssid": "Net",
                            "ip_address": "192.168.1.2", "signal": 70,
                            "saved_ssid": "Net"}}},
     ),

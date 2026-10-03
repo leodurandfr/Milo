@@ -9,7 +9,7 @@ import { apiCall } from '@/services/apiCall';
 const _status = ref({
   wifi_enabled: true,
   ethernet: { connected: false, ip_address: null },
-  wifi: { connected: false, ssid: null, ip_address: null, signal: null, saved_ssid: null },
+  wifi: { connected: false, connecting: false, ssid: null, ip_address: null, signal: null, saved_ssid: null },
 });
 const _networks = ref([]);
 const _savedSsids = ref(new Set());

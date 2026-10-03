@@ -181,13 +181,17 @@ const showWifiCard = computed(() =>
   status.value.wifi_enabled && !!wifiDisplaySsid.value
 );
 
-const wifiBadgeClass = computed(() =>
-  status.value.wifi.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'
-);
+const wifiBadgeClass = computed(() => {
+  if (status.value.wifi.connected) return 'connection-badge--connected';
+  if (status.value.wifi.connecting) return 'connection-badge--connecting';
+  return 'connection-badge--disconnected';
+});
 
-const wifiBadgeLabel = computed(() =>
-  status.value.wifi.connected ? t('network.connected') : t('network.notConnected')
-);
+const wifiBadgeLabel = computed(() => {
+  if (status.value.wifi.connected) return t('network.connected');
+  if (status.value.wifi.connecting) return t('network.connecting');
+  return t('network.notConnected');
+});
 
 // The row whose address milo.local answers on. Avahi publishes on one
 // interface only, and 90-milo-network picks it: ethernet whenever it holds an
@@ -389,6 +393,11 @@ onUnmounted(() => {
 .connection-badge--connected {
   background: var(--color-success-subtle);
   color: var(--color-success);
+}
+
+.connection-badge--connecting {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
 }
 
 .connection-badge--disconnected {

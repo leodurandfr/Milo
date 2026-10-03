@@ -64,6 +64,18 @@ RECOVERY_AP_DELAY_S = 45.0
 RADIO_SETTLE_POLLS = 20
 RADIO_SETTLE_INTERVAL_S = 0.5
 
+# Once the recovery path has turned the radio back on, how long a saved network
+# gets to associate before the access point takes the radio. Measured on the
+# appliance 2026-10-03: NM started autoconnect 2.5 s after the radio came back
+# and the device read `connected` 5.4 s after it — but the AP was raised in
+# between, so the unit sat on its own hotspot with the home network in range.
+AUTOCONNECT_POLLS = 30
+AUTOCONNECT_INTERVAL_S = 1.0
+
+# NMDeviceState values bounding an activation (prepare … activated).
+NM_DEVICE_STATE_PREPARE = 40
+NM_DEVICE_STATE_ACTIVATED = 100
+
 NM_SERVICE = "org.freedesktop.NetworkManager"
 NM_PATH = "/org/freedesktop/NetworkManager"
 NM_IFACE = "org.freedesktop.NetworkManager"
@@ -229,6 +241,10 @@ class NetworkService:
         rc, _, stderr = await self._run_nmcli("radio", "wifi", state)
         if rc != 0:
             raise RuntimeError(f"Failed to set WiFi radio {state}: {stderr}")
+        # Whoever sets the radio now owns the setting, the user above all: an
+        # explicit "on" while the recovery override stood would otherwise be
+        # undone by _restore_radio_preference as if it were the override's.
+        self._radio_forced_on = False
         self.logger.info("WiFi radio set to %s", state)
 
     async def save_network(self, ssid: str, password: Optional[str] = None) -> None:
@@ -557,7 +573,8 @@ class NetworkService:
             # and the WiFi toggle off. So the radio comes back on first: it is a
             # preference the appliance cannot afford while it is unreachable,
             # and turning it on may be enough on its own if a network is saved.
-            await self._ensure_radio_on()
+            if await self._ensure_radio_on() and await self._get_saved_ssid():
+                await self._wait_for_autoconnect()
 
             # Re-checked rather than trusted: the whole point of the wait is
             # that the answer is expected to change during it — and the radio
@@ -573,8 +590,9 @@ class NetworkService:
         finally:
             self._recovery_arm = None
 
-    async def _ensure_radio_on(self) -> None:
+    async def _ensure_radio_on(self) -> bool:
         """Turn the WiFi radio back on if it is off, and wait for wlan0.
+        True when this call is what turned it on.
 
         The wait is not politeness: `nmcli radio wifi on` returns before NM has
         re-enumerated the device, and an access point activated in that window
@@ -583,24 +601,33 @@ class NetworkService:
         """
         try:
             if await self.get_wifi_enabled():
-                return
+                return False
         except Exception as e:
             self.logger.warning("Could not read the WiFi radio state: %s", e)
-            return
+            return False
 
         self.logger.info("WiFi radio is off and the unit has no link — turning it back on")
         try:
             await self.set_wifi_enabled(True)
         except Exception as e:
             self.logger.error("Could not turn the WiFi radio back on: %s", e)
-            return
+            return False
         self._radio_forced_on = True
 
         for _ in range(RADIO_SETTLE_POLLS):
             await asyncio.sleep(RADIO_SETTLE_INTERVAL_S)
             if await self._wifi_device_available():
-                return
+                return True
         self.logger.warning("wlan0 did not come back within the settle window")
+        return True
+
+    async def _wait_for_autoconnect(self) -> None:
+        """Give NM's autoconnect of a saved network its chance on the radio
+        that just came back, before the access point claims it."""
+        for _ in range(AUTOCONNECT_POLLS):
+            await asyncio.sleep(AUTOCONNECT_INTERVAL_S)
+            if await self._has_active_connection():
+                return
 
     async def _wifi_device_available(self) -> bool:
         """Whether NM can use wlan0 at all (not `unavailable`/`unmanaged`)."""
@@ -619,28 +646,29 @@ class NetworkService:
     async def _restore_radio_preference(self) -> None:
         """Give the user their WiFi setting back, once it costs nothing.
 
-        Only reached with a link in hand. If that link *is* the WiFi station,
-        switching the radio off would strand the unit all over again — so the
-        override stands, and says so in the journal rather than being silently
-        permanent.
+        Only an ethernet lease makes it free. The link in hand may be the WiFi
+        station itself, and it may not have its IPv4 yet: NM reads wlan0
+        `connected` before DHCP answers, so a test built on the WiFi's lease
+        switched the radio off under the association the recovery had just
+        made (measured 2026-10-03). The override therefore stands for as long
+        as ethernet holds no IPv4, and ends when it does — or when the user
+        sets the radio themselves (set_wifi_enabled).
         """
         if not self._radio_forced_on:
             return
 
-        wifi = await self._get_wifi_info()
-        if wifi.connected:
-            self.logger.info(
-                "Leaving the WiFi radio on: it is carrying the unit's only link"
-            )
-            self._radio_forced_on = False
+        ethernet = await self._get_ethernet_info()
+        # Re-read after the await: concurrent evaluations (one per NM event)
+        # all pass the first check, and only one may restore.
+        if not ethernet.connected or not self._radio_forced_on:
             return
+        self._radio_forced_on = False
 
         try:
             await self.set_wifi_enabled(False)
             self.logger.info("WiFi radio switched back off — the setting is restored")
         except Exception as e:
             self.logger.warning("Could not restore the WiFi radio setting: %s", e)
-        self._radio_forced_on = False
 
     async def _start_hotspot(self) -> None:
         """Bring the AP up. Failing open — a unit with no wlan0 stays silent."""
@@ -768,20 +796,25 @@ class NetworkService:
     async def _get_wifi_info(self) -> WifiConnectionStatus:
         """Get WiFi connection status."""
         rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "GENERAL.CONNECTION,IP4.ADDRESS",
+            "-t", "-f", "GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS",
             "device", "show", self.WIFI_INTERFACE
         )
 
         if rc != 0:
             return WifiConnectionStatus(connected=False)
 
+        state = None
         connection = None
         ip_address = None
 
         for line in stdout.split("\n"):
             key, _, value = line.partition(":")
             value = value.strip()
-            if key == "GENERAL.CONNECTION":
+            if key == "GENERAL.STATE":
+                # "70 (connecting (getting IP configuration))"
+                code = value.split(" ", 1)[0]
+                state = int(code) if code.isdigit() else None
+            elif key == "GENERAL.CONNECTION":
                 connection = value if value and value != "--" else None
             elif key.startswith("IP4.ADDRESS"):
                 ip_address = value.split("/")[0] if value and value != "--" else None
@@ -789,11 +822,20 @@ class NetworkService:
         saved = await self._get_saved_ssid()
 
         # Hotspot's own AP connection is not a real WiFi client connection.
-        # No IPv4 yet means the profile is mid-activation (DHCP pending); the
-        # Avahi dispatcher won't advertise on wlan0 until `has_ip wlan0` is true,
-        # so report not-connected to keep the badge aligned with reachability.
-        if not connection or connection == HOTSPOT_NAME or not ip_address:
+        if not connection or connection == HOTSPOT_NAME:
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
+        if not ip_address:
+            # Not connected until the IPv4 lease: the Avahi dispatcher won't
+            # advertise on wlan0 before `has_ip wlan0`, and the badge follows
+            # reachability. NM states 40 (prepare) to 90 (secondaries), and 100
+            # with DHCP still pending, are a join in progress — "connecting".
+            connecting = state is not None and NM_DEVICE_STATE_PREPARE <= state <= NM_DEVICE_STATE_ACTIVATED
+            return WifiConnectionStatus(
+                connected=False,
+                connecting=connecting,
+                ssid=_ssid_from_profile(connection) if connecting else None,
+                saved_ssid=saved,
+            )
 
         # Read live SSID + Strength directly from the cached AP D-Bus proxy.
         # `nmcli dev wifi` was the old source here, but its default --rescan auto
@@ -803,7 +845,7 @@ class NetworkService:
         if not ssid:
             # Fail-open: D-Bus init didn't take, or AP not yet anchored.
             # Derive a usable SSID from the milo-prefixed connection name.
-            ssid = connection[5:] if connection.startswith("milo-") else connection
+            ssid = _ssid_from_profile(connection)
 
         return WifiConnectionStatus(
             connected=True,
@@ -1203,3 +1245,9 @@ def _parse_nmcli_line(line: str) -> List[str]:
             i += 1
     fields.append("".join(current))
     return fields
+
+
+def _ssid_from_profile(connection: str) -> str:
+    """The SSID a `milo-<ssid>` profile names (save_network's naming contract),
+    or the profile name itself for one Milō did not write."""
+    return connection[5:] if connection.startswith("milo-") else connection

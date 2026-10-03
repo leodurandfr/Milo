@@ -145,8 +145,8 @@ def test_network_status_envelope_preserves_nested_nulls():
             "wifi_enabled": True,
             "ethernet": {"connected": True, "ip_address": "192.168.1.2"},
             "wifi": {
-                "connected": False, "ssid": None, "ip_address": None,
-                "signal": None, "saved_ssid": "HomeNet",
+                "connected": False, "connecting": False, "ssid": None,
+                "ip_address": None, "signal": None, "saved_ssid": "HomeNet",
             },
         },
     }

@@ -22,6 +22,9 @@ class EthernetStatus(BaseModel):
 class WifiConnectionStatus(BaseModel):
     """Current WiFi connection status."""
     connected: bool
+    # An activation in progress (association, authentication or DHCP); `ssid`
+    # then names the network being joined.
+    connecting: bool = False
     ssid: Optional[str] = None
     ip_address: Optional[str] = None
     signal: Optional[int] = None
