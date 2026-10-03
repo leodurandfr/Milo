@@ -123,6 +123,7 @@ import { useTimer } from '@/composables/useTimer';
 import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/useNetwork';
 import { adoptBrowserTimezone } from '@/composables/useTimezone';
 import { createServerSync } from '@/services/serverSync';
+import { isBackendRestart } from '@/utils/serverInstance';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -181,10 +182,15 @@ let bootScreenEl = null;
 let bootTimeoutId = null;
 let bootFailedTimeoutId = null;
 
+// The backend process the last initial_state came from (see isBackendRestart).
+let serverInstance = null;
+
 // Shared handler for initial state (WebSocket event or HTTP fallback)
 function processInitialState(event) {
   clearBootTimeout();
   unifiedStore.updateState(event);
+  const backendRestarted = isBackendRestart(serverInstance, event.data?.server_instance);
+  serverInstance = event.data?.server_instance ?? serverInstance;
 
   if (event.data?.setup_completed !== undefined) {
     settingsStore.updateSetupCompleted(event.data.setup_completed);
@@ -194,6 +200,11 @@ function processInitialState(event) {
   }
 
   isReady.value = true;
+
+  // A reconnect to the same backend leaves the dock as it is (a phone back
+  // from the background must not get it thrown up); a restarted one shows it,
+  // as the boot does.
+  if (backendRestarted && isBootComplete.value) showDockFn?.();
 }
 
 // Stores whose WS-fed state is delta-based: events missed while disconnected or
@@ -431,12 +442,9 @@ watch(isReady, (ready) => {
         if (bootScreenEl) bootScreenEl.style.display = 'none';
       }, DOM_REMOVE_DELAY);
 
-      // Auto-show dock after boot complete, only if no audio source is active
-      timer.setTimeout(() => {
-        if (showDockFn && unifiedStore.systemState.source === 'none') {
-          showDockFn();
-        }
-      }, DOCK_AUTO_SHOW_DELAY);
+      // Auto-show dock after boot complete. With a source playing it hides
+      // itself again after a while (Dock's hide timer).
+      timer.setTimeout(() => showDockFn?.(), DOCK_AUTO_SHOW_DELAY);
     }, SCREEN_FADE_DELAY);
   }
 });
@@ -492,9 +500,9 @@ function closeSettings() {
   settingsInitialView.value = 'home'; // Reset for next open
 }
 
-// Dock control registration (for auto-show on boot). The Dock hands it back on
-// unmount — `null` — so a route that drops the chrome cannot leave this holding
-// a callback whose component is gone.
+// Dock control registration (for the auto-show at boot and on a backend
+// restart). The Dock hands it back on unmount — `null` — so a route that drops
+// the chrome cannot leave this holding a callback whose component is gone.
 let showDockFn = null;
 function registerDockControl(showFn) {
   showDockFn = showFn;

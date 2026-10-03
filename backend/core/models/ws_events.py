@@ -102,13 +102,17 @@ class SystemBackendError(WsEvent):
 
 class SystemInitialState(WsEvent):
     """Handshake reply (ws/manager) — sent to the single ready client, never
-    broadcast. App.vue → unifiedAudioStore (`state`, the AudioState),
-    settingsStore (`setup_completed`, `hotspot_active`)."""
+    broadcast — and the body of its HTTP fallback, `GET /api/initial-state`
+    (api/health, for the captive-portal browser). App.vue → unifiedAudioStore (`state`, the AudioState),
+    settingsStore (`setup_completed`, `hotspot_active`), and App.vue itself
+    (`server_instance`: a new one means the backend restarted, and the dock is
+    revealed)."""
     CATEGORY = "system"
     TYPE = "initial_state"
     state: Dict[str, Any]
     setup_completed: bool
     hotspot_active: bool
+    server_instance: str
 
 
 # =============================================================================

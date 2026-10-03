@@ -7,6 +7,9 @@ import time
 from fastapi import APIRouter
 from typing import Dict, Any, TYPE_CHECKING
 
+from backend.core.models.ws_events import SystemInitialState
+from backend.shared.instance import SERVER_INSTANCE
+
 if TYPE_CHECKING:
     from backend.core.equalizer.service import CamillaDSPService
     from backend.core.multiroom.routing import AudioRoutingService
@@ -156,11 +159,12 @@ def create_health_router(state_machine: "AudioStateMachine",
         setup_completed = bool(await settings_service.get_setting("setup_completed"))
         hotspot_active = network_service.hotspot_active
 
-        return {
-            "status": "success",
-            "state": current_state,
-            "setup_completed": setup_completed,
-            "hotspot_active": hotspot_active,
-        }
+        event = SystemInitialState(
+            state=current_state,
+            setup_completed=setup_completed,
+            hotspot_active=hotspot_active,
+            server_instance=SERVER_INSTANCE,
+        )
+        return {"status": "success", **event.wire_data()}
 
     return router

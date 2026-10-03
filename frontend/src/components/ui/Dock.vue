@@ -101,6 +101,7 @@ import { useDockAppHold } from '@/composables/useDockAppHold';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import { anyModalOpen } from '@/composables/useModalPresence';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -222,8 +223,8 @@ const showDock = () => {
   // z-index) or with Lyrics (a full-screen slot, not a modal, that owns the
   // same swipe gesture for its own playback bar — see useDockDrag's
   // .lyrics-view exclusion). Refuse to open while either is on screen — this
-  // covers every reveal path: swipe, pill, and the source-stopped auto-reveal
-  // in App.vue.
+  // covers every reveal path: swipe, pill, and App.vue's auto-reveal (at boot
+  // and when the backend restarts).
   if (isVisible.value || document.querySelector('.modal-overlay') || lyricsStore.isOpen) return;
   isVisible.value = true;
   isFullyVisible.value = false;
@@ -493,6 +494,9 @@ watch([allEnabledApps, isMobile, () => unifiedStore.volumeState.any_volume_contr
 // Lyrics opening must never leave the dock lingering behind it — hideDock()
 // runs its normal fade/slide-away animation rather than an abrupt cut.
 watch(() => lyricsStore.isOpen, (open) => { if (open) hideDock(); });
+// Same for any modal: the dock's own actions hide it, but a modal opened from
+// elsewhere (a status card's CTA, a playlist modal) would leave it lingering.
+watch(anyModalOpen, (open) => { if (open) hideDock(); });
 
 onMounted(() => {
   drag.setupDragEvents();

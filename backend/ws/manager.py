@@ -20,6 +20,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from backend.core.models.ws_events import SystemInitialState
 from backend.shared.background import BackgroundTaskSet
+from backend.shared.instance import SERVER_INSTANCE
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,7 @@ class WebSocketServer:
                     state=current_state,
                     setup_completed=setup_completed,
                     hotspot_active=hotspot_active,
+                    server_instance=SERVER_INSTANCE,
                 )
                 await websocket.send_text(json.dumps(event.to_envelope()))
 

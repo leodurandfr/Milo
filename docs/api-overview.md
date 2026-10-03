@@ -91,8 +91,9 @@ On connect the client receives `system/initial_state`, whose `state` key is the 
 The audio wire is **one object**, `AudioState`
 ([audio_wire.py](../backend/core/models/audio_wire.py)), and it is the same everywhere:
 `GET /api/audio/state` returns it, the `data` of `source/state` *is* it, and `system/initial_state`
-carries it under `state` (next to `setup_completed` and `hotspot_active`; `GET /api/initial-state`
-is the HTTP fallback). Every field is always present — an absent value is `null`, never a missing
+carries it under `state` (next to `setup_completed`, `hotspot_active` and `server_instance` — an id
+drawn per backend process, so a client can tell a restarted backend from a reconnect to the same
+one; `GET /api/initial-state` is the HTTP fallback). Every field is always present — an absent value is `null`, never a missing
 key. Durations and positions are integer milliseconds; instants are UTC seconds (float).
 
 | Field | Values | Meaning |

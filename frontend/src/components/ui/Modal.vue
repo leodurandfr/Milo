@@ -30,6 +30,7 @@ import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 import { useTimer } from '@/composables/useTimer';
 import { useBackdropDismiss } from '@/composables/useBackdropDismiss';
 import { useI18n } from '@/services/i18n';
+import { useModalPresence } from '@/composables/useModalPresence';
 
 const props = defineProps({
   isOpen: {
@@ -349,7 +350,10 @@ function removeActivityListeners() {
   modalOverlay.value.removeEventListener('touchstart', handleUserActivity);
 }
 
+const presence = useModalPresence();
+
 watch(() => props.isOpen, async (newValue) => {
+  presence.setOpen(newValue);
   if (newValue) {
     toggleBodyScroll(true);
     await openModal();
