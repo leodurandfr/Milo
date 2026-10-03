@@ -81,7 +81,7 @@
                 <div class="ml-transport-main">
                   <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
                     :disabled="!store.canSend('prev')" @click="store.previous()" />
-                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+                  <IconButton :icon="pausesOnPress(store.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
                     class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
                   <IconButton icon="next" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
                     :disabled="!store.canSend('next')" @click="store.next()" />
@@ -111,6 +111,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
 import { useSourceProgress } from '@/composables/useSourceProgress';
+import { pausesOnPress } from '@/utils/transport';
 import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
@@ -164,7 +165,7 @@ watch([() => store.disconnectedStorage, currentView], ([gone, view]) => {
 // with them. The store's sticky displayTrack was a copy of that fact for the
 // length of a fade.
 const {
-  isPlaying, isBuffering, shouldShowPlayer,
+  isBuffering, shouldShowPlayer,
   displayed: nowPlaying, onAfterHide,
 } = useSourcePlaybackVisibility('music_library', {
   content: () => store.nowPlaying,
@@ -245,10 +246,8 @@ onMounted(() => {
 });
 
 // === Player controls ===
-// A loading track is paused like a playing one: the press is about what the
-// user hears next, and the backend takes `pause` in both phases.
 function togglePlayPause() {
-  const running = store.phase === 'playing' || store.phase === 'loading';
+  const running = pausesOnPress(store.phase);
   if (running && store.canSend('pause')) store.pause();
   else if (!running && store.canSend('resume')) store.resume();
 }

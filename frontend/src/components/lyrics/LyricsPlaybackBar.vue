@@ -68,7 +68,7 @@
           <div v-if="hasTransport" class="playback-controls transport-scale--compact">
             <IconButton icon="previous" variant="ghost" size="small" class="transport-secondary"
               :disabled="!controls.includes('prev')" @click="previousTrack" />
-            <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+            <IconButton :icon="pausesOnPress(session?.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
               class="transport-primary" :loading="isLoading" @click="togglePlayPause" />
             <IconButton icon="next" variant="ghost" size="small" class="transport-secondary"
               :disabled="!controls.includes('next')" @click="nextTrack" />
@@ -86,6 +86,8 @@ import { getTrackIdentity } from '@/stores/lyricsStore';
 import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
+import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { pausesOnPress } from '@/utils/transport';
 
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -117,12 +119,10 @@ const identity = computed(() => getTrackIdentity(unifiedStore.systemState));
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } =
   useSourceProgress(props.source);
 
-const isPlaying = computed(() => session.value?.phase === 'playing');
-const isLoading = computed(() => session.value?.phase === 'loading');
+const isLoading = useDelayedFlag(() => session.value?.phase === 'loading');
 
-// A loading track is on its way to playing, so the toggle pauses it too.
 function togglePlayPause() {
-  const command = isPlaying.value || isLoading.value ? 'pause' : 'resume';
+  const command = pausesOnPress(session.value?.phase) ? 'pause' : 'resume';
   if (controls.value.includes(command)) unifiedStore.sendCommand(props.source, command);
 }
 function previousTrack() {

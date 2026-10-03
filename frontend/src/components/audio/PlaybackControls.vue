@@ -15,20 +15,16 @@ import IconButton from '@/components/ui/IconButton.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 
 defineProps({
+  // Shows pause: true while a press would pause, loading included (utils/transport).
   isPlaying: {
     type: Boolean,
     default: false
   },
-  // Source is spinning up / buffering (e.g. CD drive starting): show a spinner
-  // in place of the play/pause icon until audio actually flows.
-  //
-  // It also blocks the button, which the hand-rolled version this component
-  // replaced did not. That is deliberate rather than incidental: Music Library,
-  // podcast and radio all already pass isBuffering to IconButton's `loading` and
-  // have always been inert during the wait, so the odd one out was here. A
-  // command sent mid-`start()` reaches a source that has not finished
-  // transitioning, and the state machine drops updates while `transitioning` is
-  // set — the press would look accepted and do nothing.
+  // A load that has outlasted the wait indicator (useDelayedFlag), e.g. a CD
+  // drive spinning up: a spinner in place of the play/pause icon until audio
+  // flows, and the button inert meanwhile. A short load — every track change —
+  // shows neither and takes the press: a loading source lists `pause` in its
+  // controls, as AVPlayer and Media3 let a buffering player be paused.
   isBuffering: {
     type: Boolean,
     default: false

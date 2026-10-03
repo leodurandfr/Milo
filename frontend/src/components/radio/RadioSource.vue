@@ -162,9 +162,12 @@ const stationIsFavorite = computed(() =>
 const isSearchMode = ref(false)
 const availableCountries = ref([])
 
-// ID of the buffering station (to display the spinner on the correct station)
+// ID of the buffering station (to display the spinner on the correct station).
+// Not the delayed isBuffering: on the card just tapped, the spinner is the
+// press's only acknowledgement.
 const bufferingStationId = computed(() => {
-  if (!isBuffering.value) {
+  const { source, session } = unifiedStore.systemState
+  if (source !== 'radio' || session?.phase !== 'loading') {
     return null
   }
   return radioStore.currentStation?.id || null

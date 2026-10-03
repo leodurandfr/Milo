@@ -17,14 +17,16 @@
  *
  * The store is the real one, driven through the handler the WebSocket calls.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import { ref, nextTick } from 'vue';
+import { defineComponent, h, ref, nextTick } from 'vue';
+import { mount } from '@vue/test-utils';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
+import { WAIT_INDICATOR_DELAY_MS } from '@/composables/useDelayedFlag';
 import { makeSession, publishState } from '../helpers/audioState';
 
 /** Podcast selected and running, in `overrides`' shape. */
@@ -47,12 +49,24 @@ describe('useSourcePlaybackVisibility', () => {
   let store;
   let content;
   let api;
+  let wrapper;
 
+  // Mounted in a host only for the lifecycle the spinner's timer hangs off.
   beforeEach(() => {
     setActivePinia(createPinia());
     store = useUnifiedAudioStore();
     content = ref(null);
-    api = useSourcePlaybackVisibility('podcast', { content: () => content.value });
+    wrapper = mount(defineComponent({
+      setup() {
+        api = useSourcePlaybackVisibility('podcast', { content: () => content.value });
+        return () => h('div');
+      },
+    }));
+  });
+
+  afterEach(() => {
+    wrapper.unmount();
+    vi.useRealTimers();
   });
 
   it('shows the pane once the source has something to draw', async () => {
@@ -118,9 +132,12 @@ describe('useSourcePlaybackVisibility', () => {
   });
 
   it('reads the transport glyph from its own session\'s phase only', async () => {
-    // The pane's play button spins while loading; another source's session is
-    // not this pane's, playing or not.
+    // The pane's play button spins once a load outlasts the indicator delay;
+    // another source's session is not this pane's, playing or not.
+    vi.useFakeTimers();
     publish(store, { session: makeSession({ phase: 'loading' }) });
+    await nextTick();
+    vi.advanceTimersByTime(WAIT_INDICATOR_DELAY_MS);
     expect(api.isBuffering.value).toBe(true);
     expect(api.isPlaying.value).toBe(false);
 

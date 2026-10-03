@@ -74,10 +74,10 @@
               <div v-if="hasTransport || hasProgress" class="progress-wrapper">
                 <ProgressBar :currentPosition="currentPosition" :duration="duration"
                   :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                  :interactive="canSeek" animateIn @seek="seekTo" />
+                  :interactive="canSeek" :loading="phase === 'loading'" animateIn @seek="seekTo" />
               </div>
               <div v-if="hasTransport" class="controls-wrapper">
-                <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
+                <PlaybackControls :isPlaying="pausesOnPress(phase)" :isBuffering="isBuffering"
                   :hasPrev="hasPrev" :hasNext="hasNext"
                   @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
               </div>
@@ -111,6 +111,8 @@ import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { formatDeviceNames } from '@/utils/deviceName';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
+import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { pausesOnPress } from '@/utils/transport';
 import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
 import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
@@ -167,8 +169,7 @@ const hasPrev = computed(() => controls.value.includes('prev'));
 const hasNext = computed(() => controls.value.includes('next'));
 const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
 
-const isPlaying = computed(() => phase.value === 'playing');
-const isBuffering = computed(() => phase.value === 'loading');
+const isBuffering = useDelayedFlag(() => phase.value === 'loading');
 
 // sendCommand swallows + logs errors via the store. A command the source does
 // not list now would be refused, so it is not sent.
@@ -178,7 +179,7 @@ function sendSourceCommand(command) {
 }
 
 function togglePlayPause() {
-  sendSourceCommand(isPlaying.value || isBuffering.value ? 'pause' : 'resume');
+  sendSourceCommand(pausesOnPress(phase.value) ? 'pause' : 'resume');
 }
 
 function previousTrack() {

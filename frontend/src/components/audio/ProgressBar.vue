@@ -4,7 +4,7 @@
      emitted in ms too.
        - variant "light" (default): dark fill on a light surface — the standard
          player card. The fill drops to -32 when the bar is not interactive
-         (a source that cannot seek).
+         (a source that cannot seek) — not for a short load, see `loading`.
        - variant "dark": light fill, for the always-dark surfaces that render
          over artwork (lyrics bar, screensaver, mini-player cards).
      Self-hides when the source reports no duration (e.g. Qobuz, radio). -->
@@ -13,7 +13,7 @@
   <div class="progress-bar" :class="[`progress-bar--${variant}`, { 'progress-bar--animated': animateIn }]"
     v-if="duration > 0 && isReady">
     <span class="text-mono-medium time">{{ formatTime(currentPosition) }}</span>
-    <div class="progress-container" :class="{ interactive }" @click="onProgressClick">
+    <div class="progress-container" :class="{ interactive, dimmed: !looksInteractive }" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
     </div>
     <span class="text-mono-medium time">{{ formatTime(duration) }}</span>
@@ -21,7 +21,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useDelayedFlag } from '@/composables/useDelayedFlag';
 
 const props = defineProps({
   // Both in milliseconds.
@@ -45,6 +46,14 @@ const props = defineProps({
     type: Boolean,
     default: true
   },
+  // The session is loading. Sources withdraw `seek` meanwhile, and every track
+  // change passes through it: the bar keeps the look it had until the load
+  // outlasts the wait indicator, so it does not dim on each skip. Clicks follow
+  // `interactive` regardless — a seek sent now would be refused.
+  loading: {
+    type: Boolean,
+    default: false
+  },
   variant: {
     type: String,
     default: 'light',
@@ -60,6 +69,15 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['seek']);
+
+const longLoad = useDelayedFlag(() => props.loading);
+const looksInteractive = ref(props.interactive);
+watch(
+  () => [props.interactive, props.loading && !longLoad.value],
+  ([interactive, held]) => {
+    if (!held) looksInteractive.value = interactive;
+  }
+);
 
 // Computed to guarantee a valid numeric value
 const progressPercent = computed(() => {
@@ -164,7 +182,7 @@ function onProgressClick(event) {
   background-color: var(--color-background-contrast);
 }
 
-.progress-bar--light .progress-container:not(.interactive) .progress {
+.progress-bar--light .progress-container.dimmed .progress {
   background-color: var(--color-background-contrast-32);
 }
 

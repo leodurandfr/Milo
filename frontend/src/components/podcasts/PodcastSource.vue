@@ -92,7 +92,7 @@
             <IconButton v-if="canSkip" icon="rewind15" variant="ghost" size="small"
               class="desktop-only transport-secondary-round" @click="seekBackward" />
 
-            <IconButton :icon="pausesOnPress ? 'pause' : 'play'" variant="ghost" size="medium"
+            <IconButton :icon="pausesOnPress(phase) ? 'pause' : 'play'" variant="ghost" size="medium"
               class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
 
             <IconButton v-if="canSkip" icon="forward30" variant="ghost" size="small"
@@ -115,6 +115,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useSourceProgress } from '@/composables/useSourceProgress'
+import { pausesOnPress } from '@/utils/transport'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -178,7 +179,6 @@ const phase = computed(() =>
 )
 const canSeek = computed(() => controls.value.includes('seek'))
 const canSkip = computed(() => controls.value.includes('skip'))
-const pausesOnPress = computed(() => phase.value === 'playing' || phase.value === 'loading')
 const showProgress = computed(() => durationMs.value > 0 && isPositionInitialized.value)
 
 // Navigation params (stored separately since composable handles view state)
@@ -327,7 +327,7 @@ const selectedSpeed = computed({
 })
 
 async function togglePlayPause() {
-  if (pausesOnPress.value) {
+  if (pausesOnPress(phase.value)) {
     if (controls.value.includes('pause')) await podcastStore.pause()
   } else if (controls.value.includes('resume')) {
     await podcastStore.resume()
