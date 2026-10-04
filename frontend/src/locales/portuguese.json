@@ -290,7 +290,12 @@
     "uiScale": "Exibição",
     "uiScaleLevel": "Escala da interface no ecrã tátil do Milō",
     "colorFilter": "Filtro de cor quente",
-    "colorFilterWarmth": "Intensidade"
+    "colorFilterWarmth": "Intensidade",
+    "theme": "Tema",
+    "themeDescription": "Tema do ecrã tátil do Milō — Auto passa a escuro do pôr do sol ao nascer do sol",
+    "themeLight": "Claro",
+    "themeDark": "Escuro",
+    "themeAuto": "Auto"
   },
   "hardwareSettings": {
     "audioCard": "Placa de áudio",

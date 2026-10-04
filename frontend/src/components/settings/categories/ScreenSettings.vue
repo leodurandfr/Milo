@@ -1,6 +1,17 @@
 <!-- frontend/src/components/settings/categories/ScreenSettings.vue -->
 <template>
   <SettingsContainer>
+    <!-- Theme: the kiosk's; every other browser follows its own system theme -->
+    <SettingsSection :title="t('screenSettings.theme')">
+      <SettingItem :label="t('screenSettings.themeDescription')">
+        <ButtonGroup
+          :model-value="settingsStore.screenTheme.theme"
+          :options="themeOptions"
+          @change="setTheme"
+        />
+      </SettingItem>
+    </SettingsSection>
+
     <!-- Brightness -->
     <SettingsSection :title="t('screenSettings.brightness')">
       <SettingItem :label="t('screenSettings.brightnessIntensity')">
@@ -133,6 +144,17 @@ const delaySteps = computed(() => [10, 20, 30, 60, 120, 300, 600, 1200, 1800, 36
 
 const uiScalePresets = computed(() => [1.0, 1.1, 1.15, 1.2, 1.25, 1.3]
   .map(value => ({ value, label: formatUnit(Math.round(value * 100), '%') })));
+
+const themeOptions = computed(() => [
+  { value: 'light', label: t('screenSettings.themeLight') },
+  { value: 'dark', label: t('screenSettings.themeDark') },
+  { value: 'auto', label: t('screenSettings.themeAuto') }
+]);
+
+function setTheme(theme) {
+  settingsStore.updateScreenTheme({ theme });
+  updateSetting('screen-theme', { theme });
+}
 
 function setUiScale(value) {
   config.value.ui_scale = value;

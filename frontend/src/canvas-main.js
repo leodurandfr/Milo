@@ -15,8 +15,18 @@ import { createPinia } from 'pinia'
 import CanvasApp from './components/gallery/CanvasApp.vue'
 import { i18n } from './services/i18n'
 import { vPress } from './directives'
+import { applyTheme } from './composables/useTheme'
 import './assets/styles/reset.css'
 import './assets/styles/design-system.css'
+
+// The gallery's Light/Dark switch. Here rather than in CanvasApp so the theme
+// is a property of the document, as it is in the app, whatever is rendered.
+applyTheme('light')
+window.addEventListener('message', (event) => {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (data?.source === 'milo-gallery' && data.type === 'theme') applyTheme(data.theme)
+})
 
 async function initCanvas() {
   const app = createApp(CanvasApp)

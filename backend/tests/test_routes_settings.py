@@ -731,6 +731,30 @@ class TestSettingsRoutes:
         }
 
     # ===================
+    # THE KIOSK THEME
+    # ===================
+
+    def test_set_screen_theme_writes_the_key_and_broadcasts_it(self, client):
+        """The kiosk applies the theme from the event alone; a value stored but
+        broadcast under another type would leave the panel on the old theme
+        until its next resync."""
+        response = client.put("/api/settings/screen-theme", json={"theme": "dark"})
+
+        assert response.status_code == 200
+        client._mock_settings.set_setting.assert_awaited_once_with("screen.theme", "dark")
+        event = client._mock_state_machine.broadcast.call_args.args[0]
+        assert event.TYPE == "screen_theme_changed"
+        assert response.json()["config"] == {"theme": "dark"}
+
+    def test_set_screen_theme_refuses_a_theme_the_frontend_cannot_draw(self, client):
+        """`useTheme` knows light, dark and auto; anything else stored would
+        put a `data-theme` no token block answers."""
+        response = client.put("/api/settings/screen-theme", json={"theme": "sepia"})
+
+        assert response.status_code == 422
+        client._mock_settings.set_setting.assert_not_awaited()
+
+    # ===================
     # THE REMAINING WRITE ROUTES
     # ===================
 
@@ -993,6 +1017,7 @@ class TestBulkSettings:
         ("screen_screensaver", "screensaver_delay_seconds"): ("screen", "screensaver_delay_seconds"),
         ("screen_color_filter", "enabled"): ("screen", "color_filter_enabled"),
         ("screen_color_filter", "warmth"): ("screen", "color_filter_warmth"),
+        ("screen_theme", "theme"): ("screen", "theme"),
         ("radio_settings", "shazam_enabled"): ("radio", "shazam_enabled"),
         ("music_library_settings", "separate_storages"): ("music_library", "separate_storages"),
         ("qobuz_settings", "allow_app_volume"): ("qobuz", "allow_app_volume"),
@@ -1054,6 +1079,7 @@ class TestBulkSettings:
         ("mac", "latency_profile"): "gradual",
         ("mac", "frame_length_ms"): 6,
         ("dock", "enabled_apps"): ["radio"],
+        ("screen", "theme"): "dark",
     }
 
     @classmethod

@@ -111,6 +111,7 @@ import { useFanStore } from '@/stores/fanStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import { i18n, useI18n } from '@/services/i18n';
 import { useDarkSurface } from '@/composables/useDarkSurface';
+import { mountTheme } from '@/composables/useTheme';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
@@ -176,6 +177,10 @@ watch(() => settingsStore.language, (lang) => i18n.handleLanguageChanged(lang));
 const isReady = ref(false);
 const isBootComplete = ref(false);
 const currentError = ref(null);
+
+// Light/dark on <html>. The kiosk follows screen.theme (auto = the sun at the
+// timezone's coordinates), every other browser its own system theme.
+mountTheme({ animate: isBootComplete });
 
 // === Boot screen reference ===
 let bootScreenEl = null;
@@ -546,6 +551,8 @@ const RAW_EVENTS = [
   ['source', 'state', unifiedStore.updateState],
   ['source', 'session_ended', handleSessionEnded],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
+  // The timezone's point, which the kiosk's auto theme reads sunset from.
+  ['system', 'timezone_changed', settingsStore.handleTimezoneEvent],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed
   // whenever the NM dispatcher signals a physical link change.
   ['network', 'status_changed', handleNetworkStatusChanged],
@@ -609,6 +616,7 @@ const SETTINGS_CONFIG_EVENTS = [
   ['screen_brightness_changed', settingsStore.updateScreenBrightness],
   ['screen_screensaver_changed', settingsStore.updateScreenScreensaver],
   ['screen_color_filter_changed', settingsStore.updateScreenColorFilter],
+  ['screen_theme_changed', settingsStore.updateScreenTheme],
   ['radio_settings_changed', settingsStore.updateRadioSettings],
   ['music_library_settings_changed', settingsStore.updateMusicLibrarySettings],
   ['qobuz_settings_changed', settingsStore.updateQobuzSettings],

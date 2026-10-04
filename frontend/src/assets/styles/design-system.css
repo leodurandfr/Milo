@@ -210,6 +210,69 @@
         opacity 150ms ease-out;
 
 
+    color-scheme: light;
+}
+
+
+/* === DARK THEME === */
+/* Every --color-* token again, for <html data-theme="dark"> (set by
+   composables/useTheme.js). A component never tests the theme: it consumes
+   these tokens, so a colour that needs a dark value gets one here.
+
+   The neutrals mirror the light ramp: grounds dark, texts light, each the same
+   distance from its ground as its light twin. Brand and status colours do not
+   move. The contrast surfaces (the AudioPlayer card, the lyrics) cannot invert
+   onto white without losing the white text they carry, so the solid ones
+   become a surface raised above the ground; their low-alpha tints become a
+   white tint, which lifts off a dark ground by what the dark tint sank into a
+   light one, and still carries white text. */
+:root[data-theme="dark"] {
+    --color-brand: #ff6428;
+
+    --color-text: #e8e9e8;
+    --color-text-secondary: #898e89;
+    --color-text-light: #595f59;
+    --color-text-contrast: #ffffff;
+    --color-text-contrast-50: #ffffff80;
+
+    --color-background: #121414;
+    --color-background-strong: #1a1d1d;
+    --color-background-neutral: #202424;
+    --color-background-neutral-50: #20242480;
+    /* A glint drawn on a dark surface, which stays dark here. */
+    --color-background-neutral-12: #ffffff1e;
+
+    --color-background-contrast: #262b2c;
+    --color-background-contrast-12: #ffffff1e;
+    --color-background-contrast-32: #ffffff51;
+    --color-background-contrast-80: #262b2ccc;
+
+    --color-background-scrim: #191919;
+
+    --color-background-medium-16: #77777728;
+    --color-background-medium-32: #78787851;
+
+    --color-border: #e8e9e80d;
+
+    --color-success: #11aa3a;
+    --color-warning: #ff9800;
+    --color-error: #f44336;
+
+    --color-warning-subtle: rgba(255, 152, 0, 0.12);
+    --color-error-subtle: rgba(244, 67, 54, 0.12);
+    --color-success-subtle: rgba(17, 170, 58, 0.12);
+
+    --color-svg-logo-grey: #595f59;       /* = --color-text-light */
+
+    color-scheme: dark;
+}
+
+/* The cross-fade of a theme change: useTheme swaps the theme inside a view
+   transition, so the whole screen fades as one image and no component's own
+   transitions are touched. */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 400ms;
 }
 
 

@@ -16,6 +16,7 @@ from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
     ALLOWED_LATENCY_PROFILES,
     ALLOWED_PACKET_LENGTHS,
+    ALLOWED_SCREEN_THEMES,
     AUDIO_SOURCE_APPS,
     DEFAULT_DOCK_APPS,
     DEFAULT_ROC_CONFIG,
@@ -91,7 +92,8 @@ class SettingsService:
                 "screensaver_delay_seconds": 120,
                 "ui_scale": 1.0,
                 "color_filter_enabled": False,
-                "color_filter_warmth": 50
+                "color_filter_warmth": 50,
+                "theme": "auto"
             },
             "audio": {
                 "auto_stop_delay": 120.0,
@@ -276,6 +278,9 @@ class SettingsService:
         screen_input = settings.get('screen', {})
         screen_d = d['screen']
         timeout_seconds_raw = int(screen_input.get('timeout_seconds', screen_d['timeout_seconds']))
+        # str() so a stored list or dict reads as an unknown theme rather than
+        # raising on the frozenset lookup.
+        theme_raw = str(screen_input.get('theme', screen_d['theme']))
 
         validated['screen'] = {
             # 0 = disabled, otherwise minimum 3 seconds
@@ -285,7 +290,8 @@ class SettingsService:
             'screensaver_delay_seconds': max(5, min(9999, int(screen_input.get('screensaver_delay_seconds', screen_d['screensaver_delay_seconds'])))),
             'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', screen_d['ui_scale'])))),
             'color_filter_enabled': bool(screen_input.get('color_filter_enabled', screen_d['color_filter_enabled'])),
-            'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', screen_d['color_filter_warmth']))))
+            'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', screen_d['color_filter_warmth'])))),
+            'theme': theme_raw if theme_raw in ALLOWED_SCREEN_THEMES else screen_d['theme']
         }
 
         # Dock with validation for at least one audio source

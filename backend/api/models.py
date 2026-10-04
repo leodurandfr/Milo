@@ -15,6 +15,7 @@ from backend.config.constants import (
     ROC_LATENCY_PROFILES,
     ROC_PACKET_LENGTHS,
     ROC_TARGET_LATENCY_RANGE,
+    SCREEN_THEMES,
 )
 
 
@@ -386,6 +387,11 @@ class ScreenColorFilterRequest(BaseModel):
     """Screen warm color filter request"""
     enabled: Optional[bool] = None
     warmth: Optional[int] = Field(None, ge=0, le=100)
+
+
+class ScreenThemeRequest(BaseModel):
+    """Kiosk theme request"""
+    theme: SCREEN_THEMES
 
 
 # =============================================================================

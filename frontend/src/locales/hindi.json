@@ -290,7 +290,12 @@
     "uiScale": "प्रदर्शन",
     "uiScaleLevel": "Milō की टचस्क्रीन पर इंटरफ़ेस स्केल",
     "colorFilter": "गर्म रंग फ़िल्टर",
-    "colorFilterWarmth": "तीव्रता"
+    "colorFilterWarmth": "तीव्रता",
+    "theme": "थीम",
+    "themeDescription": "Milō की टचस्क्रीन की थीम — ऑटो सूर्यास्त से सूर्योदय तक डार्क रहती है",
+    "themeLight": "लाइट",
+    "themeDark": "डार्क",
+    "themeAuto": "ऑटो"
   },
   "hardwareSettings": {
     "audioCard": "ऑडियो कार्ड",

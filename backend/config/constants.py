@@ -185,6 +185,11 @@ DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "airplay", "music_library", "radio"
 # Supported UI languages (single source of truth for validation)
 VALID_LANGUAGES = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
 
+# `auto` follows the sun on the kiosk (frontend `useTheme`); every other browser
+# follows its own system theme and never reads this setting.
+SCREEN_THEMES = Literal['light', 'dark', 'auto']
+ALLOWED_SCREEN_THEMES = frozenset(get_args(SCREEN_THEMES))
+
 # =============================================================================
 # MAC / ROC STREAMING (the `mac` settings section → /var/lib/milo/mac.env)
 # =============================================================================

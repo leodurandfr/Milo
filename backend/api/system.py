@@ -14,6 +14,8 @@ from typing import Optional, TYPE_CHECKING
 
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
 from backend.api.route_helpers import api_error_handler
+from backend.core.models.ws_events import SystemTimezoneChanged
+from backend.core.system.zone_coordinates import read_zone_coordinates
 from backend.config.constants import (
     PASSWORD_CHANGED_MARKER,
     RESET_SETUP_MARKER,
@@ -22,6 +24,7 @@ from backend.config.constants import (
 )
 
 if TYPE_CHECKING:
+    from backend.core.state import AudioStateMachine
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.systemd import SystemdServiceManager
@@ -72,11 +75,20 @@ def _current_timezone() -> Optional[str]:
     return target[len(ZONEINFO_PREFIX):]
 
 
+async def _daylight_location() -> dict:
+    """The zone in force and the tz database's point for it (nulls without one)."""
+    zone = _current_timezone()
+    coordinates = await read_zone_coordinates(zone)
+    latitude, longitude = coordinates if coordinates else (None, None)
+    return {"latitude": latitude, "longitude": longitude, "timezone": zone}
+
+
 def create_system_router(
     systemd_manager: "SystemdServiceManager",
     hostname_conflict_service: Optional["HostnameConflictService"] = None,
     hardware_service: Optional["HardwareService"] = None,
-    diagnostic_service: Optional["DiagnosticService"] = None
+    diagnostic_service: Optional["DiagnosticService"] = None,
+    state_machine: Optional["AudioStateMachine"] = None,
 ):
     router = APIRouter()
 
@@ -482,6 +494,16 @@ def create_system_router(
             },
         }
 
+    @router.get("/daylight-location")
+    async def get_daylight_location():
+        """Where the zone in force is, for the kiosk's sunset-driven theme.
+
+        The coordinates are the tz database's point for the zone, so they move
+        with `PUT /timezone` and need no location service. A zone with no
+        point (`Etc/UTC`) answers nulls, which the frontend reads as daytime.
+        """
+        return {"status": "success", **await _daylight_location()}
+
     @router.put("/timezone")
     async def set_timezone(payload: TimezoneRequest):
         """Apply an IANA timezone."""
@@ -502,6 +524,8 @@ def create_system_router(
                 raise HTTPException(status_code=500, detail=f"Failed to set timezone: {detail}")
 
             logger.info("Timezone set to %s", payload.timezone)
+            if state_machine is not None:
+                await state_machine.broadcast(SystemTimezoneChanged(**await _daylight_location()))
             return {"status": "success", "data": {"timezone": _current_timezone()}}
 
     return router

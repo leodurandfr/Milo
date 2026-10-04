@@ -32,6 +32,7 @@ from backend.core.models.settings_config import (
     RotaryStepsConfig,
     ScreenBrightnessConfig,
     ScreenColorFilterConfig,
+    ScreenThemeConfig,
     ScreenScreensaverConfig,
     ScreenTimeoutConfig,
     ScreenUiScaleConfig,
@@ -91,6 +92,18 @@ class SystemHostnameConflictChanged(WsEvent):
     advertised_name: Optional[str]
     local_ip: Optional[str]
     expected_name: str
+
+
+class SystemTimezoneChanged(WsEvent):
+    """App.vue → settingsStore.daylightLocation, which the kiosk's `auto` theme
+    reads its sunset from. The zone moves from any browser (Language settings,
+    or the first one adopting its own zone) and the kiosk never resyncs on its
+    own, so the new point travels with the change."""
+    CATEGORY = "system"
+    TYPE = "timezone_changed"
+    timezone: Optional[str]
+    latitude: Optional[float]
+    longitude: Optional[float]
 
 
 class SystemBackendError(WsEvent):
@@ -391,6 +404,12 @@ class ScreenColorFilterChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "screen_color_filter_changed"
     config: ScreenColorFilterConfig
+
+
+class ScreenThemeChanged(SettingsEvent):
+    """App.vue settings listener."""
+    TYPE = "screen_theme_changed"
+    config: ScreenThemeConfig
 
 
 class MacRocChanged(SettingsEvent):

@@ -765,6 +765,47 @@ class TestTimezone:
         assert response.status_code == 200
         assert spawn.calls[0] == ("sudo", "/usr/local/bin/milo-set-timezone", "Asia/Singapore")
 
+    def test_a_new_zone_is_broadcast_with_its_point(self, systemd, spawn, localtime, tmp_path, monkeypatch):
+        """The kiosk's `auto` theme reads sunset from the zone's point and never
+        resyncs on its own; the zone is changed from another browser, so the
+        point has to travel with the change or the kiosk keeps the old sun.
+
+        The helper is a scripted process here, so the link is pointed at the
+        new zone up front — the route reads the zone back the way it would
+        after a real `milo-set-timezone`."""
+        from backend.core.models.ws_events import SystemTimezoneChanged
+        from backend.core.system import zone_coordinates
+
+        table = tmp_path / "zone1970.tab"
+        table.write_text("SG,MY\t+0117+10351\tAsia/Singapore\n")
+        monkeypatch.setattr(zone_coordinates, "ZONE_TABLES", (str(table),))
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        app = FastAPI()
+        app.include_router(create_system_router(systemd, state_machine=state_machine), prefix="/api/system")
+        localtime("Asia/Singapore")
+        spawn.script(returncode=0)
+
+        response = TestClient(app).put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        assert response.status_code == 200
+        state_machine.broadcast.assert_awaited_once()
+        event = state_machine.broadcast.await_args.args[0]
+        assert isinstance(event, SystemTimezoneChanged)
+        assert (event.timezone, event.latitude, event.longitude) == ("Asia/Singapore", 1.2833, 103.85)
+
+    def test_a_helper_failure_broadcasts_nothing(self, systemd, spawn, localtime):
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        app = FastAPI()
+        app.include_router(create_system_router(systemd, state_machine=state_machine), prefix="/api/system")
+        localtime("Etc/UTC")
+        spawn.script(returncode=1, stderr=b"Unknown timezone")
+
+        TestClient(app).put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        state_machine.broadcast.assert_not_awaited()
+
     def test_a_helper_failure_is_a_500_and_not_a_success(self, client, spawn, localtime):
         localtime("Etc/UTC")
         spawn.script(returncode=1, stderr=b"Unknown timezone")
@@ -772,3 +813,56 @@ class TestTimezone:
         response = client.put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
 
         assert response.status_code == 500
+
+
+class TestDaylightLocation:
+    """`GET /api/system/daylight-location` — where the kiosk's automatic theme
+    reads sunset from."""
+
+    @pytest.fixture
+    def tables(self, tmp_path, monkeypatch):
+        """The two tz tables, relocated and written by the test."""
+        from backend.core.system import zone_coordinates
+
+        primary = tmp_path / "zone1970.tab"
+        legacy = tmp_path / "zone.tab"
+        primary.write_text(
+            "# comment\nFR,MC\t+4852+00220\tEurope/Paris\n"
+            "BE,LU,NL\t+5050+00420\tEurope/Brussels\n"
+        )
+        legacy.write_text("NL\t+5222+00454\tEurope/Amsterdam\n")
+        monkeypatch.setattr(zone_coordinates, "ZONE_TABLES", (str(primary), str(legacy)))
+
+    def test_the_zone_in_force_answers_with_its_point(self, client, localtime, tables):
+        """The zone is the one `/etc/localtime` follows, the same reading
+        `GET /timezone` makes — so the sun moves when the timezone does."""
+        localtime("Europe/Paris")
+
+        body = client.get("/api/system/daylight-location").json()
+
+        assert body == {
+            "status": "success",
+            "latitude": 48.8667,
+            "longitude": 2.3333,
+            "timezone": "Europe/Paris",
+        }
+
+    def test_a_zone_merged_out_of_zone1970_is_found_in_zone_tab(self, client, localtime, tables):
+        """Europe/Amsterdam is still a zone a user picks, but zone1970.tab
+        folded it into Brussels: without the second table the Netherlands
+        would never get a dark theme."""
+        localtime("Europe/Amsterdam")
+
+        body = client.get("/api/system/daylight-location").json()
+
+        assert (body["latitude"], body["longitude"]) == (52.3667, 4.9)
+
+    def test_a_zone_with_no_point_answers_nulls(self, client, localtime, tables):
+        """UTC has no city; the frontend reads null as always-day."""
+        localtime("Etc/UTC")
+
+        body = client.get("/api/system/daylight-location").json()
+
+        assert body["status"] == "success"
+        assert body["latitude"] is None and body["longitude"] is None
+        assert body["timezone"] == "Etc/UTC"

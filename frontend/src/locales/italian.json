@@ -290,7 +290,12 @@
     "uiScale": "Display",
     "uiScaleLevel": "Scala dell'interfaccia sul touchscreen di Milō",
     "colorFilter": "Filtro colore caldo",
-    "colorFilterWarmth": "Intensità"
+    "colorFilterWarmth": "Intensità",
+    "theme": "Tema",
+    "themeDescription": "Tema del touchscreen di Milō — Auto passa allo scuro dal tramonto all'alba",
+    "themeLight": "Chiaro",
+    "themeDark": "Scuro",
+    "themeAuto": "Auto"
   },
   "hardwareSettings": {
     "audioCard": "Scheda audio",

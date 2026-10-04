@@ -290,7 +290,12 @@
     "uiScale": "显示",
     "uiScaleLevel": "Milō 触摸屏上的界面缩放",
     "colorFilter": "暖色滤镜",
-    "colorFilterWarmth": "强度"
+    "colorFilterWarmth": "强度",
+    "theme": "主题",
+    "themeDescription": "Milō 触摸屏的主题 — 自动模式在日落至日出期间切换为深色",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeAuto": "自动"
   },
   "hardwareSettings": {
     "audioCard": "声卡",

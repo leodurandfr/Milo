@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
 const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'settings'];
@@ -149,6 +150,19 @@ export const useSettingsStore = defineStore('settings', () => {
     warmth: 50
   });
 
+  // light | dark | auto — read by the kiosk only (useTheme); every other
+  // browser follows its own system theme.
+  const screenTheme = ref({
+    theme: 'auto'
+  });
+
+  // The tz database's point for the unit's timezone, which `auto` reads its
+  // sunset from. Null coordinates (a zone with no city, e.g. UTC) = always day.
+  const daylightLocation = ref({
+    latitude: null,
+    longitude: null
+  });
+
   // === ACTIONS ===
 
   /**
@@ -219,6 +233,7 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(screenUiScale, d.screen_ui_scale);
 
         setIfChanged(screenColorFilter, d.screen_color_filter);
+        setIfChanged(screenTheme, d.screen_theme);
         setIfChanged(radioSettings, d.radio_settings);
         setIfChanged(musicLibrarySettings, d.music_library_settings);
         setIfChanged(qobuzSettings, d.qobuz_settings);
@@ -458,6 +473,30 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateScreenBrightness = makeUpdater(screenBrightness);
   const updateScreenScreensaver = makeUpdater(screenScreensaver);
   const updateScreenColorFilter = makeUpdater(screenColorFilter);
+  const updateScreenTheme = makeUpdater(screenTheme);
+
+  // Only the kiosk reads it (useTheme): every other browser follows its system
+  // theme. Kept current by system/timezone_changed, re-read on resync.
+  async function loadDaylightLocation() {
+    const result = await apiCall.get('/api/system/daylight-location', {
+      category: 'settings',
+      message: 'Error loading the daylight location',
+    });
+    if (result.ok) {
+      setIfChanged(daylightLocation, {
+        latitude: result.data.latitude,
+        longitude: result.data.longitude
+      });
+    }
+    return result.ok;
+  }
+
+  function handleTimezoneEvent(event) {
+    setIfChanged(daylightLocation, {
+      latitude: event.data.latitude,
+      longitude: event.data.longitude
+    });
+  }
 
   const updateScreenUiScale = makeUpdater(screenUiScale);
   const updateRadioSettings = makeUpdater(radioSettings);
@@ -485,6 +524,7 @@ export const useSettingsStore = defineStore('settings', () => {
       loadAllSettings(),
       loadBtRemoteStatus(),
       loadIrRemoteStatus(),
+      ...(isKiosk() ? [loadDaylightLocation()] : []),
     ]);
     return outcomes.every(Boolean);
   }
@@ -515,6 +555,8 @@ export const useSettingsStore = defineStore('settings', () => {
     screenScreensaver,
     screenUiScale,
     screenColorFilter,
+    screenTheme,
+    daylightLocation,
 
     // Actions
     loadAllSettings,
@@ -550,6 +592,9 @@ export const useSettingsStore = defineStore('settings', () => {
     updateScreenTimeout,
     updateScreenBrightness,
     updateScreenColorFilter,
+    updateScreenTheme,
+    loadDaylightLocation,
+    handleTimezoneEvent,
     updateScreenScreensaver,
     updateScreenUiScale
   };

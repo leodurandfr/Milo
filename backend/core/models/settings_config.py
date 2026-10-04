@@ -17,6 +17,8 @@ from typing import Dict, List
 
 from pydantic import BaseModel
 
+from backend.config.constants import SCREEN_THEMES
+
 
 class VolumeLimitsConfig(BaseModel):
     min_db: float
@@ -73,6 +75,10 @@ class ScreenUiScaleConfig(BaseModel):
 class ScreenColorFilterConfig(BaseModel):
     enabled: bool
     warmth: int
+
+
+class ScreenThemeConfig(BaseModel):
+    theme: SCREEN_THEMES
 
 
 class MacRocConfig(BaseModel):

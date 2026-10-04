@@ -24,6 +24,20 @@
           {{ option.name }}
         </button>
       </div>
+      <div class="canvas-host__switch" data-gallery-theme>
+        <button
+          v-for="option in THEMES"
+          :key="option.value"
+          v-press
+          type="button"
+          class="canvas-host__preset text-mono-small"
+          :class="{ 'canvas-host__preset--active': option.value === theme }"
+          :data-theme-option="option.value"
+          @click="theme = option.value"
+        >
+          {{ option.name }}
+        </button>
+      </div>
       <span class="canvas-host__size text-mono-small">
         {{ activeViewport.label }}<template v-if="scale < 1"> · {{ Math.round(scale * 100) }}%</template>
       </span>
@@ -114,6 +128,17 @@ const VIEWPORTS = [
   { value: 'phone', name: 'Phone', label: '390 × 844 — below 4:3', width: 390, height: 844 }
 ];
 
+/**
+ * The canvas document's theme, so A2/A3 can read every primitive in both. It
+ * sets `data-theme` inside the iframe only: the gallery around it stays as it
+ * is, which keeps the controls readable whatever is being judged.
+ */
+const THEMES = [
+  { value: 'light', name: 'Light' },
+  { value: 'dark', name: 'Dark' }
+];
+const theme = ref('light');
+
 // Follows the default only when the default itself changes — i.e. on crossing
 // between a primitive and a source page. A preset the reader picked by hand
 // survives every other selection, which is what a switcher is for.
@@ -181,6 +206,16 @@ function plain(value) {
   }
 }
 
+function sendTheme() {
+  if (!frameReady.value || !frame.value?.contentWindow) return;
+  frame.value.contentWindow.postMessage(
+    { source: 'milo-gallery', type: 'theme', theme: theme.value },
+    window.location.origin
+  );
+}
+
+watch(theme, sendTheme);
+
 function send() {
   if (!frameReady.value || !frame.value?.contentWindow) return;
   frame.value.contentWindow.postMessage(
@@ -211,6 +246,7 @@ defineExpose({ runAction });
 function handleLoad() {
   // The iframe announces itself with `ready`; this only covers a reload that
   // races ahead of the listener below.
+  sendTheme();
   send();
 }
 
@@ -221,6 +257,7 @@ function handleMessage(event) {
 
   if (data.type === 'ready') {
     frameReady.value = true;
+    sendTheme();
     send();
   } else if (data.type === 'event') {
     emit('event', { name: data.name, arg: data.arg });

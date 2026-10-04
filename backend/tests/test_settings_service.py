@@ -225,6 +225,17 @@ class TestSettingsService:
         })
         assert result['screen']['timeout_seconds'] == 3
 
+    @pytest.mark.parametrize("stored", ["sepia", "", None, ["dark"]])
+    def test_validate_and_merge_an_unknown_theme_falls_back_to_the_default(self, service, stored):
+        """A theme no token block answers would leave the kiosk with no
+        `data-theme` the CSS knows; a list must not raise on the lookup."""
+        result = service._validate_and_merge({'screen': {'theme': stored}})
+        assert result['screen']['theme'] == service.defaults['screen']['theme']
+
+    def test_validate_and_merge_keeps_a_known_theme(self, service):
+        result = service._validate_and_merge({'screen': {'theme': 'dark'}})
+        assert result['screen']['theme'] == 'dark'
+
     def test_validate_and_merge_audio_stop_zero(self, service):
         """Global auto-stop delay validation test with 0 = disabled"""
         # Delay at 0 (disabled)

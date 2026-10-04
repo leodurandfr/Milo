@@ -32,6 +32,7 @@ from backend.api.models import (
     ScreenScreensaverRequest,
     ScreenUiScaleRequest,
     ScreenColorFilterRequest,
+    ScreenThemeRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
     MusicLibrarySettingsRequest,
@@ -67,6 +68,8 @@ from backend.core.models.ws_events import (
     ScreenColorFilterConfig,
     ScreenScreensaverChanged,
     ScreenScreensaverConfig,
+    ScreenThemeChanged,
+    ScreenThemeConfig,
     ScreenTimeoutChanged,
     ScreenTimeoutConfig,
     ScreenUiScaleChanged,
@@ -230,6 +233,7 @@ def create_settings_router(
                 "enabled": screen['color_filter_enabled'],
                 "warmth": screen['color_filter_warmth']
             },
+            "screen_theme": {"theme": screen['theme']},
             "radio_settings": {"shazam_enabled": all_settings['radio']['shazam_enabled']},
             "music_library_settings": {
                 "separate_storages": all_settings['music_library']['separate_storages']
@@ -642,6 +646,14 @@ def create_settings_router(
         return await _handle_setting_update(
             setter=setter,
             event=ScreenColorFilterChanged(config=ScreenColorFilterConfig(**config))
+        )
+
+    # Kiosk theme
+    @router.put("/screen-theme")
+    async def set_screen_theme(payload: ScreenThemeRequest):
+        return await _handle_setting_update(
+            setter=lambda: settings.set_setting('screen.theme', payload.theme),
+            event=ScreenThemeChanged(config=ScreenThemeConfig(theme=payload.theme))
         )
 
     @router.post("/screen-activity")

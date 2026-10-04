@@ -35,6 +35,7 @@ from backend.core.models.settings_config import (
     ScreenBrightnessConfig,
     ScreenColorFilterConfig,
     ScreenScreensaverConfig,
+    ScreenThemeConfig,
     ScreenTimeoutConfig,
     ScreenUiScaleConfig,
     SpotifySettingsConfig,
@@ -195,6 +196,7 @@ class BulkSettingsResponse(BaseModel):
     screen_ui_scale: ScreenUiScaleConfig
     screen_screensaver: ScreenScreensaverConfig
     screen_color_filter: ScreenColorFilterConfig
+    screen_theme: ScreenThemeConfig
     radio_settings: RadioSettingsConfig
     music_library_settings: MusicLibrarySettingsConfig
     qobuz_settings: QobuzSettingsConfig
