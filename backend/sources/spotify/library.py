@@ -118,9 +118,8 @@ class SpotifyLibrary:
     async def fetch_profile(self, username: str) -> Optional[Dict[str, Optional[str]]]:
         """What Spotify's profile service says of the account, with the
         signed-in session's token — so only for the account signed in now — as
-        the identity fields it answered (`spotify_name`, and `avatar_url` /
-        `color` when the answer carries them: a field it left out is no
-        statement about it). None when anything fails, or when the answer does
+        the identity fields it answered (`spotify_name`, and `avatar_url` when
+        the answer carries it: a field it left out is no statement about it). None when anything fails, or when the answer does
         not name the account, which every real one does."""
         internet = self._internet
         if internet is None or internet.closed:
@@ -148,13 +147,5 @@ class SpotifyLibrary:
         identity = {"spotify_name": profile["name"]}
         if "image_url" in profile:
             identity["avatar_url"] = profile["image_url"] or None
-        if "color" in profile:
-            identity["color"] = _color(profile["color"])
         return identity
 
-
-def _color(value: Any) -> Optional[str]:
-    """The profile's color, an RGB integer, as #rrggbb."""
-    if isinstance(value, int) and 0 <= value <= 0xFFFFFF:
-        return f"#{value:06x}"
-    return None

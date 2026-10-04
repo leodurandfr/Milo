@@ -26,7 +26,7 @@ PLAYLIST = "spotify:playlist:3G1Qd5iTuEjDBCgpqciOpv"
 @pytest.fixture
 async def world(monkeypatch, tmp_path):
     w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
-    w.identities[ACCOUNT] = {"name": "Léo", "image_url": "https://i.scdn.co/image/leo", "color": 0x509BF5,
+    w.identities[ACCOUNT] = {"name": "Léo", "image_url": "https://i.scdn.co/image/leo",
                              "has_spotify_image": True}
     await w.select()
     await w.idle()
@@ -53,7 +53,7 @@ async def test_the_signed_in_account_is_kept_with_its_spotify_identity(world):
 async def test_a_picture_changed_in_spotify_reaches_the_profile_at_the_next_sign_in(world, caplog):
     """Read once, a profile kept its first picture for good; it is read again
     at every sign-in, and a read that fails keeps what was kept."""
-    world.identities[ACCOUNT] = {"name": "Léo", "image_url": "https://i.scdn.co/image/new", "color": 0x509BF5}
+    world.identities[ACCOUNT] = {"name": "Léo", "image_url": "https://i.scdn.co/image/new"}
     await world.leave()
     await world.select()
     await world.idle()
@@ -79,7 +79,6 @@ async def test_an_answer_that_leaves_a_field_out_keeps_what_was_kept(world):
     await world.idle()
     assert kept(world)[ACCOUNT]["spotify_name"] == "Léo B."
     assert kept(world)[ACCOUNT]["avatar_url"] == "https://i.scdn.co/image/leo"
-    assert kept(world)[ACCOUNT]["color"] == "#509bf5"
 
     world.identities[ACCOUNT] = {"image_url": None}
     await world.leave()

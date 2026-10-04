@@ -158,7 +158,7 @@ class Librespot:
         self.listing_calls: Dict[str, int] = {}
         self.liked: set = set()
         # Spotify's profile service (spclient user-profile-view): the answer
-        # per account, as measured ({name, image_url, color: int, ...}); None
+        # per account, as measured ({name, image_url, ...}); None
         # answers 503.
         self.profile_answers: Dict[str, Optional[Dict[str, Any]]] = {}
         self.closed = False

@@ -1,5 +1,5 @@
 <template>
-  <div class="profile-avatar" :style="{ '--avatar-size': `${size}px`, '--avatar-tint': tint }">
+  <div class="profile-avatar" :style="{ '--avatar-size': `${size}px` }">
     <LazyImage v-if="profile.avatar_url" :src="profile.avatar_url" :alt="profile.name" class="avatar-image" />
     <span v-else class="avatar-initial heading-2" aria-hidden="true">{{ initial }}</span>
   </div>
@@ -10,7 +10,7 @@ import { computed } from 'vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 
 const props = defineProps({
-  // { name, avatar_url, color } — color is the profile's own, from Spotify.
+  // { name, avatar_url }
   profile: {
     type: Object,
     required: true,
@@ -22,8 +22,6 @@ const props = defineProps({
 });
 
 const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUpperCase());
-// Spotify gives each profile a color; without one the tile stays neutral.
-const tint = computed(() => props.profile.color || 'var(--color-background-strong)');
 </script>
 
 <style scoped>
@@ -37,7 +35,7 @@ const tint = computed(() => props.profile.color || 'var(--color-background-stron
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--avatar-tint);
+  background: var(--color-background-strong);
 }
 
 .avatar-image {

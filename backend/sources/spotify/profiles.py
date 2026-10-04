@@ -39,7 +39,6 @@ class SpotifyProfiles:
                 "name": profile["name"] or profile["spotify_name"] or username,
                 "spotify_name": profile["spotify_name"],
                 "avatar_url": profile["avatar_url"],
-                "color": profile["color"],
                 "stale": profile["stale"],
             }
             for username, profile in ordered
@@ -66,7 +65,7 @@ class SpotifyProfiles:
             new = profile is None
             if new:
                 profile = self._profiles[username] = {
-                    "name": None, "spotify_name": None, "avatar_url": None, "color": None,
+                    "name": None, "spotify_name": None, "avatar_url": None,
                     "added_at": time.time(),
                 }
             profile.update(credentials=credentials, stale=False)
@@ -74,7 +73,7 @@ class SpotifyProfiles:
             return new
 
     async def set_identity(self, username: str, identity: Dict[str, Optional[str]]) -> None:
-        """Take what Spotify answered (`spotify_name`, `avatar_url`, `color`):
+        """Take what Spotify answered (`spotify_name`, `avatar_url`):
         a field it left out keeps what was kept."""
         async with self._lock:
             profile = self._profiles.get(username)
