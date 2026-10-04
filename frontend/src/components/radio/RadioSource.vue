@@ -7,10 +7,10 @@
       <AudioSourceLayout :show-player="shouldShowNowPlayingLayout"
         :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
         :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
-        :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
+        :content-key="isSearchMode ? 'search' : 'favorites'" header-icon="radio"
         :player-mobile-height="144" gradient="radio" @header-back="closeSearch">
-        <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
-          <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
+        <template v-if="!isSearchMode" #header-actions>
+          <IconButton icon="search" @click="openSearch" />
         </template>
 
         <!-- Content slot: scrollable views -->
@@ -45,7 +45,7 @@
             <!-- The station's favorite over the cover's corner, opposite the
                  expand button. -->
             <template #artwork-action>
-              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-grey" size="small"
+              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-image" size="small"
                 :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </template>
           </AudioPlayer>
@@ -55,7 +55,7 @@
 
     <!-- The station's favorite is not a command, so it is this source's to add. -->
     <template #top-end>
-      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="background-strong" size="medium"
+      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="control" size="medium"
         :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
     </template>
   </BrowserSourceViews>

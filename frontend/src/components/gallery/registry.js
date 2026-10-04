@@ -30,7 +30,7 @@
  *             the current args — a translucent variant drawn for a dark backdrop
  *             is illegible on the light stage, which is how a variant gets read
  *             as broken. It returns a tone CanvasApp.vue declares a class for
- *             ('contrast', 'medium'), or nothing for the default light stage, and
+ *             ('contrast', 'image'), or nothing for the default stage, and
  *             it splits the same way the Variants tab's strips do, so a variant
  *             is judged against one surface on both tabs.
  *
@@ -372,30 +372,22 @@ export const REGISTRY = {
     args: { variant: 'brand' },
     slots: { default: 'Button' },
     overrides: { leftIcon: OPTIONAL_ICON },
-    // Six of the eight variants are self-coloured; the two translucent plates
-    // need a backdrop to show at all — `on-dark` is white on white, and
-    // `on-grey` is the dark plate the app puts over artwork, so it wants the
-    // mid tone rather than the dark one (IconButton splits the same way).
-    surface: args => {
-      if (args.variant === 'on-grey') return 'medium';
-      return args.variant === 'on-dark' ? 'contrast' : null;
-    }
+    // Six of the seven variants are self-coloured; `on-contrast` is a white
+    // glint, white on white without the contrast surface it is drawn for.
+    surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 
   IconButton: {
     component: IconButton,
     args: { icon: 'play' },
     overrides: { icon: REQUIRED_ICON },
-    // `on-grey` is the translucent dark plate the app puts over artwork, so its
-    // backdrop is a mid tone rather than a dark one — the split ActionsDemo's two
-    // strips make.
+    // `on-image` is the translucent dark plate the app puts over artwork, so its
+    // backdrop is the artwork stand-in rather than the contrast surface — the
+    // split ActionsDemo's strips make. A ghost inherits its ink, so it reads on
+    // the default stage.
     surface: args => {
-      if (args.variant === 'on-grey') return 'medium';
-      // `tone` names the ground the caller promises, so the strip has to honour
-      // it — a dark-toned glass plate shown on the light strip is the exact
-      // mismatch it exists to fix.
-      if (args.tone === 'dark') return 'contrast';
-      return ['on-dark', 'ghost'].includes(args.variant) ? 'contrast' : null;
+      if (args.variant === 'on-image') return 'image';
+      return ['on-contrast', 'glass-on-contrast'].includes(args.variant) ? 'contrast' : null;
     }
   },
 
@@ -404,7 +396,7 @@ export const REGISTRY = {
     args: { modelValue: 'medium', options: SELECT_OPTIONS },
     overrides: {
       modelValue: { kind: 'enum', options: SELECT_OPTIONS.map(option => option.value) },
-      inactiveVariant: { kind: 'enum', options: ['outline-neutral', 'background-neutral'] }
+      inactiveVariant: { kind: 'enum', options: ['outline-neutral', 'surface'] }
     }
   },
 
@@ -537,13 +529,13 @@ export const REGISTRY = {
     },
     overrides: {
       icon: OPTIONAL_ICON,
-      variant: { kind: 'enum', options: ['default', 'dark'] },
-      ctaVariant: { kind: 'enum', options: ['brand', 'background-strong', 'outline', 'important'] },
-      ctaSecondaryVariant: { kind: 'enum', options: ['background-strong', 'brand', 'outline', 'important'] }
+      variant: { kind: 'enum', options: ['default', 'on-contrast'] },
+      ctaVariant: { kind: 'enum', options: ['brand', 'control', 'outline', 'important'] },
+      ctaSecondaryVariant: { kind: 'enum', options: ['control', 'brand', 'outline', 'important'] }
     },
-    // `dark` drops the card and colours every line white, for the blurred artwork
-    // the Lyrics view lays it over.
-    surface: args => (args.variant === 'dark' ? 'contrast' : null)
+    // `on-contrast` drops the card and colours every line white, for the blurred
+    // artwork the Lyrics view lays it over.
+    surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 
   LazyImage: {
@@ -557,7 +549,7 @@ export const REGISTRY = {
     slots: {
       default: {
         none: null,
-        'IconButton — a play badge': { component: IconButton, props: { icon: 'play', variant: 'on-grey' } }
+        'IconButton — a play badge': { component: IconButton, props: { icon: 'play', variant: 'on-image' } }
       }
     }
   },
@@ -615,13 +607,10 @@ export const REGISTRY = {
       icon: 'The icon is the header\u2019s other lead-in, so it is drawn only while showBack is off.',
       titleMuted: 'Only the single-line title is muted \u2014 with a subtitle set, the pair replaces it.'
     },
-    // The slot hands down the icon variant matching the header's own — a scoped
-    // prop the canvas cannot pass to a fixed choice, so the variant is pinned
-    // here and the Variants tab is where that wiring is shown.
     slots: {
       actions: {
         none: null,
-        'IconButton — search': { component: IconButton, props: { icon: 'search', variant: 'on-dark' } }
+        'IconButton — search': { component: IconButton, props: { icon: 'search' } }
       }
     }
   },
@@ -682,9 +671,9 @@ export const REGISTRY = {
         apply: (value, stores) => { stores.settings.volumeLimits.max_db = value; }
       }
     },
-    // `dark` is the white-fill variant App.vue picks for the Lyrics view — on
-    // the light stage its fill is white on white.
-    surface: args => (args.variant === 'dark' ? 'contrast' : null)
+    // `on-contrast` is the white-fill variant App.vue picks for a dark ground —
+    // on the default stage its fill is white on white.
+    surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 
   VirtualKeyboard: {
@@ -706,9 +695,9 @@ export const REGISTRY = {
     component: ProgressBar,
     // Milliseconds, the wire convention the component documents: 3:12 of 4:05.
     args: { currentPosition: 192000, duration: 245000, progressPercentage: 78.4 },
-    // `dark` is the light-fill variant drawn for the surfaces over artwork — on
-    // the light stage its fill is white on white.
-    surface: args => (args.variant === 'dark' ? 'contrast' : null)
+    // `on-contrast` is the light-fill variant drawn for the surfaces over
+    // artwork — on the default stage its fill is white on white.
+    surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 
   PlayerTransport: {
@@ -728,12 +717,12 @@ export const REGISTRY = {
     slots: {
       start: {
         'IconButton — back to the navigation': {
-          component: IconButton, props: { icon: 'minified', variant: 'background-strong', size: 'medium' }
+          component: IconButton, props: { icon: 'minified', variant: 'control', size: 'medium' }
         },
         none: null
       },
       end: {
-        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'background-strong', size: 'medium' } },
+        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'control', size: 'medium' } },
         none: null
       }
     }
@@ -812,7 +801,7 @@ export const REGISTRY = {
         none: null,
         'IconButton — the playlist Edit affordance': {
           component: IconButton,
-          props: { icon: 'threeDots', variant: 'on-dark', size: 'small' }
+          props: { icon: 'threeDots', variant: 'on-contrast', size: 'small' }
         }
       }
     }
@@ -843,7 +832,7 @@ export const REGISTRY = {
       // expand button's plate. The desktop card only.
       'artwork-action': {
         none: null,
-        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'on-grey', size: 'small' } }
+        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'on-image', size: 'small' } }
       }
     }
   },
@@ -866,12 +855,12 @@ export const REGISTRY = {
       // tracklist itself replaces the info column while hideContent is set.
       'top-start': {
         none: null,
-        'IconButton — CD’s tracklist': { component: IconButton, props: { icon: 'queue', variant: 'background-strong', size: 'medium' } }
+        'IconButton — CD’s tracklist': { component: IconButton, props: { icon: 'queue', variant: 'control', size: 'medium' } }
       },
       'top-end': {
         none: null,
-        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'background-strong', size: 'medium' } },
-        'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'background-strong', size: 'medium' } }
+        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'control', size: 'medium' } },
+        'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'control', size: 'medium' } }
       },
       'content-replace': {
         'FillerBlock — CD’s tracklist': {
@@ -981,7 +970,7 @@ export const REGISTRY = {
         none: null,
         'IconButton — favourite': {
           component: IconButton,
-          props: { icon: 'heart', variant: 'background-strong', size: 'small' }
+          props: { icon: 'heart', variant: 'control', size: 'small' }
         }
       }
     }

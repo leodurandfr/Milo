@@ -62,7 +62,7 @@
              whole (a tap anywhere opens the full player, which carries the
              heart). -->
         <template v-if="!isMobile">
-          <IconButton class="player-expand" icon="expand" variant="on-grey" size="small"
+          <IconButton class="player-expand" icon="expand" variant="on-image" size="small"
             :aria-label="t('common.expandPlayer')" @click.stop="$emit('expand')" />
           <div v-if="$slots['artwork-action']" class="player-artwork-action" @click.stop>
             <slot name="artwork-action"></slot>
@@ -342,7 +342,7 @@ function onTouchEnd(e) {
   flex-direction: column;
   gap: var(--space-04);
   padding: 0 var(--space-02);
-  background: var(--color-background-medium-32);
+  background: var(--color-glass-strong);
   border-radius: var(--radius-06);
   backdrop-filter: blur(var(--blur-02));
   -webkit-backdrop-filter: blur(var(--blur-02));
@@ -389,7 +389,7 @@ function onTouchEnd(e) {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--color-veil-on-image);
+  background: var(--color-image-veil);
   z-index: 1;
   pointer-events: none;
 }
@@ -460,7 +460,7 @@ function onTouchEnd(e) {
   height: 100%;
   border-radius: var(--radius-04);
   object-fit: cover;
-  background: var(--color-background-neutral);
+  background: var(--color-skeleton);
   /* Clip the inline-SVG fallback to the rounded corners. (For <img>, content
      is clipped natively by border-radius — this matters only for the <div>
      wrapper case.) */
@@ -506,11 +506,11 @@ img.player-artwork.loaded {
 }
 
 .carousel-title {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 .carousel-subtitle {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
 }
 
 /* Mobile: Horizontal bottom panel layout */

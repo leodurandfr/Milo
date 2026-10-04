@@ -34,7 +34,7 @@ const genreImage = computed(() => genreArtwork(props.value))
   flex-direction: column;
   gap: var(--space-03);
   padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-04);
   cursor: pointer;
 }

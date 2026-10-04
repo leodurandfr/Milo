@@ -7,7 +7,7 @@
     <template #navigation="{ bar }">
       <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
         :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="currentView === 'context'"
-        header-icon="spotify" header-variant="background-neutral" gradient="spotify"
+        header-icon="spotify" gradient="spotify"
         :header-actions-key="currentView" :content-key="contentKey"
         :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
         @header-back="back" @scroll-restored="onScrollRestored">
@@ -40,7 +40,7 @@
             @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
             <!-- The like over the cover's corner, opposite the expand button. -->
             <template #artwork-action>
-              <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="on-grey" size="small"
+              <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="on-image" size="small"
                 :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
                 @click="store.toggleCurrentLike()" />
             </template>
@@ -52,7 +52,7 @@
     <!-- The like is not a command, so it is this source's to add; the album and
          the artist open in the navigation behind the player. -->
     <template #top-end>
-      <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="background-strong" size="medium"
+      <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="control" size="medium"
         :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
         @click="store.toggleCurrentLike()" />
     </template>

@@ -2,11 +2,13 @@
      Positions and durations are ALWAYS milliseconds, the wire convention
      (`position_ms`), so no caller converts on the way in or out; `seek` is
      emitted in ms too.
-       - variant "light" (default): dark fill on a light surface — the standard
-         player card. The fill drops to -32 when the bar is not interactive
-         (a source that cannot seek) — not for a short load, see `loading`.
-       - variant "dark": light fill, for the always-dark surfaces that render
-         over artwork (lyrics bar, mini-player cards).
+       - variant "default": the strong fill on a track, on any panel — the full
+         player. The fill drops to the muted one when the bar is not
+         interactive (a source that cannot seek) — not for a short load, see
+         `loading`.
+       - variant "on-contrast": the light fill, for the surfaces that are dark
+         in both themes and render over artwork (lyrics bar, the playing bar's
+         card).
      Self-hides when the source reports no duration (e.g. Qobuz, radio). -->
 
 <template>
@@ -56,8 +58,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'light',
-    validator: (v) => ['light', 'dark'].includes(v)
+    default: 'default',
+    validator: (v) => ['default', 'on-contrast'].includes(v)
   },
   // Spring rise + fade on mount, for the surfaces whose whole player stages in
   // (AudioPlayerFull, lyrics bar). Off for bars that are already
@@ -174,31 +176,31 @@ function onProgressClick(event) {
 
 /* === Variants === */
 
-.progress-bar--light .progress-container {
-  background-color: var(--color-background-strong);
+.progress-bar--default .progress-container {
+  background-color: var(--color-track);
 }
 
-.progress-bar--light .progress {
-  background-color: var(--color-fill-strong);
+.progress-bar--default .progress {
+  background-color: var(--color-fill);
 }
 
-.progress-bar--light .progress-container.dimmed .progress {
-  background-color: var(--color-background-contrast-32);
+.progress-bar--default .progress-container.dimmed .progress {
+  background-color: var(--color-fill-muted);
 }
 
-.progress-bar--light .time {
-  color: var(--color-text-light);
+.progress-bar--default .time {
+  color: var(--color-text-tertiary);
 }
 
-.progress-bar--dark .progress-container {
-  background-color: var(--color-background-neutral-12);
+.progress-bar--on-contrast .progress-container {
+  background-color: var(--color-glint);
 }
 
-.progress-bar--dark .progress {
-  background-color: var(--color-fill-contrast);
+.progress-bar--on-contrast .progress {
+  background-color: var(--color-fill-on-contrast);
 }
 
-.progress-bar--dark .time {
-  color: var(--color-text-contrast-50);
+.progress-bar--on-contrast .time {
+  color: var(--color-text-on-contrast-secondary);
 }
 </style>

@@ -290,7 +290,7 @@
     "colorFilter": "暖色滤镜",
     "colorFilterWarmth": "强度",
     "theme": "主题",
-    "themeDescription": "Milō 触摸屏的主题 — 自动模式在日落至日出期间切换为深色",
+    "themeDescription": "Milō 在所有屏幕上的主题 — 自动模式在日落至日出期间切换为深色",
     "themeLight": "浅色",
     "themeDark": "深色",
     "themeAuto": "自动"

@@ -42,7 +42,7 @@ defineEmits(['dismiss']);
   max-width: 400px;
   z-index: 7500;
   padding: var(--space-03) var(--space-04) var(--space-04) var(--space-04);
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
   border-radius: var(--radius-04);
   display: flex;
   flex-direction: column;
@@ -57,12 +57,12 @@ defineEmits(['dismiss']);
 }
 
 .notification-title {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
   white-space: nowrap;
 }
 
 .notification-detail {
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-contrast-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
@@ -80,7 +80,7 @@ defineEmits(['dismiss']);
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
   cursor: pointer;
   border-radius: var(--radius-01);
   transition: color var(--transition-fast), background var(--transition-fast);
@@ -88,7 +88,7 @@ defineEmits(['dismiss']);
 }
 
 .dismiss-btn:hover {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 /* Slide-in animation from top */

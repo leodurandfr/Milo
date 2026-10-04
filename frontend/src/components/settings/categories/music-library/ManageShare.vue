@@ -269,7 +269,7 @@ async function handleRemove() {
 }
 
 .share-form__hint {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .share-form__note {

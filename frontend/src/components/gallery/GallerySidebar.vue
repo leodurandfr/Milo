@@ -139,7 +139,7 @@ const visibleGroups = computed(() => {
   height: 100%;
   padding: var(--space-03);
   overflow-y: auto;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
 }
 
 .sidebar__head {
@@ -149,7 +149,7 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__back {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   text-decoration: none;
 }
 
@@ -160,7 +160,7 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__group-title {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   text-transform: uppercase;
 }
 
@@ -189,7 +189,7 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__item--active {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
   background: var(--color-brand);
 }
 
@@ -198,7 +198,7 @@ const visibleGroups = computed(() => {
   box-sizing: border-box;
   padding: var(--space-01) var(--space-02);
   color: var(--color-text);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
 }
@@ -208,6 +208,6 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__empty {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 </style>

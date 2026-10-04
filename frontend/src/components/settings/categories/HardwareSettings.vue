@@ -25,7 +25,6 @@
           <ListItemButton
             v-if="isDacCard"
             :title="t('volumeSettings.volumeManagement')"
-            variant="background"
             action="toggle"
             :model-value="config.volume_control"
             @click="toggleVolumeControl"

@@ -22,7 +22,7 @@
               <Button v-if="!podcast.is_subscribed" variant="brand" size="small" @click="handleSubscribe">
                 {{ t('podcasts.subscribe') }}
               </Button>
-              <Button v-else variant="on-dark" size="small" @click="handleUnsubscribe">
+              <Button v-else variant="on-contrast" size="small" @click="handleUnsubscribe">
                 {{ t('podcasts.unsubscribe') }}
               </Button>
             </template>

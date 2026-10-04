@@ -7,7 +7,7 @@
     <div class="station-action-menu-region"
       :class="{ 'station-action-menu-region--open': showActionMenu && actionIcon }">
       <div class="station-action-menu-items">
-        <ListItemButton v-if="actionIcon" :title="actionTitle" @click="$emit('confirm-action')">
+        <ListItemButton v-if="actionIcon" :title="actionTitle" variant="glass" @click="$emit('confirm-action')">
           <template #icon>
             <SvgIcon :name="actionIcon" :size="40" />
           </template>
@@ -84,7 +84,6 @@
       <ListItemButton
         class="shazam-toggle"
         :title="t('radio.manageStation.shazamEnabled')"
-        variant="background"
         action="toggle"
         :model-value="formData.shazam_enabled"
         :disabled="!globalShazamEnabled"
@@ -490,10 +489,6 @@ async function handleAddSubmit() {
   padding-bottom: var(--space-02);
 }
 
-.station-action-menu-items :deep(.list-item-button) {
-  background: var(--color-background-neutral-50);
-}
-
 .station-form {
   display: flex;
   flex-direction: column;
@@ -553,7 +548,7 @@ async function handleAddSubmit() {
   width: 76px;
   height: 76px;
   border-radius: var(--radius-03);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .file-input {
@@ -564,7 +559,7 @@ async function handleAddSubmit() {
 .error-message {
   padding: var(--space-03);
   background: var(--color-error-subtle);
-  border: 2px solid rgba(244, 67, 54, 0.3);
+  border: 2px solid color-mix(in srgb, var(--color-error) 30%, transparent);
   border-radius: var(--radius-04);
   color: var(--color-error);
 }

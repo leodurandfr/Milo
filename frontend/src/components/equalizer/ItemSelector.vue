@@ -153,7 +153,7 @@ defineExpose({ selectedZoneName, selectedClientIds });
 }
 
 .settings-section {
-  background: var(--color-background-neutral);
+  background: var(--color-panel);
   border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
 }
@@ -195,20 +195,20 @@ defineExpose({ selectedZoneName, selectedClientIds });
   white-space: nowrap;
   transition: background-color var(--transition-fast), color var(--transition-fast);
   /* Inactive state - outline */
-  background-color: var(--color-background-neutral);
+  background-color: var(--color-surface);
   color: var(--color-brand);
   box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .tab-button--active {
   background-color: var(--color-brand);
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
   box-shadow: none;
 }
 
 .tab-button--disabled {
-  background-color: var(--color-background);
-  color: var(--color-text-light);
+  background-color: var(--color-inset);
+  color: var(--color-text-tertiary);
   box-shadow: none;
   cursor: not-allowed;
 }

@@ -6,9 +6,9 @@
       @back="back">
       <template v-if="hasHeaderActions" #actions>
         <button v-if="showPowerToggle" v-press class="power-toggle" @click="togglePowerMenu">
-          <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
+          <SvgIcon name="power" size="large" color="var(--color-text)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
-          <SvgIcon name="caretUp" size="large" color="var(--color-text-contrast)"
+          <SvgIcon name="caretUp" size="large" color="var(--color-text)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': !showPowerMenu }" />
         </button>
         <Toggle v-if="showMultiroomToggle" :model-value="isMultiroomActive"
@@ -17,7 +17,7 @@
           @change="handleBtRemoteToggle" />
         <Toggle v-if="showIrRemoteToggle" :model-value="settingsStore.irRemote.enabled"
           @change="handleIrRemoteToggle" />
-        <IconButton v-if="stationActionIcon" :icon="stationActionIcon" variant="on-dark"
+        <IconButton v-if="stationActionIcon" :icon="stationActionIcon"
           @click="toggleStationActionMenu" />
       </template>
     </NavigationHeader>
@@ -28,7 +28,7 @@
       <div v-if="currentView === 'home'" key="home" class="view-content home-view">
         <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
             <div class="power-menu-items">
-              <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" @click="runPowerAction(action)">
+              <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" variant="glass" @click="runPowerAction(action)">
                 <template #icon>
                   <span class="settings-tile" v-html="SETTINGS_ICONS[action.icon]"></span>
                 </template>
@@ -46,7 +46,7 @@
           <div v-for="section in visibleSections" :key="section.key" class="home-group">
             <span class="text-body settings-home-section-title">{{ t(section.titleKey) }}</span>
             <div class="settings-nav-grid">
-              <ListItemButton v-for="row in section.rows" :key="row.view" variant="background"
+              <ListItemButton v-for="row in section.rows" :key="row.view"
                 :title="t(row.titleKey)" action="caret" @click="push(row.view)">
                 <template #icon>
                   <span class="settings-tile" v-html="SETTINGS_ICONS[row.icon]"></span>
@@ -750,7 +750,7 @@ onMounted(async () => {
   place-items: center;
   width: 48px;
   height: 48px;
-  background: var(--color-background-neutral-12);
+  background: var(--color-control);
   border: none;
   border-radius: var(--radius-04);
   cursor: pointer;
@@ -793,10 +793,6 @@ onMounted(async () => {
   padding-bottom: var(--space-02);
 }
 
-.power-menu-items :deep(.list-item-button) {
-  background: var(--color-background-neutral-50);
-}
-
 /* Power button text crossfade */
 .power-text-crossfade {
   display: grid;
@@ -825,7 +821,7 @@ onMounted(async () => {
   display: flex;
   width: 100%;
   height: 100%;
-  background: var(--color-background-neutral);
+  background: var(--color-tile);
   color: var(--color-tile-glyph);
 }
 

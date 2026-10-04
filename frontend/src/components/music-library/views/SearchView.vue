@@ -3,7 +3,7 @@
     <InputText
       v-model="store.searchTerm"
       :placeholder="t('musicLibrary.searchPlaceholder')"
-      variant="background-neutral"
+      variant="plain"
       icon="search"
       @update:modelValue="onInput"
     />

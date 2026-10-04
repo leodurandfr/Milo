@@ -103,7 +103,7 @@ function handleSettingsClick() {
 
 <style scoped>
 .main-view {
-  background: var(--color-background);
+  background: var(--color-ground);
   height: 100%;
   position: relative;
 }

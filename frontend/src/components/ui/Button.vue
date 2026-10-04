@@ -15,8 +15,8 @@ import LoadingSpinner from './LoadingSpinner.vue'
 const props = defineProps({
     variant: {
         type: String,
-        default: 'background-strong',
-        validator: (value) => ['background-strong', 'background-neutral', 'brand', 'on-dark', 'on-grey', 'outline', 'outline-neutral', 'important'].includes(value)
+        default: 'control',
+        validator: (value) => ['control', 'surface', 'brand', 'on-contrast', 'outline', 'outline-neutral', 'important'].includes(value)
     },
     size: {
         type: String,
@@ -135,99 +135,86 @@ function handleClick(event) {
     --spinner-size: 24px;
 }
 
-/* === BACKGROUND-STRONG variant === */
-.btn--background-strong.btn--normal {
-    background-color: var(--color-background-strong);
+/* === CONTROL variant === */
+.btn--control.btn--normal {
+    background-color: var(--color-control);
     color: var(--color-text);
 }
 
-.btn--background-strong.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
+.btn--control.btn--disabled {
+    background-color: var(--color-inset);
+    color: var(--color-text-tertiary);
 }
 
-/* === BACKGROUND-NEUTRAL variant (white fill, no border) === */
-.btn--background-neutral.btn--normal {
-    background-color: var(--color-background-neutral);
+/* === SURFACE variant (the panel's fill, no border) === */
+.btn--surface.btn--normal {
+    background-color: var(--color-surface);
     color: var(--color-text-secondary);
 }
 
-.btn--background-neutral.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
+.btn--surface.btn--disabled {
+    background-color: var(--color-inset);
+    color: var(--color-text-tertiary);
 }
 
 /* === BRAND variant === */
 .btn--brand.btn--normal {
     background-color: var(--color-brand);
-    color: var(--color-text-contrast);
+    color: var(--color-text-on-brand);
 }
 
 .btn--brand.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
+    background-color: var(--color-inset);
+    color: var(--color-text-tertiary);
 }
 
-/* === ON-DARK variant (light button for dark backgrounds) === */
-.btn--on-dark.btn--normal {
-    background-color: var(--color-background-neutral-12);
-    color: var(--color-text-contrast);
+/* === ON-CONTRAST variant (a glint on a contrast surface) === */
+.btn--on-contrast.btn--normal {
+    background-color: var(--color-glint);
+    color: var(--color-text-on-contrast);
 }
 
-.btn--on-dark.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
-}
-
-/* === ON-GREY variant (translucent dark plate for artwork, IconButton's twin) === */
-.btn--on-grey.btn--normal {
-    background-color: var(--color-background-contrast-12);
-    color: var(--color-text-contrast);
-    backdrop-filter: blur(var(--blur-02));
-}
-
-.btn--on-grey.btn--disabled {
-    background-color: var(--color-background-contrast-12);
-    color: var(--color-text-contrast-50);
-    backdrop-filter: blur(var(--blur-02));
+.btn--on-contrast.btn--disabled {
+    background-color: var(--color-glint);
+    color: var(--color-text-on-contrast-secondary);
 }
 
 /* === OUTLINE variant === */
 .btn--outline.btn--normal {
-    background-color: var(--color-background-neutral);
+    background-color: var(--color-surface);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .btn--outline.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
+    background-color: var(--color-inset);
+    color: var(--color-text-tertiary);
     box-shadow: none;
 }
 
 /* === OUTLINE-NEUTRAL variant (neutral border, e.g. unselected ButtonGroup item) === */
 .btn--outline-neutral.btn--normal {
-    background-color: var(--color-background-neutral);
+    background-color: var(--color-surface);
     color: var(--color-text-secondary);
     box-shadow: inset 0 0 0 2px var(--color-border);
 }
 
 .btn--outline-neutral.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
+    background-color: var(--color-inset);
+    color: var(--color-text-tertiary);
     box-shadow: none;
 }
 
 /* === IMPORTANT variant === */
 .btn--important.btn--normal {
-    background-color: var(--color-background-neutral);
+    background-color: var(--color-surface);
     color: var(--color-error);
     box-shadow: inset 0 0 0 2px var(--color-error);
 }
 
 .btn--important.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
+    background-color: var(--color-inset);
+    color: var(--color-text-tertiary);
 }
 
 /* === LOADING state - preserves variant styling === */
@@ -236,46 +223,40 @@ function handleClick(event) {
     pointer-events: none;
 }
 
-.btn--background-strong.btn--loading {
-    background-color: var(--color-background-strong);
+.btn--control.btn--loading {
+    background-color: var(--color-control);
     color: var(--color-text);
 }
 
-.btn--background-neutral.btn--loading {
-    background-color: var(--color-background-neutral);
+.btn--surface.btn--loading {
+    background-color: var(--color-surface);
     color: var(--color-text-secondary);
 }
 
 .btn--brand.btn--loading {
     background-color: var(--color-brand);
-    color: var(--color-text-contrast);
+    color: var(--color-text-on-brand);
 }
 
-.btn--on-dark.btn--loading {
-    background-color: var(--color-background-neutral-12);
-    color: var(--color-text-contrast);
-}
-
-.btn--on-grey.btn--loading {
-    background-color: var(--color-background-contrast-12);
-    color: var(--color-text-contrast);
-    backdrop-filter: blur(var(--blur-02));
+.btn--on-contrast.btn--loading {
+    background-color: var(--color-glint);
+    color: var(--color-text-on-contrast);
 }
 
 .btn--outline.btn--loading {
-    background-color: var(--color-background-neutral);
+    background-color: var(--color-surface);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .btn--outline-neutral.btn--loading {
-    background-color: var(--color-background-neutral);
+    background-color: var(--color-surface);
     color: var(--color-text-secondary);
     box-shadow: inset 0 0 0 2px var(--color-border);
 }
 
 .btn--important.btn--loading {
-    background-color: var(--color-background-neutral);
+    background-color: var(--color-surface);
     color: var(--color-error);
     box-shadow: inset 0 0 0 2px var(--color-error);
 }

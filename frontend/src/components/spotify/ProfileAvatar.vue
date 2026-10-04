@@ -35,7 +35,7 @@ const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUp
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .avatar-image {
@@ -44,6 +44,6 @@ const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUp
 }
 
 .avatar-initial {
-  color: var(--color-text-contrast);
+  color: var(--color-text-secondary);
 }
 </style>

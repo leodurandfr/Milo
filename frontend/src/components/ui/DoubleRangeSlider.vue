@@ -280,12 +280,12 @@ onUnmounted(() => {
   height: 36px;
   border-radius: var(--radius-full);
   background: linear-gradient(to right,
-    var(--color-background) 0%,
-    var(--color-background) var(--progress-min),
-    var(--color-text-secondary) var(--progress-min),
-    var(--color-text-secondary) var(--progress-max),
-    var(--color-background) var(--progress-max),
-    var(--color-background) 100%);
+    var(--color-track) 0%,
+    var(--color-track) var(--progress-min),
+    var(--color-fill-muted) var(--progress-min),
+    var(--color-fill-muted) var(--progress-max),
+    var(--color-track) var(--progress-max),
+    var(--color-track) 100%);
   pointer-events: none;
 }
 
@@ -296,8 +296,8 @@ onUnmounted(() => {
   height: 100%;
   aspect-ratio: 1.6;
   border-radius: var(--radius-full);
-  background: var(--color-control-thumb);
-  border: 2px solid var(--color-text-secondary);
+  background: var(--color-thumb);
+  border: 2px solid var(--color-fill-muted);
   cursor: pointer;
   transform: translateX(-50%);
   touch-action: none;
@@ -323,7 +323,7 @@ onUnmounted(() => {
   min-width: 80px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
-  background: var(--color-background);
+  background: var(--color-inset);
   color: var(--color-text-secondary);
   white-space: nowrap;
   transition: color var(--transition-fast);

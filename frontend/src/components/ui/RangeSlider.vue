@@ -302,7 +302,7 @@ onUnmounted(() => {
 
 <style scoped>
 .slider-container {
-  --slider-accent: var(--color-text-secondary);
+  --slider-accent: var(--color-fill-muted);
   transition: --slider-accent var(--transition-fast);
   display: flex;
   gap: var(--space-02);
@@ -357,8 +357,8 @@ onUnmounted(() => {
   background: linear-gradient(to right,
       var(--slider-accent) 0%,
       var(--slider-accent) var(--progress),
-      var(--color-background-strong) var(--progress),
-      var(--color-background-strong) 100%);
+      var(--color-track) var(--progress),
+      var(--color-track) 100%);
 }
 
 .slider-container.vertical .range-track {
@@ -368,15 +368,15 @@ onUnmounted(() => {
   background: linear-gradient(to top,
       var(--slider-accent) 0%,
       var(--slider-accent) var(--progress),
-      var(--color-background-strong) var(--progress),
-      var(--color-background-strong) 100%);
+      var(--color-track) var(--progress),
+      var(--color-track) 100%);
 }
 
 /* Thumb */
 .range-thumb {
   position: absolute;
   border-radius: var(--radius-full);
-  background: var(--color-control-thumb);
+  background: var(--color-thumb);
   border: 2px solid var(--slider-accent);
   cursor: pointer;
   z-index: 2;
@@ -406,7 +406,7 @@ onUnmounted(() => {
   width: 4px;
   height: 4px;
   border-radius: var(--radius-full);
-  background: var(--color-text-light);
+  background: var(--color-fill-off);
   pointer-events: none;
   z-index: 1;
 }
@@ -423,7 +423,7 @@ onUnmounted(() => {
 
 /* Disabled state */
 .slider-container.disabled {
-  --slider-accent: color-mix(in srgb, var(--color-text-secondary) 50%, transparent);
+  --slider-accent: color-mix(in srgb, var(--color-fill-muted) 50%, transparent);
 }
 
 .slider-container.disabled .range-thumb {
@@ -432,7 +432,7 @@ onUnmounted(() => {
 
 /* Muted state: visual disabled appearance but still interactive */
 .slider-container.muted {
-  --slider-accent: color-mix(in srgb, var(--color-text-secondary) 50%, transparent);
+  --slider-accent: color-mix(in srgb, var(--color-fill-muted) 50%, transparent);
 }
 
 /* Inline value */
@@ -443,7 +443,7 @@ onUnmounted(() => {
   min-width: 80px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
-  background: var(--color-background);
+  background: var(--color-inset);
   color: var(--slider-accent);
   white-space: nowrap;
 }

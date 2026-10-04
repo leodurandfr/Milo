@@ -109,7 +109,7 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   width: 120px;
   height: 120px;
   border-radius: var(--radius-03);
-  background: var(--color-background-strong);
+  background: var(--color-skeleton);
 }
 
 /* Same scrim and light currentColor as the design system's .card-loading-overlay,
@@ -120,8 +120,8 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-contrast-32);
-  color: var(--color-text-contrast);
+  background: var(--color-image-veil);
+  color: var(--color-text-on-contrast);
 }
 
 .icon-grid {
@@ -138,27 +138,27 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   gap: var(--space-01);
   padding: var(--space-02);
   text-align: center;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-02);
 }
 
 .icon-cell__name {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   overflow-wrap: anywhere;
 }
 
 .icon-grid--dark {
   padding: var(--space-03);
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
   border-radius: var(--radius-03);
 }
 
 .icon-cell--dark {
-  color: var(--color-text-contrast);
-  background: var(--color-background-neutral-12);
+  color: var(--color-text-on-contrast);
+  background: var(--color-glint);
 }
 
 .icon-cell--dark .icon-cell__name {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
 }
 </style>

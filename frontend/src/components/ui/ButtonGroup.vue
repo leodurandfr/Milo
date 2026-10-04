@@ -37,11 +37,12 @@ const props = defineProps({
     validator: (value) => ['medium', 'small'].includes(value)
   },
   // Button variant for unselected options (the active one is always 'outline').
-  // Default 'outline-neutral' (white + grey border); pass 'background-neutral'
-  // for a flat white-no-border look.
+  // Default 'outline-neutral' (the surface + a hairline ring); pass 'surface'
+  // for the flat look with no ring.
   inactiveVariant: {
     type: String,
-    default: 'outline-neutral'
+    default: 'outline-neutral',
+    validator: (value) => ['outline-neutral', 'surface'].includes(value)
   },
   mobileLayout: {
     type: String,

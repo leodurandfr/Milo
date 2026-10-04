@@ -4,11 +4,11 @@
     <!-- The tracklist toggle at the start of the player's top row, eject at
          its end. -->
     <template #top-start>
-      <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" variant="background-strong" size="medium"
+      <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" variant="control" size="medium"
         @click="cdStore.toggleTracklist()" />
     </template>
     <template v-if="canEject" #top-end>
-      <IconButton icon="eject" variant="background-strong" size="medium" @click="cdStore.eject()" />
+      <IconButton icon="eject" variant="control" size="medium" @click="cdStore.eject()" />
     </template>
 
     <template #content-replace>

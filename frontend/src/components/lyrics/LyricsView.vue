@@ -20,7 +20,7 @@
     </Transition>
 
     <div ref="closeButtonWrapper" class="lyrics-view-close">
-      <IconButton ref="closeButtonRef" icon="close" variant="rounded" size="large" tone="dark"
+      <IconButton ref="closeButtonRef" icon="close" variant="glass-on-contrast" size="large"
         :aria-label="t('common.close')" @click="lyricsStore.close()" />
     </div>
 
@@ -32,7 +32,7 @@
         <div v-if="lyricsStore.loading" key="pending" class="lyrics-view-state"></div>
 
         <div v-else-if="!lyricsStore.found" key="empty" class="lyrics-view-state">
-          <MessageContent variant="dark" icon="lyrics" :title="emptyState.message"
+          <MessageContent variant="on-contrast" icon="lyrics" :title="emptyState.message"
             :details="emptyState.showTrack ? lyricsStore.trackLine : null" />
         </div>
 
@@ -47,7 +47,7 @@
            two loading screens trading places mid-wait. -->
       <Transition name="lyrics-loader">
         <div v-if="showLoader" class="lyrics-view-loader">
-          <MessageContent variant="dark" loading :loading-delay="0" :title="t('lyrics.loading')" />
+          <MessageContent variant="on-contrast" loading :loading-delay="0" :title="t('lyrics.loading')" />
         </div>
       </Transition>
 
@@ -75,7 +75,7 @@ const lyricsStore = useLyricsStore();
 const timer = useTimer();
 
 // Contrast backdrop filling the whole slot, so the volume bar App.vue mounts
-// over it needs its light variant. Mounted only while open, so the mounted life
+// over it needs its on-contrast variant. Mounted only while open, so the mounted life
 // is the signal.
 markDarkSurface();
 
@@ -195,7 +195,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   overflow: hidden;
   /* Solid dark base so the view reads as dark even with no artwork, and so the
      dimmed backdrop blends toward dark rather than the page behind it. */
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
 }
 
 .lyrics-view-bg {
@@ -269,7 +269,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 
 /* Empty state: MessageContent owns its layout and light-on-dark copy
-   (variant="dark"), so this only centers it over the backdrop. */
+   (variant="on-contrast"), so this only centers it over the backdrop. */
 .lyrics-view-state {
   flex: 1;
   display: flex;

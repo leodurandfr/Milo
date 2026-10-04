@@ -26,7 +26,7 @@
   reference panel read on a desktop needs several times their density. `Toggle`
   stays in its compact size, because a switch carries no text and fits as it is.
   `Dropdown` does not: its only small-typed variant, `minimal`, paints its label
-  in `--color-text-contrast-50` for a dark surface, so on this panel it renders
+  in `--color-text-on-contrast-secondary` for a dark surface, so on this panel it renders
   invisible. Enums use a native select instead, which also handles a 51-option
   icon list better than a custom menu would.
 -->
@@ -373,13 +373,13 @@ function preview(value) {
 .controls__type,
 .controls__hint {
   margin: 0;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 /* Reads as an annotation of the control above it, not as a second control. */
 .controls__note {
   margin: 0;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   border-left: 2px solid var(--color-border);
   padding-left: var(--space-02);
 }
@@ -389,7 +389,7 @@ function preview(value) {
   box-sizing: border-box;
   padding: var(--space-01) var(--space-02);
   color: var(--color-text);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
 }
@@ -404,7 +404,7 @@ function preview(value) {
   box-sizing: border-box;
   padding: var(--space-01) var(--space-02);
   color: var(--color-text);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
 }
@@ -413,7 +413,7 @@ function preview(value) {
   display: block;
   padding: var(--space-01) var(--space-02);
   color: var(--color-text-secondary);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-02);
   overflow-wrap: anywhere;
 }
@@ -427,7 +427,7 @@ function preview(value) {
 .controls__action {
   padding: var(--space-01) var(--space-02);
   color: var(--color-text);
-  background: var(--color-background-strong);
+  background: var(--color-control);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
   cursor: pointer;
@@ -442,7 +442,7 @@ function preview(value) {
 .controls__event {
   padding: 0 var(--space-02);
   color: var(--color-text-secondary);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-full);
 }
 
@@ -455,7 +455,7 @@ function preview(value) {
   overflow-y: auto;
   list-style: none;
   color: var(--color-text-secondary);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-02);
 }
 </style>

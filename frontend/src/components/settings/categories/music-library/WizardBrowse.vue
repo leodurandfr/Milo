@@ -22,7 +22,7 @@
       :subtitle="indexEmpty
         ? t('musicLibrary.shares.wizard.indexedEmpty')
         : t('musicLibrary.shares.wizard.indexedShare', { count: finalFound })"
-      :cta-label="t('musicLibrary.shares.wizard.done')" :cta-variant="indexEmpty ? 'background-strong' : 'brand'"
+      :cta-label="t('musicLibrary.shares.wizard.done')" :cta-variant="indexEmpty ? 'control' : 'brand'"
       :cta-click="leave" />
 
     <SettingsSection v-else>
@@ -67,7 +67,7 @@
       <!-- Unreachable / error -->
       <template v-else-if="phase === 'error'">
         <p class="wb-error text-mono-medium">{{ errorMsg }}</p>
-        <Button variant="background-strong" size="medium" @click="load(path)">
+        <Button variant="control" size="medium" @click="load(path)">
           {{ t('musicLibrary.shares.wizard.retry') }}
         </Button>
       </template>
@@ -75,7 +75,7 @@
       <!-- Saved but the mount didn't come up -->
       <template v-else-if="phase === 'done'">
         <p class="wb-warn text-mono-medium">{{ t('musicLibrary.shares.wizard.savedNotMounted') }}</p>
-        <Button variant="background-strong" size="medium" @click="$emit('success')">
+        <Button variant="control" size="medium" @click="$emit('success')">
           {{ t('musicLibrary.shares.wizard.done') }}
         </Button>
       </template>
@@ -91,7 +91,7 @@
       <!-- Browsing entries -->
       <template v-else>
         <div v-if="entries.length" class="wb-list">
-          <ListItemButton v-for="entry in entries" :key="entry.path" variant="background"
+          <ListItemButton v-for="entry in entries" :key="entry.path"
             :title="entry.name" :action="entry.kind === 'export' ? 'none' : 'caret'"
             @click="onEntry(entry)" />
         </div>
@@ -101,7 +101,7 @@
           <p class="wb-empty text-mono-medium">
             {{ path ? t('musicLibrary.shares.wizard.emptyFolder') : t('musicLibrary.shares.wizard.noSharesGuest') }}
           </p>
-          <Button v-if="canSignIn" variant="background-strong" size="medium" @click="startSignIn">
+          <Button v-if="canSignIn" variant="control" size="medium" @click="startSignIn">
             {{ t('musicLibrary.shares.wizard.signIn') }}
           </Button>
         </template>
@@ -338,7 +338,7 @@ load('');
 }
 
 .wb-sep {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .wb-center {

@@ -526,7 +526,7 @@ onUnmounted(() => {
 
 <style scoped>
 .additional-apps-panel {
-  --glass-bg: var(--color-background-medium-16);
+  --glass-bg: var(--color-glass);
   --glass-blur: var(--blur-03);
   --glass-radius: var(--radius-07);
   position: absolute;
@@ -587,7 +587,7 @@ onUnmounted(() => {
   padding: var(--space-02);
   width: 100%;
   flex-shrink: 0;
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
@@ -628,7 +628,7 @@ onUnmounted(() => {
 }
 
 .dock {
-  --glass-bg: var(--color-background-medium-16);
+  --glass-bg: var(--color-glass);
   --glass-blur: var(--blur-03);
   --glass-radius: var(--radius-07);
   position: relative;
@@ -662,7 +662,7 @@ onUnmounted(() => {
   align-content: center;
   justify-content: center;
   flex: 1;
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   border-radius: var(--radius-04);
   cursor: pointer;
   color: var(--color-text-secondary);
@@ -683,7 +683,7 @@ onUnmounted(() => {
 .dock-separator {
   width: 2px;
   height: var(--space-07);
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8) translateZ(0);
@@ -726,7 +726,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   border-radius: var(--radius-04);
   padding: 0;
   color: var(--color-text-secondary);
@@ -747,7 +747,7 @@ onUnmounted(() => {
   left: 0;
   width: 6px;
   height: 4px;
-  background: var(--color-fill-strong);
+  background: var(--color-fill);
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
@@ -766,7 +766,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: 96px;
   height: var(--space-01);
-  background: var(--color-background-medium-32);
+  background: var(--color-glass-strong);
   border-radius: var(--radius-full);
   z-index: 998;
   opacity: 0;

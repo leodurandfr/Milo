@@ -7,7 +7,7 @@
         <div class="error-message text-mono-medium">
           {{ t('updates.error') }}
         </div>
-        <Button size="small" variant="background-strong" @click="loadLocalPrograms">
+        <Button size="small" variant="control" @click="loadLocalPrograms">
           {{ t('updates.retry') }}
         </Button>
       </div>
@@ -68,7 +68,7 @@
                             @click="startLocalUpdate('milo')"
                             :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()" />
                         </template>
-                        <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                        <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                           {{ t('updates.upToDate') }}
                         </Button>
                       </div>
@@ -115,12 +115,12 @@
                         <!-- Each action comes twice: a labelled button, and below
                              4:3 an icon on the row's own line. -->
                         <template v-if="isLocalUpdating(key) || debugForceUpdating">
-                          <Button size="small" :variant="isFromMenu(key) ? 'background-strong' : 'brand'"
+                          <Button size="small" :variant="isFromMenu(key) ? 'control' : 'brand'"
                             class="program-button action-wide" loading disabled>
                             {{ runningLabel(key) }}
                           </Button>
                           <IconButton :icon="isFromMenu(key) ? 'clockCounterClockwise' : 'downloadSimple'"
-                            :variant="isFromMenu(key) ? 'background-strong' : 'brand'" size="small"
+                            :variant="isFromMenu(key) ? 'control' : 'brand'" size="small"
                             class="action-compact row-icon-button" :aria-label="runningLabel(key)" loading disabled />
                         </template>
                         <template v-else>
@@ -133,7 +133,7 @@
                             :title="t('updates.releases')"
                             @change="version => installVersion(key, version)">
                             <template #trigger="{ toggle, disabled }">
-                              <IconButton icon="clockCounterClockwise" variant="background-strong" size="small" class="row-icon-button"
+                              <IconButton icon="clockCounterClockwise" variant="control" size="small" class="row-icon-button"
                                 :aria-label="t('updates.changeVersion')" :disabled="disabled"
                                 @click="toggle" />
                             </template>
@@ -154,7 +154,7 @@
                               :disabled="isLocalUpdateBusy()" />
                           </template>
                           <Button v-if="!rows[key].update"
-                            size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                            size="small" variant="control" class="program-button btn-up-to-date" disabled>
                             {{ t('updates.upToDate') }}
                           </Button>
                         </template>
@@ -175,7 +175,7 @@
           <div class="error-message text-mono-medium">
             {{ t('updates.errorDetectingSatellites') }}
           </div>
-          <Button size="small" variant="background-strong" @click="loadSatellites">
+          <Button size="small" variant="control" @click="loadSatellites">
             {{ t('updates.retry') }}
           </Button>
         </div>
@@ -249,7 +249,7 @@
                         @click="startSatelliteAppUpdate(client.mac_id)"
                         :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
                     </template>
-                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                    <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
                     </Button>
                   </div>
@@ -283,7 +283,7 @@
                         @click="startSatelliteUpdate(client.mac_id)"
                         :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
                     </template>
-                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                    <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
                     </Button>
                   </div>
@@ -317,7 +317,7 @@
                         @click="startSatelliteCamillaUpdate(client.mac_id)"
                         :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
                     </template>
-                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                    <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
                     </Button>
                   </div>
@@ -759,13 +759,6 @@ onMounted(async () => {
 .program-item-skeleton:not(:last-child) {
   border-bottom: 1px solid var(--color-border);
   padding-bottom: var(--space-03);
-}
-
-.skeleton-icon,
-.skeleton-text,
-.skeleton-button {
-  --shimmer-base: var(--color-background-strong);
-  --shimmer-highlight: var(--color-background);
 }
 
 .skeleton-icon {

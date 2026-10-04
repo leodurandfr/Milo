@@ -10,7 +10,7 @@
     </div>
 
     <div v-if="showActions" class="card-actions">
-      <Button variant="background-strong" size="small" @pointerdown.stop
+      <Button variant="control" size="small" @pointerdown.stop
         @click.stop="emit('unsubscribe', podcast.uuid)">
         {{ t('podcasts.unsubscribe') }}
       </Button>
@@ -69,7 +69,7 @@ const tagText = computed(() => {
 .podcast-card {
   display: flex;
   flex-direction: column;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-04);
   overflow: hidden;
   padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);

@@ -6,8 +6,8 @@
     :class="[
       `icon-button--${variant}`,
       `icon-button--${size}`,
-      { 'icon-button--loading': loading, 'icon-button--tone-dark': tone === 'dark' },
-      variant === 'rounded' ? 'glass-surface glass-border' : ''
+      { 'icon-button--loading': loading },
+      GLASS.includes(variant) ? 'icon-button--glass-plate glass-surface glass-border' : ''
     ]"
     :disabled="disabled"
     @click="handleClick"
@@ -32,26 +32,20 @@ const props = defineProps({
     type: String,
     required: true
   },
+  // `glass` is a round glass plate; `glass-on-contrast` the same plate on a
+  // contrast surface (Lyrics), where it takes the quiet rim and a white glyph.
+  // Chosen by the caller rather than read from useDarkSurface(): that counter
+  // stays raised for a modal opened over Lyrics, which would flip that modal's
+  // own close button.
   variant: {
     type: String,
-    default: 'background-strong',
-    validator: (value) => ['background-strong', 'on-dark', 'on-grey', 'rounded', 'brand', 'ghost'].includes(value)
+    default: 'control',
+    validator: (value) => ['control', 'on-contrast', 'on-image', 'glass', 'glass-on-contrast', 'brand', 'ghost'].includes(value)
   },
   size: {
     type: String,
     default: 'medium',
     validator: (value) => ['small', 'medium', 'large'].includes(value)
-  },
-  // The tone of the ground the button is drawn on, not the tone of the button
-  // — same sense as MessageContent's `variant` and VolumeBar's. Only `rounded`
-  // reads it: it is the one variant whose plate is glass, so it is the one that
-  // has to be told what is behind it. Passed explicitly rather than read from
-  // useDarkSurface(): that counter stays raised for a light modal opened over
-  // Lyrics, which would flip that modal's own close button.
-  tone: {
-    type: String,
-    default: 'light',
-    validator: (value) => ['light', 'dark'].includes(value)
   },
   loading: {
     type: Boolean,
@@ -69,28 +63,26 @@ const props = defineProps({
 
 const emit = defineEmits(['click']);
 
+const GLASS = ['glass', 'glass-on-contrast'];
+
+/** The glyph's ink per variant, unless the caller passes `color`. */
+const INKS = {
+  control: 'var(--color-text)',
+  'on-contrast': 'var(--color-text-on-contrast)',
+  'on-image': 'var(--color-text-on-contrast)',
+  glass: 'var(--color-text)',
+  'glass-on-contrast': 'var(--color-text-on-contrast)',
+  brand: 'var(--color-text-on-brand)',
+  // A ghost has no plate: it takes the ink of whatever it is drawn on.
+  ghost: 'currentColor'
+};
+
 // Pass size identifier to SvgIcon for responsive CSS sizing
 const iconSize = computed(() => {
   return props.size;
 });
 
-// Icon color based on variant (if not overridden by color prop)
-const iconColor = computed(() => {
-  if (props.variant === 'on-grey') {
-    return 'var(--color-text-contrast)';
-  } else if (props.variant === 'rounded') {
-    return props.tone === 'dark' ? 'var(--color-text-contrast)' : 'var(--color-text)';
-  } else if (props.variant === 'on-dark') {
-    return 'var(--color-text-contrast)';
-  } else if (props.variant === 'brand') {
-    return 'var(--color-text-contrast)';
-  } else if (props.variant === 'ghost') {
-    return 'var(--color-text-contrast)';
-  } else {
-    // background-strong
-    return 'var(--color-text)';
-  }
-});
+const iconColor = computed(() => INKS[props.variant]);
 
 function handleClick(event) {
   if (!props.disabled && !props.loading) {
@@ -145,32 +137,32 @@ function handleClick(event) {
     border-radius: var(--radius-04);
   }
 
-  .icon-button--rounded {
+  .icon-button--glass-plate {
     padding: 12px;
   }
 }
 
 /* === VARIANTS === */
-.icon-button--background-strong {
-  background: var(--color-background-strong);
+.icon-button--control {
+  background: var(--color-control);
   color: var(--color-text);
 }
 
-.icon-button--on-dark {
-  background: var(--color-background-neutral-12);
-  color: var(--color-text-contrast);
+.icon-button--on-contrast {
+  background: var(--color-glint);
+  color: var(--color-text-on-contrast);
 }
 
 /* Over artwork, which is the same in both themes: so is the plate. */
-.icon-button--on-grey {
-  background: var(--color-plate-on-image);
-  color: var(--color-text-contrast);
+.icon-button--on-image {
+  background: var(--color-image-plate);
+  color: var(--color-text-on-contrast);
   backdrop-filter: blur(var(--blur-02));
 }
 
 .icon-button--brand {
   background: var(--color-brand);
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
 }
 
 /* Icon-only, no pill background — a flat padding regardless of size (this
@@ -179,9 +171,10 @@ function handleClick(event) {
 .icon-button--ghost {
   background: transparent;
   padding: var(--space-02);
+  color: inherit;
 }
 
-.icon-button--rounded {
+.icon-button--glass-plate {
   --glass-radius: 50%;
   border-radius: 50% !important;
   width: fit-content;
@@ -191,19 +184,18 @@ function handleClick(event) {
   backface-visibility: hidden;
 }
 
-/* The glass plate on a dark ground. The wash is the mid grey Dock and VolumeBar
-   already share — it lifts off a dark backdrop exactly as it settles into a
-   light one — and the rim swaps to the dark ramp, whose comment carries the
-   measurement. */
-.icon-button--rounded.icon-button--tone-dark {
-  --glass-bg: var(--color-background-medium-16);
-  --glass-stroke: var(--stroke-glass-dark);
-  color: var(--color-text-contrast);
+/* The glass plate on a contrast surface: the mid gray Dock and VolumeBar
+   share, which lifts off a dark backdrop exactly as it settles into a light
+   one, and the quiet rim (design-system.css carries the measurement). */
+.icon-button--glass-on-contrast {
+  --glass-bg: var(--color-glass);
+  --glass-stroke: var(--stroke-glass-on-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 /* Disable press opacity for semi-transparent backgrounds (scale only) */
-.icon-button--rounded.interactive-press:active,
-.icon-button--rounded.interactive-press.pressed {
+.icon-button--glass-plate.interactive-press:active,
+.icon-button--glass-plate.interactive-press.pressed {
   opacity: 1 !important;
 }
 
@@ -218,38 +210,39 @@ function handleClick(event) {
 }
 
 /* === LOADING states (preserves variant styling) === */
-.icon-button--background-strong.icon-button--loading {
-  background: var(--color-background-strong);
+.icon-button--control.icon-button--loading {
+  background: var(--color-control);
   color: var(--color-text);
 }
 
-.icon-button--on-dark.icon-button--loading {
-  background: var(--color-background-neutral-12);
-  color: var(--color-text-contrast);
+.icon-button--on-contrast.icon-button--loading {
+  background: var(--color-glint);
+  color: var(--color-text-on-contrast);
 }
 
-.icon-button--on-grey.icon-button--loading {
-  background: var(--color-plate-on-image);
-  color: var(--color-text-contrast);
+.icon-button--on-image.icon-button--loading {
+  background: var(--color-image-plate);
+  color: var(--color-text-on-contrast);
 }
 
-.icon-button--rounded.icon-button--loading {
-  background: var(--color-background-neutral-50);
+.icon-button--glass.icon-button--loading {
+  background: var(--color-surface-glass);
   color: var(--color-text);
 }
 
-.icon-button--rounded.icon-button--tone-dark.icon-button--loading {
-  background: var(--color-background-medium-16);
-  color: var(--color-text-contrast);
+.icon-button--glass-on-contrast.icon-button--loading {
+  background: var(--color-glass);
+  color: var(--color-text-on-contrast);
 }
 
 .icon-button--brand.icon-button--loading {
   background: var(--color-brand);
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
 }
 
+/* A ghost has no plate to keep, so it dims the ink it inherits. */
 .icon-button--ghost.icon-button--loading {
   background: transparent;
-  color: var(--color-text-contrast-50);
+  color: color-mix(in srgb, currentColor 50%, transparent);
 }
 </style>

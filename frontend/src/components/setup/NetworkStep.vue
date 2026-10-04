@@ -20,7 +20,7 @@
         <!-- Ethernet row -->
         <div class="connection-row">
           <SvgIcon name="network" :size="24"
-            :color="status.ethernet.connected ? 'var(--color-text-secondary)' : 'var(--color-text-light)'" />
+            :color="status.ethernet.connected ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)'" />
           <span class="text-body">{{ t('network.ethernet') }}</span>
           <span class="connection-badge text-mono-small"
             :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
@@ -142,7 +142,7 @@ onMounted(() => {
 
 /* Connection status card (grouped ethernet + wifi) */
 .connection-section {
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-04);
   padding: var(--space-04);
   display: flex;
@@ -176,12 +176,6 @@ onMounted(() => {
   border-radius: var(--radius-02);
 }
 
-.connection-section .skeleton-text-line,
-.connection-section .skeleton-icon {
-  --shimmer-base: var(--color-background);
-  --shimmer-highlight: var(--color-background-medium-16);
-}
-
 .connection-row__ssid {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -212,7 +206,7 @@ onMounted(() => {
 }
 
 .connection-badge--disconnected {
-  background: color-mix(in srgb, var(--color-text-light) 16%, transparent);
+  background: color-mix(in srgb, var(--color-text-tertiary) 16%, transparent);
   color: var(--color-text-secondary);
 }
 </style>

@@ -534,7 +534,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   flex-direction: column;
   border-radius: var(--radius-06);
   padding: var(--space-04) var(--space-04) 0;
-  background: var(--color-background-neutral);
+  background: var(--color-panel);
 }
 
 /* === ITEM HEADER (zone/client row) === */
@@ -590,7 +590,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-strong);
+  background: var(--color-control);
   border: none;
   cursor: pointer;
   color: var(--color-text-secondary);
@@ -662,7 +662,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 .client-name.muted,
 .client-name.offline {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .item-name {
@@ -712,7 +712,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 .volume-control.muted :deep(.slider-container) {
-  --slider-accent: var(--color-text-light);
+  --slider-accent: var(--color-text-tertiary);
 }
 
 /* === TOGGLE WRAPPER === */
@@ -814,7 +814,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-03);
   color: var(--color-text-secondary);
   flex-shrink: 0;
@@ -823,7 +823,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 .client-icon.muted,
 .client-icon.offline {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .client-row-name {
@@ -837,7 +837,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 .client-row-name.muted,
 .client-row-name.offline {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .client-volume {
@@ -848,7 +848,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   height: 36px;
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-full);
   color: var(--color-text-secondary);
   padding-left: var(--space-04);
@@ -859,9 +859,9 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   height: 36px;
-  background: var(--color-text-secondary);
+  background: var(--color-fill-muted);
   border-radius: var(--radius-full);
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast);
   padding-left: var(--space-04);
 }
 
@@ -886,7 +886,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 .toggle-offline-placeholder {
   width: 60px;
   height: 36px;
-  background: var(--color-background-strong);
+  background: var(--color-track);
   border-radius: var(--radius-full);
 }
 
@@ -910,15 +910,6 @@ function handleClientMuteToggle(clientMacId, muted) {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* Custom shimmer colors for multiroom skeletons */
-.icon-skeleton,
-.item-name-skeleton,
-.volume-skeleton,
-.toggle-skeleton {
-  --shimmer-base: var(--color-background-strong);
-  --shimmer-highlight: var(--color-background-medium-16);
 }
 
 /* === MOBILE ADJUSTMENTS === */

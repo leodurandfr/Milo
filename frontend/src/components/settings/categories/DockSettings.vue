@@ -34,7 +34,6 @@
           <ListItemButton
             :title="getSourceTitle(source)"
             :model-value="config[source]"
-            variant="background"
             :action="isReordering ? 'none' : 'toggle'"
             :disabled="!isReordering && !canDisableAudioSource(source)"
             @update:model-value="(val) => handleToggle(source, val)"
@@ -58,7 +57,6 @@
         <ListItemButton
           :title="t('equalizer.title')"
           :model-value="config.equalizer"
-          variant="background"
           action="toggle"
           @update:model-value="(val) => handleToggle('equalizer', val)"
         >
@@ -70,7 +68,6 @@
         <ListItemButton
           :title="t('audioSources.multiroom')"
           :model-value="config.multiroom"
-          variant="background"
           action="toggle"
           @update:model-value="(val) => handleToggle('multiroom', val)"
         >
@@ -82,7 +79,6 @@
         <ListItemButton
           :title="t('lyrics.title')"
           :model-value="config.lyrics"
-          variant="background"
           action="toggle"
           @update:model-value="(val) => handleToggle('lyrics', val)"
         >
@@ -94,7 +90,6 @@
         <ListItemButton
           :title="t('common.settings')"
           :model-value="config.settings"
-          variant="background"
           action="toggle"
           @update:model-value="(val) => handleToggle('settings', val)"
         >
@@ -317,7 +312,7 @@ onUnmounted(() => {
   bottom: 0;
   display: flex;
   align-items: center;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   pointer-events: none;
 }
 

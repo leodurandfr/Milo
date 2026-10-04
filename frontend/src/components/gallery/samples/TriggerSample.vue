@@ -5,7 +5,7 @@
   nothing.
 -->
 <template>
-  <IconButton :icon="icon" variant="background-strong" size="small" :disabled="disabled" @click="toggle" />
+  <IconButton :icon="icon" variant="control" size="small" :disabled="disabled" @click="toggle" />
 </template>
 
 <script setup>

@@ -71,6 +71,44 @@ function parseSections(body) {
 /** Every token section declared on `:root`, in the order the file declares them. */
 export const SECTIONS = parseSections(rootBody(0));
 
+/** A block body's declarations, sections ignored: name -> value. */
+function declarations(body) {
+  const found = {};
+  DECLARATION_RE.lastIndex = 0;
+  let match;
+  while ((match = DECLARATION_RE.exec(body)) !== null) {
+    const [, , name, value] = match;
+    if (name) found[`--${name}`] = value.trim().replace(/\s+/g, ' ');
+  }
+  return found;
+}
+
+const LIGHT_VALUES = declarations(rootBody(0));
+
+/**
+ * What the dark block restates, name -> value. A color token it leaves out is
+ * the same in both themes on purpose (tests/architecture/darkTokens.test.js).
+ */
+export const DARK = declarations(rootBody(css.indexOf(':root[data-theme="dark"]')));
+
+const DARK_VALUES = { ...LIGHT_VALUES, ...DARK };
+
+/**
+ * A value with every `var()` replaced by what it reads in that theme, down to
+ * the palette — so a chip can be painted in the theme the page is not in.
+ */
+function resolve(value, values, depth = 0) {
+  if (!value || depth > 8) return value;
+  return value.replace(/var\((--[\w-]+)\)/g, (whole, name) => (
+    values[name] ? resolve(values[name], values, depth + 1) : whole
+  ));
+}
+
+/** The literal paint of a token in each theme. */
+export function paint(name) {
+  return { light: resolve(LIGHT_VALUES[name], LIGHT_VALUES), dark: resolve(DARK_VALUES[name], DARK_VALUES) };
+}
+
 /**
  * The `max-aspect-ratio: 4/3` overrides, flattened to name -> value.
  *
@@ -135,13 +173,18 @@ export const TYPE_STYLES = (() => {
  * step wants a bar you can compare to the one above it, a radius wants a corner.
  */
 const KINDS = {
-  'PRIMARY COLORS': 'swatch',
-  'TEXT COLORS': 'swatch',
-  'BACKGROUND COLORS': 'swatch',
+  PALETTE: 'swatch',
+  BRAND: 'swatch',
+  SURFACES: 'swatch',
+  'TRACKS AND FILLS': 'swatch',
+  GLASS: 'swatch',
+  CONTRAST: 'swatch',
+  'ON IMAGE': 'swatch',
+  TEXT: 'swatch',
   BORDERS: 'swatch',
-  'CONTROL COLORS': 'swatch',
-  'SYSTEM COLORS': 'swatch',
-  'SVG BRAND TOKENS': 'swatch',
+  SKELETON: 'swatch',
+  KEYBOARD: 'swatch',
+  STATUS: 'swatch',
   STROKES: 'swatch',
   'SOURCE GRADIENTS': 'swatch',
   SPACING: 'space',
@@ -149,8 +192,7 @@ const KINDS = {
   'BORDER RADIUS': 'radius',
   'TEXT STYLES': 'tokens',
   SHADOWS: 'shadow',
-  BLUR: 'blur',
-  'PLAYER BACKDROP': 'swatch'
+  BLUR: 'blur'
 };
 
 /**
@@ -167,15 +209,16 @@ export const EXCLUDED_SECTIONS = {
 
 /** Prose a section deserves beyond its own token list. */
 const NOTES = {
-  'TEXT COLORS': 'Each chip sits half on --color-background-neutral and half on --color-background-contrast, so the alpha variants read as what they are.',
-  'BACKGROUND COLORS': 'The four contrast tones and the two neutral-alpha ones are the same colour at four opacities — the split backing is what tells them apart.',
-  STROKES: 'A whole gradient rather than a colour, because it belongs to no ramp: the glass stroke is one value, applied by .glass-border.',
+  PALETTE: 'The only neutrals written as values, and private to design-system.css: a component reads a role below, never a step. Every chip on this page is drawn twice, light then dark, each half on that theme\'s --color-surface and half on its --color-contrast, so an alpha reads as what it is.',
+  SURFACES: 'From the ground up. In light a panel is white and what it holds sinks below it; in dark each layer is a step lighter than the one under it. --color-panel is --color-surface on a screen and --color-section inside a modal.',
+  CONTRAST: 'Dark in both themes, so what is drawn on it — the glint, the fill, the white text — is the same in both.',
+  'ON IMAGE': 'Drawn over artwork, which does not change with the theme, so neither do these. The backdrop pair is what AudioPlayerFull draws under its blurred cover, in the dark theme only.',
+  STROKES: 'A whole gradient rather than a color, because it belongs to no ramp: applied by .glass-border, the loud sweep in light and the quiet one in dark and on a contrast surface.',
   'SOURCE GRADIENTS': 'The tint AudioSourceLayout washes behind a browsing source. Three one-off brand colours, which is why they are gradients here and not tokens in a ramp.',
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
   'TEXT STYLES': 'The raw operands. What a component applies is the utility class below, never these directly.',
-  BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.',
-  'PLAYER BACKDROP': 'What AudioPlayerFull draws under its blurred cover in the dark theme only — a black ground and the veil over the cover. Theme-neutral: the light theme never draws it.'
+  BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.'
 };
 
 function sectionBlock(title) {
@@ -186,7 +229,7 @@ function sectionBlock(title) {
     title,
     kind: KINDS[title],
     note: NOTES[title],
-    tokens: section.tokens.map(token => ({ ...token, mobile: MOBILE[token.name] }))
+    tokens: section.tokens.map(token => ({ ...token, dark: DARK[token.name], paint: paint(token.name), mobile: MOBILE[token.name] }))
   };
 }
 
@@ -200,8 +243,8 @@ const PAGES = [
   {
     id: 'colors',
     title: 'Colours',
-    summary: 'Every colour the app is allowed to be: the brand tone, the text and background ramps with the alpha variants of each, the system colours, and the gradients that belong to no ramp at all.',
-    sections: ['PRIMARY COLORS', 'TEXT COLORS', 'BACKGROUND COLORS', 'BORDERS', 'CONTROL COLORS', 'SYSTEM COLORS', 'SVG BRAND TOKENS', 'STROKES', 'SOURCE GRADIENTS', 'PLAYER BACKDROP'],
+    summary: 'Every color the app is allowed to be, in both themes: the gray palette the neutrals are picked from, then the roles a component reads — surfaces, tracks, glass, contrast, what is drawn on an image, text — and the brand, status and gradient colors that belong to no ramp.',
+    sections: ['PALETTE', 'BRAND', 'SURFACES', 'TRACKS AND FILLS', 'GLASS', 'CONTRAST', 'ON IMAGE', 'TEXT', 'BORDERS', 'SKELETON', 'KEYBOARD', 'STATUS', 'STROKES', 'SOURCE GRADIENTS'],
     extras: []
   },
   {
@@ -234,7 +277,7 @@ const PAGES = [
       {
         title: 'GLASSMORPHISM',
         kind: 'glass',
-        note: 'Applied as classes, tuned through four local custom properties (--glass-bg, --glass-blur, --glass-radius, --glass-stroke-width). Both are drawn here over the same backdrop as the blur steps.',
+        note: 'Applied as classes, tuned through four local custom properties (--glass-bg, --glass-blur, --glass-radius, --glass-stroke). Both are drawn here over the same backdrop as the blur steps.',
         variants: [
           { label: '.glass-surface', classes: 'glass-surface' },
           { label: '.glass-surface .glass-border', classes: 'glass-surface glass-border' }

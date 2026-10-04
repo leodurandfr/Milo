@@ -57,7 +57,7 @@
             :title="t('podcasts.catalogUnavailable')"
             :subtitle="t('podcasts.catalogUnavailableHint')"
             :cta-label="t('podcasts.retry')"
-            cta-variant="background-strong"
+            cta-variant="control"
             :cta-click="loadData"
           />
         </transition>

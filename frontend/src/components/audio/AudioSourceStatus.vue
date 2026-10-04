@@ -263,7 +263,7 @@ const actionButton = computed(() => {
 <style scoped>
 /* === COMPONENT STYLES === */
 .source-status {
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-07);
   box-shadow: var(--shadow-02);
   width: 364px;
@@ -328,7 +328,7 @@ const actionButton = computed(() => {
   justify-content: center;
   width: 32px;
   height: 32px;
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-02);
 }
 
@@ -372,7 +372,7 @@ const actionButton = computed(() => {
   padding: var(--space-02) var(--space-05);
   /* Le spinner se cale sur la ligne du libellé, donc sur son palier portrait. */
   --spinner-size: var(--line-height-h3);
-  background: var(--color-background-strong);
+  background: var(--color-control);
   border: none;
   border-radius: var(--radius-04);
   color: var(--color-text-secondary);

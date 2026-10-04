@@ -25,7 +25,7 @@
       <div class="column">
         <StationCard :station="station" variant="card">
           <template #actions>
-            <IconButton icon="heart" variant="background-strong" size="small" />
+            <IconButton icon="heart" variant="control" size="small" />
           </template>
         </StationCard>
       </div>

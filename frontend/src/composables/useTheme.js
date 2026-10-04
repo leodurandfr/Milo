@@ -1,17 +1,15 @@
 // frontend/src/composables/useTheme.js
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useTimer } from '@/composables/useTimer';
-import { isKiosk } from '@/utils/kiosk';
 import { isDaytime } from '@/utils/daylight';
 
 /**
  * Light or dark: which `--color-*` block of design-system.css is in force.
  *
- * The kiosk follows `screen.theme` — `auto` meaning dark from sunset to sunrise
- * at the timezone's coordinates. Every other browser follows its own system
- * theme and never reads the setting: a phone in the room at night has already
- * said what it wants.
+ * Every browser showing Milō follows `screen.theme`, the kiosk and a phone or a
+ * Mac alike — `auto` meaning dark from sunset to sunrise at the timezone's
+ * coordinates. The system's own theme is never read: the setting is Milō's.
  *
  * The answer is written as `data-theme` on <html>, which is the only thing CSS
  * reads; `isDark` is for the few places a script has to choose (a component
@@ -47,24 +45,13 @@ export function applyTheme(next) {
 export function mountTheme({ animate }) {
   const settingsStore = useSettingsStore();
   const timer = useTimer();
-  const kiosk = isKiosk();
-
-  const systemDark = ref(false);
-  let media = null;
-  const onSystemChange = (event) => { systemDark.value = event.matches; };
-  if (!kiosk && window.matchMedia) {
-    media = window.matchMedia('(prefers-color-scheme: dark)');
-    systemDark.value = media.matches;
-    media.addEventListener('change', onSystemChange);
-  }
 
   // Read afresh on every tick rather than offset from a start time: the Pi has
   // no RTC, and the clock steps forward mid-boot when NTP answers.
   const now = ref(new Date());
-  if (kiosk) timer.setInterval(() => { now.value = new Date(); }, AUTO_REFRESH_MS);
+  timer.setInterval(() => { now.value = new Date(); }, AUTO_REFRESH_MS);
 
   const wanted = computed(() => {
-    if (!kiosk) return systemDark.value ? 'dark' : 'light';
     const chosen = settingsStore.screenTheme.theme;
     if (chosen === 'light' || chosen === 'dark') return chosen;
     const { latitude, longitude } = settingsStore.daylightLocation;
@@ -81,8 +68,6 @@ export function mountTheme({ animate }) {
       applyTheme(next);
     }
   }, { immediate: true });
-
-  onUnmounted(() => media?.removeEventListener('change', onSystemChange));
 
   return { isDark };
 }

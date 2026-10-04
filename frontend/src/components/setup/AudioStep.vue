@@ -20,7 +20,6 @@
           v-for="card in group.cards"
           :key="card.value"
           :title="card.label"
-          variant="background"
           action="radio"
           :model-value="modelValue === card.value"
           @click="emit('update:modelValue', card.value)"
@@ -34,7 +33,6 @@
         v-for="card in ungroupedCards"
         :key="card.value"
         :title="cardLabel(card)"
-        variant="background"
         action="radio"
         :model-value="modelValue === card.value"
         @click="emit('update:modelValue', card.value)"
@@ -166,7 +164,7 @@ const ungroupedCards = computed(() =>
 }
 
 .audio-step__volume-label--disabled {
-  color: var(--color-text-light) !important;
+  color: var(--color-text-tertiary) !important;
 }
 
 /* Prevent double-toggle when clicking directly on Toggle */
@@ -180,6 +178,6 @@ const ungroupedCards = computed(() =>
 }
 
 .audio-step__volume-control:disabled :deep(.slider) {
-  background-color: var(--color-background-medium-16);
+  background-color: var(--color-fill-off);
 }
 </style>

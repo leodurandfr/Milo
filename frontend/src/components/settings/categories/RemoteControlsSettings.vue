@@ -4,7 +4,6 @@
     <SettingsSection>
       <div class="remote-list">
         <ListItemButton
-          variant="background"
           icon-variant="standard"
           action="caret"
           :title="t('remoteControls.btRemote')"
@@ -22,7 +21,6 @@
         </ListItemButton>
 
         <ListItemButton
-          variant="background"
           icon-variant="standard"
           action="caret"
           :title="t('remoteControls.irRemote')"
@@ -120,7 +118,7 @@ onMounted(() => {
 }
 
 .remote-dot--off {
-  background: var(--color-background-medium-16);
+  background: var(--color-fill-off);
 }
 
 .remote-dot--idle {

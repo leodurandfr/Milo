@@ -180,7 +180,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: center;
   width: var(--space-06);
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   cursor: pointer;
   user-select: none;
   /* The drag scrubs the index; it must never pan the list it is scrolling. */
@@ -217,8 +217,8 @@ onBeforeUnmount(() => {
   min-width: var(--space-08);
   height: var(--space-08);
   border-radius: var(--radius-full);
-  background: var(--color-background-contrast-80);
-  color: var(--color-text-contrast);
+  background: var(--color-contrast-80);
+  color: var(--color-text-on-contrast);
   pointer-events: none;
 }
 </style>

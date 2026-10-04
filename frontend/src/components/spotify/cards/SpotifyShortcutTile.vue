@@ -40,7 +40,7 @@ defineEmits(['click']);
   min-width: 0;
   padding-right: var(--space-03);
   border-radius: var(--radius-02);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   overflow: hidden;
   cursor: pointer;
 }
@@ -49,14 +49,14 @@ defineEmits(['click']);
   width: 56px;
   height: 56px;
   flex-shrink: 0;
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
 }
 
 .liked-cover {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
   background: var(--color-brand);
 }
 

@@ -50,7 +50,6 @@
         <ListItemButton
           v-if="isDacCard"
           :title="t('volumeSettings.volumeManagement')"
-          variant="background"
           action="toggle"
           :model-value="volumeControl"
           @click="toggleVolumeControl"
@@ -62,7 +61,7 @@
       <!-- Speaker Type Selection -->
       <SettingsSection :title="t('multiroom.systemType')">
         <div class="speaker-types">
-          <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
+          <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label"
             action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
             @click="selectSpeakerType(type.value)">
             <template #icon>
@@ -83,7 +82,7 @@
           <!-- Case 2: Subwoofer in zone -->
           <template v-else-if="isSubwoofer && isInZone">
             <h3 class="info-title heading-4">{{ t('multiroom.crossover.lowpassActive') }}</h3>
-            <ListItemButton :title="t('multiroom.crossover.autoFrequency')" variant="background" action="toggle"
+            <ListItemButton :title="t('multiroom.crossover.autoFrequency')" action="toggle"
               :model-value="crossoverAuto" @click="toggleCrossoverAuto" />
             <SettingItem v-if="!crossoverAuto" :label="t('multiroom.crossover.crossoverFrequency')">
               <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" unit="Hz"
@@ -643,7 +642,7 @@ onMounted(async () => {
   align-items: center;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   box-shadow: inset 0 0 0 2px var(--color-border);
 }
 
@@ -658,8 +657,6 @@ onMounted(async () => {
   width: 60%;
   height: var(--line-height-h3);
   border-radius: var(--radius-02);
-  --shimmer-base: var(--color-background-strong);
-  --shimmer-highlight: var(--color-background-medium-16);
 }
 
 .audio-error {
@@ -674,7 +671,7 @@ onMounted(async () => {
 }
 
 .crossover-info {
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-04);
   padding: var(--space-04);
   margin-top: var(--space-03);
@@ -688,17 +685,9 @@ onMounted(async () => {
   margin: 0;
 }
 
-.crossover-info :deep(.slider-container.horizontal .range-track) {
-  background: linear-gradient(to right,
-    var(--slider-accent) 0%,
-    var(--slider-accent) var(--progress),
-    var(--color-background-neutral) var(--progress),
-    var(--color-background-neutral) 100%);
-}
-
-/* The value pill follows the track onto this box's darker background */
+/* The value pill is held by this inset, so it stands a step above it. */
 .crossover-info :deep(.slider-value) {
-  background: var(--color-background-neutral);
+  background: var(--color-tile);
 }
 
 .crossover-info p {
@@ -721,7 +710,7 @@ onMounted(async () => {
   align-items: flex-start;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .info-label {

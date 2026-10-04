@@ -8,7 +8,7 @@
 
     <!-- Top-level tabs -->
     <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll"
-      inactive-variant="background-neutral" />
+      inactive-variant="surface" />
 
     <!-- The storage space on screen has just been disconnected. It keeps its
          button until the user picks another one — dropping it here would swap
@@ -98,7 +98,7 @@
         <!-- PLAYLISTS -->
         <template v-else>
           <div class="playlists-actions">
-            <Button variant="background-strong" size="small" left-icon="plus" @click="createOpen = true">
+            <Button variant="control" size="small" left-icon="plus" @click="createOpen = true">
               {{ t('musicLibrary.playlists.newPlaylist') }}
             </Button>
           </div>
@@ -457,7 +457,7 @@ onMounted(async () => {
   gap: var(--space-03);
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   cursor: pointer;
   min-width: 0;
 }

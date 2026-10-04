@@ -4,7 +4,6 @@ import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
-import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
 const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'settings'];
@@ -150,8 +149,7 @@ export const useSettingsStore = defineStore('settings', () => {
     warmth: 50
   });
 
-  // light | dark | auto — read by the kiosk only (useTheme); every other
-  // browser follows its own system theme.
+  // light | dark | auto — the theme of every browser showing Milō (useTheme).
   const screenTheme = ref({
     theme: 'auto'
   });
@@ -475,8 +473,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateScreenColorFilter = makeUpdater(screenColorFilter);
   const updateScreenTheme = makeUpdater(screenTheme);
 
-  // Only the kiosk reads it (useTheme): every other browser follows its system
-  // theme. Kept current by system/timezone_changed, re-read on resync.
+  // What `auto` reads its sunset from (useTheme). Kept current by
+  // system/timezone_changed, re-read on resync.
   async function loadDaylightLocation() {
     const result = await apiCall.get('/api/system/daylight-location', {
       category: 'settings',
@@ -524,7 +522,7 @@ export const useSettingsStore = defineStore('settings', () => {
       loadAllSettings(),
       loadBtRemoteStatus(),
       loadIrRemoteStatus(),
-      ...(isKiosk() ? [loadDaylightLocation()] : []),
+      loadDaylightLocation(),
     ]);
     return outcomes.every(Boolean);
   }

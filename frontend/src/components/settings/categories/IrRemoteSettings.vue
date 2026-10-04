@@ -148,7 +148,7 @@ const primaryCtaLabel = computed(() => {
   }
 });
 
-const primaryCtaVariant = computed(() => (fsmState.value === 'waiting' ? 'background-strong' : 'brand'));
+const primaryCtaVariant = computed(() => (fsmState.value === 'waiting' ? 'control' : 'brand'));
 
 const primaryCtaClick = computed(() => (fsmState.value === 'waiting' ? cancelPairing : startPairing));
 

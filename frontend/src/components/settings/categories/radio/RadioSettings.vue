@@ -118,7 +118,7 @@ onMounted(() => {
   padding: var(--space-05);
   text-align: center;
   color: var(--color-text-secondary);
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-04);
   border: 2px dashed var(--color-border);
 }

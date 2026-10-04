@@ -23,7 +23,7 @@
       <div v-if="hasActions" class="detail-header-actions">
         <!-- Extra actions (e.g. the playlist Edit/Done toggle, or podcast Subscribe/Unsubscribe). -->
         <slot name="actions"></slot>
-        <IconButton v-if="showShuffle" icon="shuffle" variant="on-dark" size="small"
+        <IconButton v-if="showShuffle" icon="shuffle" variant="on-contrast" size="small"
           :aria-label="t('musicLibrary.shuffle')" @click="$emit('shuffle')" />
         <IconButton v-if="showPlay" icon="play" variant="brand" size="medium"
           :loading="playLoading" :aria-label="t('musicLibrary.play')" @click="$emit('play')" />
@@ -101,7 +101,7 @@ const hasActions = computed(
   flex-direction: row;
   align-items: center;
   gap: var(--space-03);
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
   border-radius: var(--radius-04);
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }
@@ -117,7 +117,7 @@ const hasActions = computed(
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-neutral-12);
+  background: var(--color-glint);
   color: var(--color-brand);
 }
 
@@ -139,7 +139,7 @@ const hasActions = computed(
 
 .detail-header-title {
   margin: 0;
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -162,7 +162,7 @@ const hasActions = computed(
 
 .detail-header-metaline {
   margin: 0;
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
 }
 
 .detail-header-actions {

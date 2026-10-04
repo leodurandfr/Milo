@@ -139,7 +139,7 @@ onMounted(loadEpisode)
 }
 
 .description-block {
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-04);
   padding: var(--space-04);
   display: flex;

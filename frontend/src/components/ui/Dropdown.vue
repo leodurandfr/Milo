@@ -11,8 +11,8 @@
       :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono-medium' : (size === 'small' ? 'heading-4' : 'heading-3')">{{ selectedLabel }}</span>
-      <SvgIcon v-if="variant !== 'minimal'" name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
+      <span class="dropdown-label" :class="size === 'small' ? 'heading-4' : 'heading-3'">{{ selectedLabel }}</span>
+      <SvgIcon name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
     </button>
 
     <Teleport to="body">
@@ -62,7 +62,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'outline',
-    validator: (value) => ['outline', 'minimal', 'background-neutral'].includes(value)
+    validator: (value) => ['outline', 'plain'].includes(value)
   },
   size: {
     type: String,
@@ -280,7 +280,7 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   cursor: pointer;
   outline: none;
   gap: var(--space-01);
@@ -306,26 +306,7 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-trigger:disabled .dropdown-label {
-  color: var(--color-text-light);
-}
-
-/* Minimal variant */
-.dropdown-trigger--minimal {
-  background: none;
-  border: none;
-  box-shadow: none;
-  width: auto;
-  /* Vertical-only padding: no horizontal padding so the trigger hugs its content width */
-  padding: var(--space-04) 0;
-}
-
-.dropdown-trigger--minimal:focus {
-  box-shadow: none;
-}
-
-.dropdown-trigger--minimal .dropdown-label {
-  color: var(--color-text-contrast-50);
-  text-align: center;
+  color: var(--color-text-tertiary);
 }
 
 .dropdown-label {
@@ -343,12 +324,12 @@ onBeforeUnmount(() => {
   color: var(--color-text);
 }
 
-/* Background-neutral variant */
-.dropdown-trigger--background-neutral {
+/* Plain variant: the same trigger without its outline */
+.dropdown-trigger--plain {
   box-shadow: none;
 }
 
-.dropdown-trigger--background-neutral.has-selection .dropdown-label {
+.dropdown-trigger--plain.has-selection .dropdown-label {
   color: var(--color-text);
 }
 
@@ -365,7 +346,7 @@ onBeforeUnmount(() => {
 .dropdown-menu {
   position: fixed;
   z-index: 5001;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
   box-shadow: var(--shadow-02);
@@ -471,11 +452,6 @@ onBeforeUnmount(() => {
 @media (max-aspect-ratio: 4/3) {
   .dropdown-trigger--small {
     height: 34px;
-  }
-
-  /* Restore the base trigger padding on the minimal variant for mobile */
-  .dropdown-trigger--minimal {
-    padding: var(--space-03) var(--space-04);
   }
 }
 </style>

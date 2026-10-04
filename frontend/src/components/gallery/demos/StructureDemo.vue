@@ -27,26 +27,16 @@
   </GalleryItem>
 
   <GalleryItem id="NavigationHeader">
-    <GalleryVariant label='variant="contrast" (default)' stacked>
+    <GalleryVariant label="a panel of wherever it is drawn — the surface here, the section color inside a Modal" stacked>
       <NavigationHeader title="Radio" @back="backs++" />
       <NavigationHeader title="Radio Nova" subtitle="Paris, France" show-back icon="radio" @back="backs++" />
+      <NavigationHeader title="Music Library" subtitle="1 284 albums" show-back @back="backs++" />
     </GalleryVariant>
-    <GalleryVariant label='variant="background-neutral"' stacked>
-      <NavigationHeader title="Settings" variant="background-neutral" @back="backs++" />
-      <NavigationHeader title="Music Library" subtitle="1 284 albums" variant="background-neutral" show-back
-        @back="backs++" />
-    </GalleryVariant>
-    <GalleryVariant label="actions slot — the slot prop carries the matching icon variant" stacked>
+    <GalleryVariant label="actions slot — trailing IconButtons keep their default" stacked>
       <NavigationHeader title="Queue" show-back @back="backs++">
-        <template #actions="{ iconVariant }">
-          <IconButton icon="shuffle" :variant="iconVariant" />
-          <IconButton icon="trash" :variant="iconVariant" />
-        </template>
-      </NavigationHeader>
-      <NavigationHeader title="Queue" variant="background-neutral" show-back @back="backs++">
-        <template #actions="{ iconVariant }">
-          <IconButton icon="shuffle" :variant="iconVariant" />
-          <IconButton icon="trash" :variant="iconVariant" />
+        <template #actions>
+          <IconButton icon="shuffle" />
+          <IconButton icon="trash" />
         </template>
       </NavigationHeader>
     </GalleryVariant>

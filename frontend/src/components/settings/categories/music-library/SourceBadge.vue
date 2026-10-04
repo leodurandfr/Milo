@@ -15,6 +15,6 @@
   width: 100%;
   height: 100%;
   color: var(--color-text-secondary);
-  background: var(--color-background-neutral);
+  background: var(--color-tile);
 }
 </style>

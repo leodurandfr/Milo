@@ -119,14 +119,6 @@ module.exports = {
       },
     },
     {
-      // An intermediate error-shade border: --color-error-subtle (12%) is too
-      // faint for a 2px stroke and --color-error too loud.
-      files: ['src/components/settings/categories/radio/ManageStation.vue'],
-      rules: {
-        'declaration-property-value-disallowed-list': NO_TYPOGRAPHY,
-      },
-    },
-    {
       // ClientEdit: a skeleton `::before` reserving exact heading-3 metrics —
       // a utility class cannot be applied to a pseudo-element.
       files: ['src/components/settings/categories/multiroom/ClientEdit.vue'],

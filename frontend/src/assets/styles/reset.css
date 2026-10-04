@@ -15,7 +15,7 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
-  background-color: var(--color-background);
+  background-color: var(--color-ground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -41,7 +41,7 @@ body {
   content: '';
   position: fixed;
   inset: 0;
-  background-color: var(--color-background);
+  background-color: var(--color-ground);
   z-index: -1;
   pointer-events: none;
 }

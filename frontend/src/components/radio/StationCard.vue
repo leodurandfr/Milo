@@ -132,11 +132,10 @@ const cardMetadata = computed(() => {
   position: absolute;
   inset: 0;
   z-index: 2;
-  /* Force opaque shimmer here so the SVG fallback underneath cannot bleed through
-     during the favicon load. Defaults (--color-background-neutral-50/12) are
-     translucent and intended for skeletons sitting on a darker backdrop. */
-  --shimmer-base: var(--color-background-strong);
-  --shimmer-highlight: var(--color-background-neutral);
+  /* An opaque shimmer here, so the SVG fallback underneath cannot bleed
+     through during the favicon load: the skeleton colors are an ink. */
+  --shimmer-base: var(--color-control);
+  --shimmer-highlight: var(--color-tile);
 }
 
 /* Skeleton overlay fade-out — leave-only; the skeleton is mounted at full
@@ -154,7 +153,7 @@ const cardMetadata = computed(() => {
   aspect-ratio: 1 / 1;
   width: 100%;
   border-radius: var(--radius-05);
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   transition: transform var(--transition-fast);
 }
 
@@ -173,7 +172,7 @@ const cardMetadata = computed(() => {
   border-radius: var(--radius-04);
   cursor: pointer;
   transition: all var(--transition-fast);
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   position: relative;
   min-width: 0;
 }
@@ -181,7 +180,7 @@ const cardMetadata = computed(() => {
 
 .station-card.playing {
   border-color: var(--color-brand);
-  background: var(--color-background);
+  background: var(--color-inset);
 }
 
 .station-logo {
@@ -189,7 +188,7 @@ const cardMetadata = computed(() => {
   width: 60px;
   height: 60px;
   border-radius: var(--radius-02);
-  background: var(--color-background-neutral-12);
+  background: var(--color-skeleton);
 }
 
 .station-details {
@@ -212,7 +211,7 @@ const cardMetadata = computed(() => {
 
 .station-subtitle {
   margin: 0;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

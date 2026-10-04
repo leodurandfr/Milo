@@ -32,7 +32,7 @@ defineProps({
 }
 
 .player-info-title {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -42,7 +42,7 @@ defineProps({
 }
 
 .player-info-secondary {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;

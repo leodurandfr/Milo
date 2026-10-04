@@ -18,15 +18,20 @@
         <p v-if="block.note" class="foundations__note text-mono-small">{{ block.note }}</p>
       </header>
 
-      <!-- Colours and gradients: the chip straddles both backgrounds, which is
-           the only way an alpha variant reads as anything but a flat tone. -->
+      <!-- Colours and gradients, once per theme: each chip straddles that
+           theme's surface and contrast, which is the only way an alpha variant
+           reads as anything but a flat tone. Painted with the resolved value,
+           so the theme this page is not in is drawn too. -->
       <ul v-if="block.kind === 'swatch'" class="foundations__grid foundations__grid--swatch">
         <li v-for="token in block.tokens" :key="token.name" class="foundations__cell">
-          <span class="swatch">
-            <span class="swatch__fill" :style="{ background: `var(${token.name})` }" />
+          <span class="swatch-pair">
+            <span v-for="theme in THEMES" :key="theme" class="swatch" :style="{ background: BACKING[theme] }">
+              <span class="swatch__fill" :style="{ background: token.paint[theme] }" />
+            </span>
           </span>
           <p class="foundations__name text-mono-small">{{ token.name }}</p>
           <p class="foundations__value text-mono-small" :title="token.value">{{ token.value }}</p>
+          <p v-if="token.dark" class="foundations__value text-mono-small" :title="token.dark">dark · {{ token.dark }}</p>
         </li>
       </ul>
 
@@ -105,8 +110,18 @@
 </template>
 
 <script setup>
+import { paint } from './foundations.js';
+
 /** One line carrying both cases, the digits and a diacritic — the ō included. */
 const SAMPLE = 'Milō sounds better — 0123';
+
+const THEMES = ['light', 'dark'];
+
+/** Each theme's split backing: half its surface, half its contrast. */
+const BACKING = Object.fromEntries(THEMES.map(theme => [
+  theme,
+  `linear-gradient(90deg, ${paint('--color-surface')[theme]} 0 50%, ${paint('--color-contrast')[theme]} 50% 100%)`
+]));
 
 defineProps({
   /** A FOUNDATION_PAGES entry: title, summary, and its parsed blocks. */
@@ -138,7 +153,7 @@ defineProps({
 }
 
 .foundations__title {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   text-transform: uppercase;
 }
 
@@ -207,7 +222,7 @@ defineProps({
 .foundations__value {
   margin: 0;
   overflow: hidden;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -220,20 +235,20 @@ defineProps({
 /* Over the blur backdrop the two light text tones disappear. */
 .foundations__name--over,
 .foundations__value--over {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
-/* The split backing: half neutral, half contrast, so a token carrying alpha
-   shows what it actually does on both of the app's surfaces. */
+/* Light then dark, each on its theme's split backing (set inline). */
+.swatch-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
 .swatch {
   display: block;
   height: var(--space-08);
   overflow: hidden;
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0 50%,
-    var(--color-background-contrast) 50% 100%
-  );
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
 }
@@ -253,7 +268,7 @@ defineProps({
 .cast {
   display: block;
   height: var(--space-08);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-03);
 }
 
@@ -267,19 +282,19 @@ defineProps({
   background:
     repeating-linear-gradient(
       45deg,
-      var(--color-background-neutral-50) 0 8px,
+      var(--color-surface-glass) 0 8px,
       transparent 8px 20px
     ),
     radial-gradient(circle at 20% 30%, var(--color-brand) 0%, transparent 45%),
     radial-gradient(circle at 75% 70%, var(--color-success) 0%, transparent 40%),
-    linear-gradient(120deg, var(--color-background-contrast), var(--color-text-secondary));
+    linear-gradient(120deg, var(--color-contrast), var(--color-text-secondary));
   border-radius: var(--radius-03);
 }
 
 .pane {
   display: block;
   height: var(--space-08);
-  background: var(--color-background-neutral-12);
+  background: var(--color-glint);
   border-radius: var(--radius-02);
 }
 

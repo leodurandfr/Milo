@@ -56,7 +56,7 @@
             :icon="summaryOpen ? 'caretUp' : 'caretDown'"
             variant="ghost"
             size="small"
-            color="var(--color-text-light)"
+            color="var(--color-text-tertiary)"
             :aria-expanded="summaryOpen"
             aria-label="Toggle description"
             @click="summaryOpen = !summaryOpen"
@@ -412,7 +412,7 @@ watch(selected, (id) => {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   height: 100%;
-  background: var(--color-background);
+  background: var(--color-ground);
 }
 
 .gallery--with-panel {
@@ -459,7 +459,7 @@ watch(selected, (id) => {
 }
 
 .gallery__path {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .gallery__summary {
@@ -476,14 +476,14 @@ watch(selected, (id) => {
 .gallery__tab {
   padding: var(--space-01) var(--space-03);
   color: var(--color-text-secondary);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
   cursor: pointer;
 }
 
 .gallery__tab--active {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
   background: var(--color-brand);
   border-color: var(--color-brand);
 }
@@ -496,7 +496,7 @@ watch(selected, (id) => {
 .gallery__note {
   padding: var(--space-04);
   color: var(--color-text-secondary);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-03);
 }
 
@@ -509,7 +509,7 @@ watch(selected, (id) => {
 .gallery__panel {
   padding: var(--space-03);
   overflow-y: auto;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-left: 1px solid var(--color-border);
 }
 
@@ -555,7 +555,7 @@ watch(selected, (id) => {
     inset: 0;
     z-index: 10;
     display: block;
-    background: var(--color-background-scrim);
+    background: var(--color-image-scrim);
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--transition-fast);
@@ -571,7 +571,7 @@ watch(selected, (id) => {
     align-self: flex-start;
     padding: var(--space-01) var(--space-03);
     color: var(--color-text-secondary);
-    background: var(--color-background-neutral);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-02);
     cursor: pointer;

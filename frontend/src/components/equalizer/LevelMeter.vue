@@ -115,7 +115,7 @@ watch(() => props.level, (newLevel) => {
 .meter-track {
   position: relative;
   height: 4px;
-  background: var(--color-background);
+  background: var(--color-track);
   border-radius: var(--radius-full);
   overflow: hidden;
 }

@@ -273,7 +273,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 4500;
-  background: var(--color-background);
+  background: var(--color-ground);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -285,7 +285,7 @@ onUnmounted(() => {
   width: 100%;
   max-width: 380px;
   height: 100%;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-06);
   outline: 1.5px solid var(--color-border);
   box-shadow: var(--shadow-03);
@@ -334,7 +334,7 @@ onUnmounted(() => {
   top: 0;
   height: var(--space-06);
   margin-bottom: calc(-1 * var(--space-06));
-  background: linear-gradient(to bottom, var(--color-background-neutral), transparent);
+  background: linear-gradient(to bottom, var(--color-surface), transparent);
   z-index: 1;
   pointer-events: none;
 }
@@ -381,7 +381,7 @@ onUnmounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .setup-wizard {
     padding: 0;
-    background: var(--color-background-neutral);
+    background: var(--color-surface);
   }
 
   .setup-card {
@@ -442,6 +442,6 @@ onUnmounted(() => {
 <style>
 .setup-active body,
 .setup-active #app::before {
-  background-color: var(--color-background-neutral) !important;
+  background-color: var(--color-surface) !important;
 }
 </style>

@@ -16,7 +16,7 @@
         :subtitle="t('system.hostnameConflict.subtitle')"
         :details="deviceDetails"
         :cta-label="t('system.hostnameConflict.recheck')"
-        cta-variant="background-strong"
+        cta-variant="control"
         :cta-click="handleRecheck"
         :cta-loading="systemStore.rechecking"
         :cta-secondary-label="t('system.hostnameConflict.shutdown')"
@@ -80,7 +80,7 @@ function handleShutdown() {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: var(--color-background);
+  background: var(--color-ground);
   display: flex;
   align-items: center;
   justify-content: center;

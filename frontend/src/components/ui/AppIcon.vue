@@ -189,7 +189,7 @@ const svgContent = computed(() => {
 .app-icon--loading {
   --spinner-size: calc(var(--icon-size) * 0.8);
 
-  background: var(--color-background);
+  background: var(--color-inset);
   color: var(--color-text);
 }
 

@@ -28,9 +28,9 @@
       </div>
 
       <div class="card-actions">
-        <IconButton v-if="showCompleteButton" icon="close" variant="background-strong" size="medium"
+        <IconButton v-if="showCompleteButton" icon="close" variant="control" size="medium"
           @pointerdown.stop @click.stop="emit('complete', episode)" />
-        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="background-strong" size="medium"
+        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="control" size="medium"
           :loading="isCurrentEpisodeBuffering" @pointerdown.stop @click.stop="handlePlayClick" />
       </div>
     </div>
@@ -94,7 +94,7 @@ async function handlePlayClick() {
 .episode-card {
   display: flex;
   gap: var(--space-03);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-04);
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
   cursor: pointer;

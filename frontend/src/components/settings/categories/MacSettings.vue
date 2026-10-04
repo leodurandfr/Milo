@@ -254,7 +254,7 @@ onMounted(() => {
   gap: var(--space-03);
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .analysis-item__name {

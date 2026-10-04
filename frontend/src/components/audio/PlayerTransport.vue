@@ -80,8 +80,8 @@ const plate = computed(() => {
 // The main button and a toggle that is on take the strong ink of the surface;
 // the steps and a toggle that is off the lighter one.
 const INKS = {
-  plate: { strong: 'var(--color-text)', light: 'var(--color-text-light)' },
-  card: { strong: 'var(--color-text-contrast)', light: 'var(--color-text-contrast-50)' }
+  plate: { strong: 'var(--color-text)', light: 'var(--color-text-tertiary)' },
+  card: { strong: 'var(--color-text-on-contrast)', light: 'var(--color-text-on-contrast-secondary)' }
 };
 
 function ink(control) {
@@ -132,7 +132,8 @@ function press(control) {
    own mobile step (32 desktop, 24 phone), which is what keeps the narrower
    plate from running out of room. */
 .player-transport--plate {
-  background: var(--color-background);
+  color: var(--color-text);
+  background: var(--color-inset);
   border-radius: var(--radius-06);
   justify-content: space-evenly;
   padding: var(--space-01) var(--space-06);
@@ -176,9 +177,8 @@ function press(control) {
   height: 56px;
 }
 
-/* The ghost variant assumes a dark ground and dims its own color while
-   loading; the plate sits on --color-background, so the spinner keeps the
-   icon's tone instead. */
+/* A loading ghost dims the ink it inherits; on the plate the spinner keeps
+   the icon's full tone instead. */
 .player-transport--plate .player-button--primary.icon-button--loading {
   color: var(--color-text);
 }
@@ -187,6 +187,7 @@ function press(control) {
    The bar's own ghost buttons, at its compact scale: the trio centred, and
    once a toggle is listed, shuffle and repeat pushed to the row's two ends. */
 .player-transport--card {
+  color: var(--color-text-on-contrast);
   justify-content: center;
   gap: var(--space-01);
   width: 100%;

@@ -400,6 +400,40 @@ describe('component gallery catalogue', () => {
     expect(wrong).toEqual([]);
   });
 
+  /**
+   * The same check over the whole app, not just the demos. A variant name is a
+   * color role, and the roles get renamed; a screen still writing the old name
+   * renders a button with no styling at all — a class nothing declares — and
+   * Vue's validator only warns in a dev console nobody watches.
+   */
+  it('writes no variant a catalogued component would refuse, anywhere in the app', () => {
+    const vueFiles = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap(entry => (
+      entry.isDirectory() ? vueFiles(join(dir, entry.name)) : entry.name.endsWith('.vue') ? [join(dir, entry.name)] : []
+    ));
+    const checked = [];
+    const wrong = [];
+
+    for (const file of vueFiles(SRC_DIR)) {
+      const text = readFileSync(file, 'utf8');
+      for (const { componentId, prop, value } of literalProps(text)) {
+        // Variants only: the playground offers a curated subset of icons and
+        // sizes, which the app is free to go beyond.
+        if (!/^(?:v|.+V)ariant$/.test(prop)) continue;
+        const options = selectOptions(componentId, prop);
+        if (!options) continue;
+        checked.push(`${file}:${componentId}.${prop}`);
+        if (!options.includes(value)) {
+          wrong.push(`${file.slice(SRC_DIR.length + 1)}: <${componentId} ${prop}="${value}">`);
+        }
+      }
+    }
+
+    expect(checked.length).toBeGreaterThan(60);
+    expect(new Set(checked.map(entry => entry.split(':')[0])).size).toBeGreaterThan(30);
+
+    expect(wrong).toEqual([]);
+  });
+
   it('says something substantive about every primitive', () => {
     // The summary is the only prose a reader gets, and it is what explains why a
     // `coupling` primitive behaves unlike the rest.

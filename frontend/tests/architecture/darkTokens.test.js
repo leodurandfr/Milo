@@ -10,12 +10,12 @@
  * value: a typo, or a token renamed on one side, which leaves the real one
  * untouched in the dark theme while the block reads as if it were handled.
  *
- * Themable means `--color-*`, `--gradient-*` and `--filter-*`. The other
- * families — spacing, radii, type, motion, shadows, glass strokes, the player
- * backdrop — are theme-neutral by design and are not read here. A themable
- * token that is neutral on purpose has to be named in NEUTRAL, and that list
- * is checked too, so an entry cannot outlive its token or start being themed
- * behind the list's back.
+ * Themable means `--color-*`, `--gradient-*` and `--stroke-*`. The other
+ * families — the `--gray-*` palette, spacing, radii, type, motion, shadows —
+ * are theme-neutral by design and are not read here. A themable token that is
+ * neutral on purpose has to be named in NEUTRAL, and that list is checked too,
+ * so an entry cannot outlive its token or start being themed behind the
+ * list's back.
  *
  * Mounts nothing: it reads the stylesheet the browser reads.
  */
@@ -27,13 +27,25 @@ import { dirname, resolve } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DESIGN_SYSTEM = resolve(HERE, '../../src/assets/styles/design-system.css');
 
-const THEMABLE = /^--(?:color|gradient|filter)-/;
+const THEMABLE = /^--(?:color|gradient|stroke)-/;
 
 /**
- * Themable by name, theme-neutral on purpose. Both are drawn over artwork,
- * which does not change with the theme, so neither does what darkens it.
+ * Themable by name, theme-neutral on purpose. The brand and the status colors
+ * mean the same thing in both themes; glass is tinted by what is behind it;
+ * a contrast surface is dark in both themes, so what is drawn on it is too;
+ * and artwork does not change with the theme, so neither does what is drawn
+ * over it.
  */
-const NEUTRAL = ['--color-plate-on-image', '--color-veil-on-image'];
+const NEUTRAL = [
+  '--color-brand', '--color-text-on-brand',
+  '--color-success', '--color-warning', '--color-error',
+  '--color-success-subtle', '--color-warning-subtle', '--color-error-subtle',
+  '--color-glass', '--color-glass-strong',
+  '--color-glint', '--color-text-on-contrast', '--color-text-on-contrast-secondary',
+  '--stroke-glass-on-contrast',
+  '--color-image-plate', '--color-image-veil', '--color-image-scrim',
+  '--color-backdrop', '--color-backdrop-veil',
+];
 
 /** The declarations of the first rule whose selector is exactly `selector`. */
 function block(css, selector) {

@@ -8,15 +8,15 @@
         :header-subtitle="currentSubtitle"
         :header-show-back="canGoBack"
         :header-title-muted="currentView === 'podcast-details' || currentView === 'episode-details'"
-        header-icon="podcast" header-variant="background-neutral"
+        header-icon="podcast"
         :header-actions-key="currentView" :content-key="currentView"
         :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
         @scroll-restored="onScrollRestored">
         <!-- Header actions (only on home view) -->
-        <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
-          <IconButton icon="heartOff" :variant="iconVariant" @click="goToSubscriptions" />
-          <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
-          <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
+        <template v-if="currentView === 'home'" #header-actions>
+          <IconButton icon="heartOff" @click="goToSubscriptions" />
+          <IconButton icon="queue" @click="goToQueue" />
+          <IconButton icon="search" @click="goToSearch" />
         </template>
 
         <!-- Content slot: scrollable views -->

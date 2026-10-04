@@ -99,7 +99,7 @@
                   <WifiSignal :signal="network.signal" :size="24" />
                   <span class="text-body network-item__ssid">{{ network.ssid }}</span>
                 </div>
-                <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
+                <SvgIcon name="caretDown" :size="24" color="var(--color-text-tertiary)"
                   class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
               </div>
 
@@ -336,7 +336,7 @@ onUnmounted(() => {
 <style scoped>
 /* Connection status card (MultiroomItem zone pattern) */
 .connection-section {
-  background: var(--color-background-neutral);
+  background: var(--color-panel);
   border-radius: var(--radius-06);
   padding: var(--space-05);
   display: flex;
@@ -463,7 +463,7 @@ onUnmounted(() => {
   gap: var(--space-03);
   padding: var(--space-03);
   border-radius: var(--radius-04);
-  background: var(--color-background);
+  background: var(--color-inset);
   cursor: pointer;
   transition: background-color var(--transition-fast), var(--transition-press);
   min-width: 0;
@@ -556,12 +556,7 @@ onUnmounted(() => {
   height: 48px;
   padding: 0 var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background);
-}
-
-.network-skeleton .skeleton-text-line {
-  --shimmer-base: var(--color-background);
-  --shimmer-highlight: var(--color-background-medium-16);
+  background: var(--color-inset);
 }
 
 /* Divider above the country row (the row itself lives in WifiCountrySelector) */

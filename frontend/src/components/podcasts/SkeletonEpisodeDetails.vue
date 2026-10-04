@@ -1,11 +1,11 @@
 <template>
   <div class="skeleton-episode-details">
     <div class="skeleton-header">
-      <div class="skeleton-header-image shimmer"></div>
+      <div class="skeleton-header-image shimmer shimmer--on-contrast"></div>
       <div class="skeleton-header-meta">
-        <div class="skeleton-text-line shimmer skeleton-header-title"></div>
-        <div class="skeleton-text-line shimmer skeleton-header-podcast"></div>
-        <div class="skeleton-text-line shimmer skeleton-header-status"></div>
+        <div class="skeleton-text-line shimmer shimmer--on-contrast skeleton-header-title"></div>
+        <div class="skeleton-text-line shimmer shimmer--on-contrast skeleton-header-podcast"></div>
+        <div class="skeleton-text-line shimmer shimmer--on-contrast skeleton-header-status"></div>
       </div>
     </div>
 
@@ -30,7 +30,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-03);
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
   border-radius: var(--radius-04);
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }

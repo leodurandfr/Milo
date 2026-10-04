@@ -76,7 +76,7 @@
              disconnect. -->
         <PlayerTopRow class="player-topbar">
           <template #start>
-            <IconButton v-if="navigation" icon="minified" variant="background-strong" size="medium"
+            <IconButton v-if="navigation" icon="minified" variant="control" size="medium"
               :aria-label="t('common.back')" @click="navigation.back" />
             <slot name="top-start" />
           </template>
@@ -222,7 +222,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   height: 100%;
   overflow: hidden;
   position: relative;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
 }
 
 /* === DARK THEME BACKDROP ===
@@ -231,7 +231,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
    `isolation` makes the panel the stacking context the backdrop's negative
    z-index sinks into, under the content however it is layered. */
 .connect-player--backdrop {
-  background: var(--backdrop-ground);
+  background: var(--color-backdrop);
   isolation: isolate;
 }
 
@@ -270,7 +270,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--backdrop-veil);
+  background: var(--color-backdrop-veil);
 }
 
 /* The halo centred on the cover spreads over the whole panel here, faint,
@@ -392,15 +392,15 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-strong);
-  color: var(--color-text-light);
+  background: var(--color-skeleton);
+  color: var(--color-text-tertiary);
 }
 
 /* Bundled placeholder. It is transparent by design — the same file sits on
    cards of two different colours elsewhere — so it needs the ground the glyph
    fallback gets, or the blurred backdrop shows through it. */
 .artwork-placeholder {
-  background: var(--color-background-strong);
+  background: var(--color-skeleton);
 }
 
 /* Held cover while the next one decodes. The scale is not decoration: a blur
@@ -428,13 +428,13 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-veil-on-image);
+  background: var(--color-image-veil);
   /* The spinner's SVG paints with currentColor, and it sits on a darkened cover
      — not on the player background — so it takes the contrast token rather than
      inheriting the page text colour. Full contrast, not -50: the blades already
      animate down to 0.16 opacity, and halving that again loses them over a
      bright cover. */
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 .artwork-veil-enter-active,

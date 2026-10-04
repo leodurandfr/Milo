@@ -53,10 +53,10 @@
              the user cannot open, and from a phone the page is served over
              plain http, where the clipboard API does not exist. -->
         <div class="diagnostic-actions">
-          <Button variant="background-neutral" @click="downloadReport">
+          <Button variant="surface" @click="downloadReport">
             {{ t('system.diagnostic.download') }}
           </Button>
-          <Button variant="background-neutral" @click="copyReport">
+          <Button variant="surface" @click="copyReport">
             {{ copied ? t('system.diagnostic.copied') : t('system.diagnostic.copy') }}
           </Button>
         </div>
@@ -285,7 +285,7 @@ onMounted(systemStore.loadSsh);
   padding: var(--space-03);
   overflow: auto;
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   color: var(--color-text-secondary);
   white-space: pre;
 }
@@ -301,7 +301,7 @@ onMounted(systemStore.loadSsh);
   flex: 1 0 auto;
   padding: var(--space-03);
   border-radius: var(--radius-04);
-  background: var(--color-background);
+  background: var(--color-inset);
   color: var(--color-text-secondary);
   overflow-x: auto;
   white-space: nowrap;

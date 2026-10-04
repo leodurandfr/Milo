@@ -10,13 +10,12 @@
     <div class="add-to-playlist">
       <NavigationHeader :title="t('musicLibrary.playlists.addToPlaylist')">
         <template #actions>
-          <IconButton icon="plus" variant="on-dark" @click="setCreateOpen(!showCreate)" />
+          <IconButton icon="plus" @click="setCreateOpen(!showCreate)" />
         </template>
       </NavigationHeader>
 
       <SettingsSection class="add-to-playlist__section">
         <ListItemButton
-          variant="background"
           action="radio"
           icon-variant="standard"
           :title="t('musicLibrary.playlists.likedSongs')"
@@ -32,7 +31,6 @@
         <ListItemButton
           v-for="pl in store.playlists"
           :key="pl.id"
-          variant="background"
           action="radio"
           :title="pl.name"
           :model-value="addedIds.has(pl.id)"

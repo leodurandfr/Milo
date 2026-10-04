@@ -17,7 +17,7 @@
             <template #actions>
               <IconButton
                 icon="threeDots"
-                :variant="editing ? 'brand' : 'on-dark'"
+                :variant="editing ? 'brand' : 'on-contrast'"
                 size="small"
                 :aria-label="editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit')"
                 @click="toggleEdit"
@@ -27,7 +27,7 @@
 
           <!-- Edit toolbar: rename + delete (two-tap confirm) + reorder hint. -->
           <div v-if="editing" class="edit-toolbar">
-            <Button variant="background-strong" size="small" @click="renameOpen = true">
+            <Button variant="control" size="small" @click="renameOpen = true">
               {{ t('musicLibrary.playlists.rename') }}
             </Button>
             <Button variant="important" size="small" :loading="deleting" @click="handleDelete">

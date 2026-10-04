@@ -130,7 +130,7 @@ async function handleForget() {
 }
 
 .usb-form__hint {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .usb-form__note {

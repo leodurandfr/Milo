@@ -336,7 +336,7 @@ onUnmounted(() => {
   box-sizing: border-box;
   min-height: 100vh;
   padding: var(--canvas-pad);
-  background: var(--color-background);
+  background: var(--color-ground);
 }
 
 /* Zeroes the pad rather than the padding, so the `100vh - 2 * pad` height below
@@ -360,18 +360,18 @@ onUnmounted(() => {
    is only legible over the backdrop it was drawn for, so the stage follows the
    args instead of staying light and reporting the variant as broken. */
 .canvas--contrast {
-  color: var(--color-text-contrast);
-  background: var(--color-background-contrast);
+  color: var(--color-text-on-contrast);
+  background: var(--color-contrast);
 }
 
-/* Translucent, so it composites over the body's own background into the mid tone
-   a plate over artwork actually sits on — the app never paints this one solid. */
-.canvas--medium {
-  background: var(--color-background-medium-32);
+/* A stand-in for artwork: translucent, so it composites over the body's own
+   background into the mid tone a plate over a cover actually sits on. */
+.canvas--image {
+  background: var(--color-glass-strong);
 }
 
 .canvas__empty {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 /* The shared composites are block-level: a row, a card, a header fills its
@@ -411,6 +411,6 @@ onUnmounted(() => {
   width: 180px;
   height: 180px;
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-skeleton);
 }
 </style>

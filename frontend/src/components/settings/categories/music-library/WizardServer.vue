@@ -21,7 +21,7 @@
         <!-- Servers already added as a share are shown greyed + "already connected"
              (not selectable again). -->
         <ListItemButton v-for="server in servers" :key="`${server.type}:${server.host}`"
-          variant="background" :title="server.name"
+          :title="server.name"
           :subtitle="isConnected(server) ? t('musicLibrary.shares.wizard.alreadyConnected') : server.address"
           :action="isConnected(server) ? 'none' : 'caret'"
           :disabled="isConnected(server)"
@@ -128,7 +128,7 @@ onMounted(() => {
   padding: var(--space-05);
   text-align: center;
   color: var(--color-text-secondary);
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-04);
   border: 2px dashed var(--color-border);
 }

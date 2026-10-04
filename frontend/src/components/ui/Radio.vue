@@ -38,7 +38,7 @@ function toggle() {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-full);
-  background: var(--color-text-light);
+  background: var(--color-fill-off);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -57,13 +57,15 @@ function toggle() {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-full);
-  background: var(--color-background-neutral);
+  background: var(--color-panel);
   transition: width var(--transition-fast), height var(--transition-fast);
 }
 
+/* Off, the dot is a hole in the ring; on, it is the thumb on the brand. */
 .radio--active .radio__dot {
   width: 16px;
   height: 16px;
+  background: var(--color-thumb);
 }
 
 .radio:disabled {

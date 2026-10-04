@@ -68,7 +68,7 @@ const hasStage = computed(() => !!slots.default);
   flex-direction: column;
   gap: var(--space-02);
   padding: var(--space-04);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-04);
   box-shadow: var(--shadow-02);
 }
@@ -88,7 +88,7 @@ const hasStage = computed(() => !!slots.default);
 }
 
 .gallery-item__path {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .gallery-item__summary {
@@ -99,7 +99,7 @@ const hasStage = computed(() => !!slots.default);
 .gallery-item__note {
   padding: var(--space-03);
   color: var(--color-text-secondary);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-03);
 }
 
@@ -109,7 +109,7 @@ const hasStage = computed(() => !!slots.default);
   gap: var(--space-04);
   padding: var(--space-04);
   margin-top: var(--space-02);
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-03);
 }
 </style>

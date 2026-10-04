@@ -55,7 +55,7 @@
         <div v-if="hasBar" class="lyrics-bar-progress">
           <ProgressBar :currentPosition="currentPosition" :duration="duration"
             :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-            :interactive="canSeek" variant="dark" animateIn @seek="seekTo" />
+            :interactive="canSeek" variant="on-contrast" animateIn @seek="seekTo" />
         </div>
 
         <!-- Right column: the transport when the source has one — same as
@@ -184,7 +184,7 @@ function onHintClick(event) {
 }
 
 .lyrics-bar {
-  background: linear-gradient(to bottom, transparent 0%, var(--color-background-scrim) 100%);
+  background: linear-gradient(to bottom, transparent 0%, var(--color-image-scrim) 100%);
   display: flex;
   align-items: center;
   gap: var(--space-06);
@@ -242,11 +242,11 @@ function onHintClick(event) {
 }
 
 .lyrics-bar-title {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 .lyrics-bar-artist {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
 }
 
 .lyrics-bar-progress {
@@ -280,7 +280,7 @@ function onHintClick(event) {
      to hit reliably on the kiosk touchscreen. */
   padding: var(--space-02);
   cursor: pointer;
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-on-contrast-secondary);
   transition: top var(--transition-spring-light), transform var(--transition-spring-light);
 }
 
@@ -328,6 +328,7 @@ function onHintClick(event) {
   display: flex;
   align-items: center;
   gap: var(--space-02);
+  color: var(--color-text-on-contrast);
 }
 
 

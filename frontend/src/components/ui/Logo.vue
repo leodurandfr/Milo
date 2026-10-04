@@ -43,7 +43,7 @@ defineProps({
 .logo-svg {
   display: block;
   height: 32px;
-  color: var(--color-svg-logo-grey);
+  color: var(--color-text-tertiary);
   transition: height var(--transition-spring);
 }
 

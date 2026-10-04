@@ -12,7 +12,6 @@
           v-for="language in availableLanguages"
           :key="language.code"
           :title="language.name"
-          variant="background"
           action="radio"
           :model-value="currentLanguage === language.code"
           @click="selectLanguage(language.code)"

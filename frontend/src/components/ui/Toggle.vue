@@ -59,7 +59,7 @@ function handleToggle(event) {
 }
 
 .toggle-container--disabled h2 {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .toggle {
@@ -122,14 +122,14 @@ function handleToggle(event) {
 .slider:before {
   position: absolute;
   content: "";
-  background-color: var(--color-control-thumb);
+  background-color: var(--color-thumb);
   border-radius: var(--radius-full);
   transition: transform 0.2s ease;
 }
 
 /* Colors */
 .toggle--primary .slider {
-  background-color: var(--color-text-light);
+  background-color: var(--color-fill-off);
 }
 
 .toggle--primary input:checked+.slider {
@@ -137,11 +137,11 @@ function handleToggle(event) {
 }
 
 .toggle--secondary .slider {
-  background-color: var(--color-text-light);
+  background-color: var(--color-fill-off);
 }
 
 .toggle--secondary input:checked+.slider {
-  background-color: var(--color-fill-strong);
+  background-color: var(--color-fill);
 }
 
 /* Disabled */

@@ -51,7 +51,7 @@
       <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress" @click.stop>
         <ProgressBar :currentPosition="currentPosition" :duration="duration"
           :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-          :interactive="canSeek" :loading="phase === 'loading'" :variant="surface === 'card' ? 'dark' : 'light'"
+          :interactive="canSeek" :loading="phase === 'loading'" :variant="surface === 'card' ? 'on-contrast' : 'default'"
           :animateIn="surface === 'full'" @seek="seekTo" />
       </div>
       <div v-if="hasTransport" class="body-transport" :class="{ 'transport-scale--compact': surface === 'card' }">
@@ -225,7 +225,7 @@ defineExpose({ swipe });
 }
 
 .body-secondary {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -283,7 +283,7 @@ defineExpose({ swipe });
 
 /* Its label on the dark card, in the card's ink. */
 .player-body--card .body-source :deep(.source-bar-label) {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 /* The mini-bar's one-line pair, hidden on the kiosk's card. */
@@ -348,11 +348,11 @@ defineExpose({ swipe });
   }
 
   .body-line--title {
-    color: var(--color-text-contrast);
+    color: var(--color-text-on-contrast);
   }
 
   .body-line--secondary {
-    color: var(--color-text-contrast-50);
+    color: var(--color-text-on-contrast-secondary);
   }
 
   .player-body--card .player-body-bottom {

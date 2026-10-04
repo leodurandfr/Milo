@@ -202,7 +202,7 @@ store.loadProfiles();
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-veil-on-image);
+  background: var(--color-image-veil);
 }
 
 .profile-name {
@@ -220,7 +220,7 @@ store.loadProfiles();
 }
 
 .profile-state.warn {
-  color: var(--color-brand);
+  color: var(--color-warning);
 }
 
 .profile-menu {

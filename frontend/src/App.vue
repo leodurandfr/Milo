@@ -18,7 +18,7 @@
     <!-- App content only renders after boot completes AND setup is done -->
     <template v-else-if="isBootComplete">
       <router-view />
-      <VolumeBar :variant="isDarkSurface ? 'dark' : 'light'" />
+      <VolumeBar :variant="isDarkSurface ? 'on-contrast' : 'default'" />
       <Dock
         v-if="showChrome"
         @open-equalizer="isEqualizerOpen = true"
@@ -178,8 +178,8 @@ const isReady = ref(false);
 const isBootComplete = ref(false);
 const currentError = ref(null);
 
-// Light/dark on <html>. The kiosk follows screen.theme (auto = the sun at the
-// timezone's coordinates), every other browser its own system theme.
+// Light/dark on <html>, from screen.theme (auto = the sun at the timezone's
+// coordinates).
 mountTheme({ animate: isBootComplete });
 
 // === Boot screen reference ===
@@ -547,7 +547,7 @@ const RAW_EVENTS = [
   ['source', 'state', unifiedStore.updateState],
   ['source', 'session_ended', handleSessionEnded],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
-  // The timezone's point, which the kiosk's auto theme reads sunset from.
+  // The timezone's point, which the auto theme reads sunset from.
   ['system', 'timezone_changed', settingsStore.handleTimezoneEvent],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed
   // whenever the NM dispatcher signals a physical link change.

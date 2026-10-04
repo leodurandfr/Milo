@@ -5,7 +5,7 @@
       <InputText
         v-model="searchQuery"
         :placeholder="t('audioSources.radioSource.searchPlaceholder')"
-        variant="background-neutral"
+        variant="plain"
         icon="search"
         :icon-size="24"
         @update:modelValue="onSearchInput"
@@ -14,13 +14,13 @@
       <Dropdown
         v-model="countryFilter"
         :options="countryOptions"
-        variant="background-neutral"
+        variant="plain"
         @change="$emit('search')"
       />
       <Dropdown
         v-model="genreFilter"
         :options="genreOptions"
-        variant="background-neutral"
+        variant="plain"
         @change="$emit('search')"
       />
     </div>
@@ -37,7 +37,7 @@
         :title="t('audioSources.radioSource.searchUnavailable')"
         :subtitle="t('audioSources.radioSource.searchUnavailableHint')"
         :cta-label="t('audioSources.radioSource.retry')"
-        cta-variant="background-strong"
+        cta-variant="control"
         :cta-click="() => $emit('retry')"
       />
 
@@ -48,7 +48,7 @@
         :title="t('audioSources.radioSource.connectionError')"
         :subtitle="t('audioSources.radioSource.cannotLoadStations')"
         :cta-label="t('audioSources.radioSource.retry')"
-        cta-variant="background-strong"
+        cta-variant="control"
         :cta-click="() => $emit('retry')"
       />
 
@@ -76,7 +76,7 @@
           ref="scrollSentinel"
           class="scroll-sentinel"
         >
-          <Button variant="background-strong" disabled loading>
+          <Button variant="control" disabled loading>
             {{ t('audioSources.radioSource.loadingStations') }}
           </Button>
         </div>

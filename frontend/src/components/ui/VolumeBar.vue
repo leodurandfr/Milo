@@ -18,15 +18,15 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
 
 defineProps({
-  // The tone of the surface the bar is drawn on, not the tone of the bar itself
-  // — same sense as ProgressBar's. "light" is the light theme; "dark" is the
-  // dark theme and the Lyrics view, where the near-black fill would sink into
-  // the backdrop. App.vue picks it from useDarkSurface(), so nothing here has to
-  // know which surfaces those are.
+  // The tone of the ground the bar is drawn over, not the tone of the bar
+  // itself — same sense as ProgressBar's. "on-contrast" is any dark ground: the
+  // dark theme, and the Lyrics view in either theme, where the strong fill
+  // would sink into the backdrop. App.vue picks it from useDarkSurface(), so
+  // nothing here has to know which surfaces those are.
   variant: {
     type: String,
-    default: 'light',
-    validator: (v) => ['light', 'dark'].includes(v)
+    default: 'default',
+    validator: (v) => ['default', 'on-contrast'].includes(v)
   }
 });
 
@@ -49,7 +49,7 @@ const volumeFillStyle = computed(() => ({
   top: calc(env(safe-area-inset-top,0px) + var(--space-05));
   /* The plate is the one layer both variants share: a mid grey wash lifts it off
      a dark backdrop exactly as it settles it into a light one. */
-  --glass-bg: var(--color-background-medium-16);
+  --glass-bg: var(--color-glass);
   --glass-radius: var(--radius-full);
   position: fixed;
   left: 50%;
@@ -116,28 +116,27 @@ const volumeFillStyle = computed(() => ({
    the ramp — near-black on light, light on dark — and carries the contrast on
    its own, so the track only has to hint at how far the value has travelled: on
    dark that is a second coat of the plate's own wash, about half the step the
-   light variant needs to register against its pale backdrop. An ink track was
-   tried here instead (--color-background-contrast-32), which sinks the plate
-   into a well the way the light variant's does and holds its contrast against a
-   brighter backdrop; it was turned down on looks. The readout is the muted tone
+   default variant needs to register against its pale backdrop. An ink track
+   was tried here instead (the contrast surface at 32%), which sinks the plate
+   into a well the way the default variant's does and holds its contrast
+   against a brighter backdrop; it was turned down on looks. The readout is the muted tone
    of whichever end the fill sits at, so it reads on the fill — where the value
    spends most of its travel — exactly as it does in the other. */
 
-.volume-bar--light {
-  --volume-track: var(--color-background-medium-32);
-  --volume-fill: var(--color-fill-strong);
-  --volume-text: var(--color-text-light);
+.volume-bar--default {
+  --volume-track: var(--color-glass-strong);
+  --volume-fill: var(--color-fill);
+  --volume-text: var(--color-text-tertiary);
 }
 
-.volume-bar--dark {
-  --volume-track: var(--color-background-medium-16);
-  /* Not the neutral surface, which turns dark with the theme. */
-  --volume-fill: var(--color-fill-contrast);
+.volume-bar--on-contrast {
+  --volume-track: var(--color-glass);
+  --volume-fill: var(--color-fill-on-contrast);
   --volume-text: var(--color-text-secondary);
   /* The fourth layer: the glass rim. White at .48 sits 13/255 off this plate on
      a light ground and 100 on a dark one, so the shared stroke that reads as a
-     highlight there draws an outline here — see --stroke-glass-dark. */
-  --glass-stroke: var(--stroke-glass-dark);
+     highlight there draws an outline here — see --stroke-glass-on-contrast. */
+  --glass-stroke: var(--stroke-glass-on-contrast);
 }
 
 @media (max-aspect-ratio: 4/3) {

@@ -1,6 +1,6 @@
 <template>
   <div class="message-content"
-    :class="{ 'is-delayed': loading && !showLoading, 'mc--no-glyph': !icon && !showLoading, 'message-content--dark': variant === 'dark' }">
+    :class="{ 'is-delayed': loading && !showLoading, 'mc--no-glyph': !icon && !showLoading, 'message-content--on-contrast': variant === 'on-contrast' }">
     <!-- Loading spinner OR icon (mutually exclusive) — same size, so a card
          swapping one for the other doesn't resize its glyph mid-transition. -->
     <LoadingSpinner v-if="showLoading" :size="48" />
@@ -29,11 +29,13 @@ import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
 
 const props = defineProps({
-  // 'default' = the white card; 'dark' = card-less, light-on-dark, for a state
-  // laid over a dark backdrop (the Lyrics view's blurred artwork).
+  // 'default' = a panel of wherever it is drawn; 'on-contrast' = card-less,
+  // light-on-dark, for a state laid over a contrast surface (the Lyrics view's
+  // blurred artwork).
   variant: {
     type: String,
-    default: 'default'
+    default: 'default',
+    validator: (value) => ['default', 'on-contrast'].includes(value)
   },
   loading: {
     type: Boolean,
@@ -81,7 +83,7 @@ const props = defineProps({
   },
   ctaSecondaryVariant: {
     type: String,
-    default: 'background-strong'
+    default: 'control'
   },
   ctaSecondaryClick: {
     type: Function,
@@ -90,7 +92,7 @@ const props = defineProps({
 })
 
 const iconColor = computed(() =>
-  props.variant === 'dark' ? 'var(--color-text-contrast-50)' : 'var(--color-background-medium-16)'
+  props.variant === 'on-contrast' ? 'var(--color-text-on-contrast-secondary)' : 'var(--color-text-faint)'
 )
 
 // Delayed loading state to avoid flash of spinner
@@ -131,7 +133,7 @@ watch(() => props.loading, (isLoading) => {
   gap: var(--space-04);
   padding: var(--space-07) var(--space-06) var(--space-08) var(--space-06);
   text-align: center;
-  background: var(--color-background-neutral);
+  background: var(--color-panel);
   border-radius: var(--radius-06);
 }
 
@@ -147,14 +149,14 @@ watch(() => props.loading, (isLoading) => {
 }
 
 /* The spinner is bare — the light plate it used to carry belongs to an app-icon
-   tile, not to a state card — so it takes the card's own colour, and the dark
-   variant has to name its own the way the icon beside it does. */
+   tile, not to a state card — so it takes the card's own colour, and the
+   on-contrast variant has to name its own the way the icon beside it does. */
 .message-content > :deep(.loading-spinner) {
   color: var(--color-text-secondary);
 }
 
-.message-content--dark > :deep(.loading-spinner) {
-  color: var(--color-text-contrast);
+.message-content--on-contrast > :deep(.loading-spinner) {
+  color: var(--color-text-on-contrast);
 }
 
 .cta-group {
@@ -174,27 +176,27 @@ watch(() => props.loading, (isLoading) => {
   visibility: hidden;
 }
 
-/* Dark variant — no card at all: the state floats over whatever dark surface
-   hosts it, so the background, radius and card min-height all go, and only the
-   inline padding stays to keep long copy off the screen edges. */
-.message-content.message-content--dark {
+/* On-contrast variant — no card at all: the state floats over the contrast
+   surface that hosts it, so the background, radius and card min-height all go,
+   and only the inline padding stays to keep long copy off the screen edges. */
+.message-content.message-content--on-contrast {
   min-height: 0;
   padding-block: 0;
   background: none;
   border-radius: 0;
 }
 
-/* Unlike the light card, which colors every line alike, the dark variant layers
-   them: the copy sits over blurred artwork, so the title needs full contrast
-   while the secondary lines fall back to stay out of its way. */
-.message-content--dark :deep(p),
-.message-content--dark :deep(.heading-2) {
-  color: var(--color-text-contrast);
+/* Unlike the card, which colors every line alike, the on-contrast variant
+   layers them: the copy sits over blurred artwork, so the title needs full
+   contrast while the secondary lines fall back to stay out of its way. */
+.message-content--on-contrast :deep(p),
+.message-content--on-contrast :deep(.heading-2) {
+  color: var(--color-text-on-contrast);
 }
 
-.message-content--dark .mc-subtitle,
-.message-content--dark .mc-details {
-  color: var(--color-text-contrast-50);
+.message-content--on-contrast .mc-subtitle,
+.message-content--on-contrast .mc-details {
+  color: var(--color-text-on-contrast-secondary);
 }
 
 @media (max-aspect-ratio: 4/3) {
@@ -202,7 +204,7 @@ watch(() => props.loading, (isLoading) => {
     min-height: 364px;
   }
 
-  .message-content.message-content--dark {
+  .message-content.message-content--on-contrast {
     min-height: 0;
   }
 }

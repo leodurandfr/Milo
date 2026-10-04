@@ -10,10 +10,10 @@
       />
       <span class="text-mono-small">seek → {{ position }} ms</span>
     </GalleryVariant>
-    <GalleryVariant label="variant=&quot;dark&quot; :interactive=&quot;false&quot; — the lyrics surface" stacked>
+    <GalleryVariant label="variant=&quot;on-contrast&quot; :interactive=&quot;false&quot; — the lyrics surface" stacked>
       <div class="dark-strip">
         <ProgressBar :current-position="812000" :duration="2940000" :progress-percentage="27.6"
-          variant="dark" :interactive="false" />
+          variant="on-contrast" :interactive="false" />
       </div>
     </GalleryVariant>
     <GalleryVariant label=":duration=&quot;0&quot; — renders nothing at all (radio, Qobuz)" stacked>
@@ -62,7 +62,7 @@
       <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle="42 tracks"
         :show-shuffle="false">
         <template #actions>
-          <IconButton icon="threeDots" variant="on-dark" size="small" />
+          <IconButton icon="threeDots" variant="on-contrast" size="small" />
         </template>
       </DetailHeader>
     </GalleryVariant>
@@ -100,7 +100,7 @@ const track = { title: 'Says', artist: 'Nils Frahm', duration: 511 };
   gap: var(--space-04);
   width: 100%;
   padding: var(--space-04);
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
   border-radius: var(--radius-03);
 }
 </style>

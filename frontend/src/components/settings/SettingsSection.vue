@@ -19,7 +19,7 @@ defineProps({
 
 <style scoped>
 .settings-section {
-  background: var(--color-background-neutral);
+  background: var(--color-panel);
   border-radius: var(--radius-06);
   padding: var(--space-05);
   display: flex;

@@ -6,7 +6,6 @@
         v-for="screen in screens"
         :key="screen.value"
         :title="screenLabel(screen)"
-        variant="background"
         action="radio"
         :model-value="modelValue === screen.value"
         @click="emit('update:modelValue', screen.value)"

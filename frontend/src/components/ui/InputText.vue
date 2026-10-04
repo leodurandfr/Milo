@@ -47,7 +47,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'outline',
-    validator: (value) => ['outline', 'background-neutral'].includes(value)
+    validator: (value) => ['outline', 'plain'].includes(value)
   }
 });
 
@@ -135,7 +135,7 @@ onUnmounted(() => {
   width: 100%;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   gap: var(--space-01);
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
@@ -155,8 +155,8 @@ onUnmounted(() => {
   box-shadow: inset 0px 0px 0px 2px var(--color-brand);
 }
 
-/* Background-neutral variant */
-.input-container--background-neutral {
+/* Plain variant: the same field without its outline */
+.input-container--plain {
   box-shadow: none;
 }
 

@@ -11,7 +11,7 @@
 
         <MessageContent v-else-if="store.homeError === 'unavailable'" key="error" icon="network"
           :title="t('spotify.libraryUnavailable')"
-          :cta-label="t('spotify.retry')" cta-variant="background-strong"
+          :cta-label="t('spotify.retry')" cta-variant="control"
           :cta-click="() => store.loadHome({ force: true })" />
 
         <div v-else-if="!home" key="loading" class="sections">

@@ -31,7 +31,7 @@
             <WifiSignal :signal="network.signal" :size="24" />
             <span class="text-body network-item__ssid">{{ network.ssid }}</span>
           </div>
-          <SvgIcon name="caretDown" :size="24" color="var(--color-text-light)"
+          <SvgIcon name="caretDown" :size="24" color="var(--color-text-tertiary)"
             class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
         </div>
 
@@ -54,7 +54,7 @@
       </div>
 
       <!-- Refresh -->
-      <Button variant="background-strong" size="medium" left-icon="arrowClockwise"
+      <Button variant="control" size="medium" left-icon="arrowClockwise"
         :loading="scanning" :disabled="scanning"
         @click="scanNetworks">
         {{ t('network.refresh') }}
@@ -181,7 +181,7 @@ onMounted(async () => {
   gap: var(--space-03);
   padding: var(--space-03);
   border-radius: var(--radius-04);
-  background: var(--color-background);
+  background: var(--color-inset);
   cursor: pointer;
   transition: background-color var(--transition-fast), var(--transition-press);
   min-width: 0;
@@ -246,11 +246,6 @@ onMounted(async () => {
   height: 48px;
   padding: 0 var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background);
-}
-
-.network-skeleton .skeleton-text-line {
-  --shimmer-base: var(--color-background);
-  --shimmer-highlight: var(--color-background-medium-16);
+  background: var(--color-inset);
 }
 </style>

@@ -1,6 +1,6 @@
 <!-- Shared system list item for multiroom settings -->
 <template>
-  <ListItemButton variant="background" icon-variant="standard" :action="action" :disabled="disabled">
+  <ListItemButton icon-variant="standard" :action="action" :disabled="disabled">
     <template #icon>
       <div class="speaker-icon" :class="{ 'is-offline': !online, 'is-discovery': isDiscovery }">
         <SvgIcon :name="speakerIcon" :size="28" />

@@ -1,17 +1,17 @@
 <!-- frontend/src/components/gallery/demos/ActionsDemo.vue -->
 <template>
   <GalleryItem id="Button">
-    <GalleryVariant label="variant — on a light surface">
-      <Button v-for="v in LIGHT_BUTTON_VARIANTS" :key="v" :variant="v" @click="clicks++">{{ v }}</Button>
+    <GalleryVariant label="variant — on a panel">
+      <Button v-for="v in PANEL_BUTTON_VARIANTS" :key="v" :variant="v" @click="clicks++">{{ v }}</Button>
     </GalleryVariant>
-    <GalleryVariant label="variant — on a dark surface">
+    <GalleryVariant label="variant — on a contrast surface">
       <div class="dark-strip">
-        <Button variant="on-dark" @click="clicks++">on-dark</Button>
+        <Button variant="on-contrast" @click="clicks++">on-contrast</Button>
       </div>
     </GalleryVariant>
     <GalleryVariant label='size="small"'>
       <Button variant="brand" size="small" @click="clicks++">brand</Button>
-      <Button size="small" @click="clicks++">background-strong</Button>
+      <Button size="small" @click="clicks++">control</Button>
       <Button variant="outline" size="small" @click="clicks++">outline</Button>
     </GalleryVariant>
     <GalleryVariant label="leftIcon">
@@ -28,21 +28,22 @@
   </GalleryItem>
 
   <GalleryItem id="IconButton">
-    <GalleryVariant label="variant — on a light surface">
-      <IconButton icon="play" variant="background-strong" @click="clicks++" />
-      <IconButton icon="play" variant="rounded" @click="clicks++" />
+    <GalleryVariant label="variant — on a panel (a ghost takes the ink it is drawn on)">
+      <IconButton icon="play" variant="control" @click="clicks++" />
+      <IconButton icon="play" variant="glass" @click="clicks++" />
       <IconButton icon="play" variant="brand" @click="clicks++" />
+      <IconButton icon="play" variant="ghost" @click="clicks++" />
     </GalleryVariant>
-    <GalleryVariant label="variant — on a dark surface">
+    <GalleryVariant label="variant — on a contrast surface">
       <div class="dark-strip">
-        <IconButton icon="play" variant="on-dark" @click="clicks++" />
+        <IconButton icon="play" variant="on-contrast" @click="clicks++" />
+        <IconButton icon="play" variant="glass-on-contrast" @click="clicks++" />
         <IconButton icon="play" variant="ghost" @click="clicks++" />
       </div>
     </GalleryVariant>
-    <GalleryVariant label="variant — on a mid-tone surface, where on-grey is used (CD artwork, mobile)">
-      <div class="mid-strip">
-        <IconButton icon="play" variant="on-grey" @click="clicks++" />
-        <IconButton icon="play" variant="on-dark" @click="clicks++" />
+    <GalleryVariant label="variant — over artwork, where on-image is used (a cover's like, mobile)">
+      <div class="image-strip">
+        <IconButton icon="play" variant="on-image" @click="clicks++" />
       </div>
     </GalleryVariant>
     <GalleryVariant label="size">
@@ -61,8 +62,8 @@
     <GalleryVariant :label="`v-model — ${quality}`" stacked>
       <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" />
     </GalleryVariant>
-    <GalleryVariant label='size="small" + inactiveVariant="background-neutral"' stacked>
-      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" inactive-variant="background-neutral" />
+    <GalleryVariant label='size="small" + inactiveVariant="surface"' stacked>
+      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" inactive-variant="surface" />
     </GalleryVariant>
     <GalleryVariant label="a disabled option, then the whole group disabled" stacked>
       <ButtonGroup v-model="preset" :options="PRESET_OPTIONS" />
@@ -89,8 +90,8 @@
         </template>
       </ListItemButton>
     </GalleryVariant>
-    <GalleryVariant label='variant="background" / interactive="false" / disabled' stacked>
-      <ListItemButton title="On the app background" variant="background" action="caret" @click="clicks++" />
+    <GalleryVariant label='variant="glass" / interactive="false" / disabled' stacked>
+      <ListItemButton title="Laid on a modal's glass" variant="glass" action="caret" @click="clicks++" />
       <ListItemButton title="Read-only row" subtitle="No button semantics, no press" :interactive="false" />
       <ListItemButton title="Disabled" action="toggle" :model-value="false" disabled />
     </GalleryVariant>
@@ -108,9 +109,10 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 
 // Split by backdrop, not alphabetically. Six of Button's seven variants are
-// self-coloured; `on-dark` is translucent and only legible over the tone it was
-// drawn for, so judging it on the light stage is how a variant gets called broken.
-const LIGHT_BUTTON_VARIANTS = ['background-strong', 'background-neutral', 'brand', 'outline', 'outline-neutral', 'important'];
+// drawn on a panel; `on-contrast` is a translucent glint, only legible over the
+// contrast surface it was drawn for, so judging it on a panel is how a variant
+// gets called broken.
+const PANEL_BUTTON_VARIANTS = ['control', 'surface', 'brand', 'outline', 'outline-neutral', 'important'];
 
 const QUALITY_OPTIONS = [
   { label: 'Low', value: 'low' },
@@ -133,7 +135,7 @@ const picked = ref('balanced');
 
 <style scoped>
 .dark-strip,
-.mid-strip {
+.image-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -144,16 +146,17 @@ const picked = ref('balanced');
 }
 
 .dark-strip {
-  background: var(--color-background-contrast);
+  color: var(--color-text-on-contrast);
+  background: var(--color-contrast);
 }
 
-/* The app's own scrim tone — what a translucent variant sits on over artwork. */
-.mid-strip {
-  background: var(--color-background-medium-32);
+/* A stand-in for artwork — what a plate over a cover sits on. */
+.image-strip {
+  background: var(--color-glass-strong);
 }
 
 .counter {
   margin: 0;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 </style>

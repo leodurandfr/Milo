@@ -445,7 +445,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   z-index: 6000;
   width: 100%;
-  background: var(--color-background-medium-32);
+  background: var(--color-glass-strong);
   backdrop-filter: blur(var(--blur-04));
   -webkit-backdrop-filter: blur(var(--blur-04));
   border-radius: var(--radius-07) var(--radius-07) 0 0;
@@ -461,7 +461,7 @@ onUnmounted(() => {
   content: '';
   position: absolute;
   inset: 0;
-  padding: 1.5px;
+  padding: 1px;
   background: var(--stroke-glass);
   border-radius: var(--radius-07) var(--radius-07) 0 0;
   -webkit-mask:
@@ -492,7 +492,7 @@ onUnmounted(() => {
   border: 0px;
   box-shadow: inset 0 0 0 1px var(--color-border);
   border-radius: var(--radius-04);
-  background: var(--color-background);
+  background: var(--color-inset);
   color: var(--color-text);
   font-size: var(--font-size-h3);
   text-align: center;
@@ -531,7 +531,7 @@ onUnmounted(() => {
   box-sizing: border-box;
   padding: var(--space-02);
   overflow: hidden;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   box-shadow: var(--shadow-key);
   border: none;
   border-radius: var(--radius-04);
@@ -546,7 +546,7 @@ onUnmounted(() => {
 }
 
 .keyboard-key:active {
-  background: var(--color-background-medium-16);
+  background: var(--color-control);
   box-shadow: none;
 }
 
@@ -557,9 +557,9 @@ onUnmounted(() => {
 .key-shift,
 .key-mode,
 .key-dismiss {
-  background: var(--color-background-contrast-32);
+  background: var(--color-key-function);
   box-shadow: none;
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 
 /* Left-side keys: align bottom-left */
@@ -595,7 +595,7 @@ onUnmounted(() => {
 /* Enter / Submit arrow */
 .key-enter {
   background: var(--color-brand);
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
 }
 
 .key-enter:active {
@@ -641,7 +641,7 @@ onUnmounted(() => {
   position: absolute;
   pointer-events: none;
   height: 64px;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-03);
   box-shadow: var(--shadow-raised-01);
   display: flex;
@@ -660,7 +660,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: 16px;
   height: 8px;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 
@@ -669,7 +669,7 @@ onUnmounted(() => {
   position: absolute;
   display: flex;
   gap: 2px;
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border-radius: var(--radius-03);
   box-shadow: var(--shadow-raised-02);
   padding: 4px;
@@ -690,7 +690,7 @@ onUnmounted(() => {
 
 .accent-selected {
   background: var(--color-brand);
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-brand);
   border-radius: var(--radius-02);
 }
 

@@ -42,7 +42,7 @@
             <span class="text-body server-wifi-row__ssid">
               {{ t('multiroom.adopt.useServerWifi', { ssid: discoveryStore.serverWifiCreds.ssid }) }}
             </span>
-            <Button variant="background-strong" size="small" @click="useServerWifi = false">
+            <Button variant="control" size="small" @click="useServerWifi = false">
               {{ t('multiroom.adopt.changeNetwork') }}
             </Button>
           </div>
@@ -70,7 +70,6 @@
             v-for="card in audioCardOptions"
             :key="card.value"
             :title="card.label"
-            variant="background"
             action="radio"
             :model-value="selectedAudioId === card.value"
             @click="selectedAudioId = card.value; confirmReboot = false"
@@ -85,7 +84,6 @@
             v-for="type in speakerTypes"
             :key="type.value"
             :title="type.label"
-            variant="background"
             action="radio"
             icon-variant="standard"
             :model-value="selectedSpeakerType === type.value"
@@ -385,7 +383,7 @@ onUnmounted(() => {
   align-items: flex-start;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .info-label {
@@ -403,7 +401,7 @@ onUnmounted(() => {
   gap: var(--space-03);
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background);
+  background: var(--color-inset);
 }
 
 .server-wifi-row__ssid {

@@ -45,8 +45,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'background-neutral',
-    validator: (value) => ['background-neutral', 'background'].includes(value)
+    default: 'inset',
+    validator: (value) => ['inset', 'glass'].includes(value)
   },
   action: {
     type: String,
@@ -153,18 +153,19 @@ function handleClick(event) {
 }
 
 .list-item-button:disabled .list-item-button__text {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
-/* Background-neutral variant (white background) */
-.list-item-button--background-neutral {
-  background: var(--color-background-neutral);
-}
-
-/* Background variant (grey background with border) */
-.list-item-button--background {
-  background: var(--color-background);
+/* Inset variant: a row held by a panel, ringed by a hairline. */
+.list-item-button--inset {
+  background: var(--color-inset);
   box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+/* Glass variant: a row laid straight on a modal's glass (the power menu, a
+   station's actions), not in a section. */
+.list-item-button--glass {
+  background: var(--color-surface-glass);
 }
 
 /* Left icon - base */
@@ -189,7 +190,7 @@ function handleClick(event) {
 
 /* Icon variant: standard (28x28 with container) */
 .list-item-button__icon--standard {
-  background: var(--color-background-neutral);
+  background: var(--color-tile);
   color: var(--color-text-secondary);
 }
 
@@ -240,7 +241,7 @@ function handleClick(event) {
 }
 
 .caret-icon {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 /* Prevent double-toggle when clicking directly on Toggle/Radio */

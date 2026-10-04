@@ -16,7 +16,7 @@
          own wording, at the end of the player's top row; without it the only
          way to end a session would be to leave the source entirely. -->
     <template v-if="canDisconnect" #top-end>
-      <Button variant="background-strong" size="medium"
+      <Button variant="control" size="medium"
         :loading="unifiedStore.isDisconnecting('bluetooth')"
         :disabled="unifiedStore.isDisconnecting('bluetooth')"
         @click="unifiedStore.disconnectSource('bluetooth')">

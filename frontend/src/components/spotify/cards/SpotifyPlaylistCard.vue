@@ -54,14 +54,12 @@ const byline = computed(() =>
   aspect-ratio: 1;
   width: 100%;
   border-radius: var(--radius-02);
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
 }
 
 .cover-skeleton {
   position: absolute;
   inset: 0;
-  --shimmer-base: var(--color-background-strong);
-  --shimmer-highlight: var(--color-background-neutral);
 }
 
 .content-fade-leave-active {

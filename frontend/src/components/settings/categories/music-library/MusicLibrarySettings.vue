@@ -35,7 +35,7 @@
            single column on mobile. -->
       <div class="ml-list">
         <!-- Network servers (SMB/NFS) — tap to edit. -->
-        <ListItemButton v-for="share in store.shares" :key="share.id" variant="background"
+        <ListItemButton v-for="share in store.shares" :key="share.id"
           action="caret" @click="$emit('edit-share', share)">
           <template #icon>
             <SourceBadge>{{ typeLabel(share.type) }}</SourceBadge>
@@ -52,7 +52,7 @@
         </ListItemButton>
 
         <!-- No NAS share yet: tap through to the add-share wizard. -->
-        <ListItemButton v-if="!store.shares.length" variant="background" action="caret"
+        <ListItemButton v-if="!store.shares.length" action="caret"
           @click="$emit('add-share')">
           <template #icon>
             <SourceBadge>NAS</SourceBadge>
@@ -71,7 +71,7 @@
         <!-- USB storage — one row per known key, plugged in or not; tap to name
              it (or, once unplugged, to forget it). The no-key placeholder has
              nothing to name, so it stays inert. -->
-        <ListItemButton v-for="row in usbRows" :key="row.key" variant="background"
+        <ListItemButton v-for="row in usbRows" :key="row.key"
           :interactive="row.known" :action="row.known ? 'caret' : 'none'"
           @click="row.known && $emit('edit-usb', row.device)">
           <template #icon>
@@ -263,7 +263,7 @@ onMounted(() => {
 }
 
 .ml-dot.is-off {
-  background: var(--color-text-light);
+  background: var(--color-fill-off);
 }
 
 @media (max-aspect-ratio: 4/3) {

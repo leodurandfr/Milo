@@ -45,8 +45,8 @@ const resolvedHeight = computed(() =>
   justify-content: center;
   width: 100%;
   padding: var(--space-04);
-  color: var(--color-text-light);
-  background: var(--color-background-strong);
+  color: var(--color-text-tertiary);
+  background: var(--color-skeleton);
   border: 1px dashed var(--color-border);
   border-radius: var(--radius-03);
 }

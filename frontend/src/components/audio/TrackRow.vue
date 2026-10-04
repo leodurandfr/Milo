@@ -174,7 +174,7 @@ function formatDuration(totalSeconds) {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-02);
-  background: var(--color-background-neutral-12);
+  background: var(--color-skeleton);
 }
 
 .track-number {
@@ -276,7 +276,7 @@ function formatDuration(totalSeconds) {
   justify-content: center;
   width: 32px;
   height: 32px;
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
   cursor: grab;
   touch-action: none;
   user-select: none;

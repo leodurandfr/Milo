@@ -8,7 +8,7 @@
         :title="t('podcasts.catalogUnavailable')"
         :subtitle="t('podcasts.catalogUnavailableHint')"
         :cta-label="t('podcasts.retry')"
-        cta-variant="background-strong"
+        cta-variant="control"
         :cta-click="loadData"
       />
       <MessageContent v-else-if="topPodcasts.length === 0" icon="podcast" :title="t('podcasts.noPodcastsInGenre')" />

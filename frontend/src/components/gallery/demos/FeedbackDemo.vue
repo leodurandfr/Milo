@@ -56,10 +56,10 @@
     <GalleryVariant label="loading — the spinner is held back by loadingDelay (200 ms)" stacked>
       <MessageContent loading title="Scanning the library" />
     </GalleryVariant>
-    <GalleryVariant label='variant="dark" — card-less, for use over artwork' stacked>
+    <GalleryVariant label='variant="on-contrast" — card-less, for use over artwork' stacked>
       <div class="dark-strip">
         <MessageContent
-          variant="dark"
+          variant="on-contrast"
           icon="lyrics"
           title="No lyrics for this track"
           details="LRCLIB has no match for this artist and title."
@@ -91,13 +91,13 @@ const ctaHits = ref(0);
   gap: var(--space-04);
   width: 100%;
   padding: var(--space-04);
-  background: var(--color-background-contrast);
+  background: var(--color-contrast);
   border-radius: var(--radius-03);
 }
 
 /* The spinner draws in currentColor and nothing else, so a dark host has to name
    a light one — which is the whole of what the variant above shows. */
 .spinner-on-dark {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
 }
 </style>

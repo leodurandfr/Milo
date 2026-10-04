@@ -69,7 +69,7 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
   padding: var(--space-02);
   border-radius: var(--radius-04);
   cursor: pointer;
-  background: var(--color-background-neutral-50);
+  background: var(--color-surface-glass);
   min-width: 0;
 }
 
@@ -78,7 +78,7 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
   width: 60px;
   height: 60px;
   border-radius: var(--radius-02);
-  background: var(--color-background-neutral-12);
+  background: var(--color-skeleton);
 }
 
 .media-cover--icon {
@@ -91,8 +91,6 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
 .cover-skeleton {
   position: absolute;
   inset: 0;
-  --shimmer-base: var(--color-background-strong);
-  --shimmer-highlight: var(--color-background-neutral);
 }
 
 /* Leave-only: the skeleton mounts at full opacity, then fades once the cover

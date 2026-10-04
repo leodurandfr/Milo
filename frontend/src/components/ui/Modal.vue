@@ -4,7 +4,7 @@
     @pointerdown.capture="backdrop.onPointerdown" @click="backdrop.onClick">
     <div class="modal-wrapper">
       <div ref="closeButtonWrapper" class="close-btn-wrapper">
-        <IconButton ref="closeButton" icon="close" variant="rounded" size="large"
+        <IconButton ref="closeButton" icon="close" variant="glass" size="large"
           :aria-label="t('common.close')" @click="close" />
       </div>
 
@@ -387,7 +387,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background-medium-32);
+  background: var(--color-overlay);
   backdrop-filter: blur(var(--blur-03));
   -webkit-backdrop-filter: blur(var(--blur-03));
   display: flex;
@@ -407,9 +407,18 @@ onUnmounted(() => {
 
 /* Shell: chrome (radius, glass stroke, open/close scale+opacity). Does NOT scroll
    and does NOT carry the animated height — it wraps the clip and tracks its height. */
+/* The shell a modal's panels are laid on: the contextual tokens every panel
+   and header read become the modal's for everything inside it. */
 .modal-shell {
+  --color-panel: var(--color-section);
+  --color-header: var(--color-modal-header);
+  --color-header-control: var(--color-modal-header-control);
+  --color-header-text: var(--color-modal-header-text);
+  --color-header-text-secondary: var(--color-modal-header-text-secondary);
   position: relative;
-  background: var(--color-background-neutral-50);
+  background: var(--color-modal);
+  backdrop-filter: blur(var(--blur-03));
+  -webkit-backdrop-filter: blur(var(--blur-03));
   border-radius: var(--radius-08);
   width: 100%;
   max-height: 100%;
@@ -423,7 +432,7 @@ onUnmounted(() => {
   content: '';
   position: absolute;
   inset: 0;
-  padding: 2px;
+  padding: 1px;
   opacity: 0.8;
   background: var(--stroke-glass);
   border-radius: var(--radius-08);

@@ -307,7 +307,7 @@ onUnmounted(() => {
 }
 
 .canvas-host__size {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .canvas-host__switch {
@@ -318,14 +318,14 @@ onUnmounted(() => {
 .canvas-host__preset {
   padding: var(--space-01) var(--space-02);
   color: var(--color-text-secondary);
-  background: var(--color-background-neutral);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
   cursor: pointer;
 }
 
 .canvas-host__preset--active {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
   background: var(--color-brand);
   border-color: var(--color-brand);
 }
@@ -339,7 +339,7 @@ onUnmounted(() => {
   flex: 1;
   min-height: 320px;
   overflow: hidden;
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
 }
@@ -377,6 +377,6 @@ onUnmounted(() => {
 .canvas-host__frame {
   display: block;
   border: 0;
-  background: var(--color-background);
+  background: var(--color-ground);
 }
 </style>

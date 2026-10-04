@@ -5,7 +5,7 @@
 // outlive every view and can learn nothing from a parent — and no element can
 // read a colour back out of what happens to be painted behind it. So the answer
 // is assembled here: the dark theme paints every surface dark, and in the light
-// theme the one full-bleed dark surface, LyricsView (--color-background-contrast,
+// theme the one full-bleed dark surface, LyricsView (--color-contrast,
 // dark in both themes), declares itself. Everything else the light theme shows
 // is a light surface, including the modals, whose scrim only blurs whatever is
 // beneath — which is why a modal opened over Lyrics needs no entry of its own:

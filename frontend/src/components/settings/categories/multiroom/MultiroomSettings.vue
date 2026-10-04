@@ -569,7 +569,7 @@ onBeforeUnmount(() => {
 }
 
 .crossover-badge--active {
-  background: var(--color-background);
+  background: var(--color-inset);
   color: var(--color-text-secondary);
 }
 
@@ -616,7 +616,7 @@ onBeforeUnmount(() => {
   gap: var(--space-03);
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .analysis-item__head {
@@ -660,7 +660,7 @@ onBeforeUnmount(() => {
 }
 
 .analysis-item__value--warn {
-  color: var(--color-brand);
+  color: var(--color-warning);
 }
 
 .apply-button-sticky {

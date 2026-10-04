@@ -136,7 +136,7 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
   align-items: center;
   gap: var(--space-03);
   padding: var(--space-03) var(--space-04);
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-04);
 }
 
@@ -156,7 +156,7 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
 .summary-hint {
   color: var(--color-text-secondary);
   padding: var(--space-03) var(--space-04);
-  background: var(--color-background);
+  background: var(--color-inset);
   border-radius: var(--radius-04);
 }
 

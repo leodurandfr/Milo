@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/ScreenSettings.vue -->
 <template>
   <SettingsContainer>
-    <!-- Theme: the kiosk's; every other browser follows its own system theme -->
+    <!-- Theme: every browser showing Milō follows it, the kiosk included -->
     <SettingsSection :title="t('screenSettings.theme')">
       <SettingItem :label="t('screenSettings.themeDescription')">
         <ButtonGroup

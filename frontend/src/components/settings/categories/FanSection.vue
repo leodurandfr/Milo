@@ -183,7 +183,7 @@ onMounted(() => {
   align-items: flex-start;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-background-strong);
+  background: var(--color-inset);
 }
 
 .fan-item-bar {
@@ -211,14 +211,14 @@ onMounted(() => {
 .bar-container {
   width: 100%;
   height: 6px;
-  background: var(--color-background-medium-16);
+  background: var(--color-track);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
-  background: var(--color-background-contrast-32);
+  background: var(--color-fill-muted);
   border-radius: 3px;
   transition: width var(--transition-normal);
 }

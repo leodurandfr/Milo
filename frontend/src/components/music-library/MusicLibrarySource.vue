@@ -8,7 +8,7 @@
       <template #navigation="{ bar }">
         <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
           :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="detailsTitleView"
-          header-icon="music_library" header-variant="background-neutral" gradient="music_library"
+          header-icon="music_library" gradient="music_library"
           :header-actions-key="currentView" :content-key="currentView"
           :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
           @header-back="goBack" @scroll-restored="onScrollRestored">
@@ -16,9 +16,9 @@
           <!-- Header actions (home only): queue + search. Search is scoped on the
                selected storage space, so it goes away with it (see scopedViews
                below); the queue is what is loaded, not what is browsable, and stays. -->
-          <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
-            <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
-            <IconButton v-if="!store.disconnectedStorage" icon="search" :variant="iconVariant"
+          <template v-if="currentView === 'home'" #header-actions>
+            <IconButton icon="queue" @click="goToQueue" />
+            <IconButton v-if="!store.disconnectedStorage" icon="search"
               @click="goToSearch" />
           </template>
 
@@ -56,7 +56,7 @@
               @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
               <!-- The star over the cover's corner, opposite the expand button. -->
               <template #artwork-action>
-                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-grey" size="small"
+                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-image" size="small"
                   @click="store.toggleCurrentStar()" />
               </template>
             </AudioPlayer>
@@ -67,7 +67,7 @@
       <!-- The star is not a command, so it is this source's to add; the album and
            the artist open in the navigation behind the player. -->
       <template #top-end>
-        <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="background-strong" size="medium"
+        <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="control" size="medium"
           @click="store.toggleCurrentStar()" />
       </template>
     </BrowserSourceViews>

@@ -218,7 +218,7 @@ export const ENTRIES = [
     id: 'MessageContent',
     group: 'feedback',
     file: 'components/ui/MessageContent.vue',
-    summary: 'The empty/error/loading state, with up to two CTAs. loadingDelay holds the spinner back so a fast response never flashes one. dark drops the card for use over artwork.',
+    summary: 'The empty/error/loading state, with up to two CTAs. loadingDelay holds the spinner back so a fast response never flashes one. The card is the panel of wherever it is drawn; on-contrast drops it for use over artwork.',
   },
 
   // --- Media & content ---
@@ -259,7 +259,7 @@ export const ENTRIES = [
     id: 'NavigationHeader',
     group: 'structure',
     file: 'components/ui/NavigationHeader.vue',
-    summary: 'Title bar with an optional back affordance. The actions slot receives the icon variant matching the header variant, so trailing IconButtons stay legible on both.',
+    summary: 'Title bar with an optional back affordance. It is a panel of wherever it is drawn — white on a page, the section color inside a modal (--color-panel) — so it takes no variant, and its trailing IconButtons keep their default.',
   },
   {
     id: 'Dock',
@@ -347,7 +347,7 @@ export const ENTRIES = [
     id: 'AudioSourceLayout',
     group: 'layout',
     file: 'components/audio/AudioSourceLayout.vue',
-    summary: 'The browsing layout behind Radio, Podcasts and Music Library: a scroll container, a header, cross-faded content and a player pane that animates in beside it. The cross-fade is driven by contentKey — change it and the current content leaves as the next enters. The 7 header* props are forwarded one by one to NavigationHeader.',
+    summary: 'The browsing layout behind Radio, Podcasts and Music Library: a scroll container, a header, cross-faded content and a player pane that animates in beside it. The cross-fade is driven by contentKey — change it and the current content leaves as the next enters. The 6 header* props are forwarded one by one to NavigationHeader.',
   },
   {
     id: 'AudioSourceStatus',

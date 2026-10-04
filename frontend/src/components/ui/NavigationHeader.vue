@@ -1,14 +1,11 @@
 <!-- frontend/src/components/ui/NavigationHeader.vue -->
 <template>
-  <div class="navigation-header" :class="{
-    'has-back': showBack,
-    'variant-background-neutral': variant === 'background-neutral',
-  }">
+  <div class="navigation-header" :class="{ 'has-back': showBack }">
     <!-- Content container with fixed height -->
     <div ref="headerContentRef" class="header-content">
       <Transition name="header-fade" @before-leave="pinWidth" @before-enter="unpinWidth">
         <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-navigation-header">
-          <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
+          <IconButton icon="caretLeft" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1" :class="{ 'title-muted': titleMuted }">{{ title }}</h2>
           <h2 v-else class="heading-1">
             <span class="title-subtitle">{{ subtitle }}</span>
@@ -37,7 +34,7 @@
     <div class="actions-container">
       <Transition name="actions-fade">
         <div v-if="$slots.actions" :key="actionsKey" class="actions-wrapper">
-          <slot name="actions" :iconVariant="variant === 'contrast' ? 'on-dark' : 'background-strong'"></slot>
+          <slot name="actions"></slot>
         </div>
         <div v-else key="no-actions" class="actions-placeholder"></div>
       </Transition>
@@ -62,11 +59,6 @@ const props = defineProps({
   showBack: {
     type: Boolean,
     default: false
-  },
-  variant: {
-    type: String,
-    default: 'contrast', // 'contrast' ou 'background-neutral'
-    validator: (value) => ['contrast', 'background-neutral'].includes(value)
   },
   icon: {
     type: String,
@@ -125,10 +117,15 @@ function unpinWidth(el) {
 </script>
 
 <style scoped>
+/* The header of wherever it is drawn: a source's page or a modal. What it
+   holds — buttons, titles, glyphs — takes the colors that read on it. */
 .navigation-header {
+  --color-control: var(--color-header-control);
+  --color-text: var(--color-header-text);
+  --color-text-secondary: var(--color-header-text-secondary);
   position: relative;
   display: flex;
-  background: var(--color-background-contrast);
+  background: var(--color-header);
   border-radius: var(--radius-06);
   padding: var(--space-03);
   min-height: 72px;
@@ -136,16 +133,8 @@ function unpinWidth(el) {
   gap: var(--space-03);
 }
 
-.navigation-header.variant-background-neutral {
-  background: var(--color-background-neutral);
-}
-
-.navigation-header.variant-background-neutral h2 {
-  color: var(--color-text);
-}
-
 .navigation-header h2 {
-  color: var(--color-text-contrast);
+  color: var(--color-text);
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -237,19 +226,11 @@ function unpinWidth(el) {
 }
 
 .title-subtitle {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-secondary);
   margin-right: var(--space-02);
 }
 
 .title-main {
-  color: var(--color-text-contrast);
-}
-
-.navigation-header.variant-background-neutral .title-subtitle {
-  color: var(--color-text-secondary);
-}
-
-.navigation-header.variant-background-neutral .title-main {
   color: var(--color-text);
 }
 

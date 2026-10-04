@@ -1,7 +1,7 @@
 <template>
   <div class="search-view">
     <!-- Search -->
-    <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" variant="background-neutral"
+    <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" variant="plain"
       icon="search" @update:modelValue="onSearchInput" />
 
     <!-- Results -->
@@ -16,7 +16,7 @@
         :title="t('podcasts.catalogUnavailable')"
         :subtitle="t('podcasts.catalogUnavailableHint')"
         :cta-label="t('podcasts.retry')"
-        cta-variant="background-strong"
+        cta-variant="control"
         :cta-click="() => podcastStore.search()"
       />
 

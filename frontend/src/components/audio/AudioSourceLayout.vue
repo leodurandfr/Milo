@@ -33,14 +33,13 @@
           :title="headerTitle"
           :subtitle="headerSubtitle"
           :show-back="headerShowBack"
-          :variant="headerVariant"
           :icon="headerIcon"
           :actions-key="headerActionsKey"
           :title-muted="headerTitleMuted"
           @back="$emit('header-back')"
         >
-          <template #actions="slotProps">
-            <slot name="header-actions" v-bind="slotProps" />
+          <template #actions>
+            <slot name="header-actions" />
           </template>
         </NavigationHeader>
 
@@ -72,7 +71,7 @@
             v-if="scrollTopVisible"
             class="scroll-top-button"
             icon="caretUp"
-            variant="rounded"
+            variant="glass"
             size="large"
             :aria-label="t('common.backToTop')"
             @click="scrollToTop"
@@ -145,16 +144,6 @@ const props = defineProps({
   headerShowBack: {
     type: Boolean,
     default: false
-  },
-  /**
-   * Header variant, forwarded to NavigationHeader — same accepted set as its
-   * own `variant`, restated here so a bad value is caught at this call site
-   * rather than one component deeper.
-   */
-  headerVariant: {
-    type: String,
-    default: 'background-neutral',
-    validator: (value) => ['contrast', 'background-neutral'].includes(value)
   },
   /**
    * Render the header title in the secondary (muted) text color

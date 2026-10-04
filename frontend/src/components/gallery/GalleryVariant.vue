@@ -50,7 +50,7 @@ defineProps({
 }
 
 .gallery-variant__label {
-  color: var(--color-text-light);
+  color: var(--color-text-tertiary);
 }
 
 .gallery-variant__row {
@@ -68,7 +68,7 @@ defineProps({
 .gallery-variant__row--contained {
   position: relative;
   overflow: hidden;
-  background: var(--color-background-strong);
+  background: var(--color-inset);
   border-radius: var(--radius-03);
 
   /* The identity transform is the point — see the `contain` prop. */

@@ -55,7 +55,6 @@
               :header-title="t(browser.layout.titleKey)"
               :header-show-back="!!browser.layout.showBack"
               :header-title-muted="!!browser.layout.titleMuted"
-              header-variant="background-neutral"
               :show-player="!!browser.player"
               :player-mobile-height="144"
               :header-actions-key="scenario"
@@ -68,12 +67,11 @@
                 <component :is="VIEWS[browser.view]" v-bind="browser.props || {}" :key="scenario" />
               </template>
 
-              <template v-if="browser.layout.actions?.length" #header-actions="{ iconVariant }">
+              <template v-if="browser.layout.actions?.length" #header-actions>
                 <IconButton
                   v-for="icon in browser.layout.actions"
                   :key="icon"
                   :icon="icon"
-                  :variant="iconVariant"
                 />
               </template>
 
@@ -99,7 +97,7 @@
                   <template v-if="page.source !== 'podcast'" #artwork-action>
                     <IconButton
                       :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
-                      variant="on-grey" size="small"
+                      variant="on-image" size="small"
                     />
                   </template>
 
@@ -111,7 +109,7 @@
           <template v-if="page.source !== 'podcast'" #top-end>
             <IconButton
               :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
-              variant="background-strong" size="medium"
+              variant="control" size="medium"
             />
           </template>
         </BrowserSourceViews>

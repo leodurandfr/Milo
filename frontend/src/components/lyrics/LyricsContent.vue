@@ -335,7 +335,7 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
    (SCROLL_DURATION_MS is longer on purpose), so the handover is one gesture that
    settles rather than a fade followed by a move. */
 .lyrics-line {
-  color: var(--color-text-contrast);
+  color: var(--color-text-on-contrast);
   transition: opacity var(--transition-crossfade);
 }
 
