@@ -7,6 +7,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from backend.core.models.audio_wire import RepeatMode
+
 
 class SkipParams(BaseModel):
     """Params for `skip`: move the playhead by `seconds` (signed) from where it
@@ -24,6 +26,12 @@ class SetShuffleParams(BaseModel):
     """Params for `set_shuffle`: the desired shuffle state (the player's toggle
     sends the target, not a flip, so a stale click can't invert it)."""
     shuffle: bool
+
+
+class SetRepeatParams(BaseModel):
+    """Params for `set_repeat`: the target repeat mode (the player's button
+    cycles off → context → track and sends where it lands)."""
+    mode: RepeatMode
 
 
 def skip_target(from_ms: Optional[int], seconds: float, duration_ms: Optional[int]) -> int:

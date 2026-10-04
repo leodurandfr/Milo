@@ -69,10 +69,10 @@ from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
 )
-from backend.core.models.commands import SetShuffleParams, SkipParams, skip_target
+from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams, skip_target
 from backend.sources.spotify.library import SpotifyLibrary
 from backend.sources.spotify.models import (
-    NextPrevParams, PlayContextParams, SeekParams, SetRepeatParams,
+    NextPrevParams, PlayContextParams, SeekParams,
 )
 from backend.sources.spotify.profiles import SpotifyProfiles
 from backend.sources.spotify.websocket import LibrespotWebSocket

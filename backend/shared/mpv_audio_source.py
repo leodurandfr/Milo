@@ -272,6 +272,8 @@ class MpvAudioSource(BaseAudioSource):
             elif name == "end-file":
                 await self._entry_ended(session, event)
                 continue
+            elif name == "property-change":
+                await self._property_changed(session, event.get("name"), event.get("data"))
             if self._session is session:
                 self._sync_phase(session, cause)
 
@@ -296,6 +298,11 @@ class MpvAudioSource(BaseAudioSource):
                 EndReason.STREAM_LOST if session.heard else EndReason.LOAD_FAILED,
                 detail=event.get("file_error") or reason,
             )
+
+    async def _property_changed(self, session: MpvSession, name: Optional[str], value: Any) -> None:
+        """mpv announced a property this source observes, on the session's
+        link. Default: nothing beyond the phase (pause, paused-for-cache),
+        which the base reads itself."""
 
     async def _content_finished(self, session: MpvSession) -> None:
         """The session's content played to its end (EOF)."""

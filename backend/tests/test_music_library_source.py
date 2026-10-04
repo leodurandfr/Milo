@@ -470,8 +470,8 @@ class TestMetadata:
         assert data["queue"] == [TRACKS[1], TRACKS[0], TRACKS[2]]
         assert data["queue_index"] == 0
         assert data["shuffle"] is True
-        # `repeat` was removed (dead scaffolding) — it must not reappear.
-        assert "repeat" not in data
+        # A queue played from the browser repeats nothing until asked.
+        assert data["repeat"] == "off"
         assert data["track_id"] == "s2"
 
     def test_cover_url_falls_back_to_album_id(self, source):
@@ -837,6 +837,268 @@ class TestScrobble:
         assert phase(rig) == "playing"
         assert details(rig)["track_id"] == "s1"
         assert rig.errors() == []
+
+
+async def repeat(rig, mode):
+    result = await rig.command("set_repeat", {"mode": mode})
+    assert result["success"] is True
+    return result
+
+
+class TestRepeat:
+    """Spotify's repeat on the library's queue: off, the whole queue
+    (`context`), the track. mpv does the looping itself, and what it announces
+    after a track — the first entry starting, the track going back to its
+    start, or going idle — is what the queue does next. Every failure here is
+    a queue that stops when asked to go round, plays on with nothing on screen,
+    or a repeat button that reads one mode while mpv plays another."""
+
+    async def test_off_the_queue_stops_after_its_last_track_whatever_mpv_was_left_with(self, rig):
+        """mpv keeps its loop options across a `stop`, so a queue played with
+        repeat off must say so. Breaks: an album ends, and mpv starts it over
+        under a player that has already closed."""
+        await rig.select()
+        rig.mpv.props["loop-playlist"] = "inf"     # a previous queue's, still in mpv
+        await play(rig, start_index=2)
+        await rig.tick()
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert session(rig) is None
+        assert session_ends(rig) == ["eof"]
+        assert rig.mpv.current is None
+
+    async def test_context_starts_the_queue_over(self, rig):
+        """Breaks: a repeated album stops after its last track, or the player
+        keeps the last track's title over the first one playing again."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        await repeat(rig, "context")
+        mark = len(rig.mpv.sent)
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert phase(rig) == "playing"
+        assert details(rig)["repeat"] == "context"
+        assert details(rig)["track_id"] == "s1"
+        assert details(rig)["queue_index"] == 0
+        assert session_ends(rig) == []
+        # mpv went round by itself, gaplessly: nothing was asked of it.
+        assert sent_since(rig, mark) == []
+
+    async def test_off_again_lets_the_queue_end(self, rig):
+        """Breaks: repeat cannot be turned off — the album goes round for good."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        await repeat(rig, "context")
+        await repeat(rig, "off")
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert session(rig) is None
+        assert session_ends(rig) == ["eof"]
+
+    async def test_track_starts_the_track_over_and_counts_each_pass(self, rig):
+        """The track goes back to its start instead of the queue moving on, the
+        bar with it, and each pass is a play of its own in Navidrome's history.
+        Breaks: repeat-one plays the next track, the bar sits at the end, or
+        an evening on one song counts one play."""
+        track = TestScrobble._track("s1", 60)
+        tracks = [track, TestScrobble._track("s2", 60)]
+        client = await TestScrobble()._play(rig, tracks)
+        await repeat(rig, "track")
+        await listen(rig, 35)
+        assert submissions(client) == ["s1"]
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert details(rig)["track_id"] == "s1"
+        assert details(rig)["queue_index"] == 0
+        assert anchor_ms(rig) == 0
+        assert now_playings(client) == ["s1", "s1"]
+        await listen(rig, 35)
+        assert submissions(client) == ["s1", "s1"]
+        assert session_ends(rig) == []
+
+    async def test_leaving_track_lets_the_track_end(self, rig):
+        """Breaks: repeat-one cannot be left, or leaving it counts a pass."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        await repeat(rig, "track")
+        client = await navidrome(rig)
+        announced = len(now_playings(client))
+
+        await repeat(rig, "context")
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert details(rig)["track_id"] == "s2"
+        assert len(now_playings(client)) == announced + 1
+
+    async def test_next_on_the_last_track_goes_back_to_the_first(self, rig):
+        """As Spotify does with repeat on. Breaks: the next button stays dead
+        on the last track of a repeating queue."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        await repeat(rig, "context")
+        assert "next" in rig.state()["controls"]
+
+        result = await rig.command("next")
+
+        assert result["success"] is True
+        assert ("play_index", 0) in rig.mpv.sent[-2:]
+        assert details(rig)["track_id"] == "s1"
+        assert phase(rig) == "playing"
+
+    async def test_the_mode_comes_back_with_the_queue(self, rig):
+        """Kept like shuffle: a detour to the radio brings the album back as
+        it was being listened to. Breaks: the album returns unrepeated, or the
+        button reads `track` while mpv moves on."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        await repeat(rig, "track")
+        await rig.leave()
+        rig.mpv.props.clear()                      # the unit starts a new mpv on return
+
+        await rig.select()
+        assert details(rig)["repeat"] == "track"
+        await rig.command("resume")
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert details(rig)["track_id"] == "s1"
+        assert session_ends(rig) == ["source_switch"]
+
+    async def test_a_new_queue_starts_with_repeat_off(self, rig):
+        """Off is the default, as shuffle's is: picking another album repeats
+        nothing, whatever the one it replaces did — on the button and in mpv.
+        Breaks: an album chosen to be heard once goes round for good."""
+        await rig.select()
+        await play(rig)
+        await repeat(rig, "context")
+
+        await play(rig, start_index=2)
+        assert details(rig)["repeat"] == "off"
+        await rig.tick()
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert session(rig) is None
+        assert session_ends(rig)[-1] == "eof"
+
+    async def test_the_queue_ends_once_the_last_sound_has_played(self, rig):
+        """Breaks: the player closes on the last track while its last second
+        is still playing, or never closes at all."""
+        rig.mpv.drain = True
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+
+        await rig.mpv.ends("eof")
+        await settle()
+        assert phase(rig) == "playing"
+
+        await rig.mpv.drained()
+        await settle()
+        assert session(rig) is None
+        assert session_ends(rig) == ["eof"]
+
+    async def test_a_jump_while_the_last_track_plays_out_keeps_the_queue(self, rig):
+        """A row picked (or prev) while the last sound plays out: mpv, idle by
+        the time the jump reaches it, announces idle before the new start.
+        Breaks: that idle ends the session, and the track picked plays with
+        no session to show or pause it."""
+        rig.mpv.drain = True
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        await rig.mpv.ends("eof")
+        await settle()
+
+        result = await rig.command("play_index", {"index": 0})
+
+        assert result["success"] is True
+        assert session_ends(rig) == []
+        assert phase(rig) == "playing"
+        assert details(rig)["track_id"] == "s1"
+        assert rig.mpv.current is not None
+
+    async def test_a_late_loop_count_from_quick_presses_is_not_a_pass(self, rig):
+        """track → off → context → track in quick succession: the 0 that
+        leaving `track` announced is read once `track` is back. Breaks: the
+        bar jumps to 0 mid-track and the pass being listened to loses its
+        play."""
+        client = await TestScrobble()._play(rig, [TestScrobble._track("s1", 60)])
+        await repeat(rig, "track")
+        await listen(rig, 20)
+        announced, anchored = len(now_playings(client)), anchor_ms(rig)
+        assert anchored > 0
+
+        await asyncio.gather(*(
+            rig.source.command("set_repeat", {"mode": mode})
+            for mode in ("off", "context", "track")
+        ))
+        await settle()
+
+        assert details(rig)["repeat"] == "track"
+        assert anchor_ms(rig) == anchored
+        assert len(now_playings(client)) == announced
+
+    async def test_the_queue_follows_mpv_when_it_went_round(self, rig):
+        """What mpv does after the last track decides, not the mode: one
+        changed as the track ended reaches mpv after it chose. Breaks: mpv
+        plays the album again under a player that closed it."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        rig.mpv.props["loop-playlist"] = "inf"     # mpv went round before the off landed
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert phase(rig) == "playing"
+        assert details(rig)["track_id"] == "s1"
+
+    async def test_the_queue_ends_when_mpv_did_not_go_round(self, rig):
+        """The other side of the same race. Breaks: a session left playing
+        over a silent mpv, with nothing to end it."""
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        await repeat(rig, "context")
+        rig.mpv.props["loop-playlist"] = "no"      # mpv ended before the context landed
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert session(rig) is None
+        assert session_ends(rig) == ["eof"]
+
+    async def test_a_repeating_queue_where_nothing_plays_ends(self, rig):
+        """Navidrome going down mid-album fails every track after; a repeating
+        queue must not go round it for good. Breaks: a silent session nobody
+        can see the end of, and no banner."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        await repeat(rig, "context")
+        rig.mpv.broken["stream?id="] = "loading failed"
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert session(rig) is None
+        assert session_ends(rig)[-1] == "stream_lost"
+        assert rig.errors() != []
 
 
 class TestMergedAlbumCache:

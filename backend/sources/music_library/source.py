@@ -13,13 +13,15 @@ the unit's ``--gapless-audio=yes`` that is truly gapless. Transport
 (pause/resume/next/prev/seek/play_index) drives that single mpv playlist; the
 now-playing projection (title/artist/album/art + queue/index/shuffle) is
 broadcast over WS. Shuffle can be toggled live from the player (``set_shuffle``
-reshuffles the upcoming tracks without interrupting the current one).
+reshuffles the upcoming tracks without interrupting the current one), and so
+can repeat (``set_repeat``: the queue or the track, Spotify's three modes),
+which mpv carries out itself through its loop options.
 
 Resume-on-return: a session ended by a source switch, the idle timeout, a
-multiroom toggle, a dead mpv or a failed load leaves its queue, track and second
-as the resume point (RESUME_POLICY); the next activation reopens it paused — or
-playing, after a toggle that found it playing — for as long as it is fresh
-(``RESUME_TTL_S``, whose expiry is published). An explicit Stop, a queue played
+multiroom toggle, a dead mpv or a failed load leaves its queue, track, second,
+shuffle and repeat as the resume point (RESUME_POLICY); the next activation
+reopens it paused — or playing, after a toggle that found it playing — for as
+long as it is fresh (``RESUME_TTL_S``, whose expiry is published). An explicit Stop, a queue played
 out and a storage space that left forget it; it is never persisted.
 
 Where the music comes from is NOT here: the configured SMB/NFS shares and the
@@ -40,8 +42,8 @@ from backend.core.audio_source import Result
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ReroutePolicy, ResumePolicy,
 )
-from backend.core.models.audio_wire import MusicLibraryDetails, ResumeView
-from backend.core.models.commands import SetShuffleParams, SkipParams
+from backend.core.models.audio_wire import MusicLibraryDetails, RepeatMode, ResumeView
+from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams
 from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -72,6 +74,14 @@ ALBUM_CACHE_TTL_S = 30.0
 # getAlbumList2's per-request ceiling — loop by it to pull the whole catalog.
 _ALBUM_PAGE = 500
 
+# What `loop-file` is set to while the track repeats: mpv's ceiling for the
+# option (10001 is refused, measured on 0.40). Not `inf`, because a finite
+# count is the only way mpv says it looped: each return to the start of the
+# file takes one off `remaining-file-loops` and announces it, while under
+# `inf` the property sits at -1 and a loop looks like any seek to 0. At one
+# loop per pass this is 10 000 passes of the track, then the queue moves on.
+TRACK_LOOPS = 10000
+
 # How long a resume-on-return snapshot stays worth restoring, measured from the
 # moment playback stopped. It exists to cover a detour — a source switch, the
 # idle auto-stop while the user is answering the door — not a later sitting:
@@ -99,7 +109,14 @@ class LibrarySession(MpvSession):
     index: int = 0
     library_id: Optional[int] = None
     shuffle: bool = False
+    # The mode mpv's two loop options hold (see _handle_set_repeat).
+    repeat: RepeatMode = "off"
+    # The last `remaining-file-loops` mpv announced: a pass is a drop of one.
+    file_loops: int = TRACK_LOOPS
     entries: List[Optional[int]] = field(default_factory=list)
+    # The last entry ended: mpv either starts the queue over or goes idle,
+    # and only what it announces next says which.
+    played_out: bool = False
     announced: Optional[int] = None     # the entry whose start went to Navidrome
     failed_in_a_row: int = 0
     # Where the running series of failed tracks began, (index, seconds): mpv
@@ -640,7 +657,19 @@ class MusicLibrarySource(MpvAudioSource):
             # key leaving would not end it.
             "queue_library_id": session.library_id,
             "shuffle": session.shuffle,
+            # Kept like shuffle: both are how this queue was being listened
+            # to, and a looped album that comes back unlooped is a change
+            # nobody asked for.
+            "repeat": session.repeat,
         }
+
+    async def _listen_to_mpv(self) -> None:
+        """The base's phase properties, plus the two that say where the queue
+        goes after a track: idle-active (it ended) and remaining-file-loops
+        (the track started over)."""
+        await super()._listen_to_mpv()
+        await self._mpv.observe("idle-active")
+        await self._mpv.observe("remaining-file-loops")
 
     async def _do_start(self) -> bool:
         """Start the mpv service, connect IPC, then reopen the session left
@@ -719,6 +748,7 @@ class MusicLibrarySource(MpvAudioSource):
         "seek": SeekParams,
         "skip": SkipParams,
         "set_shuffle": SetShuffleParams,
+        "set_repeat": SetRepeatParams,
         "stop": None,
     }
     COMMAND_SCOPES = {
@@ -731,6 +761,7 @@ class MusicLibrarySource(MpvAudioSource):
         "seek": CommandScope.SESSION,
         "skip": CommandScope.SESSION,
         "set_shuffle": CommandScope.SESSION,
+        "set_repeat": CommandScope.SESSION,
         "stop": CommandScope.RESUME,
     }
 
@@ -753,6 +784,8 @@ class MusicLibrarySource(MpvAudioSource):
             return await self._handle_skip(params)
         if cmd == "set_shuffle":
             return await self._handle_set_shuffle(params)
+        if cmd == "set_repeat":
+            return await self._handle_set_repeat(params)
         if cmd == "stop":
             return await self._handle_stop()
         return self.error_response(f"Unhandled command: {cmd}")
@@ -775,10 +808,12 @@ class MusicLibrarySource(MpvAudioSource):
             start_index = 0
 
         # A fresh context supersedes the session and any saved resume point.
+        # It repeats nothing until asked, whatever the queue it replaces did:
+        # off is the default, as shuffle's is.
         await self.end_session(EndReason.USER_STOP)
         self._set_resume_point(None)
         if not await self._open_queue(
-            tracks, original_order, start_index, params.library_id, params.shuffle,
+            tracks, original_order, start_index, params.library_id, params.shuffle, "off",
             start_s=0, playing=True,
         ):
             return self.error_response("Failed to load playlist")
@@ -802,9 +837,13 @@ class MusicLibrarySource(MpvAudioSource):
         return await self._switch_to_index(session, params.index)
 
     async def _handle_next(self) -> Dict[str, Any]:
+        """The next track; past the last one, the first again when the queue
+        repeats (as Spotify does), else nothing."""
         session = self._session
         if session.index >= len(session.queue) - 1:
-            return self.success_response("Already at end of queue")
+            if session.repeat == "off":
+                return self.success_response("Already at end of queue")
+            return await self._switch_to_index(session, 0)
         return await self._switch_to_index(session, session.index + 1)
 
     async def _handle_prev(self) -> Dict[str, Any]:
@@ -814,10 +853,7 @@ class MusicLibrarySource(MpvAudioSource):
         if session.position >= PREV_RESTART_THRESHOLD_S or session.index == 0:
             if not (await self._mpv.seek(0) and await self._set_mpv_pause(False)):
                 return self.mpv_refused("restart track")
-            session.position = 0
-            self._anchor_position(0)
-            self._reset_scrobble(session)
-            self._scrobble_now_playing(session)
+            self._track_again(session)
             return self.success_response("Restarted track")
         return await self._switch_to_index(session, session.index - 1)
 
@@ -827,6 +863,9 @@ class MusicLibrarySource(MpvAudioSource):
             return self.mpv_refused(f"switch to track {index + 1}")
         self._move_to_track(session, index)
         session.opened = False
+        # A jump while the last track plays out: mpv was going idle, and the
+        # end that announces is no longer the queue's.
+        session.played_out = False
         # A track the listener picked: the point to come back to from here.
         session.failed_in_a_row, session.failed_from = 0, None
         self._sync_phase(session, PhaseEvent.TRACK_CHANGE)
@@ -931,6 +970,40 @@ class MusicLibrarySource(MpvAudioSource):
             return self.error_response("Failed to reorder queue")
         return self.success_response("Shuffle on" if target else "Shuffle off")
 
+    async def _handle_set_repeat(self, params: SetRepeatParams) -> Dict[str, Any]:
+        """Repeat the queue (`context`), the track, or neither.
+
+        mpv does the looping: `loop-playlist` starts the queue over after its
+        last entry, `loop-file` takes the track back to its start, both with
+        no gap and no command at the seam. `track` holds both, as Spotify's
+        track mode sits on its context mode. The track loop is dropped before
+        the queue's and taken after it, so each step is itself one of the three
+        modes: a refusal partway leaves the session on the one mpv holds.
+        """
+        session = self._session
+        target = params.mode
+        if target == session.repeat:
+            return self.success_response("Repeat unchanged")
+        refused = False
+        if target != "track" and session.repeat == "track":
+            refused = not await self._mpv.set_property("loop-file", "no")
+            if not refused:
+                session.repeat = "context"
+        if not refused and (target == "off") != (session.repeat == "off"):
+            refused = not await self._mpv.set_property(
+                "loop-playlist", "no" if target == "off" else "inf"
+            )
+            if not refused:
+                session.repeat = "off" if target == "off" else "context"
+        if not refused and target == "track":
+            refused = not await self._mpv.set_property("loop-file", TRACK_LOOPS)
+            if not refused:
+                session.repeat = "track"
+        self._publish()
+        if refused:
+            return self.mpv_refused(f"repeat {target}")
+        return self.success_response(f"Repeat {target}")
+
     async def _handle_stop(self) -> Dict[str, Any]:
         """Explicit Stop: the session ends and nothing is kept to reopen."""
         if self._session is not None:
@@ -954,24 +1027,27 @@ class MusicLibrarySource(MpvAudioSource):
         self._logger.info("Reopening the saved queue at track %s, %ss", at + 1, start_s)
         return await self._open_queue(
             tracks, content["queue_unshuffled"] or list(tracks), at,
-            content["queue_library_id"], content["shuffle"],
+            content["queue_library_id"], content["shuffle"], content["repeat"],
             start_s=start_s, playing=playing,
         )
 
     async def _open_queue(
         self, tracks: List[Dict[str, Any]], unshuffled: List[Dict[str, Any]], index: int,
-        library_id: Optional[int], shuffle: bool, *, start_s: int, playing: bool,
+        library_id: Optional[int], shuffle: bool, repeat: RepeatMode, *, start_s: int, playing: bool,
     ) -> bool:
         """Open a session on `tracks` and hand them to mpv: every track appended
         (nothing plays), the one at `index` starting at `start_s`, then that
         entry started — paused unless `playing`. The now-playing is published
-        before the load, so the player snaps to it at once."""
+        before the load, so the player snaps to it at once.
+
+        Both loop options are set on every load: mpv keeps them across a
+        `stop` (measured), so the previous queue's would otherwise hold."""
         client = await self.get_navidrome_client()
         if client is None:
             return False
         session = LibrarySession(
             phase=Phase.LOADING if playing else Phase.PAUSED, queue=tracks, unshuffled=unshuffled, index=index,
-            library_id=library_id, shuffle=shuffle, position=start_s,
+            library_id=library_id, shuffle=shuffle, repeat=repeat, position=start_s,
             duration=int(tracks[index].get("duration") or 0),
         )
         self.open_session(session)
@@ -986,6 +1062,11 @@ class MusicLibrarySource(MpvAudioSource):
             if not await self._mpv_ready() or not await self._set_mpv_pause(not playing):
                 return False
             if not await self._mpv.stop():
+                return False
+            if not (
+                await self._mpv.set_property("loop-file", TRACK_LOOPS if repeat == "track" else "no")
+                and await self._mpv.set_property("loop-playlist", "no" if repeat == "off" else "inf")
+            ):
                 return False
             entries: List[int] = []
             for position, track in enumerate(tracks):
@@ -1007,24 +1088,39 @@ class MusicLibrarySource(MpvAudioSource):
 
     async def _entry_started(self, session: "LibrarySession", entry: Optional[int]) -> None:
         """mpv started one of the queue's entries: a gapless advance, a jump,
-        or the first one. The track changes with it; the play is announced to
-        Navidrome once per start."""
+        the first one, or the queue starting over (repeat). The track changes
+        with it; the play is announced to Navidrome once per start — after the
+        last entry, even onto the same one: a queue of one track starts over by
+        reloading it."""
         if entry not in session.entries:
             return
         session.started = True
         session.opened = False
+        again, session.played_out = session.played_out, False
         index = session.entries.index(entry)
-        if index != session.index:
+        if index != session.index or again:
             self._move_to_track(session, index)
-        if session.announced != entry:
+        if session.announced != entry or again:
             session.announced = entry
             self._scrobble_now_playing(session)
 
     async def _entry_ended(self, session: "LibrarySession", event: Dict[str, Any]) -> None:
         """An entry ended. A track that failed is skipped by mpv, and said so in
-        the journal; the queue ends when its last entry does — played out
-        (EOF), or failed (E53: Navidrome down fails every track, and the queue
-        used to end as if it had played)."""
+        the journal.
+
+        After the last entry, mpv either starts the queue over (repeat) or
+        drains the sound it still holds and goes idle, and only what it
+        announces next says which: the queue ends on `idle-active`
+        (_property_changed), never here — played out (EOF), or failed (E53:
+        Navidrome down fails every track, and the queue used to end as if it
+        had played). Deciding from the repeat mode instead would be deciding
+        from a command: a mode changed as the last track ended would leave
+        mpv playing with no session, or a session over a silent mpv.
+
+        A repeating queue goes round again over a failed track. mpv gives up
+        once every entry has failed — after its last entry, it goes idle
+        instead of starting over (measured: a second pass, each entry retried)
+        — so a queue where nothing plays ends the same way, as failed."""
         entry = event.get("playlist_entry_id")
         reason = event.get("reason")
         if entry not in session.entries or reason not in ("eof", "error"):
@@ -1046,16 +1142,36 @@ class MusicLibrarySource(MpvAudioSource):
         else:
             session.failed_in_a_row = 0
             session.failed_from = None
-        if entry != session.entries[-1]:
-            return
-        if session.failed_in_a_row:
-            await self._end_playback(
-                EndReason.STREAM_LOST if session.heard else EndReason.LOAD_FAILED,
-                stop_mpv=False, detail=f"{session.failed_in_a_row} track(s) failed to play",
-            )
-            return
-        self._logger.info("Queue finished")
-        await self._end_playback(EndReason.EOF, stop_mpv=False)
+        if entry == session.entries[-1]:
+            session.played_out = True
+
+    async def _property_changed(self, session: "LibrarySession", name: Optional[str], value: Any) -> None:
+        if name == "idle-active" and value and session.played_out:
+            if session.failed_in_a_row:
+                await self._end_playback(
+                    EndReason.STREAM_LOST if session.heard else EndReason.LOAD_FAILED,
+                    stop_mpv=False, detail=f"{session.failed_in_a_row} track(s) failed to play",
+                )
+                return
+            self._logger.info("Queue finished")
+            await self._end_playback(EndReason.EOF, stop_mpv=False)
+        elif name == "remaining-file-loops" and isinstance(value, int):
+            # One loop fewer: mpv took the track back to its start. Only a drop
+            # of exactly one is a pass — setting the option announces
+            # TRACK_LOOPS, dropping it 0, and either can be read late, after
+            # quick presses have brought the mode back to `track`.
+            previous, session.file_loops = session.file_loops, value
+            if session.repeat == "track" and value == previous - 1:
+                self._track_again(session)
+
+    def _track_again(self, session: "LibrarySession") -> None:
+        """The track playing starts over (prev's restart, a repeat pass): the
+        playhead back to 0, and a new pass, which Navidrome counts as a play
+        of its own."""
+        session.position = 0
+        self._anchor_position(0)
+        self._reset_scrobble(session)
+        self._scrobble_now_playing(session)
 
     def _failure_banner(self, reason: EndReason) -> Optional[str]:
         if reason is EndReason.LOAD_FAILED:
@@ -1224,16 +1340,18 @@ class MusicLibrarySource(MpvAudioSource):
         and the ids its navigation opens the current track's album/artist by."""
         session = self._session
         if isinstance(session, LibrarySession):
-            tracks, index, shuffle = session.queue, session.index, session.shuffle
+            tracks, index = session.queue, session.index
+            shuffle, repeat = session.shuffle, session.repeat
         else:
             saved = self._saved_queue()
             if saved is None:
                 return None
             tracks, index = saved
-            shuffle = self._resume_point.content["shuffle"]
+            content = self._resume_point.content
+            shuffle, repeat = content["shuffle"], content["repeat"]
         current = tracks[index]
         return MusicLibraryDetails(
-            queue=tracks, queue_index=index, shuffle=shuffle,
+            queue=tracks, queue_index=index, shuffle=shuffle, repeat=repeat,
             track_id=current.get("id"), album_id=current.get("albumId"),
             artist_id=current.get("artistId"),
         )
@@ -1242,12 +1360,13 @@ class MusicLibrarySource(MpvAudioSource):
         session = self._session
         if not isinstance(session, LibrarySession):
             return ["resume", "play_index", "stop"] if self._saved_queue() is not None else []
-        last = session.index >= len(session.queue) - 1
+        # Past the last track, `next` goes back to the first while the queue repeats.
+        last = session.index >= len(session.queue) - 1 and session.repeat == "off"
         controls = ["resume" if session.phase is Phase.PAUSED else "pause"]
         if session.phase is not Phase.LOADING:
             controls += ["seek", "skip"]
         controls += [c for c in ("next", "prev") if not (c == "next" and last)]
-        return controls + ["set_shuffle", "play_index", "stop"]
+        return controls + ["set_shuffle", "set_repeat", "play_index", "stop"]
 
     # =========================================================================
     # NETWORK SHARES (SMB/NFS)

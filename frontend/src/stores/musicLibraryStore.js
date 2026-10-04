@@ -224,7 +224,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const isPlaying = computed(() => phase.value === 'playing');
 
   // Whether the source takes `command` right now (next is absent on the last
-  // track, seek while loading, everything but resume/play_index/stop once stopped).
+  // track of a queue that does not repeat, seek while loading, everything but
+  // resume/play_index/stop once stopped).
   const canSend = (command) => !!selected.value?.controls.includes(command);
 
   // The queue's current track: live, or the saved queue a play press reopens.

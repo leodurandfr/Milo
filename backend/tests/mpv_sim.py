@@ -15,7 +15,18 @@ consistent truth. Every behaviour below was observed on the unit
 - A jump (`playlist-play-index`) or a `stop` ends the current entry with
   `end-file reason=stop`; a file that cannot be read ends with
   `reason=error` before any `playback-restart`; the last entry ending sends
-  `idle`.
+  `idle`, then `idle-active` true (0.4 s after its `end-file`, once the sound
+  it held has played — modelled only with `drain`, else at once); an entry
+  started from idle sends `idle-active` false after its `start-file`.
+- `loop-playlist` (inf) starts the playlist over after its last entry:
+  `end-file eof`, then `start-file` of the first entry, under the same ids.
+  An entry that failed is tried again on the next pass; mpv gives up — goes
+  idle instead of starting over — once every entry has failed.
+  `loop-file` (a count) takes the file back to its start instead of ending it:
+  `seek`, `remaining-file-loops` one lower, `playback-restart` — no end-file,
+  no start-file. `remaining-file-loops` is the option's value again at every
+  file start and on every set (0 for `no`). Both options survive a `stop`.
+  (Measured 2026-10-04, mpv 0.40 with a null audio output.)
 - A seek before the file is open is refused (E57, measured 3/3).
 - A stream that stops delivering sets `paused-for-cache` and sends nothing
   else (measured: 155 s before an `eof`, never for a stalled socket).
@@ -36,6 +47,7 @@ class Entry:
     id: int
     url: str
     options: Dict[str, str] = field(default_factory=dict)
+    failed: bool = False
 
 
 class SimLink:
@@ -45,6 +57,10 @@ class SimLink:
 class MpvSim:
     def __init__(self, *, auto_open: bool = True) -> None:
         self.auto_open = auto_open
+        # True: the last entry's end leaves mpv playing out the sound it holds,
+        # idle only at `drained()` — or at the next command, which finds it so.
+        self.drain = False
+        self._draining = False
         self.accept = True                 # False: every command is refused
         self.broken: Dict[str, str] = {}   # url fragment -> file_error
         self.durations: Dict[str, float] = {}
@@ -57,6 +73,7 @@ class MpvSim:
         self.paused = False
         self.stalled = False
         self.speed = 1.0
+        self.remaining_loops = 0           # remaining-file-loops (loop-file)
         self.props: Dict[str, Any] = {}    # anything else a source sets
         self._next_id = 0
         self._link: Optional[SimLink] = None
@@ -80,14 +97,29 @@ class MpvSim:
         self._emit({"event": "playback-restart"})
 
     async def ends(self, reason: str = "eof", file_error: Optional[str] = None) -> None:
-        """The current entry ends; mpv moves to the next one or goes idle."""
+        """The current entry ends; mpv moves to the next one or goes idle —
+        or, looping the file, starts it over."""
         if self.current is None:
+            return
+        if reason == "eof" and self.remaining_loops:
+            # -1 is `inf`: it loops and says nothing.
+            if self.remaining_loops > 0:
+                self.remaining_loops -= 1
+            self.position = 0.0
+            self._emit({"event": "seek"})
+            if self.remaining_loops >= 0:
+                self._emit_prop("remaining-file-loops", self.remaining_loops)
+            self._emit({"event": "playback-restart"})
             return
         self._end_current(reason, file_error)
         self._advance()
 
     async def fails(self, file_error: str = "loading failed") -> None:
         await self.ends("error", file_error)
+
+    async def drained(self) -> None:
+        """The last of the sound has played: mpv goes idle (with `drain`)."""
+        self._finish_drain()
 
     async def stalls(self) -> None:
         """The stream stops delivering: the cache runs dry."""
@@ -160,6 +192,9 @@ class MpvSim:
             self._set_pause(bool(value))
         elif name == "speed":
             self.speed = value
+        elif name == "loop-file":
+            self.props[name] = value
+            self._arm_file_loops()
         else:
             self.props[name] = value
         return True
@@ -204,6 +239,7 @@ class MpvSim:
         self.sent.append(("stop",))
         if not self._ok():
             return False
+        self._finish_drain()
         if self.current is not None:
             self._end_current("stop")
         self.playlist = []
@@ -261,6 +297,7 @@ class MpvSim:
             "playlist-count": len(self.playlist),
             "metadata": dict(self.metadata),
             "speed": self.speed,
+            "remaining-file-loops": self.remaining_loops,
         }
         return values[name] if name in values else self.props.get(name)
 
@@ -273,15 +310,20 @@ class MpvSim:
     def _play_index(self, index: int) -> bool:
         if not 0 <= index < len(self.playlist):
             return False
+        self._finish_drain()
         if self.current is not None:
             self._end_current("stop")
         self._start(self.playlist[index])
         return True
 
     def _start(self, entry: Entry) -> None:
+        was_idle = self.current is None
         self.current, self.opened, self.stalled = entry, False, False
         self.position = float(entry.options.get("start", 0) or 0)
         self._emit({"event": "start-file", "playlist_entry_id": entry.id})
+        if was_idle:
+            self._emit_prop("idle-active", False)
+        self._arm_file_loops()
         broken = next((err for frag, err in self.broken.items() if frag in entry.url), None)
         if broken is not None:
             self._end_current("error", broken)
@@ -297,6 +339,8 @@ class MpvSim:
 
     def _end_current(self, reason: str, file_error: Optional[str] = None) -> None:
         entry = self.current
+        if reason == "error":
+            entry.failed = True
         event = {"event": "end-file", "reason": reason, "playlist_entry_id": entry.id}
         if file_error:
             event["file_error"] = file_error
@@ -306,14 +350,35 @@ class MpvSim:
         index = self.playlist.index(self.current) if self.current in self.playlist else -1
         if 0 <= index < len(self.playlist) - 1:
             self._start(self.playlist[index + 1])
+        elif (
+            self.playlist and self.props.get("loop-playlist") not in (None, "no")
+            and not all(entry.failed for entry in self.playlist)
+        ):
+            self._start(self.playlist[0])
+        elif self.drain:
+            self._draining, self.opened = True, False
         else:
             self._go_idle()
+
+    def _finish_drain(self) -> None:
+        if self._draining:
+            self._draining = False
+            self._go_idle()
+
+    def _arm_file_loops(self) -> None:
+        """`remaining-file-loops` takes the option's value (announced on a change)."""
+        loops = self.props.get("loop-file")
+        value = 0 if loops in (None, "no") else -1 if loops == "inf" else int(loops)
+        if value != self.remaining_loops:
+            self.remaining_loops = value
+            self._emit_prop("remaining-file-loops", value)
 
     def _go_idle(self) -> None:
         was_busy = self.current is not None
         self.current, self.opened, self.position = None, False, None
         if was_busy:
             self._emit({"event": "idle"})
+            self._emit_prop("idle-active", True)
 
     def _set_pause(self, value: bool) -> None:
         if value != self.paused:

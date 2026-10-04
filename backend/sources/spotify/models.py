@@ -5,7 +5,7 @@ Pydantic command-parameter models for the Spotify audio source.
 These validate the `data` of `/api/audio/control/spotify` commands at the
 command() boundary; see SpotifySource.COMMANDS.
 """
-from typing import Literal, Optional
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -28,12 +28,6 @@ class PlayContextParams(BaseModel):
     uri: str = Field(min_length=1)
     skip_to_uri: Optional[str] = None
     shuffle: bool = False
-
-
-class SetRepeatParams(BaseModel):
-    """Params for `set_repeat`: the target repeat mode (the player's button
-    cycles off → context → track and sends where it lands)."""
-    mode: Literal["off", "context", "track"]
 
 
 # === Browser route bodies ===

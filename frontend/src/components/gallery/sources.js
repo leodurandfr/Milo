@@ -686,7 +686,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. With several profiles kept and nothing playing it opens on the profile screen; with nobody signed in its home asks for a phone. The player is Music Library\'s track player, plus repeat, without the queue carousel — go-librespot does not say what comes next.',
+      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. With several profiles kept and nothing playing it opens on the profile screen; with nobody signed in its home asks for a phone. The player is Music Library\'s track player without the queue carousel — go-librespot does not say what comes next.',
     scenarios: [
       starting('spotify'),
       browsing('spotify', 'Signed in, nothing playing', 'The daemon signed back in with the kept account and holds no session: the home lists that account\'s playlists in the Spotify app\'s sections, sorted by owner, cover path and id prefix — never by name, since go-librespot names Spotify\'s own playlists in the session\'s language.', {
@@ -1338,7 +1338,7 @@ export const SOURCE_PAGES = [
         view: 'ml-home',
         state: {
           session: session({ ...SAYS, phase: 'playing', position: anchor(192000) }),
-          controls: ['pause', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'play_index', 'stop'],
+          controls: ['pause', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_index', 'stop'],
           details: {
             kind: 'music_library',
             queue: [
@@ -1348,6 +1348,7 @@ export const SOURCE_PAGES = [
             ],
             queue_index: 1,
             shuffle: true,
+            repeat: 'context',
             track_id: 's-2',
             album_id: 'al-2',
             artist_id: 'ar-3'

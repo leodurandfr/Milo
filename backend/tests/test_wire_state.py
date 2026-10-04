@@ -128,10 +128,12 @@ async def _podcast(mp, tmp, *, play=True, pause=False, loading=False, kept=False
     return rig
 
 
-async def _library(mp, tmp, *, start=0, pause=False, idle_end=False):
+async def _library(mp, tmp, *, start=0, pause=False, idle_end=False, repeat=None):
     rig = LibraryRig(mp, settings={"audio.auto_stop_delay": 0.5} if idle_end else None)
     await rig.select()
     await rig.play_album(start_index=start)
+    if repeat is not None:
+        await rig.command("set_repeat", {"mode": repeat})
     if pause or idle_end:
         await rig.command("pause")
         await settle()
@@ -227,7 +229,7 @@ FIP_RESUME = {
 }
 SHOW = EPISODE_A["podcast"]["name"]
 FIRST = ALBUM[0]
-LIBRARY_TAIL = ["set_shuffle", "play_index", "stop"]
+LIBRARY_TAIL = ["set_shuffle", "set_repeat", "play_index", "stop"]
 
 
 def _cover(song: Dict[str, Any]) -> str:
@@ -292,11 +294,15 @@ SCENARIOS: List[Scenario] = [
         "controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL],
         "details": {
             "kind": "music_library", "queue": ALBUM, "queue_index": 0, "shuffle": False,
-            "track_id": FIRST["id"], "album_id": FIRST["albumId"], "artist_id": FIRST["artistId"],
+            "repeat": "off", "track_id": FIRST["id"], "album_id": FIRST["albumId"], "artist_id": FIRST["artistId"],
         },
     }),
     Scenario("library last track", lambda mp, t: _library(mp, t, start=len(ALBUM) - 1),
              expect={"controls": ["pause", "seek", "skip", "prev", *LIBRARY_TAIL]}),
+    # A repeating queue goes from its last track back to its first.
+    Scenario("library last track, repeating",
+             lambda mp, t: _library(mp, t, start=len(ALBUM) - 1, repeat="context"),
+             expect={"controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL]}),
     Scenario("library paused", lambda mp, t: _library(mp, t, pause=True),
              expect={"controls": ["resume", "seek", "skip", "next", "prev", *LIBRARY_TAIL]},
              session_has={"phase": "paused"}),

@@ -36,6 +36,11 @@ AvailabilityReason = Literal[
     "no_storage", "catalog_unavailable",  # Music Library
 ]
 
+# What a queue repeats, and what `set_repeat` takes: nothing, the whole
+# context (a Spotify context, the library's queue), or the track playing. One
+# vocabulary for every source that repeats, so one player button cycles it.
+RepeatMode = Literal["off", "context", "track"]
+
 
 class PositionAnchor(BaseModel):
     """The playhead: `ms` at the instant `at`, moving at `rate` while the
@@ -142,6 +147,7 @@ class MusicLibraryDetails(BaseModel):
     queue: List[Dict[str, Any]]      # the Subsonic tracks as they are
     queue_index: Optional[int]
     shuffle: bool
+    repeat: RepeatMode
     track_id: Optional[str]
     album_id: Optional[str]
     artist_id: Optional[str]
@@ -191,7 +197,7 @@ class SpotifyDetails(BaseModel):
     album_uri: Optional[str]
     artist_uri: Optional[str]       # the first artist: the player's artist line opens it
     shuffle: bool
-    repeat: Literal["off", "context", "track"]
+    repeat: RepeatMode
 
 
 Details = Annotated[
