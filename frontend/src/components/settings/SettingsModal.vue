@@ -30,7 +30,7 @@
             <div class="power-menu-items">
               <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" @click="runPowerAction(action)">
                 <template #icon>
-                  <img :src="action.icon" :alt="action.alt" />
+                  <img class="settings-tile-icon" :src="action.icon" :alt="action.alt" />
                 </template>
                 <template #title="{ headingClass }">
                   <span class="power-text-crossfade" :class="headingClass">
@@ -49,7 +49,7 @@
               <ListItemButton v-for="row in section.rows" :key="row.view" variant="background"
                 :title="t(row.titleKey)" action="caret" @click="push(row.view)">
                 <template #icon>
-                  <img :src="row.icon" :alt="row.alt" />
+                  <img class="settings-tile-icon" :src="row.icon" :alt="row.alt" />
                 </template>
               </ListItemButton>
             </div>
@@ -834,6 +834,10 @@ onMounted(async () => {
 
 .power-text--light {
   color: var(--color-text-secondary);
+}
+
+.settings-tile-icon {
+  filter: var(--filter-icon-tile);
 }
 
 /* Override SettingsSection's default 16px gap to 24px for the denser home grid */

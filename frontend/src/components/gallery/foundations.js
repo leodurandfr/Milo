@@ -139,6 +139,7 @@ const KINDS = {
   'TEXT COLORS': 'swatch',
   'BACKGROUND COLORS': 'swatch',
   BORDERS: 'swatch',
+  'CONTROL COLORS': 'swatch',
   'SYSTEM COLORS': 'swatch',
   'SVG BRAND TOKENS': 'swatch',
   STROKES: 'swatch',
@@ -148,7 +149,8 @@ const KINDS = {
   'BORDER RADIUS': 'radius',
   'TEXT STYLES': 'tokens',
   SHADOWS: 'shadow',
-  BLUR: 'blur'
+  BLUR: 'blur',
+  FILTERS: 'tokens'
 };
 
 /**
@@ -172,7 +174,8 @@ const NOTES = {
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
   'TEXT STYLES': 'The raw operands. What a component applies is the utility class below, never these directly.',
-  BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.'
+  BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.',
+  FILTERS: 'A filter is the theme reaching an image, which cannot read a color token: none in light, a value in the dark block.'
 };
 
 function sectionBlock(title) {
@@ -198,7 +201,7 @@ const PAGES = [
     id: 'colors',
     title: 'Colours',
     summary: 'Every colour the app is allowed to be: the brand tone, the text and background ramps with the alpha variants of each, the system colours, and the gradients that belong to no ramp at all.',
-    sections: ['PRIMARY COLORS', 'TEXT COLORS', 'BACKGROUND COLORS', 'BORDERS', 'SYSTEM COLORS', 'SVG BRAND TOKENS', 'STROKES', 'SOURCE GRADIENTS'],
+    sections: ['PRIMARY COLORS', 'TEXT COLORS', 'BACKGROUND COLORS', 'BORDERS', 'CONTROL COLORS', 'SYSTEM COLORS', 'SVG BRAND TOKENS', 'STROKES', 'SOURCE GRADIENTS', 'FILTERS'],
     extras: []
   },
   {

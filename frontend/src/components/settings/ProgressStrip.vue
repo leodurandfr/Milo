@@ -81,7 +81,7 @@ defineProps({
 .scan-progress__fill {
   width: 0;
   height: 100%;
-  background: var(--color-background-contrast);
+  background: var(--color-fill-strong);
   border-radius: var(--radius-01);
   transition: width var(--step-ms, 200ms) linear;
 }

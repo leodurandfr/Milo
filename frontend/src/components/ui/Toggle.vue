@@ -122,7 +122,7 @@ function handleToggle(event) {
 .slider:before {
   position: absolute;
   content: "";
-  background-color: var(--color-background-neutral);
+  background-color: var(--color-control-thumb);
   border-radius: var(--radius-full);
   transition: transform 0.2s ease;
 }
@@ -141,7 +141,7 @@ function handleToggle(event) {
 }
 
 .toggle--secondary input:checked+.slider {
-  background-color: var(--color-background-contrast);
+  background-color: var(--color-fill-strong);
 }
 
 /* Disabled */

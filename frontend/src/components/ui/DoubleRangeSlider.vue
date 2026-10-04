@@ -296,7 +296,7 @@ onUnmounted(() => {
   height: 100%;
   aspect-ratio: 1.6;
   border-radius: var(--radius-full);
-  background: var(--color-background-neutral);
+  background: var(--color-control-thumb);
   border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   transform: translateX(-50%);

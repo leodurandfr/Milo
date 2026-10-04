@@ -376,7 +376,7 @@ onUnmounted(() => {
 .range-thumb {
   position: absolute;
   border-radius: var(--radius-full);
-  background: var(--color-background-neutral);
+  background: var(--color-control-thumb);
   border: 2px solid var(--slider-accent);
   cursor: pointer;
   z-index: 2;

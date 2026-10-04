@@ -583,7 +583,8 @@ onUnmounted(() => {
 .key-shift:active,
 .key-mode:active,
 .key-dismiss:active {
-  background: var(--color-background-contrast-80);
+  background: var(--color-key-active);
+  color: var(--color-key-active-ink);
 }
 
 /* Caps Lock / #+= / 123 */
@@ -608,8 +609,9 @@ onUnmounted(() => {
 
 /* Caps Lock active state */
 .caps-active {
-  background: var(--color-background-contrast-80);
+  background: var(--color-key-active);
   box-shadow: none;
+  color: var(--color-key-active-ink);
 }
 
 .caps-active :deep(svg) {
@@ -618,8 +620,9 @@ onUnmounted(() => {
 
 /* Shift active state */
 .shift-active {
-  background: var(--color-background-contrast-80);
+  background: var(--color-key-active);
   box-shadow: none;
+  color: var(--color-key-active-ink);
 }
 
 .shift-active :deep(svg) {
@@ -628,8 +631,9 @@ onUnmounted(() => {
 
 /* Mode active state (numbers/symbols) */
 .mode-active {
-  background: var(--color-background-contrast-80);
+  background: var(--color-key-active);
   box-shadow: none;
+  color: var(--color-key-active-ink);
 }
 
 /* ===== KEY PRESS POPUP ===== */

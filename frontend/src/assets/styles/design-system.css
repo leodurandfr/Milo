@@ -32,6 +32,25 @@
     /* === BORDERS === */
     --color-border: #1718170d;
 
+    /* === CONTROL COLORS === */
+    /* The knob of a Toggle or a slider: a light disc in both themes, as a
+       physical switch's would be. Its own token because the neutral surface it
+       used to borrow turns dark with the theme. */
+    --color-control-thumb: #ffffff;
+
+    /* The strongest neutral fill drawn on a neutral ground — a progress fill, a
+       Toggle that is on without the brand color. Near-black in light; in dark
+       it cannot be the raised contrast surface, which would vanish into the
+       card, so it turns to a light gray. */
+    --color-fill-strong: #181d1e;
+
+    /* A virtual-keyboard modifier that is engaged (shift, caps, the symbol
+       page) or a function key held down, and the glyph drawn on it. Engaged
+       reads as "more ink than at rest": darker in light, lighter in dark, so in
+       dark the glyph turns dark with it. */
+    --color-key-active: var(--color-background-contrast-80);
+    --color-key-active-ink: var(--color-text-contrast);
+
     /* === SYSTEM COLORS === */
     --color-success: #11aa3a;
     --color-warning: #ff9800;
@@ -169,6 +188,12 @@
     --blur-05: 64px;
 
 
+    /* === FILTERS === */
+    /* The settings glyphs are grayscale images drawn as a white tile. An <img>
+       cannot read a color token, so the dark theme turns the tile over with a
+       filter instead: a dark tile, a light glyph, the same grays reversed. */
+    --filter-icon-tile: none;
+
     /* === EASING PRESETS === */
     --easeOutCubic: cubic-bezier(0.33, 1, 0.68, 1);
     --easeInCubic: cubic-bezier(0.32, 0, 0.67, 0);
@@ -215,9 +240,14 @@
 
 
 /* === DARK THEME === */
-/* Every --color-* token again, for <html data-theme="dark"> (set by
-   composables/useTheme.js). A component never tests the theme: it consumes
-   these tokens, so a colour that needs a dark value gets one here.
+/* The themable tokens again, for <html data-theme="dark"> (set by
+   composables/useTheme.js): every --color-* token, plus the non-color tokens
+   whose light value is wrong on a dark ground — --filter-icon-tile and the four
+   --gradient-source-* washes. A component never tests the theme: it consumes
+   these tokens, so a value that needs a dark twin gets one here. What is not
+   repeated is theme-neutral on purpose: spacing, radii, type, motion, and the
+   shadows and glass strokes, whose black and white alphas are the same values
+   in both themes.
 
    The neutrals mirror the light ramp: grounds dark, texts light, each the same
    distance from its ground as its light twin. Brand and status colours do not
@@ -242,17 +272,22 @@
     /* A glint drawn on a dark surface, which stays dark here. */
     --color-background-neutral-12: #ffffff1e;
 
-    --color-background-contrast: #262b2c;
+    --color-background-contrast: #2f3536;
     --color-background-contrast-12: #ffffff1e;
     --color-background-contrast-32: #ffffff51;
-    --color-background-contrast-80: #262b2ccc;
+    --color-background-contrast-80: #2f3536cc;
 
     --color-background-scrim: #191919;
 
     --color-background-medium-16: #77777728;
     --color-background-medium-32: #78787851;
 
-    --color-border: #e8e9e80d;
+    --color-border: #e8e9e814;
+
+    --color-control-thumb: #e8e9e8;
+    --color-fill-strong: #a6aca6;
+    --color-key-active: color-mix(in srgb, var(--color-text) 80%, transparent);
+    --color-key-active-ink: var(--color-background);
 
     --color-success: #11aa3a;
     --color-warning: #ff9800;
@@ -263,6 +298,20 @@
     --color-success-subtle: rgba(17, 170, 58, 0.12);
 
     --color-svg-logo-grey: #595f59;       /* = --color-text-light */
+
+    --filter-icon-tile: invert(0.84);
+
+    /* Each wash tints the dark ground by what it tints the light one (the same
+       CIELAB distance between the ground and the top of the wash, ~7-17), in
+       its own hue. Radio's light wash is an opaque cream, which on a dark
+       ground would read as a lit panel, so it becomes the cream at low alpha;
+       Podcast's dark purple vanishes on a dark ground, so it takes the lighter
+       purple its light gradient already fades into, raised above its measured
+       match (0.06): a violet this dark reads weaker than its distance says. */
+    --gradient-source-radio: linear-gradient(180deg, rgba(246, 237, 205, 0.16) 0%, rgba(246, 237, 205, 0) 100%);
+    --gradient-source-podcast: linear-gradient(180deg, rgba(126, 46, 214, 0.09) 0%, rgba(126, 46, 214, 0) 100%);
+    --gradient-source-music-library: linear-gradient(180deg, rgba(212, 72, 100, 0.09) 0%, rgba(212, 72, 100, 0) 100%);
+    --gradient-source-spotify: linear-gradient(180deg, rgba(29, 185, 84, 0.07) 0%, rgba(29, 185, 84, 0) 100%);
 
     color-scheme: dark;
 }

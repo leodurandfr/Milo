@@ -747,7 +747,7 @@ onUnmounted(() => {
   left: 0;
   width: 6px;
   height: 4px;
-  background: var(--color-background-contrast);
+  background: var(--color-fill-strong);
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
