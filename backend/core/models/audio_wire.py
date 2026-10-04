@@ -45,7 +45,9 @@ RepeatMode = Literal["off", "context", "track"]
 class PositionAnchor(BaseModel):
     """The playhead: `ms` at the instant `at`, moving at `rate` while the
     session plays. position_now = ms + (phase == playing ? (now − at) × 1000 ×
-    rate : 0), bounded to [0, duration_ms]."""
+    rate : 0), bounded to [0, duration_ms]. `rate` is 1.0 for every source —
+    nothing plays faster or slower — and stays because Milo-Mac and Milo-iOS
+    decode it (`session.position.rate`, pinned by both manifests)."""
     ms: int
     at: float
     rate: float
@@ -139,7 +141,6 @@ class PodcastDetails(BaseModel):
     # The episode as the podcast catalog routes return it (uuid, name,
     # description, image_url, podcast{uuid, name, image_url}, …).
     episode: Optional[Dict[str, Any]]
-    speed: float
 
 
 class MusicLibraryDetails(BaseModel):

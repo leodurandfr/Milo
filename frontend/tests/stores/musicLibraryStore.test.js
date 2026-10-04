@@ -640,9 +640,6 @@ describe('musicLibraryStore — now playing', () => {
     });
     expect(store.queueIndex).toBe(1);
     expect(store.isPlaying).toBe(false);
-    // The last track of the queue: the backend offers no next.
-    expect(store.canSend('next')).toBe(false);
-    expect(store.canSend('resume')).toBe(true);
   });
 
   it('keeps the saved queue a play press reopens after the session ended', () => {
@@ -655,7 +652,6 @@ describe('musicLibraryStore — now playing', () => {
     });
 
     expect(store.nowPlaying?.title).toBe('Risingson');
-    expect(store.canSend('set_shuffle')).toBe(false);
   });
 
   it('has nothing to show once the queue is gone', () => {

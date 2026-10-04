@@ -150,8 +150,8 @@ class TestNowPlayingAttributes:
         assert build_attributes("sess", state, [], now=NOW)["controls"] == ["resume_playback"]
 
     def test_a_source_card_offers_nothing(self):
-        state = {"source": "podcast", "session": None, "resume": None,
-                 "controls": ["set_speed"]}
+        state = {"source": "cd", "session": None, "resume": None,
+                 "controls": ["eject"]}
 
         assert build_attributes("sess", state, [], now=NOW)["controls"] == []
 

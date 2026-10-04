@@ -3,26 +3,28 @@
  * `useDarkSurface` is the only thing telling VolumeBar what it is drawn on: the
  * bar is fixed above every view, App.vue mounts it once, and nothing can read a
  * colour back out of the backdrop. So a wrong answer here is a near-black fill
- * painted onto the screensaver, or a white one onto the app.
+ * painted onto the dark theme or the Lyrics view, or a light one onto the app.
  *
- * What is covered is the counting, which is where a rewrite would go wrong: the
- * two dark surfaces overlap (the screensaver rises over an open Lyrics view),
- * and a flag would go light again on the first of the two to close. Unmount is
- * covered for the same reason in the other direction — a surface that leaves
- * still holding its claim never lets the app go light again.
+ * Two inputs make the answer: the theme, and the surfaces that declare
+ * themselves dark (Lyrics, dark in both themes). The theme is set through
+ * `applyTheme`, the same entry the gallery canvas uses. The counting is covered
+ * because that is where a rewrite would go wrong: two Lyrics views overlap while
+ * one fades out under the next, and a flag would go light again on the first of
+ * the two to unmount.
  *
  * Mounts a bare host and asserts nothing about the DOM: the shared state is what
  * is under test, not a rendering.
  */
-import { describe, it, expect } from 'vitest';
-import { defineComponent, h, nextTick, ref } from 'vue';
+import { describe, it, expect, afterEach } from 'vitest';
+import { defineComponent, h, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import { markDarkSurface, useDarkSurface } from '@/composables/useDarkSurface';
+import { applyTheme } from '@/composables/useTheme';
 
-/** A component that declares itself dark for as long as `active` says so. */
-function darkSurface(active) {
+/** A component that declares itself dark for its whole mounted life. */
+function darkSurface() {
   return mount(defineComponent({
-    setup: () => markDarkSurface(active),
+    setup: () => markDarkSurface(),
     render: () => h('div'),
   }));
 }
@@ -30,42 +32,21 @@ function darkSurface(active) {
 const { isDarkSurface } = useDarkSurface();
 
 describe('useDarkSurface', () => {
-  it('answers light with nothing on screen', () => {
+  afterEach(() => applyTheme('light'));
+
+  it('answers light in the light theme with nothing on screen', () => {
+    applyTheme('light');
     expect(isDarkSurface.value).toBe(false);
   });
 
-  it('goes dark for a surface’s whole mounted life', async () => {
-    const surface = darkSurface();
+  it('answers dark in the dark theme alone', () => {
+    applyTheme('dark');
     expect(isDarkSurface.value).toBe(true);
-
-    surface.unmount();
-    await nextTick();
-    expect(isDarkSurface.value).toBe(false);
   });
 
-  it('follows a surface that stays mounted while hidden', async () => {
-    const visible = ref(false);
-    const surface = darkSurface(() => visible.value);
-    expect(isDarkSurface.value).toBe(false);
-
-    visible.value = true;
-    await nextTick();
-    expect(isDarkSurface.value).toBe(true);
-
-    visible.value = false;
-    await nextTick();
-    expect(isDarkSurface.value).toBe(false);
-
-    surface.unmount();
-  });
-
-  it('stays dark until the last of two overlapping surfaces leaves', async () => {
+  it('goes dark for the lyrics in the light theme, for their whole mounted life', async () => {
+    applyTheme('light');
     const lyrics = darkSurface();
-    const screensaver = darkSurface();
-    expect(isDarkSurface.value).toBe(true);
-
-    screensaver.unmount();
-    await nextTick();
     expect(isDarkSurface.value).toBe(true);
 
     lyrics.unmount();
@@ -73,12 +54,26 @@ describe('useDarkSurface', () => {
     expect(isDarkSurface.value).toBe(false);
   });
 
-  it('releases whatever a surface still holds when it unmounts', async () => {
-    const visible = ref(true);
-    const surface = darkSurface(visible);
+  it('stays dark with the lyrics open in the dark theme, and after they close', async () => {
+    applyTheme('dark');
+    const lyrics = darkSurface();
     expect(isDarkSurface.value).toBe(true);
 
-    surface.unmount();
+    lyrics.unmount();
+    await nextTick();
+    expect(isDarkSurface.value).toBe(true);
+  });
+
+  it('stays dark until the last of two overlapping Lyrics views leaves', async () => {
+    const leaving = darkSurface();
+    const opening = darkSurface();
+    expect(isDarkSurface.value).toBe(true);
+
+    leaving.unmount();
+    await nextTick();
+    expect(isDarkSurface.value).toBe(true);
+
+    opening.unmount();
     await nextTick();
     expect(isDarkSurface.value).toBe(false);
   });

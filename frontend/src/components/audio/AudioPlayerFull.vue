@@ -1,11 +1,21 @@
-<!-- AudioPlayerFull.vue - Full-screen player, for every source that has one.
-     What it offers is read from the state, never from its caller: the buttons
-     from `controls` (utils/playerControls), the play/pause glyph from the
-     session's phase, the bar from the session's duration and position anchor.
-     What is not a command — a favorite, a star, a like — is the source's to put
-     in `#actions`; the album and artist links are emitted, never followed. -->
+<!-- AudioPlayerFull.vue - Full-screen player, for every source that has one: a
+     shell — the cover and its backdrop, the top row (PlayerTopRow) — around
+     PlayerBody, the source bar, lines, bar and transport it shares with the
+     playing bar, centred here. What it offers is read from the state, never
+     from its caller. What is not a command is the source's to put in the top
+     row: `#top-start` (CD's tracklist) and `#top-end` (a favorite, a star, a
+     like, CD's eject, Bluetooth's disconnect). The album and artist links are
+     emitted, never followed. -->
 <template>
-  <div class="connect-player">
+  <div class="connect-player" :class="{ 'connect-player--backdrop': isDark }">
+    <!-- The dark theme's ground: the cover again, blurred edge to edge and
+         dimmed under a veil. Drawn only in that theme, so the light one does
+         not pay for a full-screen blur it would not show. -->
+    <div v-if="isDark" class="player-backdrop" aria-hidden="true">
+      <img v-if="shownArtwork" :src="shownArtwork" alt="" class="player-backdrop-image" />
+      <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-backdrop-image" />
+    </div>
+
     <!-- source-motion: what the source swap rises, leaving .connect-player (the
          clipping box and the panel's fill) welded to the screen edges. -->
     <div class="now-playing source-motion">
@@ -14,7 +24,7 @@
         <div class="artwork-container">
           <!-- Background blur -->
           <div class="artwork-blur"
-            :style="{ backgroundImage: shownArtwork ? `url(${shownArtwork})` : 'none' }">
+            :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }">
           </div>
 
           <!-- Main cover art. The fallback is not decoration: Bluetooth can
@@ -58,79 +68,29 @@
 
       <!-- Right side: Info and controls with CSS staggering. -->
       <div class="content-section stagger-2">
-        <!-- Back to the navigation this player was expanded out of: drawn only
-             when one is provided (BrowserSourceViews), so the sources whose only
-             view this is draw no button at all. -->
-        <div v-if="navigation" class="player-back">
-          <IconButton icon="caretLeft" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
-            :aria-label="t('common.back')" @click="navigation.back" />
-        </div>
-
-        <!-- Action buttons (used by CD for eject/tracklist) -->
-        <slot name="action-buttons" />
+        <!-- The row both players carry. Start: the way back to the navigation
+             this player was expanded out of — drawn only when one is provided
+             (BrowserSourceViews) — then what the source puts there (CD's
+             tracklist). End: what the source puts there — the favorite, the
+             star or the like of a browser source, CD's eject, Bluetooth's
+             disconnect. -->
+        <PlayerTopRow class="player-topbar">
+          <template #start>
+            <IconButton v-if="navigation" icon="minified" variant="background-strong" size="medium"
+              :aria-label="t('common.back')" @click="navigation.back" />
+            <slot name="top-start" />
+          </template>
+          <template #end>
+            <slot name="top-end" />
+          </template>
+        </PlayerTopRow>
 
         <!-- Content: player info or replacement (e.g., CD tracklist) -->
         <Transition name="player-swap" mode="out-in">
-          <div v-if="!hideContent" key="player-info" class="player-info">
-            <div class="track-info" :class="{ 'no-controls': !hasTransport }">
-              <!-- What the title belongs to: the station a recognized song
-                   plays on (its cover has replaced the station's), the show an
-                   episode is part of. -->
-              <div v-if="persistentMetadata.kicker" class="track-kicker">
-                <LazyImage v-if="persistentMetadata.kickerIcon !== null" class="track-kicker-icon"
-                  :src="persistentMetadata.kickerIcon" :fallback-name="persistentMetadata.kicker" alt="" />
-                <span class="track-kicker-label text-mono-medium">{{ persistentMetadata.kicker }}</span>
-              </div>
-              <h1 class="track-title heading-1">{{ persistentMetadata.title || t('status.unknownTitle') }}</h1>
-              <p v-if="secondaryLine" v-press="artistLink" class="track-artist heading-2"
-                :class="{ 'is-link': artistLink }" @click="onSecondaryClick">{{ secondaryLine }}</p>
-            </div>
-            <div class="controls-section">
-              <!-- The toggles the source lists, then what the source adds that
-                   is not a command (a favorite, a like). The sources with
-                   nothing to browse have neither, so the row is drawn only when
-                   filled. -->
-              <div v-if="optionControls.length || $slots.actions" class="options-row"
-                :class="isMobile ? 'transport-scale--phone' : 'transport-scale'">
-                <template v-for="control in optionControls" :key="control.id">
-                  <div v-if="control.id === 'speed'" class="speed-selector">
-                    <Dropdown :model-value="speedValue(control)" :options="speedOptions" size="small"
-                      variant="background-neutral" :disabled="!control.enabled" @change="setSpeed" />
-                  </div>
-                  <IconButton v-else :icon="control.icon" variant="ghost" size="small"
-                    class="option-button transport-secondary-round"
-                    :color="control.active ? 'var(--color-text)' : 'var(--color-text-light)'"
-                    :aria-label="optionLabel(control)" :aria-pressed="control.active"
-                    :disabled="!control.enabled" @click="sendSourceCommand(control.command, control.params)" />
-                </template>
-                <slot name="actions" />
-              </div>
-              <!-- With a transport the row is always reserved, so the centered
-                   track-info does not shift when the bar mounts on play; a
-                   receiver without one only takes it while it has a bar. The
-                   bar hides itself until the source has a duration and a
-                   position. -->
-              <div v-if="hasTransport || hasProgress" class="progress-wrapper">
-                <ProgressBar :currentPosition="currentPosition" :duration="duration"
-                  :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                  :interactive="canSeek" :loading="phase === 'loading'" animateIn @seek="seekTo" />
-              </div>
-              <div v-if="hasTransport" class="controls-wrapper">
-                <div class="controls" :class="isMobile ? 'transport-scale--phone' : 'transport-scale'">
-                  <IconButton v-for="control in transportControls" :key="control.id" :icon="control.icon"
-                    variant="ghost" :size="control.id === 'main' ? 'medium' : 'small'"
-                    :color="control.id === 'main' ? 'var(--color-text)' : 'var(--color-text-light)'"
-                    class="control-button" :class="transportClass(control)"
-                    :loading="control.id === 'main' && isBuffering" :disabled="!control.enabled"
-                    @click="pressTransport(control)" />
-                </div>
-              </div>
-              <div v-else class="source-bar">
-                <AppIcon :name="source" :size="40" />
-                <span class="source-bar-name heading-4">{{ sourceBarName }}</span>
-              </div>
-            </div>
-          </div>
+          <!-- The lines, the bar and the transport: the body both players
+               share, centred here. -->
+          <PlayerBody v-if="!hideContent" key="player-info" class="player-info" :source="source"
+            surface="full" @secondary-click="emit('secondary-click')" />
           <div v-else key="content-replace" class="content-replace">
             <slot name="content-replace" />
           </div>
@@ -146,29 +106,17 @@
 </template>
 
 <script setup>
-import { computed, inject, ref, watch } from 'vue';
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { usePodcastStore } from '@/stores/podcastStore';
-import { useSourceProgress } from '@/composables/useSourceProgress';
-import { useIsMobile } from '@/composables/useIsMobile';
+import { computed, inject } from 'vue';
+import { useTheme } from '@/composables/useTheme';
 import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion';
 import { useI18n } from '@/services/i18n';
-import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
-import { formatDeviceNames } from '@/utils/deviceName';
-import { getFaviconUrl } from '@/utils/faviconUrl';
-import { generateStationAvatarSvg } from '@/utils/stationAvatar';
-import { playerControls } from '@/utils/playerControls';
-
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
-import { useDelayedFlag } from '@/composables/useDelayedFlag';
-import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
-import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
+import { usePlayerState } from '@/composables/usePlayerState';
 
-import ProgressBar from './ProgressBar.vue';
+import PlayerTopRow from './PlayerTopRow.vue';
+import PlayerBody from './PlayerBody.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import Dropdown from '@/components/ui/Dropdown.vue';
-import LazyImage from '@/components/ui/LazyImage.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
@@ -188,221 +136,42 @@ const props = defineProps({
 const emit = defineEmits(['artwork-click', 'secondary-click']);
 
 const { t } = useI18n();
-const unifiedStore = useUnifiedAudioStore();
-const podcastStore = usePodcastStore();
-const { isMobile } = useIsMobile();
+const { isDark } = useTheme();
+
+// The cover this player draws: from this player's one reading of its state,
+// which the body under it takes too (usePlayerState).
 const {
-  currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized
-} = useSourceProgress(props.source);
-
-// This source's slice of the state: another source's session, controls and
-// phase are not ours (the player is still on screen while it leaves).
-const isSelected = computed(() => unifiedStore.systemState.source === props.source);
-const session = computed(() => (isSelected.value ? unifiedStore.systemState.session : null));
-const controls = computed(() => (isSelected.value ? unifiedStore.systemState.controls : []));
-const details = computed(() => (isSelected.value ? unifiedStore.systemState.details : null));
-const phase = computed(() => session.value?.phase ?? null);
-
-// === CONTROLS ===
-// Which buttons are drawn is read from a settled state: while switching away
-// `controls` is empty, and the player leaving must not trade its transport for
-// a source bar mid-fade. Whether each one is enabled, and a toggle's state, is
-// the live list's — a button the source would refuse now shows disabled.
-const settled = ref({ controls: [], details: null });
-watch(
-  () => {
-    const { switching, service } = unifiedStore.systemState;
-    return isSelected.value && !switching && service === 'running'
-      ? { controls: controls.value, details: details.value }
-      : null;
-  },
-  (state) => {
-    if (state) settled.value = state;
-  },
-  { immediate: true }
-);
-
-const liveControls = computed(() => playerControls({ controls: controls.value, details: details.value, phase: phase.value }));
-const shownControls = computed(() => {
-  const live = new Map(liveControls.value.map(control => [control.id, control]));
-  return playerControls({ ...settled.value, phase: phase.value })
-    .map(control => live.get(control.id) ?? { ...control, enabled: false });
-});
-const transportControls = computed(() => shownControls.value.filter(control => control.row === 'transport'));
-const optionControls = computed(() => shownControls.value.filter(control => control.row === 'options'));
-// The receivers (AirPlay, Qobuz) list no main command and draw a source bar instead.
-const hasTransport = computed(() => transportControls.value.length > 0);
-const canSeek = computed(() => liveControls.value.some(control => control.id === 'seek'));
-const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
-
-const isBuffering = useDelayedFlag(() => phase.value === 'loading');
-
-// sendCommand swallows + logs errors via the store. A command the source does
-// not list now would be refused, so it is not sent.
-function sendSourceCommand(command, data) {
-  if (!controls.value.includes(command)) return;
-  unifiedStore.sendCommand(props.source, command, data);
-}
-
-function pressTransport(control) {
-  // A relative move goes through the playhead, which shows a burst's sum at once.
-  if (control.command === 'skip') {
-    if (controls.value.includes('skip')) skip(control.seconds);
-    return;
-  }
-  sendSourceCommand(control.command);
-}
-
-// The flanking glyphs fill their box in both axes or not, which sets their
-// rung (design-system.css § transport roles).
-function transportClass(control) {
-  if (control.id === 'main') return 'control-button--primary transport-primary';
-  return control.command === 'skip' ? 'transport-secondary-round' : 'transport-secondary';
-}
-
-const REPEAT_LABEL_KEYS = {
-  off: 'spotify.repeatOff',
-  context: 'spotify.repeatContext',
-  track: 'spotify.repeatTrack',
-};
-
-function optionLabel(control) {
-  if (control.id === 'repeat') return t(REPEAT_LABEL_KEYS[control.mode]);
-  return t('spotify.shuffle');
-}
-
-// The speeds are the backend's list, fetched whenever a source starts offering
-// the control; the speed in force is the one its details publish.
-const speedOptions = computed(() =>
-  podcastStore.playbackSpeeds.map(speed => ({ label: `${speed}x`, value: String(speed) }))
-);
-watch(
-  () => optionControls.value.some(control => control.id === 'speed'),
-  (offered) => {
-    if (offered) podcastStore.loadPlaybackSpeeds();
-  },
-  { immediate: true }
-);
-
-function speedValue(control) {
-  return control.value === null ? null : String(control.value);
-}
-
-function setSpeed(value) {
-  sendSourceCommand('set_speed', { speed: parseFloat(value) });
-}
+  artwork, fallback, stationAvatarSvg, artworkAnnounced, trackKey
+} = usePlayerState(props.source).metadata;
 
 // === BACK AND LINKS ===
 // The navigation this player was expanded out of, when there is one: the way
-// back to it, and whether the cover and the artist line have a page to open
-// there. Injected rather than passed, so the props stay the source's and
-// hideContent's. Without it — the only view of a source with nothing to
-// browse — the player has neither, and the cover and the line are inert.
+// back to it, and whether the cover has an album to open there (the artist
+// line's link is the body's). Injected rather than passed, so the props stay
+// the source's and hideContent's. Without it — the only view of a source with
+// nothing to browse — the player has neither, and the cover is inert.
 const navigation = inject(PLAYER_NAVIGATION, null);
 const albumLink = computed(() => !!navigation?.canOpenAlbum.value);
-const artistLink = computed(() => !!navigation?.canOpenArtist.value);
 
 function onArtworkClick() {
   if (albumLink.value) emit('artwork-click');
 }
 
-function onSecondaryClick() {
-  if (artistLink.value) emit('secondary-click');
-}
-
-// === METADATA PERSISTENCE ===
-// The last record worth naming, so the title and cover do not blank out while
-// the player leaves (a source switch clears the record under it) — see the util.
-// The lines around the title come from the details and are kept with it.
-const lastValidMetadata = ref({
-  title: '',
-  artist: '',
-  artwork: '',
-  kicker: null,
-  kickerIcon: null,
-  avatarName: '',
-  secondary: true
-});
-
-/**
- * What surrounds the title, by what the details say the record is.
- *
- * A radio's record names a recognized song or, without one, the station
- * itself; the station moves to the kicker only once the song's own cover has
- * replaced the station's, and a station has no artist line to fall back on.
- * An episode's `artist` is its show, which the kicker already says. Anything
- * else is a track, and a track always has an artist line.
- */
-function linesOf(current) {
-  const kind = current?.kind;
-  if (kind === 'radio') {
-    const station = current.station;
-    const coverIsTrack = !!current.track?.artwork;
-    return {
-      kicker: coverIsTrack ? station.name : null,
-      kickerIcon: coverIsTrack ? getFaviconUrl(station.favicon) : null,
-      avatarName: station.name || '',
-      secondary: false
-    };
-  }
-  if (kind === 'podcast') {
-    return { kicker: current.episode?.podcast?.name || null, kickerIcon: null, avatarName: '', secondary: false };
-  }
-  return { kicker: null, kickerIcon: null, avatarName: '', secondary: true };
-}
-
-watch(
-  () => [nowPlayingOf(unifiedStore.systemState, props.source), details.value],
-  ([record, current]) => {
-    const snapshot = nowPlayingSnapshot(record);
-    if (snapshot) lastValidMetadata.value = { ...snapshot, ...linesOf(current) };
-  },
-  { immediate: true }
-);
-
-const persistentMetadata = computed(() => lastValidMetadata.value);
-
-// A track with no artist says so; a station or an episode has no such line.
-const secondaryLine = computed(() => {
-  const { artist, secondary } = persistentMetadata.value;
-  if (secondary) return artist || t('status.unknownArtist');
-  return artist && artist !== persistentMetadata.value.kicker ? artist : '';
-});
-
-// Who is sending, when the channel says so: AirPlay's and Bluetooth's sender.
-// Nothing identifies the sender on the other receiver channels — the Qobuz
-// proxy only knows the speaker — so the answer there is the source itself,
-// read from the same key the status card and the dock use, never a label a
-// backend hardcoded in one language.
-const sourceBarName = computed(
-  () => formatDeviceNames(session.value?.senders)
-    || t(AUDIO_SOURCE_LABEL_KEYS[props.source])
-);
-
 // === ARTWORK TRANSITION ===
-// Which cover this source shows is decided in one place — see the util.
-const targetArtwork = computed(() => nowPlayingArtwork(persistentMetadata.value));
-// What the slot shows with no cover at all — a bundled placeholder for the
-// sources that ship one, this source's own glyph otherwise.
-const fallback = computed(() => artworkFallback(props.source));
-// The generated station avatar, and only where the helper says so (radio):
-// inline markup rather than an image, so it renders in the app's own font.
-const stationAvatarSvg = computed(() => {
-  if (fallback.value.kind !== 'avatar') return '';
-  const name = persistentMetadata.value.avatarName || persistentMetadata.value.title;
-  return name ? generateStationAvatarSvg(name) : '';
+// The halo behind the cover. In the dark theme a station's avatar gets one too,
+// as its backdrop does: CSS needs a URL rather than markup, and under that much
+// blur the avatar's font cannot be told from a fallback.
+const haloUrl = computed(() => {
+  if (shownArtwork.value) return shownArtwork.value;
+  if (isDark.value && stationAvatarSvg.value) {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(stationAvatarSvg.value)}`;
+  }
+  return null;
 });
 
 // Holding the outgoing cover under a veil while the next one decodes.
-const trackKey = computed(
-  () => `${persistentMetadata.value.title}|${persistentMetadata.value.artist}`
-);
-// Live, not from the cached copy: a lifted flag must lift the veil at once.
-const artworkAnnounced = computed(
-  () => isSelected.value && nowPlayingArtworkPending(unifiedStore.systemState)
-);
 const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
-  useArtworkTransition(targetArtwork, trackKey, artworkAnnounced);
+  useArtworkTransition(artwork, trackKey, artworkAnnounced);
 </script>
 
 <style scoped>
@@ -456,6 +225,68 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   background: var(--color-background-neutral);
 }
 
+/* === DARK THEME BACKDROP ===
+   Set from useTheme().isDark, never from a theme selector: the blurred cover
+   fills the panel, under a veil that keeps the text legible over any cover.
+   `isolation` makes the panel the stacking context the backdrop's negative
+   z-index sinks into, under the content however it is layered. */
+.connect-player--backdrop {
+  background: var(--backdrop-ground);
+  isolation: isolate;
+}
+
+.player-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.player-backdrop-image {
+  flex-shrink: 0;
+  min-width: 150%;
+  min-height: 150%;
+  object-fit: cover;
+  transform: scale(1.5) translateZ(0);
+  filter: blur(var(--blur-05)) saturate(1.5);
+  opacity: 0.16;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.player-backdrop-image :deep(svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* One veil rather than a brightness filter: no second filter pass over a
+   full-screen blur. */
+.player-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--backdrop-veil);
+}
+
+/* The halo centred on the cover spreads over the whole panel here, faint,
+   where the light theme keeps it to a glow at the cover's edge. */
+.connect-player--backdrop .artwork-blur {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  width: 116vw;
+  height: 116vw;
+  transform: translate(-50%, -50%) translateZ(0);
+  filter: blur(var(--blur-05)) saturate(1.5);
+  opacity: 0.12;
+}
+
 .now-playing {
   display: flex;
   height: 100%;
@@ -483,23 +314,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   z-index: 1;
 }
 
-/* Back to the navigation: the top of the column on the kiosk, where CD keeps
-   its own buttons. */
-.player-back {
-  display: flex;
-  flex-shrink: 0;
-}
-
-/* Player info (track-info + controls) */
-.player-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 0;
-  min-height: 0;
-}
-
 /* Content replacement (e.g., CD tracklist) */
 .content-replace {
   flex: 1;
@@ -518,20 +332,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   opacity: 0;
 }
 
-/* Enter: no parent animation — children stagger themselves */
-
-/* Stagger children on mount (initial load + re-enter after swap) */
-.player-info > .track-info,
-.player-info > .controls-section {
-  opacity: 0;
-  transform: translateY(var(--space-05));
-  animation:
-    stagger-transform var(--transition-spring) forwards,
-    stagger-opacity 0.4s ease forwards;
-}
-
-.player-info > .track-info { animation-delay: 0ms; }
-.player-info > .controls-section { animation-delay: 100ms; }
+/* Enter: no parent animation — PlayerBody staggers its own parts. */
 
 /* Container for the two stacked cover arts */
 .artwork-container {
@@ -627,7 +428,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-contrast-32);
+  background: var(--color-veil-on-image);
   /* The spinner's SVG paints with currentColor, and it sits on a darkened cover
      — not on the player background — so it takes the contrast token rather than
      inheriting the page text colour. Full contrast, not -50: the blades already
@@ -657,147 +458,10 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   pointer-events: none;
 }
 
-.track-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-  gap: var(--space-03);
-  min-width: 0;
-  padding-top: var(--space-06);
-}
-
-.track-info.no-controls {
-  padding-top: 0;
-}
-
-.controls-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-}
-
-/* Reserve the progress bar's row height even while it's hidden (idle CD) so the
-   centered track-info doesn't shift when the bar mounts on play. Matches the
-   bar's flex-row height, which the .time line-height (--line-height-mono-medium)
-   dominates over the 8px track. */
-.progress-wrapper {
-  min-height: var(--line-height-mono-medium);
-}
-
-.track-title {
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.track-artist {
-  color: var(--color-text-light);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The transport plate. space-evenly splits what the plate's padding leaves, so
-   the side padding is the one knob that sets the whole rhythm — the reasoning
-   and the measurements behind --space-06 are PlaybackControls.vue's, whose
-   plate this one draws. */
-.controls {
-  background: var(--color-background);
-  border-radius: var(--radius-06);
-  display: flex;
-  justify-content: space-evenly;
-  align-items: center;
-  padding: var(--space-01) var(--space-06);
-}
-
-/* The tap target, which is NOT the icon and does not follow it: 80/90px circles
-   sized for a finger on the kiosk. IconButton sizes itself from its padding, so
-   without these the buttons would collapse to the icon plus 8px. */
-.controls .control-button {
-  width: 80px;
-  height: 80px;
-  padding: 0;
-  border-radius: 50%;
-  color: var(--color-text-light);
-}
-
-.controls .control-button--primary {
-  width: 90px;
-  height: 90px;
-  color: var(--color-text);
-}
-
-/* The ghost variant assumes a dark ground and dims its own color while
-   loading; this row sits on --color-background, so the spinner keeps the icon's
-   tone instead. */
-.controls .control-button--primary.icon-button--loading {
-  color: var(--color-text);
-}
-
-/* Toggles and the source's own actions, one centred row above the bar. */
-.options-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-04);
-  min-width: 0;
-}
-
-.speed-selector {
-  flex-shrink: 0;
-}
-
-/* The station or the show above the title. */
-.track-kicker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-02);
-  min-width: 0;
-}
-
-.track-kicker-icon {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  border-radius: var(--radius-01);
-  overflow: hidden;
-}
-
-.track-kicker-label {
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The album behind the cover, the artist behind the line. */
+/* The album behind the cover (the artist behind the line is PlayerBody's). */
 .artwork.is-link {
   pointer-events: auto;
   cursor: pointer;
-}
-
-.track-artist.is-link {
-  cursor: pointer;
-}
-
-/* Source bar (AirPlay device info) */
-.source-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-03);
-  padding-bottom: var(--space-06);
-}
-
-.source-bar-name {
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 @media (max-aspect-ratio: 4/3) {
@@ -815,40 +479,46 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
     margin-bottom: calc(-1 * max(var(--space-06), env(safe-area-inset-bottom, 0px)));
   }
 
-  /* Over the cover's top-left corner on the phone, as CD's buttons are. */
-  .player-back {
-    position: absolute;
-    top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
-    left: calc(var(--space-05) + var(--space-04));
-    z-index: 10;
-  }
-
-  .controls-section {
-    margin-bottom: calc(env(safe-area-inset-bottom, 0px));
-  }
-
+  /* The column dissolves into the page's one column, so the top row can sit
+     right under the cover — beside it, as on the kiosk where it heads the
+     column next to the cover — rather than over it: the source bar is text,
+     which a cover would not leave legible. */
   .content-section {
-    z-index: auto;
+    display: contents;
   }
 
-  .connect-player .content-section {
-    transform: none;
-    opacity: 1;
-    animation: none;
+  .player-topbar {
+    order: 2;
+    margin-top: var(--space-04);
+    position: relative;
+    z-index: 3;
   }
 
-  /* Collapse album art when tracklist is open, keeping a strip for action buttons */
+  .player-info,
+  .content-replace {
+    order: 3;
+  }
+
+  /* The tracklist takes the cover's place: the cover rises out by its own
+     height (the page width less the padding) and fades as it goes, bringing the
+     top row under it up to the top of the screen. */
   .artwork-section {
     transition: margin-top 400ms var(--easeInOutCubic);
   }
 
   .artwork-section.art-collapsed {
-    /* Buttons absolute top (from connect-player) minus artwork offset (from now-playing padding) */
-    --btn-top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
-    --art-top: max(var(--space-05), env(safe-area-inset-top, 0px));
-    --btn-height: 40px;
-    --art-visible: calc(var(--btn-top) - var(--art-top) + var(--btn-height) + var(--space-04));
-    margin-top: calc(-100vw + 2 * var(--space-05) + var(--art-visible));
+    margin-top: calc(-100vw + 2 * var(--space-05));
+  }
+
+  /* The fade is the container's, not the section's: the section's entrance
+     animation holds its opacity at 1 (fill-mode forwards), which would win over
+     any opacity set here. */
+  .artwork-container {
+    transition: opacity 300ms var(--easeInOutCubic);
+  }
+
+  .artwork-section.art-collapsed .artwork-container {
+    opacity: 0;
   }
 
   .artwork {
@@ -856,14 +526,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   }
   .artwork-blur {
     transform: scale(1) translateZ(0);
-  }
-
-  .track-info {
-    padding: var(--space-06) 0 var(--space-03) 0;
-  }
-
-  .track-info.no-controls {
-    padding: 0;
   }
 }
 </style>

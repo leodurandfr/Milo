@@ -95,9 +95,7 @@
       "retry": "重试",
       "noStationsFound": "未找到电台",
       "minCharactersRequired": "请输入至少3个字符进行搜索",
-      "noFavorites": "没有喜爱的电台",
-      "playRadio": "收听",
-      "stopRadio": "停止"
+      "noFavorites": "没有喜爱的电台"
     }
   },
   "multiroom": {
@@ -388,6 +386,7 @@
     "appVolumeDescription": "允许 Spotify 应用调节音量。关闭后，Milō 会将 Spotify 保持在最大音量，并使用自身的音量控制来设定音量大小。"
   },
   "spotify": {
+    "accountSpotify": "{name} 的 Spotify",
     "album": "专辑",
     "artist": "艺人",
     "castAgain": "请从您的手机重新投放",
@@ -411,13 +410,9 @@
     "noTracks": "没有曲目",
     "playlist": "歌单",
     "profiles": "个人资料",
-    "repeatContext": "列表循环",
-    "repeatOff": "关闭循环",
-    "repeatTrack": "单曲循环",
     "retry": "重试",
     "save": "保存",
     "shortcuts": "快捷方式",
-    "shuffle": "随机播放",
     "signingIn": "正在登录 Spotify…",
     "switchStopsPlayback": "请再次轻触：播放将停止",
     "tracksCount": "{count} 首曲目",
@@ -520,6 +515,12 @@
     "expandPlayer": "展开播放器",
     "selectOption": "选择一个选项"
   },
+  "player": {
+    "repeatContext": "列表循环",
+    "repeatOff": "关闭循环",
+    "repeatTrack": "单曲循环",
+    "shuffle": "随机播放"
+  },
   "radio": {
     "country": "国家",
     "genre": "类型",
@@ -577,7 +578,6 @@
     "episodeDetails": "单集详情",
     "top30": "热门 30",
     "nowPlaying": "播放中",
-    "noEpisode": "没有单集",
     "ranking": "排行榜",
     "topPodcasts": "热门播客",
     "explore": "探索",

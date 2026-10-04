@@ -78,7 +78,6 @@ const NOT_A_PRESS_SURFACE = {
  */
 const NO_PRESS_BY_DECISION = [
   'components/audio/AudioPlayer.vue::player-artwork-frame',
-  'components/audio/AudioPlayer.vue::player-info-inner',
   'components/audio/AudioSourceStatus.vue::action-button',
   'components/equalizer/ItemSelector.vue::tab-button',
   'components/multiroom/MultiroomItem.vue::expand-button',

@@ -200,6 +200,9 @@ describe('transport icon scale', () => {
       [...css.matchAll(/\.(transport-[a-z-]+)\s*\{/g)].map((m) => m[1])
     );
 
+    // Each class, with the distinct files that wear it — files, not attributes:
+    // one component wearing a class in three attributes is still one component
+    // the scale reaches.
     const worn = new Map();
     for (const file of STYLE_FILES.filter((f) => f.endsWith('.vue'))) {
       const text = readFileSync(file, 'utf8');
@@ -207,7 +210,8 @@ describe('transport icon scale', () => {
         // Whole class tokens only: a bare /transport-/ also matches inside
         // `track-transport-main`, which is a layout hook and not a scale rung.
         for (const cls of attr[1].matchAll(/(?:^|[\s'"])(transport-[a-z-]+)(?=$|[\s'"])/g)) {
-          worn.set(cls[1], (worn.get(cls[1]) ?? 0) + 1);
+          if (!worn.has(cls[1])) worn.set(cls[1], new Set());
+          worn.get(cls[1]).add(rel(file));
         }
       }
     }
@@ -218,8 +222,51 @@ describe('transport icon scale', () => {
       'the role trio lost a member'
     ).toEqual([]);
 
-    // Every transport row in the app wears a primary; a count of one would mean
-    // the scale reached a single component.
-    expect(worn.get('transport-primary')).toBeGreaterThan(3);
+    // Every transport row in the app wears a primary — the players' shared
+    // PlayerTransport and the lyrics bar; one file would mean the scale reached
+    // a single component, and the guardrail above would be guarding nothing
+    // but it.
+    const primaryFiles = [...(worn.get('transport-primary') ?? [])];
+    expect(primaryFiles.length, `transport-primary worn only by ${primaryFiles.join(', ')}`).toBeGreaterThan(1);
+  });
+
+  it('bends a tier token only where a component says so, and only downward', () => {
+    // A component may restate a tier token in its own scoped CSS — the phone's
+    // mini-bar sizes its main button against the 48px thumbnail beside it — and
+    // such a bend is invisible to the tier checks above, which read the design
+    // system alone. So every bend is listed here with the role it bends, the
+    // list must match what the sources declare in both directions, and a bend
+    // may only go under the smallest tier: one above it would be a tier nobody
+    // declared, and one under it on a role it does not name would be a bend
+    // nobody reviewed.
+    const BENDS = { 'components/audio/PlayerBody.vue': ['primary'] };
+
+    const css = readFileSync(DESIGN_SYSTEM, 'utf8');
+    const compact = css.match(/\.transport-scale--compact\s*\{([^}]*)\}/);
+    expect(compact, '.transport-scale--compact is not declared').not.toBeNull();
+    const floor = Object.fromEntries(ROLES.map((role) => {
+      const found = compact[1].match(new RegExp(`--transport-${role}:\\s*(\\d+)px`));
+      return [role, Number(found?.[1])];
+    }));
+
+    const bends = {};
+    const offenders = [];
+    for (const file of STYLE_FILES) {
+      if (rel(file) === 'assets/styles/design-system.css') continue;
+      const text = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const decl of text.matchAll(/--transport-(primary|secondary-round|secondary)\s*:\s*([^;}]+)/g)) {
+        (bends[rel(file)] ??= []).push(decl[1]);
+        const px = decl[2].trim().match(/^(\d+)px$/);
+        if (!px || Number(px[1]) % 4 !== 0 || Number(px[1]) >= floor[decl[1]]) {
+          offenders.push(`${rel(file)}: --transport-${decl[1]}: ${decl[2].trim()} (compact tier: ${floor[decl[1]]}px)`);
+        }
+      }
+    }
+
+    // The extractor proves it sees the shape it polices: the listed bend is
+    // found, so an empty result cannot pass for "no bends".
+    expect(bends['components/audio/PlayerBody.vue'], 'the mini-bar bend is no longer found').toBeDefined();
+    expect(bends).toEqual(BENDS);
+    expect(offenders).toEqual([]);
   });
 });

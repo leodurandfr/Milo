@@ -1,10 +1,10 @@
 # backend/tests/test_podcast_queue.py
-"""`podcast/data.py` — the in-progress queue, unsubscribe, and the settings.
+"""`podcast/data.py` — the in-progress queue and unsubscribe.
 
 `test_podcast_data.py` covers the boot path, the schema-mismatch banner and the
 `itunes_id` capture. What it never ran is `get_in_progress_episodes` — 11 lines,
 zero of them — which *is* the "continue listening" screen, plus the unsubscribe
-mutation and the whole settings pair.
+mutation.
 
 Everything here drives the real service against a file in `tmp_path`: the store
 writes `/var/lib/milo/podcast_data.json` on the live appliance, and this is the
@@ -27,8 +27,7 @@ def store(tmp_path):
 
 def _write(store, **sections):
     body = {"schema_version": PodcastDataService.SCHEMA_VERSION,
-            "subscriptions": [], "playback_progress": {},
-            "settings": {"playback_speed": 1.0}}
+            "subscriptions": [], "playback_progress": {}}
     body.update(sections)
     store._data_file.write_text(json.dumps(body))
 
@@ -262,50 +261,3 @@ class TestSubscriptionLookups:
         _write(store, subscriptions=[{"uuid": "feed-1", "itunes_id": None}])
 
         assert await store.is_subscribed("feed-9") is False
-
-
-class TestThePodcastSettings:
-    async def test_a_stored_setting_is_read_back(self, store):
-        _write(store, settings={"playback_speed": 1.5})
-
-        assert await store.get_setting("playback_speed") == 1.5
-
-    async def test_a_setting_that_is_not_stored_falls_back(self, store):
-        """`_do_start` reads the speed with a 1.0 default; a fresh install has
-        no row and must boot at normal speed, not at None."""
-        _write(store, settings={})
-
-        assert await store.get_setting("playback_speed", 1.0) == 1.0
-
-    async def test_writing_a_setting_persists_it(self, store):
-        _write(store, settings={"playback_speed": 1.0})
-
-        await store.set_setting("playback_speed", 2.0)
-
-        assert _read(store)["settings"]["playback_speed"] == 2.0
-
-    async def test_a_partial_update_leaves_the_other_settings_alone(self, store):
-        _write(store, settings={"playback_speed": 1.0, "other": "kept"})
-
-        await store.update_podcast_settings({"playback_speed": 1.25})
-
-        assert _read(store)["settings"] == {"playback_speed": 1.25, "other": "kept"}
-
-    async def test_a_key_the_defaults_do_not_declare_is_dropped_in_silence(
-        self, store
-    ):
-        """Measured, and left as it is. `update_podcast_settings` only writes
-        keys already present, so a setting the default structure does not
-        declare is discarded — and the call still answers `True`, so the caller
-        cannot tell.
-
-        Latent on this appliance: `playback_speed` is the only setting anyone
-        writes and `_get_default_structure` declares it, so the one live caller
-        always finds its key. The value of pinning it is that the next setting
-        added here has to be added to the defaults too, or it will look saved
-        and not be. Same family as B1-9 (`_modify_config_content` rewriting
-        only keys already in `[stream]`) and the `hardware.json` accessors."""
-        _write(store, settings={"playback_speed": 1.0})
-
-        assert await store.set_setting("brand_new_setting", 42) is True
-        assert "brand_new_setting" not in _read(store)["settings"]

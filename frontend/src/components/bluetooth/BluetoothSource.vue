@@ -13,18 +13,15 @@
     <!-- The disconnect CTA lives on the status card, which this player replaces
          the moment the sender publishes a track — i.e. exactly when a user
          wants to kick the phone off. So it is repeated here, with the card's
-         own wording; without it the only way to end a session would be to
-         leave the source entirely. On mobile the row is lifted onto the cover
-         like CD's eject, which is why the plate changes with it. -->
-    <template #action-buttons>
-      <div class="action-buttons">
-        <Button v-if="canDisconnect" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
-          :loading="unifiedStore.isDisconnecting('bluetooth')"
-          :disabled="unifiedStore.isDisconnecting('bluetooth')"
-          @click="unifiedStore.disconnectSource('bluetooth')">
-          {{ unifiedStore.isDisconnecting('bluetooth') ? t('status.disconnecting') : t('status.disconnect') }}
-        </Button>
-      </div>
+         own wording, at the end of the player's top row; without it the only
+         way to end a session would be to leave the source entirely. -->
+    <template v-if="canDisconnect" #top-end>
+      <Button variant="background-strong" size="medium"
+        :loading="unifiedStore.isDisconnecting('bluetooth')"
+        :disabled="unifiedStore.isDisconnecting('bluetooth')"
+        @click="unifiedStore.disconnectSource('bluetooth')">
+        {{ unifiedStore.isDisconnecting('bluetooth') ? t('status.disconnecting') : t('status.disconnect') }}
+      </Button>
     </template>
   </AudioPlayerFull>
 </template>
@@ -33,36 +30,14 @@
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useIsMobile } from '@/composables/useIsMobile';
 
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
-const { isMobile } = useIsMobile();
 
 const canDisconnect = computed(() =>
   unifiedStore.systemState.source === 'bluetooth' && unifiedStore.systemState.controls.includes('disconnect')
 );
 </script>
-
-<style scoped>
-.action-buttons {
-  display: flex;
-  justify-content: flex-end;
-  flex-shrink: 0;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  /* Same anchor as CD's eject: absolute against .connect-player, so the row
-     sits on the cover's top-right corner instead of below it. */
-  .action-buttons {
-    position: absolute;
-    top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
-    left: calc(var(--space-05) + var(--space-04));
-    right: calc(var(--space-05) + var(--space-04));
-    z-index: 10;
-  }
-}
-</style>

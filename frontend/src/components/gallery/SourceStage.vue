@@ -78,20 +78,11 @@
               </template>
 
               <template v-if="browser.player" #player>
-                <!-- Props transcribed per source too: radio falls back from the
-                     track's cover to the station's and passes the station name as
-                     the avatar seed, podcasts pass only the episode, music library
-                     is the one that hands over a queue. -->
-                <AudioPlayer
-                  :source="page.source"
-                  v-bind="bar"
-                  :artwork="playerArtwork"
-                  :fallback-name="playerFallbackName"
-                  :title="playerTitle"
-                  :swipe-enabled="page.source !== 'radio'"
-                  :tracks="player.tracks || []"
-                  :current-index="player.currentIndex ?? -1"
-                >
+                <!-- The app's own bar, which reads what it draws — cover, lines,
+                     bar, transport — from the state this page publishes, through
+                     the body it shares with the full player. What the sources
+                     still add is transcribed: radio's badge, the heart. -->
+                <AudioPlayer :source="page.source" v-bind="bar">
                   <!-- Radio, mobile, track recognised: the station icon rides behind
                        the track cover. Only ever rendered in the docked mini-bar. -->
                   <template v-if="page.source === 'radio' && isMobile && player.track?.artwork" #artwork-badge>
@@ -103,175 +94,24 @@
                     />
                   </template>
 
-                  <!--
-                    Transcribed from each source's own #info, and they are three
-                    different shapes — a generic one would be inventing a screen.
-                    Radio drops the station to a kicker only once a track is
-                    recognised AND that track has artwork; Podcasts pass a kicker and
-                    a title but never a secondary; Music Library passes title +
-                    secondary and no flat lines at all, because on mobile its
-                    mini-bar is the swipe carousel rather than this slot.
-                  -->
-                  <template #info>
-                    <template v-if="page.source === 'radio'">
-                      <template v-if="player.track">
-                        <PlayerInfoText
-                          class="vertical-layout"
-                          :kicker="player.track.artwork ? player.station.name : null"
-                          :kicker-icon="player.track.artwork ? player.station.artwork : null"
-                          :kicker-fallback-name="player.track.artwork ? player.station.name : null"
-                          :title="player.track.title"
-                          :secondary="player.track.artist"
-                        />
-                        <p class="player-title text-body horizontal-layout">{{ player.track.title }}</p>
-                        <p class="player-subtitle text-body horizontal-layout">{{ player.track.artist }}</p>
-                      </template>
-                      <template v-else>
-                        <PlayerInfoText class="vertical-layout" :title="player.station.name" />
-                        <p class="player-title text-body horizontal-layout">{{ player.station.name }}</p>
-                      </template>
-                    </template>
-
-                    <template v-else-if="page.source === 'podcast'">
-                      <PlayerInfoText
-                        class="vertical-layout"
-                        :kicker="player.podcastName"
-                        :title="player.episodeName"
-                      />
-                      <p class="player-title text-body horizontal-layout">{{ player.episodeName }}</p>
-                      <p v-if="player.podcastName" class="player-subtitle text-body horizontal-layout">
-                        {{ player.podcastName }}
-                      </p>
-                    </template>
-
-                    <PlayerInfoText
-                      v-else
-                      class="vertical-layout"
-                      :title="player.title"
-                      :secondary="player.artist"
+                  <!-- The favorite, the star or the like over the cover's
+                       corner; podcasts have none. -->
+                  <template v-if="page.source !== 'podcast'" #artwork-action>
+                    <IconButton
+                      :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
+                      variant="on-grey" size="small"
                     />
                   </template>
 
-                  <template v-if="browser.player.progress" #progress>
-                    <ProgressBar
-                      :current-position="browser.player.progress.currentPosition"
-                      :duration="browser.player.progress.duration"
-                      :progress-percentage="browser.player.progress.progressPercentage"
-                      variant="dark"
-                      :interactive="false"
-                    />
-                  </template>
-
-                  <!--
-                    Each source's own transport, because there is no shared one: the
-                    #controls slot has a default (a lone play/pause) and all three
-                    sources replace it. Radio uses a text Button plus a favourite,
-                    Podcasts a seek pair around play with a speed Dropdown, Music
-                    Library a five-button row — and half of AudioPlayer's CSS keys
-                    off those exact class names (.track-transport-main, .speed-selector,
-                    .desktop-only), so the classes are the contract, not decoration.
-                    Same for the four transport roles: they are what the design
-                    system sizes each control from, so a button missing one here
-                    would be drawn at a size the appliance never uses — and the seek
-                    pair takes secondary-round, which is the rung it wears there.
-                    Handlers are left off: the state is the scenario's to describe.
-                  -->
-                  <template #controls>
-                    <div v-if="page.source === 'radio'" class="radio-controls">
-                      <div class="radio-controls-main vertical-layout">
-                        <Button
-                          variant="on-dark"
-                          :left-icon="browser.player.isPlaying ? 'stop' : 'play'"
-                          :loading="!!browser.player.isLoading"
-                        >
-                          {{ browser.player.isPlaying
-                            ? t('audioSources.radioSource.stopRadio')
-                            : t('audioSources.radioSource.playRadio') }}
-                        </Button>
-                        <IconButton
-                          :icon="controls.favorite ? 'heart' : 'heartOff'"
-                          variant="on-dark"
-                          size="medium"
-                        />
-                      </div>
-                      <!-- Mobile mini-bar only: no room for a text button + heart. -->
-                      <div class="playback-controls horizontal-layout">
-                        <IconButton
-                          :icon="browser.player.isPlaying ? 'stop' : 'play'"
-                          variant="ghost"
-                          size="medium"
-                          class="transport-primary"
-                          :loading="!!browser.player.isLoading"
-                        />
-                      </div>
-                    </div>
-
-                    <template v-else-if="page.source === 'podcast'">
-                      <div class="playback-controls">
-                        <IconButton icon="rewind15" variant="ghost" size="small"
-                          class="desktop-only transport-secondary-round" />
-                        <IconButton
-                          :icon="browser.player.isPlaying ? 'pause' : 'play'"
-                          variant="ghost"
-                          size="medium"
-                          class="transport-primary"
-                          :loading="!!browser.player.isLoading"
-                        />
-                        <IconButton icon="forward30" variant="ghost" size="small"
-                          class="desktop-only transport-secondary-round" />
-                      </div>
-                      <div class="speed-selector desktop-only">
-                        <Dropdown :model-value="speedValue" :options="speedOptions" variant="minimal" />
-                      </div>
-                    </template>
-
-                    <div v-else class="track-controls">
-                      <div class="playback-controls">
-                        <IconButton
-                          icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                          :color="controls.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                        />
-                        <div class="track-transport-main">
-                          <IconButton icon="previous" variant="ghost" size="small"
-                            class="track-transport-extra transport-secondary" />
-                          <IconButton
-                            :icon="browser.player.isPlaying ? 'pause' : 'play'"
-                            variant="ghost"
-                            size="medium"
-                            class="transport-primary"
-                            :loading="!!browser.player.isLoading"
-                          />
-                          <IconButton
-                            icon="next" variant="ghost" size="small"
-                            class="track-transport-extra transport-secondary"
-                            :disabled="controls.hasNext === false"
-                          />
-                        </div>
-                        <IconButton
-                          v-if="page.source === 'spotify'"
-                          :icon="controls.repeat === 'track' ? 'repeatOnce' : 'repeat'"
-                          variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                          :color="controls.repeat && controls.repeat !== 'off' ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                        />
-                        <IconButton
-                          :icon="controls.starred ? 'heart' : 'heartOff'"
-                          variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                          :color="controls.starred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                        />
-                      </div>
-                    </div>
-                  </template>
                 </AudioPlayer>
               </template>
             </AudioSourceLayout>
           </template>
 
-          <template v-if="page.source !== 'podcast'" #actions>
+          <template v-if="page.source !== 'podcast'" #top-end>
             <IconButton
               :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
-              variant="ghost" size="small" class="transport-secondary-round"
-              :color="(page.source === 'radio' ? controls.favorite : controls.starred)
-                ? 'var(--color-text)' : 'var(--color-text-light)'"
+              variant="background-strong" size="medium"
             />
           </template>
         </BrowserSourceViews>
@@ -281,12 +121,11 @@
 </template>
 
 <script setup>
-import { computed, watch, watchEffect } from 'vue';
+import { computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import { usePodcastStore } from '@/stores/podcastStore';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { sourcePageById, replayedState } from './sources';
 import { setApiFixtures } from './canvasHttp';
@@ -299,11 +138,7 @@ import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
-import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
-import ProgressBar from '@/components/audio/ProgressBar.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import Button from '@/components/ui/Button.vue';
-import Dropdown from '@/components/ui/Dropdown.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
@@ -346,7 +181,6 @@ const unifiedStore = useUnifiedAudioStore();
 const stores = {
   radio: useRadioStore(),
   musicLibrary: useMusicLibraryStore(),
-  podcast: usePodcastStore(),
   spotify: useSpotifyStore()
 };
 
@@ -373,46 +207,12 @@ const browser = computed(() => current.value?.browser ?? null);
 const slotKey = computed(() => (browser.value ? `browser-${page.value?.source}` : 'dispatcher'));
 
 /**
- * The transport's own state — the favourite, the shuffle, whether there is a
- * next track. Separate from the player's playback state because these are what
- * a reader comes here to flip: a heart that is only ever hollow documents half
- * the button.
+ * What the source adds that the state does not carry — the favourite, the star:
+ * a heart that is only ever hollow documents half the button — and radio's
+ * station for the phone's badge.
  */
 const controls = computed(() => browser.value?.player?.controls ?? {});
 const player = computed(() => browser.value?.player ?? {});
-
-/**
- * The four artwork/title props, resolved the way each source resolves them —
- * radio's two-level fallback (track cover, else the station's) is a rule, not a
- * value, so the fixture carries the station and the track and this derives what
- * the app would.
- */
-const playerArtwork = computed(() => {
-  if (page.value?.source === 'radio') return player.value.track?.artwork || player.value.station?.artwork || null;
-  if (page.value?.source === 'podcast') return player.value.episodeImage || null;
-  return player.value.artwork || null;
-});
-
-const playerTitle = computed(() => {
-  if (page.value?.source === 'radio') return player.value.track?.title || player.value.station?.name || '';
-  if (page.value?.source === 'podcast') return player.value.episodeName || '';
-  return player.value.title || '';
-});
-
-/** Only radio seeds the generated avatar, and only from the station's name. */
-const playerFallbackName = computed(() =>
-  page.value?.source === 'radio' ? player.value.station?.name || null : null
-);
-
-/**
- * The speed list is the backend's, not ours: the store fetches it and the
- * scenario serves that fetch (see the podcast fixtures), so the dropdown here
- * shows whatever the appliance would offer rather than a second hardcoded list.
- */
-const speedOptions = computed(() =>
-  stores.podcast.playbackSpeeds.map(speed => ({ label: `${speed}x`, value: String(speed) }))
-);
-const speedValue = computed(() => String(stores.podcast.playbackSpeed || 1));
 
 /**
  * Where a scenario's events go — the same row App.vue declares for the pair,
@@ -433,6 +233,11 @@ const DISPATCH = {
  * AudioSourceView mounts — so the dispatcher never sees a stale state and
  * animates a transition nobody asked for.
  *
+ * A watch on the scenario alone, not an effect: the seeding and the loaders
+ * read the stores they write, and the stores react to the state just
+ * published, so an effect tracking those reads re-ran itself without end
+ * (Spotify's scenarios froze the page).
+ *
  * No socket is involved: the envelopes are built in sources.js and handed
  * straight to the handler, so this replays a broadcast without there being one
  * to listen to — published now, which is the one thing a replay changes (the
@@ -440,8 +245,7 @@ const DISPATCH = {
  * wholesale, which is what keeps the previous scenario's sender or disc from
  * surviving into the next — the drift this page exists to make visible.
  */
-watchEffect(() => {
-  const scenario = current.value;
+watch(current, (scenario) => {
   if (!scenario) return;
 
   const now = Date.now() / 1000;
@@ -468,7 +272,7 @@ watchEffect(() => {
   for (const [name, action, ...args] of scenario.browser?.prime ?? []) {
     stores[name][action](...args);
   }
-});
+}, { immediate: true });
 </script>
 
 <style scoped>

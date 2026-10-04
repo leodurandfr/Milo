@@ -383,13 +383,13 @@ charts down, since its episodes come from the publisher.
   kima-hub and Anytime all do.
 - Responses are cached in-memory (120min TTL)
 - Playback progress is saved every 10s and resumed on next launch (if > 10s in)
-- Speed control (0.5x–2x) and seek supported
+- Seek and the −15 / +30 s skip supported; every episode plays at 1x
 
 **Configuration:**
 - Service: milo-podcast.service (mpv)
 - IPC Socket: /run/milo/podcast-ipc.sock
 - Audio output: ALSA (milo_podcast)
-- Data: `/var/lib/milo/podcast_data.json` (subscriptions, favorites, progress, preferences)
+- Data: `/var/lib/milo/podcast_data.json` (subscriptions, favorites, progress)
 
 ### 6. AirPlay 2 (shairport-sync + NQPTP)
 
@@ -873,7 +873,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **radio_data.json** - Radio favorites and custom stations. Durable (`schema_version: 1`).
 **radio_images/** - Station artwork the user uploaded (custom stations, edited favorites), stored as WebP ≤1024×1024 with a JPEG rendition beside each for callers that cannot draw WebP. Durable — it is the user's own work.
 **radio_logos/** - External station logos (radio-browser's `favicon` URLs) as `GET /api/radio/favicon` serves them: fetched once, checked, padded to a square, WebP plus a lazy JPEG rendition, keyed by the SHA-256 of the repaired URL; `.miss` files remember a host that answered without a logo for 6 h. Disposable derived cache: no `schema_version`, safe to wipe, entries expire after 30 days. See `backend/sources/radio/logos.py`.
-**podcast_data.json** - Subscriptions, favorites, playback progress, playback-speed preference. Durable (`schema_version: 2`).
+**podcast_data.json** - Subscriptions, favorites, playback progress. Durable (`schema_version: 3`).
 **cd_data.json** - MusicBrainz disc-TOC/metadata lookup cache, keyed by disc ID. Disposable — no `schema_version`; re-fetched on next disc read if lost.
 **cd_covers/** - Downloaded CD cover art, keyed by disc ID. Disposable cache (re-downloadable from Cover Art Archive).
 **equalizer.json** - Persisted parametric-EQ/compressor/loudness/mono state (active preset, custom gains, filters). Durable (`schema_version: 2`). Distinct from `camilladsp/config.yml`: CamillaDSP itself resets to its baked static defaults on every restart, and it's this file the backend replays over its WebSocket API to restore the live EQ state afterwards.
@@ -949,8 +949,8 @@ envelope via `WsEvent.to_envelope()`. The audio state is an event of its own:
 `publish_state()`
 composes the whole `AudioState` and compares it with the last one sent. When
 anything but the playhead moved it sends `source/state`, whose `data` is the
-whole state; when only the playhead moved (a seek, a speed change, a reading
-more than 2 s from the anchor) it sends `source/position`; otherwise nothing.
+whole state; when only the playhead moved (a seek, a reading more than 2 s
+from the anchor) it sends `source/position`; otherwise nothing.
 Every writer of something the state is composed of calls it — the transitions,
 a source's publish, a source's availability, the connectivity service, the
 multiroom and equalizer toggles.

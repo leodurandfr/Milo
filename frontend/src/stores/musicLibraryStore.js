@@ -218,15 +218,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   const queue = computed(() => details.value?.queue ?? []);
   const queueIndex = computed(() => details.value?.queue_index ?? -1);
-  const shuffle = computed(() => !!details.value?.shuffle);
   const currentTrackId = computed(() => details.value?.track_id ?? null);
   const phase = computed(() => session.value?.phase ?? null);
   const isPlaying = computed(() => phase.value === 'playing');
-
-  // Whether the source takes `command` right now (next is absent on the last
-  // track of a queue that does not repeat, seek while loading, everything but
-  // resume/play_index/stop once stopped).
-  const canSend = (command) => !!selected.value?.controls.includes(command);
 
   // The queue's current track: live, or the saved queue a play press reopens.
   // Null when there is no queue at all (an explicit stop, a queue played out).
@@ -356,20 +350,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     });
   }
   const playIndex = (index) => send('play_index', { index });
-  const pause = () => send('pause');
-  const resume = () => send('resume');
-  const next = () => send('next');
-  const previous = () => send('prev');
-  // Swipe-prev always steps to the actual previous track. The button's previous()
-  // ('prev') restarts the current track when >3s in — right for a tap, wrong under
-  // the swipe carousel, which is already showing the previous track's text and
-  // would glitch back to the current one on a restart. play_index skips outright.
-  const swipePrevious = () =>
-    queueIndex.value > 0 ? playIndex(queueIndex.value - 1) : Promise.resolve(false);
-  // Live shuffle toggle: reorders only the upcoming tracks (the current one keeps
-  // playing). Sends the target state, not a flip, so a stale tap can't invert it.
-  const setShuffle = (on) => send('set_shuffle', { shuffle: !!on });
-  const toggleShuffle = () => setShuffle(!shuffle.value);
 
   // =========================================================================
   // CATALOG — Albums (home Albums tab; getAlbumList2 alphabetical, paged)
@@ -1094,11 +1074,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     nowPlaying,
     queue,
     queueIndex,
-    shuffle,
     currentTrackId,
     phase,
     isPlaying,
-    canSend,
 
     // Favorites (liked songs)
     likedSongs,
@@ -1113,12 +1091,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // Transport
     playContext,
     playIndex,
-    pause,
-    resume,
-    next,
-    previous,
-    swipePrevious,
-    toggleShuffle,
 
     // Albums
     albums,

@@ -580,19 +580,6 @@ const ML_PLAYLISTS = [
   { id: 'pl-2', name: 'Dimanche matin', songCount: 34 }
 ];
 
-/**
- * The speed list the backend owns (GET /api/podcast/playback-speeds). Served
- * rather than hardcoded into the stage: the store fetches it at mount and the
- * dropdown maps whatever comes back, so the gallery cannot drift into offering
- * a set the appliance does not.
- *
- * Served on one scenario only, and that is the rule rather than an oversight:
- * the dropdown sits inside the transport, so a scenario with no player pane has
- * nothing that could read this — a fixture nobody fetches documents nothing and
- * outlives the call it stands in for.
- */
-const PODCAST_SPEEDS = [0.8, 1.0, 1.2, 1.5, 1.8, 2.0];
-
 /** The shows the unit is subscribed to, as the home's first block lists them. */
 const PODCAST_SUBSCRIPTIONS = [
   { uuid: 'sub-1', name: 'Le Code a changé', publisher: 'France Inter', is_subscribed: true },
@@ -1083,7 +1070,7 @@ export const SOURCE_PAGES = [
           controls: { favorite: true }
         }
       }),
-      browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 340 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. No #progress slot either — a live stream has no duration, so the bar would have nothing to show.', {
+      browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 340 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. No progress bar either — a live stream has no duration, so the bar would have nothing to show.', {
         condition: ['currentStation', 'artwork'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
@@ -1159,7 +1146,7 @@ export const SOURCE_PAGES = [
           controls: { favorite: false }
         }
       }),
-      browsing('radio', 'Track detected', 'Shazam matched the stream: `details.track` carries it, the session takes its title, artist and cover, and the station drops to the kicker. The station image is what the kicker icon shows — and on the Phone viewport the same image slides in behind the cover, so switch the viewport to see the pair overlap.', {
+      browsing('radio', 'Track detected', 'Shazam matched the stream: `details.track` carries it, the session takes its title, artist and cover, and the station moves to the source bar above the title, its image in place of the source icon — and on the Phone viewport, which has no source bar, the same image slides in behind the cover, so switch the viewport to see the pair overlap.', {
         condition: ['currentStation', 'artwork', 'track'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
@@ -1183,9 +1170,9 @@ export const SOURCE_PAGES = [
         prime: [['radio', 'loadStations', true]],
         player: {
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
-          // The kicker (and the mobile badge) are gated on the *track* having
-          // artwork, not on the station having any — so this is the only shape
-          // that reaches either.
+          // The card's source bar is gated on a detected track, and the mobile
+          // badge on the track having artwork, not on the station having any —
+          // so this is the only shape that reaches either.
           track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder },
           isPlaying: true,
           controls: { favorite: false }
@@ -1212,14 +1199,13 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The same two parts as Radio, with a progress bar and a swipe gesture — but swipeEnabled without a tracks queue, so the swipe seeks (±15/30 s) instead of skipping and no text carousel is built. `set_speed` is listed even with nothing in session, since the speed is chosen before an episode starts. Its header is the one that changes shape as you descend: title, subtitle and the back affordance are all driven by the current view.',
+      'The same two parts as Radio, with a progress bar and a swipe gesture — but an episode has no queue to step through, so the swipe skips −15 / +30 s and no text carousel is built. Its header is the one that changes shape as you descend: title, subtitle and the back affordance are all driven by the current view.',
     scenarios: [
       starting('podcast'),
       browsing('podcast', 'Browsing the charts', 'The home view, three header actions and no back. Unlike the other two browsers this one fetches from the component rather than a store, so its charts are served as an HTTP fixture — the real loadData() runs.', {
         condition: ['results'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
-        state: { controls: ['set_speed'] },
         api: {
           '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
           '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
@@ -1231,7 +1217,6 @@ export const SOURCE_PAGES = [
         condition: ['api_error'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
-        state: { controls: ['set_speed'] },
         api: {
           '/api/podcast/discover/top-charts': { api_error: true },
           '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
@@ -1251,7 +1236,7 @@ export const SOURCE_PAGES = [
             duration_ms: 2940000,
             position: anchor(812000)
           }),
-          controls: ['pause', 'seek', 'skip', 'set_speed'],
+          controls: ['pause', 'seek', 'skip'],
           details: {
             kind: 'podcast',
             episode: {
@@ -1259,16 +1244,13 @@ export const SOURCE_PAGES = [
               name: 'Épisode 214',
               image_url: null,
               podcast: { uuid: 'sub-1', name: 'Le Code a changé', image_url: null }
-            },
-            speed: 1
+            }
           }
         },
         api: {
           '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
-          '/api/podcast/playback-speeds': { speeds: PODCAST_SPEEDS }
+          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
         },
-        prime: [['podcast', 'loadPlaybackSpeeds']],
         player: {
           podcastName: 'Le Code a changé',
           episodeName: 'Épisode 214',
@@ -1369,7 +1351,7 @@ export const SOURCE_PAGES = [
             { title: 'Hammers', artist: 'Nils Frahm' }
           ],
           progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
-          controls: { shuffle: true, starred: true, hasNext: true }
+          controls: { shuffle: true, repeat: 'context', starred: true, hasNext: true }
         }
       }),
       errored(

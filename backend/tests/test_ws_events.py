@@ -68,10 +68,10 @@ def state_machine(mock_ws_manager):
 CASES = [
     (
         SourcePosition(source="podcast", session_id="s-1",
-                       position=PositionAnchor(ms=61000, at=1700000000.25, rate=1.5)),
+                       position=PositionAnchor(ms=61000, at=1700000000.25, rate=1.0)),
         {"category": "source", "type": "position", "origin": "podcast",
          "data": {"source": "podcast", "session_id": "s-1",
-                  "position": {"ms": 61000, "at": 1700000000.25, "rate": 1.5}}},
+                  "position": {"ms": 61000, "at": 1700000000.25, "rate": 1.0}}},
     ),
     (
         # The reason reaches the wire as its value: podcastStore and

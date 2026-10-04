@@ -199,8 +199,8 @@ category `source`, you **must** include `"source"` in `data`.
 ```
 
 The audio state is never sent in pieces: `source/state` carries all of it whenever a field other than
-the playhead changes, `source/position` carries only a playhead discontinuity (a seek, a speed
-change, a reading more than 2 s off the anchor), and `source/session_ended` announces the end of a
+the playhead changes, `source/position` carries only a playhead discontinuity (a seek, a reading
+more than 2 s off the anchor), and `source/session_ended` announces the end of a
 session. The fields are listed in the [API overview](api-overview.md#the-audio-state).
 
 ## Adding a new audio source
@@ -249,7 +249,7 @@ disc, an account, a storage), and call `_availability_changed()` when that answe
 connectivity is the state machine's. After changing anything the view reads, call `_publish()`, or
 `_publish_changes()` to publish only if the view moved; the actor also runs `_republish_if_moved()`
 after every message, so a handler that forgot is caught, not relied on. The playhead is an anchor
-kept by the base: `_anchor_position(ms)` on a discontinuity (a seek, a new track, a speed change),
+kept by the base: `_anchor_position(ms)` on a discontinuity (a seek, a new track),
 `_observe_position(ms)` for a reading, which moves the anchor only past 2 s of drift — never publish
 a position on a timer. The ends of sessions announce themselves: `end_session(reason)` sends
 `source/session_ended`. A source never builds a payload, calls `state_machine.update_source_view`,

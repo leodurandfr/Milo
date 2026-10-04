@@ -21,32 +21,12 @@
     </GalleryVariant>
   </GalleryItem>
 
-  <GalleryItem id="PlaybackControls">
-    <GalleryVariant label=":is-playing" stacked>
-      <PlaybackControls :is-playing="false" />
-      <PlaybackControls :is-playing="true" />
-    </GalleryVariant>
-    <GalleryVariant label=":is-buffering — the play glyph becomes a spinner" stacked>
-      <PlaybackControls is-buffering />
-    </GalleryVariant>
-    <GalleryVariant label=":has-next=&quot;false&quot; — last track, next is inert" stacked>
-      <PlaybackControls :is-playing="true" :has-next="false" />
-    </GalleryVariant>
-    <GalleryVariant label=":has-prev=&quot;false&quot; — prev not among the source's controls" stacked>
-      <PlaybackControls :is-playing="true" :has-prev="false" />
-    </GalleryVariant>
-  </GalleryItem>
-
   <GalleryItem id="PlayerInfoText">
     <GalleryVariant label="title only" stacked>
       <PlayerInfoText title="Ainsi parlait Zarathoustra" />
     </GalleryVariant>
-    <GalleryVariant label="kicker + title + secondary" stacked>
-      <PlayerInfoText kicker="Radio Nova" title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
-    </GalleryVariant>
-    <GalleryVariant label="kicker with its own thumbnail (kickerIcon)" stacked>
-      <PlayerInfoText :kicker-icon="musicPlaceholder" kicker="Le Code a changé"
-        title="Épisode 214 — Les gens qui parlent aux plantes" secondary="France Inter" />
+    <GalleryVariant label="title + secondary" stacked>
+      <PlayerInfoText title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
     </GalleryVariant>
   </GalleryItem>
 
@@ -100,7 +80,6 @@ import { ref } from 'vue';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
-import PlaybackControls from '@/components/audio/PlaybackControls.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';

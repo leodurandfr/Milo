@@ -132,14 +132,11 @@ describe('spotifyStore', () => {
     expect(store.opensOnProfiles).toBe(false);
   });
 
-  it('reads whether the playing track is liked, and cycles repeat from where it is', async () => {
-    publish({ session: makeSession(), details: details({ track_uri: TRACK, repeat: 'context' }) });
+  it('reads whether the playing track is liked', async () => {
+    publish({ session: makeSession(), details: details({ track_uri: TRACK }) });
     await nextTick();
 
     const likedRead = apiCall.get.mock.calls.find(([url]) => url === '/api/spotify/liked-tracks');
     expect(likedRead?.[1]?.params).toEqual({ uris: TRACK });
-
-    await store.cycleRepeat();
-    expect(commandsSent()).toEqual([{ command: 'set_repeat', data: { mode: 'track' } }]);
   });
 });

@@ -28,9 +28,3 @@ export const AUDIO_SOURCE_LABEL_KEYS = {
  * nothing playing too.
  */
 export const BROWSER_SOURCES = ['radio', 'podcast', 'music_library', 'spotify'];
-
-/**
- * Browser sources whose player is a track player: album and artist pages to
- * open from it, and the shuffle / transport / heart row.
- */
-export const TRACK_LAYOUT_SOURCES = ['music_library', 'spotify'];

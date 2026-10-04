@@ -42,8 +42,3 @@ class SeekParams(BaseModel):
     @property
     def seconds(self) -> float:
         return self.position if self.position is not None else self.position_ms / 1000
-
-
-class SetSpeedParams(BaseModel):
-    """Params for `set_speed` (off-grid values are snapped in the handler)."""
-    speed: float

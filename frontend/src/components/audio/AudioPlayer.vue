@@ -22,7 +22,7 @@
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child. -->
           <div class="player-artwork-frame"
-            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: hasEntityLinks || isMobile }"
+            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: albumLink || isMobile }"
             @click="onArtworkClick">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
               :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
@@ -31,64 +31,59 @@
             <slot name="artwork-badge"></slot>
           </div>
 
-          <div class="player-info" :class="{ 'player-info-carousel': carousel }">
-            <!-- Mobile swipe (music library): a 3-cell strip [prev｜current｜next]
+          <!-- The source bar, the lines, the bar and the transport: the body
+               both players share, ranged left on this card. -->
+          <PlayerBody ref="body" :source="source" surface="card" @secondary-click="$emit('secondary-click')">
+            <!-- The phone's swipe over a queue: a 3-cell strip [prev｜current｜next]
                  driven by the carousel's own viewIndex into the queue, so the
                  text is rendered locally and never reindexes against the backend
                  skip echo mid-animation. -->
-            <div v-if="carousel" ref="trackEl" class="player-info-track" :style="trackStyle"
-              @transitionend.self="onSettleEnd">
-              <div v-for="cell in cells" :key="cell.pos" class="player-info-cell">
-                <p class="player-title text-body">{{ cell.title }}</p>
-                <p v-if="cell.artist" class="player-subtitle text-body">{{ cell.artist }}</p>
+            <template v-if="carousel" #info>
+              <div class="player-info-carousel">
+                <div ref="trackEl" class="player-info-track" :style="trackStyle" @transitionend.self="onSettleEnd">
+                  <div v-for="cell in cells" :key="cell.pos" class="player-info-cell">
+                    <p class="carousel-title text-body">{{ cell.title }}</p>
+                    <p v-if="cell.artist" class="carousel-subtitle text-body">{{ cell.artist }}</p>
+                  </div>
+                </div>
               </div>
-            </div>
-            <!-- Every non-swipe case (radio, podcast, desktop): instant swap, the
-                 'track-none' transition has no CSS so it resolves immediately. -->
-            <Transition v-else name="track-none" mode="out-in">
-              <div class="player-info-inner" :key="title" :class="{ 'has-entity-links': hasEntityLinks }"
-                @click="onInfoClick">
-                <slot name="info"></slot>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- Progress bar + controls are pinned together at the bottom, 8px apart —
-               the info block above is what's centered in the remaining space, not this group. -->
-          <div class="player-bottom">
-            <slot name="progress"></slot>
-
-            <div class="controls transport-scale--compact">
-              <slot name="controls"></slot>
-            </div>
-          </div>
+            </template>
+          </PlayerBody>
 
         </div>
 
-        <!-- Opens the source's full player (AudioPlayerFull), which the source
-             mounts in place of its navigation. Over the cover on the desktop
-             card, at the end of the row on the phone's mini-bar — where a tap
-             anywhere else on the bar does the same. Outside .player-content,
-             which scrolls on the desktop card when its content overflows: the
-             only way into the player must not scroll away with it. -->
-        <IconButton class="player-expand" icon="caretUp" :variant="isMobile ? 'ghost' : 'on-grey'" size="small"
-          :color="isMobile ? 'var(--color-text-contrast-50)' : null"
-          :aria-label="t('common.expandPlayer')" @click.stop="$emit('expand')" />
+        <!-- On the kiosk's card, over the cover: the way into the full player
+             at the top-left corner, what the source adds that is not a command
+             (the favorite, the star, the like) at the top-right — the full
+             player's order, way between the views on the left and heart on the
+             right. Outside .player-content, which scrolls on the card when its
+             content overflows: the way into the player must not scroll away
+             with it. Not on the phone's mini-bar, which is one target as a
+             whole (a tap anywhere opens the full player, which carries the
+             heart). -->
+        <template v-if="!isMobile">
+          <IconButton class="player-expand" icon="expand" variant="on-grey" size="small"
+            :aria-label="t('common.expandPlayer')" @click.stop="$emit('expand')" />
+          <div v-if="$slots['artwork-action']" class="player-artwork-action" @click.stop>
+            <slot name="artwork-action"></slot>
+          </div>
+        </template>
       </div>
     </Transition>
   </Teleport>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
-import { generateStationAvatarSvg } from '@/utils/stationAvatar'
-import { artworkFallback } from '@/utils/nowPlayingArtwork'
+import { usePlayerState } from '@/composables/usePlayerState'
+import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion'
+import { swipeable, swipeTarget } from '@/utils/playerControls'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
-import { TRACK_LAYOUT_SOURCES } from '@/constants/audioSources'
 import { useI18n } from '@/services/i18n'
+import PlayerBody from './PlayerBody.vue'
 
 const { isMobile } = useIsMobile()
 const { t } = useI18n()
@@ -110,86 +105,38 @@ const props = defineProps({
   visible: {
     type: Boolean,
     default: false
-  },
-
-  /**
-   * Artwork/image URL for the current item
-   */
-  artwork: {
-    type: String,
-    default: null
-  },
-
-   /**
-   * Station name for the generated inline SVG avatar. Radio only — the helper
-   * decides that, this prop only supplies the text. Inline rendering (v-html)
-   * inherits document @font-face; an <img> data URL would lose Space Mono Bold
-   * and fall back to the system monospace.
-   */
-  fallbackName: {
-    type: String,
-    default: null
-  },
-
-  /**
-   * Main title (station name, episode name, etc.)
-   */
-  title: {
-    type: String,
-    default: 'No title'
-  },
-
-  /**
-   * Enable the mobile horizontal-swipe gesture (next/prev). Off by default so
-   * radio — which has no track-skip concept in the mini-player — never captures
-   * swipes nor animates its station→metadata reveal as if it were one.
-   */
-  swipeEnabled: {
-    type: Boolean,
-    default: false
-  },
-
-  /**
-   * The play queue and the current index within it — the swipe carousel reads
-   * the adjacent entries' title/artist locally so its animation never waits for
-   * (nor reindexes against) the backend skip echo. Each entry uses the Subsonic
-   * song shape (title/name + artist). Only consulted when swipeEnabled.
-   */
-  tracks: {
-    type: Array,
-    default: () => []
-  },
-  currentIndex: {
-    type: Number,
-    default: -1
   }
 })
 
 // `expand` asks the source for its full player: the expand button anywhere, and
-// a tap on the phone's mini-bar. The player draws neither view itself.
-const emit = defineEmits(['after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click', 'expand'])
+// a tap on the phone's mini-bar. The album and the artist are emitted where the
+// navigation says there is one to open; the source opens them.
+const emit = defineEmits(['after-hide', 'artwork-click', 'secondary-click', 'expand'])
 
-// Only a track player has album/artist pages to link to — radio/podcast render
-// the same artwork frame and #player-info-secondary line but have nothing to
-// navigate to, so they get neither the pointer cursor nor the click emit.
-const trackLayout = computed(() => TRACK_LAYOUT_SOURCES.includes(props.source))
-const hasEntityLinks = trackLayout
+// What this bar names and what its source offers: this bar's one reading of
+// its state, which the body and the transport under it take too.
+const { metadata, controls: sourceControls } = usePlayerState(props.source)
+const { title, artwork, fallback, stationAvatarSvg } = metadata
+const { controls, details } = sourceControls
+const body = ref(null)
+
+// The album behind the cover, where the navigation around the bar says there is
+// one to open (PLAYER_NAVIGATION, which BrowserSourceViews provides).
+const navigation = inject(PLAYER_NAVIGATION, null)
+const albumLink = computed(() => !!navigation?.canOpenAlbum.value)
 
 // On the phone the whole mini-bar is one target, the full player; the album and
 // artist links are the full player's there. The transport stops its own taps.
 function onBarClick() {
-  if (isMobile.value) emit('expand')
-}
-
-// Delegated: .player-info-secondary is rendered by the slotted PlayerInfoText,
-// not by this component, so it's caught by class rather than a direct handler.
-function onInfoClick(e) {
-  if (isMobile.value) return
-  if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) emit('secondary-click')
+  if (!isMobile.value) return
+  // A swipe is not a tap: a browser that still fires a click after a drag
+  // (a short one, under its own slop) must not open the full player too.
+  if (Date.now() - swipeEndedAt < SWIPE_CLICK_GUARD_MS) return
+  emit('expand')
 }
 
 function onArtworkClick() {
-  if (!isMobile.value && hasEntityLinks.value) emit('artwork-click')
+  if (!isMobile.value && albumLink.value) emit('artwork-click')
 }
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
@@ -197,15 +144,9 @@ const artworkError = ref(false)
 // Fade the real artwork in on load instead of popping over the neutral box —
 // reset on every src change so a new track/station image fades rather than snaps.
 const artworkLoaded = ref(false)
-watch(() => props.artwork, () => { artworkError.value = false; artworkLoaded.value = false })
-const validArtwork = computed(() => props.artwork && !artworkError.value ? props.artwork : null)
+watch(artwork, () => { artworkError.value = false; artworkLoaded.value = false })
+const validArtwork = computed(() => artwork.value && !artworkError.value ? artwork.value : null)
 // What fills the slot with no usable artwork, straight from the shared helper.
-const fallback = computed(() => artworkFallback(props.source))
-const stationAvatarSvg = computed(() =>
-  fallback.value.kind === 'avatar' && props.fallbackName
-    ? generateStationAvatarSvg(props.fallbackName)
-    : ''
-)
 const fallbackImage = computed(() => fallback.value.kind === 'image' ? fallback.value.src : '')
 
 function handleArtworkLoad(e) {
@@ -216,19 +157,30 @@ function handleArtworkLoad(e) {
   artworkLoaded.value = true
 }
 
+// Mobile swipe gesture — only on the fixed docked player, and only where the
+// source takes one now (utils/playerControls' swipeable: a source that pauses,
+// with a step or a −15/+30 to send; never a live stream). A queue source keeps
+// its steps listed while the track it stepped to loads, so the gesture — and
+// the carousel under it — outlive a track change rather than unmount
+// mid-slide. The animated 3-cell text carousel is the richer case and
+// additionally needs a real queue to read neighbour titles from — without one
+// there's nothing to slide text in from.
+const swipeEnabled = computed(() => swipeable(controls.value))
+const swipeActive = computed(() => isMobile.value && swipeEnabled.value)
+// The queue and the current index within it (Music Library's details), in the
+// Subsonic song shape (title/name + artist).
+const tracks = computed(() => (Array.isArray(details.value?.queue) ? details.value.queue : []))
+const currentIndex = computed(() => details.value?.queue_index ?? -1)
+
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true,
-  'track-layout': trackLayout.value
+  swipeable: swipeEnabled.value
 }))
-
-// Mobile swipe gesture — only on the fixed docked player. swipeEnabled alone
-// covers seek-style sources (podcast: swipe always fires, no neighbour concept,
-// title stays the plain slotted text). The animated 3-cell text carousel is the
-// richer case (music library) and additionally needs a real queue to read
-// neighbour titles from — without one there's nothing to slide text in from.
-const swipeActive = computed(() => isMobile.value && props.swipeEnabled)
-const carousel = computed(() => swipeActive.value && props.tracks.length > 0)
+const carousel = computed(() => swipeActive.value && tracks.value.length > 0)
 const SWIPE_THRESHOLD_PX = 40
+// How long after a drag a click is taken for the drag's own, and ignored.
+const SWIPE_CLICK_GUARD_MS = 400
+let swipeEndedAt = 0
 const SETTLE_MS = 300
 let touchStartX = 0
 let touchStartY = 0
@@ -238,20 +190,32 @@ let touchTracking = false
 // it, NOT from the live backend index — so the skip echo (which reindexes
 // queueIndex almost instantly) can't swap cell contents out from under the
 // settle animation. It re-syncs to the store only between swipes.
-const viewIndex = ref(props.currentIndex)
-watch(() => props.currentIndex, (ci) => { if (!committing) viewIndex.value = ci })
+const viewIndex = ref(currentIndex.value)
+watch(currentIndex, (ci) => { if (!committing) viewIndex.value = ci })
 
-const CELL_OFFSETS = [-1, 0, 1]
-const cells = computed(() => CELL_OFFSETS.map((offset) => {
-  const song = props.tracks[viewIndex.value + offset]
+// The entries a swipe lands on either side of the one shown (utils/
+// playerControls' swipeTarget: past the last entry of a repeating queue, the
+// first again), -1 where there is none.
+const swipeTargets = computed(() => {
+  const state = { controls: controls.value, details: details.value }
+  const length = tracks.value.length
+  return {
+    prev: swipeTarget(state, 'prev', viewIndex.value, length),
+    next: swipeTarget(state, 'next', viewIndex.value, length)
+  }
+})
+
+const CELLS = [[-1, 'prev'], [0, null], [1, 'next']]
+const cells = computed(() => CELLS.map(([offset, direction]) => {
+  const song = tracks.value[direction ? swipeTargets.value[direction] : viewIndex.value]
   return {
     pos: offset,
     title: song ? (song.title || song.name || '') : '',
     artist: song ? (song.artist || '') : ''
   }
 }))
-const hasNextCell = computed(() => viewIndex.value >= 0 && viewIndex.value + 1 < props.tracks.length)
-const hasPrevCell = computed(() => viewIndex.value > 0)
+const hasNextCell = computed(() => swipeTargets.value.next >= 0)
+const hasPrevCell = computed(() => swipeTargets.value.prev >= 0)
 
 // Resting is 'center' (translateX(-100%), middle cell centred). A drag follows
 // the finger; on release it settles to 'next' (-200%) / 'prev' (0%) or back.
@@ -273,7 +237,7 @@ const trackStyle = computed(() => {
 })
 
 let committing = false
-let committedDir = 0
+let committedTarget = -1
 let rehomeHandle = null
 
 // Settle finished: advance the local index onto the committed neighbour and snap
@@ -282,9 +246,9 @@ let rehomeHandle = null
 function rehome() {
   if (!committing) return
   if (rehomeHandle) { timer.clear(rehomeHandle); rehomeHandle = null }
-  viewIndex.value += committedDir
+  viewIndex.value = committedTarget
   committing = false
-  committedDir = 0
+  committedTarget = -1
   suppressTransition.value = true
   settle.value = 'center'
   dragX.value = 0
@@ -339,6 +303,7 @@ function onTouchEnd(e) {
   const wasDragging = dragging.value
   dragging.value = false
   if (!wasDragging) return
+  swipeEndedAt = Date.now()
   const touch = e.changedTouches[0]
   const dx = touch.clientX - touchStartX
   const dy = touch.clientY - touchStartY
@@ -349,13 +314,16 @@ function onTouchEnd(e) {
   if (passed && hasNeighbour) {
     // Finger left → next, finger right → prev.
     if (carousel.value) {
-      committedDir = goingNext ? 1 : -1
+      committedTarget = goingNext ? swipeTargets.value.next : swipeTargets.value.prev
       settle.value = goingNext ? 'next' : 'prev'
       committing = true
       if (rehomeHandle) timer.clear(rehomeHandle)
       rehomeHandle = timer.setTimeout(rehome, SETTLE_MS + 120) // fallback if transitionend is missed
     }
-    emit(goingNext ? 'swipe-next' : 'swipe-prev')
+    // The body sends it: a step, or a −15/+30 through its own playhead. A step
+    // back counts from the entry the carousel shows, not the one the backend
+    // last echoed, so a second quick swipe aims one entry further back.
+    body.value?.swipe(goingNext ? 'next' : 'prev', viewIndex.value)
   } else {
     settle.value = 'center'
     dragX.value = 0
@@ -421,7 +389,7 @@ function onTouchEnd(e) {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--color-background-contrast-32);
+  background: var(--color-veil-on-image);
   z-index: 1;
   pointer-events: none;
 }
@@ -469,14 +437,23 @@ function onTouchEnd(e) {
   cursor: pointer;
 }
 
-/* Over the cover's top-right corner: the card's side padding plus the cover's
+/* Over the cover's top-left corner: the card's side padding plus the cover's
    own top inset (.player-content's), then the same again inside the cover. */
 .player-expand {
+  position: absolute;
+  top: calc(var(--space-02) + var(--space-02));
+  left: calc(var(--space-02) + var(--space-02));
+  z-index: 3;
+}
+
+/* Its mirror over the top-right corner. */
+.player-artwork-action {
   position: absolute;
   top: calc(var(--space-02) + var(--space-02));
   right: calc(var(--space-02) + var(--space-02));
   z-index: 3;
 }
+
 
 .player-artwork {
   width: 100%;
@@ -518,218 +495,22 @@ img.player-artwork.loaded {
   object-fit: cover;
 }
 
-.player-info {
-  display: flex;
-  justify-content: center;
-  height: 100%;
-  flex-direction: column;
-  gap: var(--space-04);
-  padding: 0 var(--space-04);
-}
-
-.player-info-inner {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-
-:deep(.player-title) {
-  color: var(--color-text-contrast);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+/* The swipe carousel's lines (the phone's mini-bar over a queue), one line
+   each, cut by the carousel's own edge mask. */
+.carousel-title,
+.carousel-subtitle {
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
 
-:deep(.player-subtitle) {
+.carousel-title {
+  color: var(--color-text-contrast);
+}
+
+.carousel-subtitle {
   color: var(--color-text-contrast-50);
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.player-info-inner.has-entity-links :deep(.player-info-secondary) {
-  cursor: pointer;
-}
-
-/* Desktop/mobile split for slotted #controls content that isn't available in
-   the compact mini-bar (podcast's seek buttons, speed selector) — each source
-   renders both variants and lets this toggle pick one, instead of duplicating
-   layout CSS per source file. */
-:deep(.mobile-only) {
-  display: none;
-}
-
-/* Vertical (column: kicker/title/secondary via PlayerInfoText) vs horizontal
-   (compact single-line title/subtitle pair) — the #info slot's own layout
-   toggle, orthogonal to desktop-only/mobile-only above, kept apart from them
-   because it names what the slot draws rather than where.
-   !important: an element carrying .horizontal-layout can also carry another
-   utility class with its own `display` (e.g. radio's .playback-controls,
-   `display: flex`) — same specificity, and without !important here the later
-   rule in the cascade would win regardless of aspect ratio. */
-:deep(.horizontal-layout) {
-  display: none !important;
-}
-
-.player-bottom {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-  padding: 0 var(--space-04);
-}
-
-.controls {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  position: relative;
-}
-
-:deep(.playback-controls) {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-01);
-  width: 100%;
-}
-
-/* === Per-source transport layout ===
-   The #controls slot has no default: all three browser sources fill it with
-   their own row, so its layout has to live somewhere.
-   It lives here, beside the sizing rules that already key off these same class
-   names, rather than in each source's scoped CSS: scoped CSS reaches only the
-   markup that file authors, and the same rows are re-authored by the gallery's
-   SourceStage — which left the transports rendering unstyled there while
-   looking plausible. One home per class, and the class is already the contract. */
-
-/* Radio: a text Button plus a favourite, not a ghost icon row. */
-:deep(.radio-controls) {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: var(--space-02);
-  z-index: 1;
-  width: 100%;
-}
-
-/* .vertical-layout is the desktop sidebar's row (the layout toggle above hides
-   it in the mobile mini-bar). */
-:deep(.radio-controls-main) {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-02);
-  width: 100%;
-}
-
-:deep(.radio-controls-main .btn) {
-  width: 100%;
-}
-
-/* Podcast: the row is three columns — speed, transport, nothing — so the
-   transport stays centred on the row whatever the speed chip measures. It was
-   pinned with `position: absolute; left: 0` instead, which holds only while the
-   chip is narrower than the gap left of the transport: giving it a rim widened
-   it to 66px and it landed 18px on top of the -15s button's target. */
-.source-podcast .controls {
-  display: grid;
-  /* minmax(0, 1fr), not 1fr: a plain fr track keeps a min-content floor, so a
-     speed chip wider than its share grows the track and walks the transport
-     off-centre — 18px, measured, with the chip at its first rim size. At zero
-     the two side tracks are always equal, so the transport is centred whatever
-     the chip measures, and a chip that outgrew its track would spill over it
-     rather than move the row. */
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-}
-
-/* Both items name their row, the transport's included: auto-placement fills
-   row by row, so a chip asking for column 1 after the transport has taken
-   column 2 lands on a second row instead of beside it. Measured, before this
-   was explicit. */
-.source-podcast :deep(.playback-controls) {
-  grid-area: 1 / 2;
-}
-
-:deep(.speed-selector) {
-  display: flex;
-  align-items: center;
-  grid-area: 1 / 1;
-  justify-self: start;
-}
-
-:deep(.speed-selector .dropdown) {
-  width: auto;
-  flex: none;
-}
-
-/* Every rule below restyles Dropdown's internals through `:deep()`, so each one
-   competes with a rule the primitive writes about itself — and a scoped rule
-   carries its scope attribute in the same specificity class a `:deep()` prefix
-   occupies, so two classes here tie with two classes there and the stylesheet
-   emitted last takes it. Dropdown is emitted last, measured in the built CSS,
-   and the ties cost two visible bugs: the label drew at `minimal`'s 50% white
-   however plainly the rule here asked for full contrast, and
-   `--minimal:focus { box-shadow: none }` erased the rim on click, so the pill
-   lost its outline the first time the menu was opened and stayed bare until
-   something else took the focus. Each rule therefore goes one class deeper than
-   the Dropdown rule it must outrank; `.dropdown`, the primitive's own wrapper,
-   is what buys the step, and the four keep their order among themselves by
-   specificity rather than by position in this file. */
-
-/* The speed reads as a control rather than as loose text: a pill rim around it.
-   The `minimal` variant clears the trigger's own box-shadow, so the rim is put
-   back the same way the base variant draws it, inset, which keeps the chip's
-   box out of the row's arithmetic. The rim colour is a background token used as
-   a stroke on purpose — the player has no border token for a dark ground. The
-   padding is the chip's whole size: it is a label with a rim, not a button, and
-   it sits next to a transport it must not compete with. */
-:deep(.speed-selector .dropdown .dropdown-trigger) {
-  padding: var(--space-01) 0;
-  border-radius: var(--radius-full);
-  box-shadow: inset 0 0 0 1px var(--color-background-neutral-50);
-}
-
-/* Full contrast, not the `minimal` variant's 50% white: the chip states the
-   speed currently playing, which is a value and not a placeholder. */
-:deep(.speed-selector .dropdown .dropdown-trigger .dropdown-label) {
-  color: var(--color-text-contrast);
-}
-
-/* Open: the chip fills, so it reads as the thing the menu belongs to. The rim
-   goes with the fill — it is invisible on it — and the label has to flip with
-   it, `minimal` drawing it at 50% white, which would vanish. */
-:deep(.speed-selector .dropdown .dropdown-trigger.is-open) {
-  background: var(--color-background-neutral);
-  box-shadow: none;
-}
-
-:deep(.speed-selector .dropdown .dropdown-trigger.is-open .dropdown-label) {
-  color: var(--color-text);
-}
-
-
-/* Music library: one transport row (shuffle … prev·play·next … like), with the
-   trio centred inside it. */
-:deep(.track-controls) {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  width: 100%;
-}
-
-:deep(.track-transport-main) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-01);
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -778,7 +559,7 @@ img.player-artwork.loaded {
     border-radius: var(--radius-05);
   }
 
-  .audio-player.track-layout {
+  .audio-player.swipeable {
     touch-action: pan-y;
   }
 
@@ -793,8 +574,8 @@ img.player-artwork.loaded {
     position: static;
   }
 
-  /* Single 48px row layout, shared by all three sources (radio, podcast,
-     music library) — artwork | title+subtitle | one play/pause(-ish) button.
+  /* Single 48px row layout, shared by the four sources — artwork | the body
+     (title+subtitle, then the main button) | expand.
      Width is animated so the radio station→track reveal (frame 48→72) shifts the
      title/subtitle text rightward in sync with the track image sliding in. */
   .audio-player .player-artwork-frame {
@@ -811,17 +592,9 @@ img.player-artwork.loaded {
     border-radius: var(--radius-03);
   }
 
-  .player-info {
-    flex: 1;
-    text-align: left;
-    padding: 0;
-    min-width: 0;
-    gap: var(--space-01);
-  }
-
-  /* Swipe carousel: .player-info becomes the clipped viewport; the strip holds
-     the three text cells side by side and slides horizontally. Only present in
-     the DOM on mobile music-library (v-if="carousel"). */
+  /* Swipe carousel: the clipped viewport the body's info block hosts; the strip
+     holds the three text cells side by side and slides horizontally. Only in
+     the DOM on the phone over a queue (v-if="carousel"). */
   .player-info-carousel {
     overflow: hidden;
     position: relative;
@@ -849,136 +622,15 @@ img.player-artwork.loaded {
     padding-left: var(--space-02);
   }
 
-  .player-bottom {
-    flex-shrink: 0;
-    padding: 0;
-    gap: 0;
-  }
-
-  /* The row's last item, after the transport (.player-content shrinks to
-     leave it room). */
-  .player-expand {
-    position: static;
-    flex-shrink: 0;
-  }
-
   .player-content {
     min-width: 0;
   }
 
-  /* Docked bar: every text line is exactly one line, cut by a right-edge fade
-     rather than an ellipsis. Applies to the slotted title/subtitle pair
-     (fixes scoped CSS limitation) and to the carousel's own cells alike.
-     `white-space: nowrap` is the only clamp available here: .horizontal-layout's
-     `display: block !important` below overrides the -webkit-box the base rules
-     declare, and -webkit-line-clamp does nothing outside -webkit-box — which is
-     how the subtitle silently grew a second line, taking the bar's height with
-     it (the row is `height: auto` + `flex-wrap: wrap`). */
-  .audio-player :deep(.player-title),
-  .audio-player :deep(.player-subtitle) {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: clip;
-    -webkit-line-clamp: unset;
-    -webkit-box-orient: unset;
-    display: block;
-  }
-
-  /* The fade is per line here. The swipe carousel's cells must NOT get one:
-     .player-info-carousel above already masks the same edge for the whole
-     strip, and a second mask on the text would compound it into a harder cut. */
-  .player-info-inner :deep(.player-title),
-  .player-info-inner :deep(.player-subtitle) {
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--space-05)), transparent 100%);
-    mask-image: linear-gradient(to right, #000 calc(100% - var(--space-05)), transparent 100%);
-  }
-
-  .audio-player :deep(.desktop-only) {
-    display: none !important;
-  }
-
-  .audio-player :deep(.mobile-only) {
-    display: block !important;
-  }
-
-  .audio-player :deep(.vertical-layout) {
-    display: none !important;
-  }
-
-  .audio-player :deep(.horizontal-layout) {
-    display: block !important;
-  }
-
-  /* Hide progress bar on mobile by default (radio has none) */
-  .player-content :deep(.progress-bar) {
+  /* The mini-bar keeps the main button alone; everything else on the
+     transport is PlayerTransport's `player-extra`, and the swipe gesture
+     covers prev/next (or −15 / +30) here instead. */
+  .audio-player :deep(.player-extra) {
     display: none;
-  }
-
-  /* Podcast/music library mobile: progress becomes a thin full-width strip
-     pinned to the very bottom of the card. It's positioned relative to
-     .audio-player itself (the nearest positioned ancestor) so it spans the
-     whole card and gets clipped by the card's own border-radius/overflow —
-     no manual inset needed for the rounded corners. */
-  .audio-player.source-podcast .player-content :deep(.progress-bar),
-  .audio-player.track-layout .player-content :deep(.progress-bar) {
-    display: flex;
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 2px;
-    padding: 0;
-    gap: 0;
-  }
-
-  .audio-player.source-podcast .player-content :deep(.progress-bar) .time,
-  .audio-player.track-layout .player-content :deep(.progress-bar) .time {
-    display: none;
-  }
-
-  .audio-player.source-podcast .player-content :deep(.progress-container),
-  .audio-player.track-layout .player-content :deep(.progress-container) {
-    height: 100%;
-    border-radius: 0;
-  }
-
-  .audio-player.source-podcast .player-content :deep(.progress),
-  .audio-player.track-layout .player-content :deep(.progress) {
-    border-radius: 0;
-  }
-
-  .controls {
-    gap: var(--space-02);
-    justify-content: center;
-  }
-
-  /* Compact mini-bar: the primary control is too large next to the 48px artwork
-     thumbnail in this tight single row. The one place a tier token is bent
-     rather than picked — this row is sized against the thumbnail beside it, not
-     against the transport scale. The desktop sidebar keeps its tier.
-
-     It has to hang off .controls, not .playback-controls. Scoped CSS stamps this
-     file's id on the last compound of a selector, and .playback-controls is slot
-     content — it carries the *source's* id, never this component's, so a rule
-     ending on it silently matches nothing. The predecessor of this rule did
-     exactly that for the whole life of the mini-bar: it read `20px`, never
-     applied, and the row quietly took SvgIcon's native mobile medium of 24px
-     instead. 28 is a deliberate step up from that accidental 24.
-     .controls is this component's own element, so it carries the id. */
-  .audio-player .controls {
-    --transport-primary: 28px;
-  }
-
-  /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are
-     desktop-only — the swipe gesture covers prev/next on mobile instead. */
-  .audio-player.track-layout :deep(.track-transport-extra) {
-    display: none;
-  }
-
-  /* Radio's docked mini-bar renders only the compact ghost icon button
-     (.horizontal-layout) — push it to the row's edge. */
-  :deep(.radio-controls) {
-    justify-content: flex-end;
   }
 
   /* Radio, track detected: two 48px thumbnails overlapping by half. The station

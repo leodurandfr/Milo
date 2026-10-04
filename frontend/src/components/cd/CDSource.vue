@@ -1,13 +1,14 @@
 <!-- CDSource.vue - CD Player (wrapper around AudioPlayerFull) -->
 <template>
   <AudioPlayerFull source="cd" :hideContent="cdStore.showTracklist">
-    <template #action-buttons>
-      <div class="action-buttons">
-        <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" :variant="isMobile ? 'on-grey' : 'background-strong'"
-          size="medium" @click="cdStore.toggleTracklist()" />
-        <IconButton v-if="canEject" icon="eject" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
-          @click="cdStore.eject()" />
-      </div>
+    <!-- The tracklist toggle at the start of the player's top row, eject at
+         its end. -->
+    <template #top-start>
+      <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" variant="background-strong" size="medium"
+        @click="cdStore.toggleTracklist()" />
+    </template>
+    <template v-if="canEject" #top-end>
+      <IconButton icon="eject" variant="background-strong" size="medium" @click="cdStore.eject()" />
     </template>
 
     <template #content-replace>
@@ -41,12 +42,10 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
-import { useIsMobile } from '@/composables/useIsMobile';
 
 const { t } = useI18n();
 const cdStore = useCdStore();
 const unifiedStore = useUnifiedAudioStore();
-const { isMobile } = useIsMobile();
 
 const artistName = computed(() =>
   cdStore.discInfo?.artist || t('audioSources.cdSource.unknownArtist')
@@ -78,13 +77,6 @@ function trackRecord(track) {
 </script>
 
 <style scoped>
-/* === ACTION BUTTONS === */
-.action-buttons {
-  display: flex;
-  justify-content: space-between;
-  flex-shrink: 0;
-}
-
 /* === TRACKLIST === */
 .tracklist-content {
   display: flex;
@@ -133,14 +125,6 @@ function trackRecord(track) {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .action-buttons {
-    position: absolute;
-    top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
-    left: calc(var(--space-05) + var(--space-04));
-    right: calc(var(--space-05) + var(--space-04));
-    z-index: 10;
-  }
-
   .tracklist-scroll {
     margin-bottom: calc(-1 * max(var(--space-06), env(safe-area-inset-bottom, 0px)));
     padding-bottom: max(var(--space-06), env(safe-area-inset-bottom, 0px));

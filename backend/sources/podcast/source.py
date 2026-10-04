@@ -2,13 +2,12 @@
 """
 Podcast audio source using MPV.
 
-This source handles podcast playback with progress tracking, speed control,
-and the podcast catalogue (Apple discovery, publisher feeds for content).
+This source handles podcast playback with progress tracking and the podcast
+catalogue (Apple discovery, publisher feeds for content).
 
 Features:
 - MPV IPC for playback control
 - Progress tracking with auto-save
-- Playback speed control (0.5x - 2.0x)
 - Resume from last position
 - PodcastCatalog for discovery and feed reading
 """
@@ -24,13 +23,11 @@ from backend.core.models.commands import SkipParams
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
 )
-from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
+from backend.sources.podcast.models import PlayEpisodeParams, SeekParams
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.podcast.podcast_catalog import PodcastCatalog
-
-VALID_PLAYBACK_SPEEDS: list[float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
 # A position saved on disk is resumed only past this many seconds.
 RESUME_MIN_POSITION_S = 10
@@ -80,7 +77,6 @@ class PodcastSource(MpvAudioSource):
         "resume": None,
         "seek": SeekParams,
         "skip": SkipParams,
-        "set_speed": SetSpeedParams,
     }
     COMMAND_SCOPES = {
         "play_episode": CommandScope.CONTENT,
@@ -88,7 +84,6 @@ class PodcastSource(MpvAudioSource):
         "resume": CommandScope.RESUME,
         "seek": CommandScope.SESSION,
         "skip": CommandScope.SESSION,
-        "set_speed": CommandScope.PREFERENCE,
     }
 
     def __init__(
@@ -116,8 +111,6 @@ class PodcastSource(MpvAudioSource):
         # immediately for routes access
         self._podcast_api = PodcastCatalog(cache_duration_minutes=60)
 
-        self._playback_speed = 1.0
-
     async def initialize(self) -> bool:
         """Pre-load podcast_data.json so a schema mismatch surfaces at boot."""
         await self._podcast_data.initialize()
@@ -140,7 +133,6 @@ class PodcastSource(MpvAudioSource):
                 return False
             await self._listen_to_mpv()
 
-            self._playback_speed = await self._podcast_data.get_setting("playback_speed", 1.0)
             await self._load_auto_stop_config()
 
             point = self._resume_point
@@ -206,9 +198,6 @@ class PodcastSource(MpvAudioSource):
 
         if cmd == "skip":
             return await self._handle_skip(params)
-
-        if cmd == "set_speed":
-            return await self._handle_set_speed(params)
 
         return self.error_response(f"Unhandled command: {cmd}")
 
@@ -287,7 +276,6 @@ class PodcastSource(MpvAudioSource):
             return self.error_response("Failed to load stream")
         session.entry = entry
         session.link = self._mpv.link
-        await self._attempt(lambda: self._mpv.set_property("speed", self._playback_speed))
         return self.success_response(f"Playing {episode.get('name', 'Unknown')}")
 
     async def _handle_pause(self) -> Dict[str, Any]:
@@ -343,34 +331,9 @@ class PodcastSource(MpvAudioSource):
         await self._save_progress(session)
         return self.success_response(f"Skipped {params.seconds:+g}s")
 
-    async def _handle_set_speed(self, params: SetSpeedParams) -> Dict[str, Any]:
-        """Set playback speed — a stored preference, re-applied to every
-        episode at play time, so it holds with nothing playing."""
-        speed = params.speed
-        if speed not in VALID_PLAYBACK_SPEEDS:
-            self._logger.info(f"Invalid speed {speed}, using nearest valid")
-            speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
-
-        session = self._session
-        if session is not None:
-            if not await self._mpv.set_property("speed", speed):
-                return self.mpv_refused(f"speed {speed}x")
-            # The playhead moves at the new rate from here on.
-            now = self._position_now(session)
-            if now is not None:
-                self._anchor_position(now, rate=speed)
-        self._playback_speed = speed
-        await self._podcast_data.set_setting("playback_speed", speed)
-
-        self._logger.info(f"Playback speed set to {speed}x")
-        return self.success_response(f"Speed set to {speed}x", speed=speed)
-
     # === Helpers ===
 
     # === The view (docs: "le fil") ===
-
-    def _playback_rate(self) -> float:
-        return self._playback_speed
 
     def _session_fields(self, session: PodcastSession) -> Dict[str, Any]:
         episode = session.episode
@@ -397,7 +360,7 @@ class PodcastSource(MpvAudioSource):
         )
 
     def _details(self) -> Optional[PodcastDetails]:
-        """The episode — live, or the one kept to resume — and the speed."""
+        """The episode — live, or the one kept to resume."""
         session = self._session
         if isinstance(session, PodcastSession):
             episode = session.episode
@@ -405,17 +368,17 @@ class PodcastSource(MpvAudioSource):
             episode = self._resume_point.content["episode"]
         else:
             return None
-        return PodcastDetails(episode=episode, speed=self._playback_speed)
+        return PodcastDetails(episode=episode)
 
     def _controls(self) -> List[str]:
         session = self._session
         if session is None:
-            return ["resume", "set_speed"] if self._resume_point is not None else ["set_speed"]
+            return ["resume"] if self._resume_point is not None else []
         if session.phase is Phase.LOADING:
-            return ["pause", "set_speed"]
+            return ["pause"]
         if session.phase is Phase.PAUSED:
-            return ["resume", "seek", "skip", "set_speed"]
-        return ["pause", "seek", "skip", "set_speed"]
+            return ["resume", "seek", "skip"]
+        return ["pause", "seek", "skip"]
 
     async def _sync_position(self, session: Optional[PodcastSession]) -> None:
         """Read the live playhead into the session (while its file is open)."""

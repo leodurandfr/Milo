@@ -68,7 +68,6 @@ import { AudioStateSchema } from '../../src/schemas/api.js';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '../../src/constants/imageQuality.js';
 import { useRadioStore } from '../../src/stores/radioStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
-import { usePodcastStore } from '../../src/stores/podcastStore.js';
 import { useSpotifyStore } from '../../src/stores/spotifyStore.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1350,7 +1349,6 @@ describe('component gallery source pages', () => {
     const stores = {
       radio: useRadioStore(),
       musicLibrary: useMusicLibraryStore(),
-      podcast: usePodcastStore(),
       spotify: useSpotifyStore()
     };
 
@@ -1439,79 +1437,70 @@ describe('component gallery source pages', () => {
     expect(problems).toEqual([]);
   });
 
-  it('reproduces each browser source’s own transport, by its own class names', () => {
-    // The #controls slot has a default — a lone play/pause — and all three
-    // browser sources replace it: radio with a text Button and a favourite,
-    // podcasts with a seek pair and a speed dropdown, music library with a
-    // five-button row. Falling back to the default is silent, and it is what
-    // the gallery did until someone noticed the wrong button on screen.
-    //
-    // Checked by class name because the class *is* the contract: AudioPlayer's
-    // CSS lays these rows out, sizes them and hides half of them by name, so a
-    // rename in the source leaves the gallery rendering an unstyled row that
-    // still looks plausible.
-    //
-    // And the layout has to live in AudioPlayer. A `<style scoped>` reaches only
-    // the markup its own file authors, so the same rule written in the source
-    // dresses the app's copy of the row and leaves the stage's copy bare — which
-    // is exactly what happened: radio's stop button was not full width, the
-    // speed selector was not pinned left, and the music-library transport row
-    // was not a flex column, on a page whose entire promise is that it renders
-    // what the unit renders. Both halves are checked, because either one alone
-    // passes while the screen is wrong.
-    const stage = readFileSync(join(SRC_DIR, 'components/gallery/SourceStage.vue'), 'utf8');
-    const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayer.vue'), 'utf8');
-
-    /** A file's `<style>` blocks, comments stripped — a class named in prose is not a rule. */
+  it('draws the lines, the bar and the transport of both players from one body', () => {
+    // Each browser source once filled its bar's #info, #progress and #controls
+    // by hand, the stage re-authored the same four rows, and the full player
+    // drew the same information a third way — three copies of one screen, and
+    // the stage's drifted from the app's more than once. PlayerBody is the one
+    // implementation now: both players render it, and nothing else renders its
+    // parts. So no source, and not the stage, may wire a player row again —
+    // the slots are gone, and a component that comes back beside AudioPlayer
+    // is a second copy in the making.
+    const templateOf = source => source.split(/<script[\s>]/)[0];
     const stylesOf = source =>
       (source.match(/<style[\s\S]*?<\/style>/g) || []).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+    const read = file => readFileSync(join(SRC_DIR, file), 'utf8');
 
-    /** Everything before `<script>`: where a class is *used* rather than styled. */
-    const templateOf = source => source.split(/<script[\s>]/)[0];
-
-    const CONTRACTS = [
-      {
-        owner: 'components/radio/RadioSource.vue',
-        classes: ['radio-controls', 'radio-controls-main', 'horizontal-layout']
-      },
-      {
-        owner: 'components/podcasts/PodcastSource.vue',
-        classes: ['speed-selector', 'desktop-only']
-      },
-      {
-        owner: 'components/music-library/MusicLibrarySource.vue',
-        classes: ['track-controls', 'track-transport-main', 'track-transport-extra']
-      },
-      {
-        owner: 'components/spotify/SpotifySource.vue',
-        classes: ['track-controls', 'track-transport-main', 'track-transport-extra']
-      }
+    const SOURCES = [
+      'components/radio/RadioSource.vue',
+      'components/podcasts/PodcastSource.vue',
+      'components/music-library/MusicLibrarySource.vue',
+      'components/spotify/SpotifySource.vue',
+      'components/gallery/SourceStage.vue'
     ];
+    const ROW_PARTS = ['<PlayerTransport', '<ProgressBar', '<PlayerInfoText', '#info', '#progress', '#controls'];
 
-    const playerStyles = stylesOf(player);
     const broken = [];
     let checked = 0;
 
-    for (const { owner, classes } of CONTRACTS) {
-      const source = readFileSync(join(SRC_DIR, owner), 'utf8');
-      const ownerStyles = stylesOf(source);
-
-      for (const name of classes) {
+    for (const file of SOURCES) {
+      const template = templateOf(read(file));
+      // The extractor first: a source that stopped mounting its bar would pass
+      // every check below by having nothing to check.
+      if (!template.includes('<AudioPlayer')) broken.push(`${file} (mounts no AudioPlayer)`);
+      for (const part of ROW_PARTS) {
         checked += 1;
-        if (!stage.includes(name)) broken.push(`${name} (missing from SourceStage)`);
-        if (!templateOf(source).includes(name)) broken.push(`${name} (gone from ${owner})`);
-        // A selector, not a mention: `.name` followed by what can continue one
-        // — including `)`, since AudioPlayer reaches slotted markup via :deep().
-        const selector = new RegExp(`\\.${name}[\\s.,:>){]`);
-        if (!selector.test(playerStyles)) broken.push(`${name} (AudioPlayer styles it no more)`);
-        if (selector.test(ownerStyles)) {
-          broken.push(`${name} (styled in ${owner}'s scoped CSS — the stage's copy cannot see it)`);
-        }
+        if (template.includes(part)) broken.push(`${file} (wires ${part} by hand)`);
       }
     }
 
-    // A CONTRACTS list that emptied itself would pass vacuously.
-    expect(checked).toBeGreaterThan(5);
+    // Both shells draw the body; the body is the one place the parts are drawn.
+    for (const shell of ['components/audio/AudioPlayer.vue', 'components/audio/AudioPlayerFull.vue']) {
+      const template = templateOf(read(shell));
+      checked += 1;
+      if (!template.includes('<PlayerBody')) broken.push(`${shell} (draws no PlayerBody)`);
+      for (const part of ['<PlayerTransport', '<ProgressBar', '<PlayerInfoText']) {
+        if (template.includes(part)) broken.push(`${shell} (draws ${part} beside the body)`);
+      }
+    }
+    const body = read('components/audio/PlayerBody.vue');
+    for (const part of ['<PlayerTransport', '<ProgressBar', '<PlayerInfoText']) {
+      checked += 1;
+      if (!templateOf(body).includes(part)) broken.push(`PlayerBody (no ${part})`);
+    }
+
+    // The one class the bar still styles on the transport: the mini-bar hides
+    // PlayerTransport's `player-extra`. Worn by the transport, styled by the bar
+    // (a selector, not a mention — `)` included, for :deep()).
+    const transport = read('components/audio/PlayerTransport.vue');
+    const selector = /\.player-extra[\s.,:>){]/;
+    checked += 1;
+    if (!templateOf(transport).includes('player-extra')) broken.push('player-extra (gone from PlayerTransport)');
+    if (!selector.test(stylesOf(read('components/audio/AudioPlayer.vue')))) {
+      broken.push('player-extra (AudioPlayer styles it no more)');
+    }
+
+    expect(checked).toBeGreaterThan(30);
     expect(broken).toEqual([]);
   });
 

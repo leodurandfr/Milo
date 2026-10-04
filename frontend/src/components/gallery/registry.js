@@ -77,12 +77,15 @@ import Dock from '@/components/ui/Dock.vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
-import PlaybackControls from '@/components/audio/PlaybackControls.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
+import PlayerTransport from '@/components/audio/PlayerTransport.vue';
+import PlayerBody from '@/components/audio/PlayerBody.vue';
+import PlayerTopRow from '@/components/audio/PlayerTopRow.vue';
+import SourceBar from '@/components/audio/SourceBar.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
 import StationCard from '@/components/radio/StationCard.vue';
@@ -105,11 +108,10 @@ import TriggerSample from './samples/TriggerSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
 import HeaderActionSample from './samples/HeaderActionSample.vue';
 import SourceStage from './SourceStage.vue';
-import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { ALL_AUDIO_SOURCES, BROWSER_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 import { SOURCE_PAGES, audioState, session, anchor, replayedState } from './sources';
-import { setApiFixtures } from './canvasHttp';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 import { UNITS, formatDuration } from '@/utils/units';
@@ -155,9 +157,8 @@ const SELECT_OPTIONS = [
  *
  * The browser sources' records each stand for a control the player draws from
  * `controls` and `details` (utils/playerControls): the toggles and the links,
- * the relative skip with the speed, the live stream's stop, a resume point in
- * place of a session. Their `details` carry what the wire does, and `api`
- * serves the reads the player makes for them (the speed list).
+ * the relative skip, the live stream's stop, a resume point in place of a
+ * session. Their `details` carry what the wire does.
  */
 const NOW_PLAYING = {
   // `skip` is listed as it is for a CD, and still draws nothing: the track steps
@@ -209,7 +210,7 @@ const NOW_PLAYING = {
       artist_id: 'ar-3'
     }
   },
-  'Podcast — skip pair and speed': {
+  'Podcast — skip pair': {
     source: 'podcast',
     session: {
       phase: 'playing',
@@ -219,7 +220,7 @@ const NOW_PLAYING = {
       duration_ms: 2940000,
       position: anchor(812000)
     },
-    controls: ['pause', 'seek', 'skip', 'set_speed'],
+    controls: ['pause', 'seek', 'skip'],
     details: {
       kind: 'podcast',
       episode: {
@@ -227,10 +228,8 @@ const NOW_PLAYING = {
         name: 'Les gens qui parlent à leurs plantes',
         image_url: podcastPlaceholder,
         podcast: { uuid: 'a1', name: 'Le Code a changé', image_url: podcastPlaceholder }
-      },
-      speed: 1.2
-    },
-    api: { '/api/podcast/playback-speeds': { status: 'success', speeds: [0.8, 1.0, 1.2, 1.5, 1.8, 2.0] } }
+      }
+    }
   },
   'Radio — live stream, song recognized': {
     source: 'radio',
@@ -327,10 +326,45 @@ function resumePoint(overrides) {
 /** The files that read the session fields NOW_PLAYING sets. Checked by the guardrail. */
 const NOW_PLAYING_READERS = [
   'components/audio/AudioPlayerFull.vue',
+  'composables/usePlayerControls.js',
+  'composables/usePlayerMetadata.js',
   'composables/useSourceProgress.js',
   'utils/nowPlayingMetadata.js',
   'utils/nowPlayingArtwork.js'
 ];
+
+/**
+ * The now-playing state both store-coupled players read, published through
+ * the app's own handler. Shared by PlayerTransport and PlayerBody.
+ */
+const NOW_PLAYING_STATE = {
+  kind: 'enum',
+  options: Object.keys(NOW_PLAYING),
+  default: 'Spotify — playing',
+  apply: (value, stores) => {
+    const record = NOW_PLAYING[value] ?? NOW_PLAYING['Spotify — playing'];
+    // Published through the app's own handler, whole — the schema is
+    // strict, so a partial state would be refused and the last one kept.
+    const state = audioState(record.source, {
+      session: record.session ? session(record.session) : null,
+      resume: record.resume ? resumePoint(record.resume) : null,
+      controls: record.controls,
+      details: record.details ?? null
+    });
+    stores.unified.updateState({
+      category: 'source',
+      type: 'state',
+      data: replayedState(state, Date.now() / 1000)
+    });
+    // Applied to the props too — see NOW_PLAYING. Only on the change, so
+    // pointing the prop elsewhere by hand still holds.
+    return { source: record.source };
+  },
+  // What the writer above invents, and where it is read. Declared so the
+  // guardrail can check the two still agree — see gallery.test.js.
+  records: Object.values(NOW_PLAYING).flatMap(record => [record.session, record.resume].filter(Boolean)),
+  readBy: NOW_PLAYING_READERS
+};
 
 export const REGISTRY = {
   Button: {
@@ -677,15 +711,63 @@ export const REGISTRY = {
     surface: args => (args.variant === 'dark' ? 'contrast' : null)
   },
 
-  PlaybackControls: {
-    component: PlaybackControls,
-    args: { isPlaying: true }
+  PlayerTransport: {
+    component: PlayerTransport,
+    args: { source: 'spotify' },
+    notes: {
+      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.'
+    },
+    state: {
+      nowPlaying: NOW_PLAYING_STATE
+    }
+  },
+
+  PlayerTopRow: {
+    component: PlayerTopRow,
+    args: { class: 'canvas-column' },
+    slots: {
+      start: {
+        'IconButton — back to the navigation': {
+          component: IconButton, props: { icon: 'minified', variant: 'background-strong', size: 'medium' }
+        },
+        none: null
+      },
+      end: {
+        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'background-strong', size: 'medium' } },
+        none: null
+      }
+    }
+  },
+
+  PlayerBody: {
+    component: PlayerBody,
+    args: { source: 'spotify', surface: 'full', class: 'canvas-column' },
+    notes: {
+      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
+      surface: 'full is the full player’s centred column on a light ground; card is the playing bar’s dark card, ranged left, whose phone form folds into one row.',
+      info: 'Taken by the playing bar for its swipe carousel; the body draws its own lines otherwise.'
+    },
+    state: {
+      nowPlaying: NOW_PLAYING_STATE
+    },
+    slots: {
+      info: {
+        'default — the body’s own lines': null
+      }
+    }
+  },
+
+  SourceBar: {
+    component: SourceBar,
+    args: { source: 'radio', label: 'Radio Nova' },
+    // The validator is `ALL_AUDIO_SOURCES.includes(value)`, which the panel
+    // cannot read off a list it does not see.
+    overrides: { source: { kind: 'enum', options: [...ALL_AUDIO_SOURCES] } }
   },
 
   PlayerInfoText: {
     component: PlayerInfoText,
     args: {
-      kicker: 'Radio Nova',
       title: 'Ainsi parlait Zarathoustra',
       secondary: 'Alain Bashung',
       class: 'canvas-column'
@@ -738,60 +820,30 @@ export const REGISTRY = {
 
   AudioPlayer: {
     component: AudioPlayer,
-    args: {
-      source: 'music_library',
-      visible: true,
-      artwork: musicPlaceholder,
-      title: 'Says',
-      swipeEnabled: true,
-      currentIndex: 1
-    },
+    args: { source: 'spotify', visible: true },
     notes: {
-      swipeEnabled: 'The swipe carousel is the mobile form of this player \u2014 switch the stage to the Phone viewport to reach it.',
-      tracks: 'Read by the swipe carousel alone, so it follows swipeEnabled and the Phone viewport.'
+      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it; only the four browser sources’ records are offered. The swipe carousel is the phone form: Music Library on the Phone viewport.'
     },
-    presets: {
-      // Read only when swipeEnabled: the carousel renders the neighbours' text
-      // locally so a swipe never waits for the backend echo.
-      tracks: {
-        'Three-track queue': [
-          { title: 'Ambre', artist: 'Nils Frahm' },
-          { title: 'Says', artist: 'Nils Frahm' },
-          { title: 'Hammers', artist: 'Nils Frahm' }
-        ],
-        'Empty queue': []
+    // What the bar draws is read from the state, through the body it shares
+    // with the full player: the same records, narrowed to its four sources.
+    state: {
+      nowPlaying: {
+        ...NOW_PLAYING_STATE,
+        options: Object.keys(NOW_PLAYING).filter(name => BROWSER_SOURCES.includes(NOW_PLAYING[name].source))
       }
     },
-    // Every slot takes a component this catalogue already carries, which is the
-    // composition the three sources actually build — nothing is stood in for.
+    // What a source still adds to its bar: radio's station behind a track on
+    // the phone, and the heart.
     slots: {
-      info: {
-        'PlayerInfoText': {
-          component: PlayerInfoText,
-          props: { kicker: 'Liked Songs', title: 'Says', secondary: 'Nils Frahm' }
-        },
-        none: null
-      },
-      progress: {
-        'ProgressBar — dark': {
-          component: ProgressBar,
-          props: {
-            currentPosition: 192000,
-            duration: 511000,
-            progressPercentage: 37.6,
-            variant: 'dark',
-            interactive: false
-          }
-        },
-        none: null
-      },
-      controls: {
-        'default — the built-in play/pause': null,
-        'PlaybackControls': { component: PlaybackControls, props: { isPlaying: true } }
-      },
       'artwork-badge': {
         none: null,
         'AppIcon — radio': { component: AppIcon, props: { name: 'radio', size: 32 } }
+      },
+      // The favorite, star or like over the cover's top-right corner, on the
+      // expand button's plate. The desktop card only.
+      'artwork-action': {
+        none: null,
+        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'on-grey', size: 'small' } }
       }
     }
   },
@@ -802,58 +854,24 @@ export const REGISTRY = {
     notes: {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
       'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.',
-      actions: 'What the source adds that is not a command — a station favorite, a star, a like — at the end of the options row.'
+      'top-end': 'What the source adds that is not a command — a station favorite, a star, a like — at the end of the top row.'
     },
     state: {
-      nowPlaying: {
-        kind: 'enum',
-        options: Object.keys(NOW_PLAYING),
-        default: 'Spotify — playing',
-        apply: (value, stores) => {
-          const record = NOW_PLAYING[value] ?? NOW_PLAYING['Spotify — playing'];
-          setApiFixtures(record.api);
-          // Published through the app's own handler, whole — the schema is
-          // strict, so a partial state would be refused and the last one kept.
-          const state = audioState(record.source, {
-            session: record.session ? session(record.session) : null,
-            resume: record.resume ? resumePoint(record.resume) : null,
-            controls: record.controls,
-            details: record.details ?? null
-          });
-          stores.unified.updateState({
-            category: 'source',
-            type: 'state',
-            data: replayedState(state, Date.now() / 1000)
-          });
-          // Applied to the props too — see NOW_PLAYING. Only on the change, so
-          // pointing the prop elsewhere by hand still holds.
-          return { source: record.source };
-        },
-        // What the writer above invents, and where it is read. Declared so the
-        // guardrail can check the two still agree — see gallery.test.js.
-        records: Object.values(NOW_PLAYING).flatMap(record => [record.session, record.resume].filter(Boolean)),
-        readBy: NOW_PLAYING_READERS
-      }
+      nowPlaying: NOW_PLAYING_STATE
     },
     slots: {
-      // CD's two: the eject/tracklist row, and the tracklist itself, which
-      // replaces the whole info column when hideContent is set.
-      'action-buttons': {
+      // The two ends of the top row, around the source bar the player draws:
+      // CD's tracklist toggle at the start; at the end a browser source's
+      // favorite, star or like, CD's eject, Bluetooth's disconnect. The
+      // tracklist itself replaces the info column while hideContent is set.
+      'top-start': {
         none: null,
-        'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'on-grey' } }
+        'IconButton — CD’s tracklist': { component: IconButton, props: { icon: 'queue', variant: 'background-strong', size: 'medium' } }
       },
-      // The one place a source puts what is not a command. A ghost button on
-      // the player's light ground needs its color said, as the toggles beside
-      // it do.
-      actions: {
+      'top-end': {
         none: null,
-        'IconButton — a like': {
-          component: IconButton,
-          props: {
-            icon: 'heart', variant: 'ghost', size: 'small', color: 'var(--color-text)',
-            class: 'transport-secondary-round'
-          }
-        }
+        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'background-strong', size: 'medium' } },
+        'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'background-strong', size: 'medium' } }
       },
       'content-replace': {
         'FillerBlock — CD’s tracklist': {

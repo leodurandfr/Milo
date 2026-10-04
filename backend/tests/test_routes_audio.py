@@ -66,9 +66,9 @@ class TestGenericControlEndpoint:
     def test_command_params_reach_the_source_verbatim(self, client, source):
         """`data` is opaque here on purpose — the source validates it against its
         own COMMANDS map, which is why a dedicated typed route adds nothing."""
-        _control(client, "set_speed", {"speed": 1.5})
+        _control(client, "seek", {"position_ms": 61000})
 
-        source.command.assert_awaited_once_with("set_speed", {"speed": 1.5})
+        source.command.assert_awaited_once_with("seek", {"position_ms": 61000})
 
     def test_failed_command_is_a_400_not_a_200(self, client, source):
         """The contract the five wrapper routes were removed in favour of.

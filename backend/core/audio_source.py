@@ -810,7 +810,9 @@ class BaseAudioSource(ABC):
                 senders=list(fields.get("senders") or []),
                 duration_ms=fields.get("duration_ms"),
                 position=(
-                    PositionAnchor(ms=anchor.ms, at=anchor.at, rate=anchor.rate)
+                    # Every source plays at 1x; `rate` stays on the wire for
+                    # the apps' decoder (MiloAudioState.swift reads it).
+                    PositionAnchor(ms=anchor.ms, at=anchor.at, rate=1.0)
                     if anchor is not None else None
                 ),
             ),
@@ -889,21 +891,16 @@ class BaseAudioSource(ABC):
 
     # === The position axis ===
 
-    def _playback_rate(self) -> float:
-        """How fast the playhead moves while playing (Podcast: its speed)."""
-        return 1.0
-
     def _position_now(self, session: Session) -> Optional[int]:
         """Where the anchor puts the playhead now, or None without one."""
         if session.anchor is None:
             return None
         return session.anchor.now(wall_time(), self._session_fields(session).get("duration_ms"))
 
-    def _anchor_position(self, ms: int, *, rate: Optional[float] = None) -> None:
-        """A discontinuity: the playhead is at `ms` now (a seek, a new track,
-        a speed change). Published by the next publish or the net after the
-        message — on the state if something else moved, else as a
-        `source/position`."""
+    def _anchor_position(self, ms: int) -> None:
+        """A discontinuity: the playhead is at `ms` now (a seek, a new track).
+        Published by the next publish or the net after the message — on the
+        state if something else moved, else as a `source/position`."""
         session = self._session
         if session is None:
             return
@@ -912,9 +909,7 @@ class BaseAudioSource(ABC):
         if duration is not None:
             ms = min(ms, duration)
         session.anchor = Anchor(
-            ms=ms, at=wall_time(),
-            rate=rate if rate is not None else self._playback_rate(),
-            moving=session.phase is Phase.PLAYING,
+            ms=ms, at=wall_time(), moving=session.phase is Phase.PLAYING,
         )
 
     def _observe_position(self, ms: Optional[int]) -> None:
@@ -952,7 +947,7 @@ class BaseAudioSource(ABC):
         if anchor.moving is moving:
             return
         session.anchor = Anchor(
-            ms=self._position_now(session), at=wall_time(), rate=anchor.rate, moving=moving,
+            ms=self._position_now(session), at=wall_time(), moving=moving,
         )
 
     # === Sessions (docs: source architecture, "the session") ===

@@ -169,7 +169,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (state) updateSystemState(state, event.type || 'websocket');
   }
 
-  /** `source/position`: the anchor alone moved (a seek, a speed change, a drift). */
+  /** `source/position`: the anchor alone moved (a seek, a drift). */
   function updatePosition(payload) {
     const session = systemState.value.session;
     // A playhead is a claim about one session: one for another is dropped.

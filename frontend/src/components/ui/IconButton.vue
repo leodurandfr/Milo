@@ -161,8 +161,9 @@ function handleClick(event) {
   color: var(--color-text-contrast);
 }
 
+/* Over artwork, which is the same in both themes: so is the plate. */
 .icon-button--on-grey {
-  background: var(--color-background-contrast-12);
+  background: var(--color-plate-on-image);
   color: var(--color-text-contrast);
   backdrop-filter: blur(var(--blur-02));
 }
@@ -228,7 +229,7 @@ function handleClick(event) {
 }
 
 .icon-button--on-grey.icon-button--loading {
-  background: var(--color-background-contrast-12);
+  background: var(--color-plate-on-image);
   color: var(--color-text-contrast);
 }
 

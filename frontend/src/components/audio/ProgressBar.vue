@@ -179,7 +179,7 @@ function onProgressClick(event) {
 }
 
 .progress-bar--light .progress {
-  background-color: var(--color-background-contrast);
+  background-color: var(--color-fill-strong);
 }
 
 .progress-bar--light .progress-container.dimmed .progress {
@@ -195,7 +195,7 @@ function onProgressClick(event) {
 }
 
 .progress-bar--dark .progress {
-  background-color: var(--color-background-neutral);
+  background-color: var(--color-fill-contrast);
 }
 
 .progress-bar--dark .time {

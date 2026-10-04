@@ -229,7 +229,6 @@ Tap an episode to start playback. The interface shows:
 * A progress bar (tap it to seek)
 * **Rewind 15s** and **forward 30s** buttons
 * A **play/pause** button
-* A speed selector (0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x)
 
 ### Automatic resume
 

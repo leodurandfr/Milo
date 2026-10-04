@@ -256,8 +256,8 @@ class AudioStateMachine:
     async def publish_state(self) -> None:
         """Broadcast what moved since the last broadcast: `source/state` when
         anything but the playhead did, else `source/position` when the
-        playhead alone did (a seek, a speed change, a drift past the
-        tolerance), else nothing.
+        playhead alone did (a seek, a drift past the tolerance), else
+        nothing.
 
         Every writer of anything the state is composed of calls it: the
         transitions, a source's publish, a source's availability, the

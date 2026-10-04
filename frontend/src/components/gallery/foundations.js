@@ -150,7 +150,7 @@ const KINDS = {
   'TEXT STYLES': 'tokens',
   SHADOWS: 'shadow',
   BLUR: 'blur',
-  FILTERS: 'tokens'
+  'PLAYER BACKDROP': 'swatch'
 };
 
 /**
@@ -175,7 +175,7 @@ const NOTES = {
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
   'TEXT STYLES': 'The raw operands. What a component applies is the utility class below, never these directly.',
   BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.',
-  FILTERS: 'A filter is the theme reaching an image, which cannot read a color token: none in light, a value in the dark block.'
+  'PLAYER BACKDROP': 'What AudioPlayerFull draws under its blurred cover in the dark theme only — a black ground and the veil over the cover. Theme-neutral: the light theme never draws it.'
 };
 
 function sectionBlock(title) {
@@ -201,7 +201,7 @@ const PAGES = [
     id: 'colors',
     title: 'Colours',
     summary: 'Every colour the app is allowed to be: the brand tone, the text and background ramps with the alpha variants of each, the system colours, and the gradients that belong to no ramp at all.',
-    sections: ['PRIMARY COLORS', 'TEXT COLORS', 'BACKGROUND COLORS', 'BORDERS', 'CONTROL COLORS', 'SYSTEM COLORS', 'SVG BRAND TOKENS', 'STROKES', 'SOURCE GRADIENTS', 'FILTERS'],
+    sections: ['PRIMARY COLORS', 'TEXT COLORS', 'BACKGROUND COLORS', 'BORDERS', 'CONTROL COLORS', 'SYSTEM COLORS', 'SVG BRAND TOKENS', 'STROKES', 'SOURCE GRADIENTS', 'PLAYER BACKDROP'],
     extras: []
   },
   {

@@ -44,23 +44,15 @@ class MemoryPodcastData:
 
     The real service writes through aiofiles and a worker thread, which
     `settle()` cannot wait for; what the source reads back (the saved position
-    of an episode, the speed preference) is all that reaches the wire.
+    of an episode) is all that reaches the wire.
     """
 
     def __init__(self) -> None:
         self.progress = {}
-        self.settings = {"playback_speed": 1.0}
         self.completed = []
 
     async def initialize(self) -> None:
         return None
-
-    async def get_setting(self, key, default=None):
-        return self.settings.get(key, default)
-
-    async def set_setting(self, key, value) -> bool:
-        self.settings[key] = value
-        return True
 
     async def get_playback_progress(self, episode_uuid):
         return self.progress.get(episode_uuid)
@@ -192,19 +184,17 @@ async def test_play_pause_resume(podcast):
     check_recording("podcast", "play_pause_resume", podcast.wire)
 
 
-async def test_seek_and_speed(podcast):
+async def test_seek(podcast):
     await podcast.select()
-    await podcast.command("set_speed", {"speed": 1.5})   # stored while idle
     podcast.playhead(0, 1800.0)
     await podcast.play(EPISODE_A)
     await podcast.tick()
     await podcast.command("seek", {"position_ms": 600000})
     await podcast.tick()
     await podcast.command("seek", {"position": 1200})
-    await podcast.command("set_speed", {"speed": 1.3})   # snapped to 1.25
     await podcast.wire.snapshot_rest()
     await podcast.deselect()
-    check_recording("podcast", "seek_and_speed", podcast.wire)
+    check_recording("podcast", "seek", podcast.wire)
 
 
 async def test_duration_learned_from_mpv_and_periodic_sync(podcast):

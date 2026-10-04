@@ -2,7 +2,6 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { nextRepeatMode } from '@/utils/spotifyRepeat';
 
 const BASE = '/api/spotify';
 // go-librespot's /library/liked answers for 1 to 50 tracks per call.
@@ -40,13 +39,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
   const signingIn = computed(() => !!details.value?.signing_in);
   const phase = computed(() => session.value?.phase ?? null);
   const isPlaying = computed(() => phase.value === 'playing');
-  const shuffle = computed(() => !!details.value?.shuffle);
-  const repeat = computed(() => details.value?.repeat ?? 'off');
   const currentTrackUri = computed(() => details.value?.track_uri ?? null);
   const currentContextUri = computed(() => details.value?.context_uri ?? null);
-
-  // Whether the source takes `command` right now.
-  const canSend = (command) => !!selected.value?.controls.includes(command);
 
   // The track a session plays. Spotify keeps no resume point of its own (the
   // daemon keeps its context), so nothing shows once the session has ended.
@@ -265,18 +259,10 @@ export const useSpotifyStore = defineStore('spotify', () => {
     return send('play_context', data);
   }
 
-  const pause = () => send('pause');
-  const resume = () => send('resume');
-  const next = () => send('next');
-  const previous = () => send('prev');
-  const seek = (positionMs) => send('seek', { position_ms: positionMs });
-  const toggleShuffle = () => send('set_shuffle', { shuffle: !shuffle.value });
-  const cycleRepeat = () => send('set_repeat', { mode: nextRepeatMode(repeat.value) });
-
   return {
     // now playing
-    account, signingIn, session, phase, isPlaying, shuffle, repeat,
-    currentTrackUri, currentContextUri, nowPlaying, canSend,
+    account, signingIn, session, phase, isPlaying,
+    currentTrackUri, currentContextUri, nowPlaying,
     // home
     home, homeLoading, homeError, loadHome,
     // contexts
@@ -286,6 +272,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     // profiles
     profiles, profilesLoaded, opensOnProfiles, loadProfiles, switchProfile, renameProfile, forgetProfile,
     // commands
-    playContext, pause, resume, next, previous, seek, toggleShuffle, cycleRepeat,
+    playContext,
   };
 });

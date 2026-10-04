@@ -360,7 +360,7 @@ class EventMpv:
                     self.current is not None and self.opened and not self.paused
                     and not self.stalled and self.position is not None
                 ):
-                    self.position += seconds * self.speed
+                    self.position += seconds
                     length = self._duration()
                     if length:
                         self.position = min(self.position, length)

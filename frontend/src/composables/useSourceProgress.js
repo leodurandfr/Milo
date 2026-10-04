@@ -4,9 +4,9 @@
 // The one interpolation every client uses (docs: "le fil", §2):
 //   position_now = ms + (phase == "playing" ? (now − at) × 1000 × rate : 0),
 //   bounded to [0, duration_ms].
-// The backend republishes the anchor only on a discontinuity (a seek, a speed
-// change, a drift past 2 s), so between two anchors the bar is this formula and
-// nothing else — no local counter to drift, no staleness to compensate: a
+// The backend republishes the anchor only on a discontinuity (a seek, a drift
+// past 2 s), so between two anchors the bar is this formula and nothing else —
+// no local counter to drift, no staleness to compensate: a
 // component mounting mid-track (the Lyrics view) reads the same number as one
 // that has been open for an hour.
 import { ref, computed, watch } from 'vue';

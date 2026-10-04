@@ -46,7 +46,6 @@ def podcast_source(config):
     # Mock podcast data service so tests don't touch the real /var/lib/milo file.
     # Individual tests can override these methods or replace _podcast_data entirely.
     source._podcast_data = AsyncMock()
-    source._podcast_data.get_setting = AsyncMock(return_value=1.0)
 
     return source
 
@@ -111,9 +110,7 @@ class TestPodcastSourceLifecycle:
         """Test start fails if MPV connection fails."""
         with patch.object(podcast_source, '_start_service', return_value=True):
             with patch('backend.sources.podcast.source.PodcastDataService') as mock_data_class:
-                mock_data = AsyncMock()
-                mock_data.get_setting = AsyncMock(return_value=1.0)
-                mock_data_class.return_value = mock_data
+                mock_data_class.return_value = AsyncMock()
 
                 with patch('backend.sources.podcast.source.PodcastCatalog') as mock_api_class:
                     mock_api = AsyncMock()
@@ -226,48 +223,6 @@ class TestPodcastSourceCommands:
         assert rig.data.progress[EPISODE_A["uuid"]]["position"] == 305
         assert rig.data.completed == []
 
-    @pytest.mark.asyncio
-    async def test_set_speed_command(self, podcast_source):
-        """Test set_speed command."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.set_property = AsyncMock()
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
-
-        result = await podcast_source.command("set_speed", {"speed": 1.5})
-
-        assert result["success"] is True
-        assert podcast_source._playback_speed == 1.5
-
-    @pytest.mark.asyncio
-    async def test_set_speed_invalid_rounds_to_nearest(self, podcast_source):
-        """Test set_speed with invalid value rounds to nearest."""
-        podcast_source._mpv = Mock()
-        podcast_source._mpv.set_property = AsyncMock()
-        podcast_source._podcast_data = Mock()
-        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
-
-        result = await podcast_source.command("set_speed", {"speed": 1.3})
-
-        assert result["success"] is True
-        assert podcast_source._playback_speed == 1.25  # Nearest valid
-
-    async def test_set_speed_during_playback_reaches_mpv(self, rig):
-        """A speed set while an episode plays changes mpv's speed now, is
-        stored, and is published — with the playhead moving at the new rate
-        from here on. If it fails, the speed menu (PodcastPlayer) shows 1.5x
-        over an episode still playing at 1x, or the bar runs at the old
-        speed."""
-        await rig.select()
-        await rig.play(EPISODE_A)
-
-        result = await rig.command("set_speed", {"speed": 1.5})
-
-        assert result["success"] is True
-        assert rig.mpv.speed == 1.5
-        assert rig.data.settings["playback_speed"] == 1.5
-        assert rig.details()["speed"] == 1.5
-        assert rig.session()["position"]["rate"] == 1.5
 
 class TestPodcastDataService:
     """Test PodcastDataService."""
@@ -280,7 +235,6 @@ class TestPodcastDataService:
 
         assert "subscriptions" in structure
         assert "playback_progress" in structure
-        assert "settings" in structure
         assert structure["subscriptions"] == []
         assert structure["playback_progress"] == {}
 
@@ -308,7 +262,6 @@ class TestPodcastDataService:
         assert payload["schema_version"] == PodcastDataService.SCHEMA_VERSION
         assert payload["subscriptions"] == []
         assert payload["playback_progress"] == {}
-        assert payload["settings"]["playback_speed"] == 1.0
 
     @pytest.mark.asyncio
     async def test_initialize_raises_on_schema_mismatch(self, tmp_path):
@@ -319,14 +272,6 @@ class TestPodcastDataService:
 
         with pytest.raises(SchemaVersionMismatch):
             await service.initialize()
-
-    @pytest.mark.asyncio
-    async def test_settings_defaults(self):
-        """Test default settings."""
-        service = PodcastDataService()
-        structure = service._get_default_structure()
-
-        assert structure["settings"]["playback_speed"] == 1.0
 
     @pytest.mark.asyncio
     async def test_resubscribing_refreshes_metadata_without_losing_the_row(
@@ -356,12 +301,11 @@ class TestPlaybackDetails:
 
     async def test_a_playing_episode_publishes_its_record(self, rig):
         """The episode as the catalog routes return it, the show, the
-        playhead and length in milliseconds (the shared wire convention), the
-        phase and the speed. If it fails, the podcast player
-        (podcastStore / AudioPlayer.vue) draws the wrong episode, a bar off by a
-        factor of 1000, or the wrong speed."""
+        playhead and length in milliseconds (the shared wire convention) and
+        the phase. If it fails, the podcast player (podcastStore /
+        AudioPlayer.vue) draws the wrong episode or a bar off by a factor of
+        1000."""
         await rig.select()
-        await rig.command("set_speed", {"speed": 1.5})
         await rig.play(EPISODE_A)
         rig.mpv.playhead(120)
         await rig.machine.refresh_active_view()
@@ -370,11 +314,9 @@ class TestPlaybackDetails:
         assert details["episode"]["uuid"] == EPISODE_A["uuid"]
         assert details["episode"]["name"] == EPISODE_A["name"]
         assert details["episode"]["podcast"] == SHOW
-        assert details["speed"] == 1.5
         assert rig.position_ms() == 120_000
         assert session["duration_ms"] == 1_800_000
         assert session["phase"] == "playing"
-        assert session["position"]["rate"] == 1.5
 
 
 class TestTheCommonFloor:
@@ -550,7 +492,7 @@ class TestMpvRefusesTheTransportCommand:
     """mpv answers False whenever its IPC socket is down, and says so only at
     debug level.
 
-    If these fail, a pause/resume/seek/speed the daemon never took is answered
+    If these fail, a pause/resume/seek the daemon never took is answered
     with `success`, the source publishes a state mpv does not have: the UI
     draws a play button over an episode that is still playing, and the progress
     saved on that pause is written for a stream that kept advancing.
@@ -595,18 +537,6 @@ class TestMpvRefusesTheTransportCommand:
 
         assert result["success"] is False
         assert rig.data.progress == {}
-        assert published(rig) == before
-
-    async def test_set_speed_refused_keeps_the_speed_unpersisted(self, rig):
-        await self._playing(rig)
-        rig.mpv.accept = False
-        before = published(rig)
-
-        result = await rig.command("set_speed", {"speed": 1.5})
-
-        assert result["success"] is False
-        assert rig.data.settings["playback_speed"] == 1.0
-        assert rig.details()["speed"] == 1.0
         assert published(rig) == before
 
 
@@ -666,17 +596,3 @@ class TestTransportOnAnIdleSource:
         assert result["success"] is False
         assert "NoneType" not in str(result)
 
-    @pytest.mark.asyncio
-    async def test_set_speed_off_playback_is_stored_for_the_next_episode(self, podcast_source):
-        """The speed is a preference re-applied at every play, so setting it with
-        nothing loaded is legitimate — only the push to a live session is not.
-        This is what lets a widget set the speed without starting an episode."""
-        assert podcast_source._mpv is None
-
-        result = await podcast_source.command("set_speed", {"speed": 1.5})
-
-        assert result["success"] is True
-        assert podcast_source._playback_speed == 1.5
-        podcast_source._podcast_data.set_setting.assert_awaited_once_with(
-            "playback_speed", 1.5
-        )

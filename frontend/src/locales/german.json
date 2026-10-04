@@ -95,9 +95,7 @@
       "retry": "Erneut versuchen",
       "noStationsFound": "Keine Sender gefunden",
       "minCharactersRequired": "Geben Sie mindestens 3 Zeichen ein, um zu suchen",
-      "noFavorites": "Keine Lieblingssender",
-      "playRadio": "Anhören",
-      "stopRadio": "Stoppen"
+      "noFavorites": "Keine Lieblingssender"
     }
   },
   "multiroom": {
@@ -388,6 +386,7 @@
     "appVolumeDescription": "Der Spotify-App erlauben, die Lautstärke zu ändern. Wenn deaktiviert, hält Milō Spotify auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
   },
   "spotify": {
+    "accountSpotify": "Spotify von {name}",
     "album": "Album",
     "artist": "Künstler",
     "castAgain": "Streamen Sie erneut von Ihrem Telefon",
@@ -411,13 +410,9 @@
     "noTracks": "Keine Titel",
     "playlist": "Playlist",
     "profiles": "Profile",
-    "repeatContext": "Liste wiederholen",
-    "repeatOff": "Wiederholung aus",
-    "repeatTrack": "Titel wiederholen",
     "retry": "Erneut versuchen",
     "save": "Speichern",
     "shortcuts": "Verknüpfungen",
-    "shuffle": "Zufallswiedergabe",
     "signingIn": "Anmeldung bei Spotify…",
     "switchStopsPlayback": "Tippen Sie erneut: Die Wiedergabe wird beendet",
     "tracksCount": "{count} Titel | {count} Titel",
@@ -520,6 +515,12 @@
     "expandPlayer": "Player vergrößern",
     "selectOption": "Option auswählen"
   },
+  "player": {
+    "repeatContext": "Liste wiederholen",
+    "repeatOff": "Wiederholung aus",
+    "repeatTrack": "Titel wiederholen",
+    "shuffle": "Zufallswiedergabe"
+  },
   "radio": {
     "country": "Land",
     "genre": "Genre",
@@ -577,7 +578,6 @@
     "episodeDetails": "Episoden-Details",
     "top30": "Top 30",
     "nowPlaying": "Wird abgespielt",
-    "noEpisode": "Keine Episode",
     "ranking": "Rangliste",
     "topPodcasts": "Top-Podcasts",
     "explore": "Entdecken",

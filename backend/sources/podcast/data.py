@@ -5,7 +5,6 @@ Podcast data service for subscription and progress management.
 This service manages:
 - Subscriptions with full metadata
 - Playback progress with episode context
-- User settings (playback_speed)
 
 Data is persisted to /var/lib/milo/podcast_data.json — uses the
 schema_version protocol (see CLAUDE.md §"Persistence & schema-version protocol").
@@ -22,7 +21,7 @@ from backend.core.models.ws_events import (
 )
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
-REQUIRED_TOP_LEVEL_KEYS = ("subscriptions", "playback_progress", "settings")
+REQUIRED_TOP_LEVEL_KEYS = ("subscriptions", "playback_progress")
 
 
 class PodcastDataService:
@@ -32,7 +31,6 @@ class PodcastDataService:
     Manages:
     - Subscriptions with full metadata (name, image_url, children_hash, added_at, last_checked)
     - Playback progress with episode context (position, duration, last_played, episode/podcast info)
-    - User settings (playback_speed)
 
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
@@ -114,9 +112,6 @@ class PodcastDataService:
         return {
             "subscriptions": [],
             "playback_progress": {},
-            "settings": {
-                "playback_speed": 1.0
-            }
         }
 
     async def save_data(self, data: Dict[str, Any]) -> bool:
@@ -303,35 +298,3 @@ class PodcastDataService:
             return True, True
 
         return await self._mutate(apply)
-
-    # ========== SETTINGS ==========
-
-    async def get_podcast_settings(self) -> Dict[str, Any]:
-        """Get podcast-specific settings."""
-        data = await self.load_data()
-        return data.get('settings', {})
-
-    async def update_podcast_settings(self, settings: Dict[str, Any]) -> bool:
-        """
-        Update podcast settings.
-
-        Args:
-            settings: Dict with settings to update (partial update supported)
-        """
-        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
-            # Update only provided settings
-            for key, value in settings.items():
-                if key in data['settings']:
-                    data['settings'][key] = value
-            return True, True
-
-        return await self._mutate(apply)
-
-    async def get_setting(self, key: str, default: Any = None) -> Any:
-        """Get a single setting value."""
-        settings = await self.get_podcast_settings()
-        return settings.get(key, default)
-
-    async def set_setting(self, key: str, value: Any) -> bool:
-        """Set a single setting value."""
-        return await self.update_podcast_settings({key: value})

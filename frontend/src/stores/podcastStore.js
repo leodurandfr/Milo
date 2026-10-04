@@ -13,16 +13,13 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === PLAYBACK STATE ===
   // The podcast's content, while podcast is the selected source: the episode
-  // (live, or the one kept to resume) and the speed.
+  // (live, or the one kept to resume).
   const podcastDetails = computed(() => {
     const state = unifiedStore.systemState;
     if (state.source !== 'podcast' || state.details?.kind !== 'podcast') return null;
     return state.details;
   });
   const currentEpisode = computed(() => podcastDetails.value?.episode ?? null);
-  // Canonical list fetched from backend (GET /api/podcast/playback-speeds).
-  // Safe fallback used until the first successful fetch.
-  const playbackSpeeds = ref([1.0]);
   const pendingEpisodeUuid = ref(null); // Optimistic loading state before WebSocket confirms
 
   // The current episode's playhead, as the state describes it: the live
@@ -103,16 +100,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   // episode still plays from its own host while this is set.
   const apiError = ref(false);
 
-  // === SETTINGS ===
-  // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
-  const settings = ref({
-    playback_speed: 1.0
-  });
-
-  // The speed the state publishes beside an episode; the saved setting when
-  // there is none.
-  const playbackSpeed = computed(() => podcastDetails.value?.speed ?? settings.value.playback_speed);
-
   // === COMPUTED ===
   const hasSubscriptions = computed(() => subscriptions.value.size > 0);
 
@@ -137,35 +124,6 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function resume() {
     await unifiedStore.sendCommand('podcast', 'resume');
-  }
-
-  async function setSpeed(speed) {
-    // The applied speed comes back in the state (`details.speed`), which also
-    // snaps an off-grid request to the nearest valid value.
-    await unifiedStore.sendCommand('podcast', 'set_speed', { speed });
-  }
-
-  async function loadPlaybackSpeeds() {
-    const result = await apiCall.get('/api/podcast/playback-speeds', {
-      category: 'store',
-      message: 'Error loading playback speeds',
-      checkStatus: true,
-    });
-    if (result.ok && Array.isArray(result.data.speeds)) {
-      playbackSpeeds.value = result.data.speeds;
-    }
-  }
-
-  // === SETTINGS ACTIONS ===
-
-  async function loadSettings() {
-    const result = await apiCall.get('/api/podcast/settings', {
-      category: 'store',
-      message: 'Error loading settings',
-    });
-    if (result.ok && result.data.settings) {
-      settings.value = { ...settings.value, ...result.data.settings };
-    }
   }
 
   // === WEBSOCKET STATE HANDLERS ===
@@ -509,8 +467,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     // State
     currentEpisode,
     currentEpisodeProgress,
-    playbackSpeed,
-    playbackSpeeds,
     pendingEpisodeUuid,
     progressCache,
     subscriptions: subscriptionsList, // exposed as array for iteration
@@ -537,9 +493,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     play,
     pause,
     resume,
-    setSpeed,
-    loadPlaybackSpeeds,
-    loadSettings,
     handleSessionEnded,
 
     // Pending state helper

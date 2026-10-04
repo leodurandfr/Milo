@@ -18,8 +18,8 @@
       <AudioPlayerFull v-if="playerShown" class="browser-view" :source="source"
         @artwork-click="openInNavigation('artwork-click')"
         @secondary-click="openInNavigation('secondary-click')">
-        <template v-if="$slots.actions" #actions>
-          <slot name="actions" />
+        <template v-if="$slots['top-end']" #top-end>
+          <slot name="top-end" />
         </template>
       </AudioPlayerFull>
     </Transition>

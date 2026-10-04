@@ -202,7 +202,7 @@ store.loadProfiles();
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-contrast-32);
+  background: var(--color-veil-on-image);
 }
 
 .profile-name {

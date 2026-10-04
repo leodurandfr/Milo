@@ -56,7 +56,6 @@ SOURCES = [
 PARAMS = {
     "seek": {"position_ms": 1000},
     "skip": {"seconds": 5},
-    "set_speed": {"speed": 1.5},
     "set_shuffle": {"shuffle": True},
     "set_repeat": {"mode": "context"},
     "play_index": {"index": 0},
@@ -257,31 +256,31 @@ SCENARIOS: List[Scenario] = [
     }),
     Scenario("radio without favorites", lambda mp, t: _radio(mp, t, favorites=False),
              expect={"controls": ["stop"]}),
-    # Podcast — the playhead moves at the chosen speed.
+    # Podcast — an episode, kept to resume once it stops.
     Scenario("podcast loading", lambda mp, t: _podcast(mp, t, loading=True),
-             expect={"controls": ["pause", "set_speed"]}, session_has={"phase": "loading"}),
+             expect={"controls": ["pause"]}, session_has={"phase": "loading"}),
     Scenario("podcast playing", _podcast, expect={
         "session": {
             "id": "<id>", "phase": "playing", "title": "The Sunday Read", "artist": SHOW,
             "album": SHOW, "artwork": EPISODE_A["image_url"], "senders": [],
             "duration_ms": 1800000, "position": {"ms": 0, "at": "<at>", "rate": 1.0},
         },
-        "controls": ["pause", "seek", "skip", "set_speed"], "resume": None,
-        "details": {"kind": "podcast", "episode": EPISODE_A, "speed": 1.0},
+        "controls": ["pause", "seek", "skip"], "resume": None,
+        "details": {"kind": "podcast", "episode": EPISODE_A},
     }),
     Scenario("podcast paused", lambda mp, t: _podcast(mp, t, pause=True),
-             expect={"controls": ["resume", "seek", "skip", "set_speed"]}, session_has={"phase": "paused"}),
+             expect={"controls": ["resume", "seek", "skip"]}, session_has={"phase": "paused"}),
     # E50: nothing to seek with no session.
     Scenario("podcast kept to resume", lambda mp, t: _podcast(mp, t, kept=True), expect={
-        "session": None, "controls": ["resume", "set_speed"],
+        "session": None, "controls": ["resume"],
         "resume": {
             "title": "The Sunday Read", "artist": SHOW, "album": SHOW,
             "artwork": EPISODE_A["image_url"], "duration_ms": 1800000, "position_ms": 0,
         },
-        "details": {"kind": "podcast", "episode": EPISODE_A, "speed": 1.0},
+        "details": {"kind": "podcast", "episode": EPISODE_A},
     }),
     Scenario("podcast with nothing", lambda mp, t: _podcast(mp, t, play=False), expect={
-        "session": None, "controls": ["set_speed"], "resume": None, "details": None,
+        "session": None, "controls": [], "resume": None, "details": None,
     }),
     # Music Library — a queue; no next on its last track.
     Scenario("library playing", _library, expect={
@@ -440,7 +439,7 @@ def test_the_guardrail_meets_every_command_the_spec_lists():
     so the guardrail cannot pass by never meeting one."""
     listed = {c for _, c in CONTROL_CASES}
     assert listed == {
-        "stop", "next", "prev", "resume_playback", "pause", "resume", "seek", "skip", "set_speed",
+        "stop", "next", "prev", "resume_playback", "pause", "resume", "seek", "skip",
         "set_shuffle", "set_repeat", "play_index", "play_track", "eject", "disconnect",
     }
 

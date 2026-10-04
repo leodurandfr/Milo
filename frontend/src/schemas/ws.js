@@ -141,7 +141,7 @@ export const wsEventRegistry = {
   'programs.satellite_camilladsp_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_camilladsp_update_complete': SatelliteUpdateCompleteSchema,
   // Backend: SourcePosition — the playhead's anchor alone moved (a seek, a
-  // speed change, a drift past 2 s). Read by Milo-Mac's store as well as ours.
+  // drift past 2 s). Read by Milo-Mac's store as well as ours.
   'source.position': z.object({
     source: z.enum(['none', ...ALL_AUDIO_SOURCES]),
     session_id: z.string(),

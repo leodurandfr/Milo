@@ -149,7 +149,7 @@ These are shared by every source; they break for all of them at once.
 | Catalogue | Home/search/genres return results (not an empty state) | targeted |
 | Playback | Episode plays; artwork + episode title shown | targeted |
 | Transport | −15 s / +30 s buttons move playback by that amount; progress bar seek works | targeted |
-| Speed | Changing speed changes the audible rate and persists across pause/resume | targeted |
+| Normal pace | An episode plays at its normal pace, including after a resume; neither the bar nor the full player shows a speed control | targeted |
 | Resume | Leaving mid-episode and returning resumes within a few seconds of where it stopped, after a reboot too | targeted |
 | Quota | Settings > Podcasts shows a plausible request count and reset date | targeted |
 

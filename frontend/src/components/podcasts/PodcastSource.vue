@@ -49,57 +49,9 @@
               @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
         </template>
 
-        <!-- Player slot: AudioPlayer component -->
+        <!-- The playing bar reads what it draws from the state. -->
         <template #player>
-          <AudioPlayer v-bind="bar" source="podcast" :artwork="episodeImage" :title="episodeName"
-            :swipe-enabled="canSkip"
-            @swipe-next="seekForward" @swipe-prev="seekBackward">
-            <!-- Track info: podcast name kicker + episode title, in the shared
-                 PlayerInfoText's vertical layout (the desktop sidebar); the mobile
-                 mini-bar's compact single-line horizontal layout renders its own
-                 title/podcast-name pair instead. -->
-            <template #info>
-              <PlayerInfoText class="vertical-layout" :kicker="podcastName" :title="episodeName" />
-              <p class="player-title text-body horizontal-layout">{{ episodeName }}</p>
-              <p v-if="podcastName" class="player-subtitle text-body horizontal-layout">{{ podcastName }}</p>
-            </template>
-
-            <!-- Progress bar: once the episode has a duration and a playhead;
-                 seekable while the source takes `seek` -->
-            <template #progress>
-              <div v-if="showProgress" @click.stop>
-                <ProgressBar :currentPosition="positionMs" :duration="durationMs"
-                  :progressPercentage="livePercent" :interactive="canSeek" variant="dark" @seek="seekTo" />
-              </div>
-            </template>
-
-            <!-- Podcast controls: play/pause everywhere; seek buttons + speed selector are
-                 desktop-only — on mobile the mini-player's swipe gesture covers +30s (right)
-                 / -15s (left), and the full player carries all of them. -->
-            <template #controls>
-              <!-- The seek pair takes `secondary-round`, not `secondary`: it fills
-                   its box in both axes, and on `secondary` — a rung calibrated on
-                   the flattest glyph there is — it came out larger than the pause
-                   it flanks. A rung below would leave its two digits unreadable,
-                   which is the floor that sets the value. The measurements are in
-                   design-system.css. `desktop-only` hides the pair in the docked
-                   bar; a phone reaches it in the full player. -->
-              <div class="playback-controls" @click.stop>
-                <IconButton v-if="canSkip" icon="rewind15" variant="ghost" size="small"
-                  class="desktop-only transport-secondary-round" @click="seekBackward" />
-
-                <IconButton :icon="pausesOnPress(phase) ? 'pause' : 'play'" variant="ghost" size="medium"
-                  class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
-
-                <IconButton v-if="canSkip" icon="forward30" variant="ghost" size="small"
-                  class="desktop-only transport-secondary-round" @click="seekForward" />
-              </div>
-
-              <div v-if="controls.includes('set_speed')" class="speed-selector desktop-only" @click.stop>
-                <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
-              </div>
-            </template>
-          </AudioPlayer>
+          <AudioPlayer v-bind="bar" source="podcast" />
         </template>
       </AudioSourceLayout>
     </template>
@@ -107,21 +59,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
-import { useSourceProgress } from '@/composables/useSourceProgress'
-import { pausesOnPress } from '@/utils/transport'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
-import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
-import Dropdown from '@/components/ui/Dropdown.vue'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -131,8 +79,6 @@ import QueueView from './QueueView.vue'
 import GenreView from './GenreView.vue'
 import PodcastDetails from './PodcastDetails.vue'
 import EpisodeDetails from './EpisodeDetails.vue'
-import ProgressBar from '@/components/audio/ProgressBar.vue'
-import { podcastPlaceholder } from '@/constants/placeholders'
 
 const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
@@ -154,33 +100,7 @@ const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore 
 const playback = useSourcePlaybackVisibility('podcast', {
   content: () => podcastStore.currentEpisode
 })
-const {
-  isBuffering,
-  shouldShowPlayer: shouldShowPlayerLayout,
-  displayed: episode
-} = playback
-
-// The playhead (ms), from the session's position anchor — or the resume point
-// while no session runs.
-const {
-  currentPosition: positionMs,
-  duration: durationMs,
-  progressPercentage: livePercent,
-  seekTo,
-  skip,
-  isPositionInitialized,
-} = useSourceProgress('podcast')
-
-// What the source takes right now, and the phase it answers from.
-const controls = computed(() =>
-  unifiedStore.systemState.source === 'podcast' ? unifiedStore.systemState.controls : []
-)
-const phase = computed(() =>
-  unifiedStore.systemState.source === 'podcast' ? unifiedStore.systemState.session?.phase : null
-)
-const canSeek = computed(() => controls.value.includes('seek'))
-const canSkip = computed(() => controls.value.includes('skip'))
-const showProgress = computed(() => durationMs.value > 0 && isPositionInitialized.value)
+const { shouldShowPlayer: shouldShowPlayerLayout } = playback
 
 // Navigation params (stored separately since composable handles view state)
 const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
@@ -297,67 +217,6 @@ async function playEpisode(episode) {
   }
 }
 
-// ===== Player controls and data (moved from PodcastPlayer.vue) =====
-
-// Episode artwork — the backend keeps the episode through a stop
-const episodeImage = computed(() => {
-  return episode.value?.image_url || podcastPlaceholder
-})
-
-// Episode name — same source of truth, no local copy
-const episodeName = computed(() => {
-  return episode.value?.name || t('podcasts.noEpisode')
-})
-
-// Podcast name — same source of truth, no local copy
-const podcastName = computed(() => {
-  return episode.value?.podcast?.name || ''
-})
-
-// Speed control — canonical list owned by backend, fetched at mount time
-const speedOptions = computed(() =>
-  podcastStore.playbackSpeeds.map(speed => ({
-    label: `${speed}x`,
-    value: String(speed)
-  }))
-)
-
-const selectedSpeed = computed({
-  get: () => String(podcastStore.playbackSpeed || 1),
-  set: () => { } // Handled by @change event
-})
-
-async function togglePlayPause() {
-  if (pausesOnPress(phase.value)) {
-    if (controls.value.includes('pause')) await podcastStore.pause()
-  } else if (controls.value.includes('resume')) {
-    await podcastStore.resume()
-  }
-}
-
-// −15 / +30 are relative: the source adds them to where its playhead is, so
-// quick presses add up (useSourceProgress.skip shows the sum at once).
-async function seekBackward() {
-  if (!canSkip.value) return
-  await skip(-15)
-}
-
-async function seekForward() {
-  if (!canSkip.value) return
-  await skip(30)
-}
-
-async function handleSpeedChange(speedValue) {
-  const speed = parseFloat(speedValue)
-  await podcastStore.setSpeed(speed)
-}
-
-onMounted(async () => {
-  // Load settings and initial data
-  await podcastStore.loadSettings()
-  podcastStore.loadPlaybackSpeeds()
-})
-
 onBeforeUnmount(() => {
   podcastStore.clearSearch()
 })
@@ -367,8 +226,4 @@ onBeforeUnmount(() => {
 ::-webkit-scrollbar {
   display: none;
 }
-
-/* The .speed-selector layout lives in AudioPlayer.vue, in :deep() — it is
-   slotted into it, and the same row is re-authored by the gallery's
-   SourceStage, which scoped CSS here could never reach. */
 </style>

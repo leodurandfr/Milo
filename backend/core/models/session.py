@@ -156,16 +156,15 @@ def check_end(phase: Phase, reason: EndReason) -> None:
 @dataclass(frozen=True)
 class Anchor:
     """The session's playhead: `ms` at the wall-clock instant `at`, advancing
-    at `rate` while `moving` (the phase was PLAYING when it was set). The one
-    implementation of playhead aging, kept by BaseAudioSource."""
+    in real time while `moving` (the phase was PLAYING when it was set). The
+    one implementation of playhead aging, kept by BaseAudioSource."""
     ms: int
     at: float
-    rate: float
     moving: bool
 
     def now(self, at: float, duration_ms: Optional[int]) -> int:
         """Where the playhead is at `at`, bounded to [0, duration_ms]."""
-        ms = self.ms + ((at - self.at) * 1000 * self.rate if self.moving else 0)
+        ms = self.ms + ((at - self.at) * 1000 if self.moving else 0)
         if duration_ms is not None:
             ms = min(ms, duration_ms)
         return max(0, int(ms))
@@ -248,13 +247,11 @@ class CommandScope(str, Enum):
 
     CONTENT starts something new; SESSION needs a live session and is refused
     without one; RESUME works from the resume point when there is no session
-    (it restores, then acts); PREFERENCE holds without a session; DEVICE acts on
-    the hardware, not on the session.
+    (it restores, then acts); DEVICE acts on the hardware, not on the session.
     """
     CONTENT = "content"
     SESSION = "session"
     RESUME = "resume"
-    PREFERENCE = "preference"
     DEVICE = "device"
 
 

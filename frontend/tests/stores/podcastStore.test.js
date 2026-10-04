@@ -19,7 +19,7 @@ const EPISODE = (uuid, extra = {}) => ({ uuid, title: `Episode ${uuid}`, ...extr
 const T0 = 1_790_270_000; // epoch seconds
 
 /** Podcast selected with `episode` live in a session. */
-function podcastSession(episode, { phase = 'playing', id = 'session-1', ms = null, at = T0, durationMs = null, speed = 1.0 } = {}) {
+function podcastSession(episode, { phase = 'playing', id = 'session-1', ms = null, at = T0, durationMs = null } = {}) {
   return {
     source: 'podcast',
     service: 'running',
@@ -28,10 +28,10 @@ function podcastSession(episode, { phase = 'playing', id = 'session-1', ms = nul
       phase,
       title: episode.title,
       duration_ms: durationMs,
-      position: ms === null ? null : { ms, at, rate: speed },
+      position: ms === null ? null : { ms, at, rate: 1.0 },
     }),
-    controls: phase === 'paused' ? ['resume', 'seek', 'set_speed'] : ['pause', 'seek', 'set_speed'],
-    details: { kind: 'podcast', episode, speed },
+    controls: phase === 'paused' ? ['resume', 'seek'] : ['pause', 'seek'],
+    details: { kind: 'podcast', episode },
   };
 }
 
@@ -40,17 +40,17 @@ function podcastResume(episode, { positionMs = null, durationMs = null } = {}) {
   return {
     source: 'podcast',
     service: 'running',
-    controls: ['resume', 'set_speed'],
+    controls: ['resume'],
     resume: {
       title: episode.title, artist: null, album: null, artwork: null,
       duration_ms: durationMs, position_ms: positionMs,
     },
-    details: { kind: 'podcast', episode, speed: 1.0 },
+    details: { kind: 'podcast', episode },
   };
 }
 
 /** Podcast selected with nothing loaded and nothing to resume. */
-const podcastIdle = () => ({ source: 'podcast', service: 'running', controls: ['set_speed'] });
+const podcastIdle = () => ({ source: 'podcast', service: 'running', controls: [] });
 
 const publish = (overrides) => publishState(useUnifiedAudioStore(), overrides);
 
@@ -144,21 +144,6 @@ describe('podcastStore', () => {
 
       expect(store.currentEpisode).toBeNull();
       expect(store.currentEpisodeProgress).toBeNull();
-    });
-
-    it('applies the speed the state publishes', () => {
-      publish(podcastSession(EPISODE('ep1'), { speed: 1.5 }));
-
-      expect(store.playbackSpeed).toBe(1.5);
-    });
-
-    it('falls back to the saved speed while no episode carries one', async () => {
-      apiCall.get.mockResolvedValueOnce(ok({ settings: { playback_speed: 1.25 } }));
-      await store.loadSettings();
-
-      publish(podcastIdle());
-
-      expect(store.playbackSpeed).toBe(1.25);
     });
 
     it('returns null progress for an episode never played', () => {
@@ -363,7 +348,7 @@ describe('podcastStore', () => {
       // good; App.vue heals unifiedStore first, and the episode is read from it.
       publish(podcastSession(EPISODE('ep1')));
       apiCall.get.mockImplementation(async (url) => {
-        if (url === '/api/audio/state') return ok(makeAudioState(podcastSession(EPISODE('ep2'), { speed: 1.5 })));
+        if (url === '/api/audio/state') return ok(makeAudioState(podcastSession(EPISODE('ep2'))));
         return ok({ subscriptions: [] });
       });
 
@@ -371,7 +356,6 @@ describe('podcastStore', () => {
       await store.resync();
 
       expect(store.currentEpisode.uuid).toBe('ep2');
-      expect(store.playbackSpeed).toBe(1.5);
     });
   });
 
@@ -395,10 +379,6 @@ describe('podcastStore', () => {
       expect(store.pendingEpisodeUuid).toBeNull();
     });
   });
-
-  // setSpeed has no test: it delegates to sendCommand and the applied value
-  // arrives in the state, already covered by 'applies the speed the state
-  // publishes' above.
 
   describe('search state', () => {
     it('records results, pagination and the term that produced them', () => {

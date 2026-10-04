@@ -1,33 +1,9 @@
 <!-- frontend/src/components/gallery/demos/LayoutDemo.vue -->
 <template>
-  <GalleryItem id="AudioPlayer">
-    <GalleryVariant label="desktop — the docked sidebar card, slots filled as the three sources fill them" contain :contain-height="420">
-      <div class="player-pane">
-        <AudioPlayer source="music_library" visible :artwork="musicPlaceholder" title="Says">
-          <template #info>
-            <PlayerInfoText kicker="Liked Songs" title="Says" secondary="Nils Frahm" />
-          </template>
-          <template #progress>
-            <ProgressBar :current-position="192000" :duration="511000" :progress-percentage="37.6"
-              variant="dark" :interactive="false" />
-          </template>
-        </AudioPlayer>
-      </div>
-    </GalleryVariant>
-    <GalleryVariant label="controls slot — each source fills it with its own row" contain :contain-height="420">
-      <div class="player-pane">
-        <AudioPlayer source="radio" visible :artwork="musicPlaceholder" title="Radio Nova">
-          <template #info>
-            <PlayerInfoText kicker="Radio Nova" title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
-          </template>
-          <template #controls>
-            <PlaybackControls is-playing />
-          </template>
-        </AudioPlayer>
-      </div>
-    </GalleryVariant>
-    <GalleryVariant label="the mobile form is a viewport, not a prop — open the Playground tab and pick Phone" />
-  </GalleryItem>
+  <!-- No variants grid, for the full player's reason below: the bar reads the
+       app's own store now, and this tab renders in the app document. The
+       Playground replays a now-playing record into the canvas instead. -->
+  <GalleryItem id="AudioPlayer" />
 
   <!-- No variants grid: it reads the app's own store, and this tab renders in
        the app document rather than the canvas iframe — mounting it here would
@@ -125,26 +101,12 @@ import { ref } from 'vue';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import FillerBlock from '../samples/FillerBlock.vue';
-import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
-import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
-import PlaybackControls from '@/components/audio/PlaybackControls.vue';
-import ProgressBar from '@/components/audio/ProgressBar.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import { musicPlaceholder } from '@/constants/placeholders';
 
 const playerShown = ref(false);
 const viewIndex = ref(1);
 const log = ref('');
 </script>
-
-<style scoped>
-/* The 340px sticky pane AudioSourceLayout gives the player — it sizes itself to
-   its host, so without one it spans the card. */
-.player-pane {
-  width: 340px;
-  height: 100%;
-}
-</style>

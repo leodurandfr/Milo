@@ -19,10 +19,10 @@ import { useI18n } from '@/services/i18n';
 
 defineProps({
   // The tone of the surface the bar is drawn on, not the tone of the bar itself
-  // — same sense as ProgressBar's. "light" is the whole app; "dark" is the
-  // screensaver and the Lyrics view, where the near-black fill would sink into
+  // — same sense as ProgressBar's. "light" is the light theme; "dark" is the
+  // dark theme and the Lyrics view, where the near-black fill would sink into
   // the backdrop. App.vue picks it from useDarkSurface(), so nothing here has to
-  // know which views those are.
+  // know which surfaces those are.
   variant: {
     type: String,
     default: 'light',
@@ -113,7 +113,7 @@ const volumeFillStyle = computed(() => ({
 
 /* === Variants ===
    Four layers flip; the plate above is shared. The fill takes the far end of
-   the ramp — near-black on light, white on dark — and carries the contrast on
+   the ramp — near-black on light, light on dark — and carries the contrast on
    its own, so the track only has to hint at how far the value has travelled: on
    dark that is a second coat of the plate's own wash, about half the step the
    light variant needs to register against its pale backdrop. An ink track was
@@ -125,13 +125,14 @@ const volumeFillStyle = computed(() => ({
 
 .volume-bar--light {
   --volume-track: var(--color-background-medium-32);
-  --volume-fill: var(--color-background-contrast);
+  --volume-fill: var(--color-fill-strong);
   --volume-text: var(--color-text-light);
 }
 
 .volume-bar--dark {
   --volume-track: var(--color-background-medium-16);
-  --volume-fill: var(--color-background-neutral);
+  /* Not the neutral surface, which turns dark with the theme. */
+  --volume-fill: var(--color-fill-contrast);
   --volume-text: var(--color-text-secondary);
   /* The fourth layer: the glass rim. White at .48 sits 13/255 off this plate on
      a light ground and 100 on a dark one, so the shared stroke that reads as a

@@ -72,7 +72,6 @@ class MpvSim:
         self.position: Optional[float] = None
         self.paused = False
         self.stalled = False
-        self.speed = 1.0
         self.remaining_loops = 0           # remaining-file-loops (loop-file)
         self.props: Dict[str, Any] = {}    # anything else a source sets
         self._next_id = 0
@@ -190,8 +189,6 @@ class MpvSim:
             return False
         if name == "pause":
             self._set_pause(bool(value))
-        elif name == "speed":
-            self.speed = value
         elif name == "loop-file":
             self.props[name] = value
             self._arm_file_loops()
@@ -296,7 +293,6 @@ class MpvSim:
             "playlist-pos": self.playlist.index(self.current) if self.current in self.playlist else -1,
             "playlist-count": len(self.playlist),
             "metadata": dict(self.metadata),
-            "speed": self.speed,
             "remaining-file-loops": self.remaining_loops,
         }
         return values[name] if name in values else self.props.get(name)

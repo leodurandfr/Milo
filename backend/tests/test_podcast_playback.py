@@ -131,20 +131,6 @@ class TestStartingAnEpisode:
         await settle()
         assert rig.phase() == "playing"
 
-    async def test_the_speed_set_while_idle_is_applied_to_the_next_episode(self, rig):
-        """The speed is a preference: set with nothing playing (the speed menu,
-        a widget), it has to reach mpv when the next episode loads, or the
-        setting silently applies to nothing."""
-        await rig.select()
-        await rig.command("set_speed", {"speed": 1.5})
-
-        await rig.play(EPISODE_A)
-
-        speed_sets = [c for c in rig.mpv.sent if c[:2] == ("set_property", "speed")]
-        assert speed_sets and speed_sets[-1][2] == 1.5
-        assert rig.mpv.sent.index(speed_sets[-1]) > rig.mpv.sent.index(rig.loads()[-1])
-        assert rig.mpv.speed == 1.5
-
     async def test_a_paused_mpv_is_unpaused_before_the_next_load(self, rig):
         """mpv's pause is global: an episode paused and then replaced by
         another would load the new one paused, silent, under a card saying it
@@ -511,25 +497,10 @@ class TestBootFailureArms:
 
         assert rig.state()["service"] == "failed"
 
-    async def test_the_stored_speed_is_restored_at_boot(self, rig):
-        """The speed control is a setting, not a per-session choice: the value
-        an earlier run stored is what the first episode after a boot plays at.
-        Without it every restart silently drops the owner back to 1.0x."""
-        rig.data.settings["playback_speed"] = 1.5
-        await rig.select()
-
-        await rig.play(EPISODE_A)
-
-        assert rig.mpv.speed == 1.5
-        assert rig.details()["speed"] == 1.5
-
     async def test_a_crash_during_boot_leaves_no_link_behind(self, rig):
         """Half a start is worse than none: an mpv link outliving the failure
         with no owner."""
-        async def unreadable(key, default=None):
-            raise OSError("podcast_data.json unreadable")
-
-        rig.data.get_setting = unreadable
+        rig.mpv.observe = AsyncMock(side_effect=OSError("mpv socket reset"))
 
         await rig.select()
 

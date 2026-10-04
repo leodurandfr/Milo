@@ -95,9 +95,7 @@
       "retry": "Riprova",
       "noStationsFound": "Nessuna stazione trovata",
       "minCharactersRequired": "Inserisca almeno 3 caratteri per cercare",
-      "noFavorites": "Nessuna stazione preferita",
-      "playRadio": "Ascolta",
-      "stopRadio": "Ferma"
+      "noFavorites": "Nessuna stazione preferita"
     }
   },
   "multiroom": {
@@ -388,6 +386,7 @@
     "appVolumeDescription": "Consentire all'app Spotify di modificare il volume. Se disattivato, Milō mantiene Spotify al volume massimo e il proprio controllo del volume imposta il livello."
   },
   "spotify": {
+    "accountSpotify": "Spotify di {name}",
     "album": "Album",
     "artist": "Artista",
     "castAgain": "Trasmetta di nuovo dal suo telefono",
@@ -411,13 +410,9 @@
     "noTracks": "Nessun brano",
     "playlist": "Playlist",
     "profiles": "Profili",
-    "repeatContext": "Ripeti l'elenco",
-    "repeatOff": "Ripetizione disattivata",
-    "repeatTrack": "Ripeti il brano",
     "retry": "Riprova",
     "save": "Salva",
     "shortcuts": "Scorciatoie",
-    "shuffle": "Casuale",
     "signingIn": "Accesso a Spotify…",
     "switchStopsPlayback": "Tocchi di nuovo: la riproduzione si interromperà",
     "tracksCount": "{count} brano | {count} brani",
@@ -520,6 +515,12 @@
     "expandPlayer": "Espandi il lettore",
     "selectOption": "Seleziona un'opzione"
   },
+  "player": {
+    "repeatContext": "Ripeti l'elenco",
+    "repeatOff": "Ripetizione disattivata",
+    "repeatTrack": "Ripeti il brano",
+    "shuffle": "Casuale"
+  },
   "radio": {
     "country": "Paese",
     "genre": "Genere",
@@ -577,7 +578,6 @@
     "episodeDetails": "Dettagli episodio",
     "top30": "Top 30",
     "nowPlaying": "In riproduzione",
-    "noEpisode": "Nessun episodio",
     "ranking": "Classifica",
     "topPodcasts": "Top Podcast",
     "explore": "Esplora",

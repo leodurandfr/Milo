@@ -49,52 +49,15 @@
             <LikedSongsView v-else-if="currentView === 'liked'" key="liked" />
           </template>
 
-          <!-- Docked player -->
+          <!-- Docked player: it reads what it draws from the state; the album
+               and the artist it emits open here, in the navigation. -->
           <template #player>
             <AudioPlayer v-bind="bar" source="music_library"
-              :artwork="playerArtwork"
-              :title="playerTitle"
-              swipe-enabled
-              :tracks="store.queue" :current-index="store.queueIndex"
-              @swipe-next="store.next()" @swipe-prev="store.swipePrevious()"
               @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
-              <!-- Track info: PlayerInfoText's vertical layout is the desktop sidebar's.
-                   On mobile the docked bar never reaches this slot — the swipe carousel
-                   renders its own title/artist from the queue (see AudioPlayer). -->
-              <template #info>
-                <PlayerInfoText class="vertical-layout" :title="playerTitle" :secondary="playerArtist" />
-              </template>
-
-              <template #progress>
-                <div @click.stop>
-                  <ProgressBar :current-position="positionMs" :duration="durationMs"
-                    :progress-percentage="livePercent" :interactive="store.canSend('seek')"
-                    variant="dark" @seek="seekTo" />
-                </div>
-              </template>
-
-              <!-- Mobile keeps only play/pause; prev/next/shuffle/like are desktop-only —
-                   the mini-player's swipe gesture covers next (right) / prev (left), and
-                   the full player carries all of them. -->
-              <template #controls>
-                <div class="track-controls" @click.stop>
-                  <div class="playback-controls">
-                    <IconButton icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                      :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                      :disabled="!store.canSend('set_shuffle')" @click="store.toggleShuffle()" />
-                    <div class="track-transport-main">
-                      <IconButton icon="previous" variant="ghost" size="small" class="track-transport-extra transport-secondary"
-                        :disabled="!store.canSend('prev')" @click="store.previous()" />
-                      <IconButton :icon="pausesOnPress(store.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
-                        class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
-                      <IconButton icon="next" variant="ghost" size="small" class="track-transport-extra transport-secondary"
-                        :disabled="!store.canSend('next')" @click="store.next()" />
-                    </div>
-                    <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
-                      :color="store.currentStarred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                      class="track-transport-extra transport-secondary-round" @click="store.toggleCurrentStar()" />
-                  </div>
-                </div>
+              <!-- The star over the cover's corner, opposite the expand button. -->
+              <template #artwork-action>
+                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-grey" size="small"
+                  @click="store.toggleCurrentStar()" />
               </template>
             </AudioPlayer>
           </template>
@@ -103,10 +66,8 @@
 
       <!-- The star is not a command, so it is this source's to add; the album and
            the artist open in the navigation behind the player. -->
-      <template #actions>
-        <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
-          class="transport-secondary-round"
-          :color="store.currentStarred ? 'var(--color-text)' : 'var(--color-text-light)'"
+      <template #top-end>
+        <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="background-strong" size="medium"
           @click="store.toggleCurrentStar()" />
       </template>
     </BrowserSourceViews>
@@ -125,15 +86,11 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
-import { useSourceProgress } from '@/composables/useSourceProgress';
-import { pausesOnPress } from '@/utils/transport';
 import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
-import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
-import ProgressBar from '@/components/audio/ProgressBar.vue';
 
 import LibraryHome from './views/LibraryHome.vue';
 import AlbumView from './views/AlbumView.vue';
@@ -184,16 +141,7 @@ watch([() => store.disconnectedStorage, currentView], ([gone, view]) => {
 const playback = useSourcePlaybackVisibility('music_library', {
   content: () => store.nowPlaying,
 });
-const { isBuffering, shouldShowPlayer, displayed: nowPlaying } = playback;
-
-// Live position with local interpolation (ms).
-const { duration: durationMs, currentPosition: positionMs, progressPercentage: livePercent, seekTo } =
-  useSourceProgress('music_library');
-
-// === Player display ===
-const playerTitle = computed(() => nowPlaying.value?.title || '');
-const playerArtist = computed(() => nowPlaying.value?.artist || '');
-const playerArtwork = computed(() => nowPlaying.value?.albumArtUrl || null);
+const { shouldShowPlayer, displayed: nowPlaying } = playback;
 
 // === Header title per view ===
 const currentTitle = computed(() => {
@@ -259,13 +207,6 @@ function onScrollRestored() {
 onMounted(() => {
   store.loadLikedSongs();
 });
-
-// === Player controls ===
-function togglePlayPause() {
-  const running = pausesOnPress(store.phase);
-  if (running && store.canSend('pause')) store.pause();
-  else if (!running && store.canSend('resume')) store.resume();
-}
 </script>
 
 <style scoped>
@@ -278,8 +219,4 @@ function togglePlayPause() {
 ::-webkit-scrollbar {
   display: none;
 }
-
-/* The .track-controls / .track-transport-main layout lives in AudioPlayer.vue, in
-   :deep() — this row is slotted into it, and the same row is re-authored by the
-   gallery's SourceStage, which scoped CSS here could never reach. */
 </style>

@@ -52,9 +52,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -139,9 +137,7 @@
      "mac": null
     },
     "session": null,
-    "controls": [
-     "set_speed"
-    ],
+    "controls": [],
     "resume": null,
     "details": null,
     "multiroom_enabled": false,
@@ -202,9 +198,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -248,8 +242,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -275,8 +268,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -321,8 +313,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -348,8 +339,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -408,8 +398,7 @@
      "controls": [
       "resume",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -435,8 +424,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -481,8 +469,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -508,8 +495,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -620,8 +606,7 @@
     "controls": [
      "pause",
      "seek",
-     "skip",
-     "set_speed"
+     "skip"
     ],
     "resume": null,
     "details": {
@@ -647,8 +632,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -688,8 +672,7 @@
     "controls": [
      "resume",
      "seek",
-     "skip",
-     "set_speed"
+     "skip"
     ],
     "resume": null,
     "details": {
@@ -715,15 +698,14 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
   ]
  },
- "seek_and_speed": {
+ "seek": {
   "ws": [
    {
     "category": "source",
@@ -776,9 +758,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -818,12 +798,11 @@
       "position": {
        "ms": 0,
        "at": 1790270000.0,
-       "rate": 1.5
+       "rate": 1.0
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -849,8 +828,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.5
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -889,14 +867,13 @@
       "position": {
        "ms": 0,
        "at": 1790270000.0,
-       "rate": 1.5
+       "rate": 1.0
       }
      },
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -922,8 +899,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.5
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -939,7 +915,7 @@
      "position": {
       "ms": 600000,
       "at": 1790270001.0,
-      "rate": 1.5
+      "rate": 1.0
      }
     }
    },
@@ -953,81 +929,8 @@
      "position": {
       "ms": 1200000,
       "at": 1790270002.0,
-      "rate": 1.5
+      "rate": 1.0
      }
-    }
-   },
-   {
-    "category": "source",
-    "type": "state",
-    "origin": "podcast",
-    "data": {
-     "source": "podcast",
-     "switching": false,
-     "service": "running",
-     "service_error": null,
-     "availability": {
-      "radio": null,
-      "podcast": null,
-      "music_library": null,
-      "cd": null,
-      "spotify": null,
-      "tidal": null,
-      "qobuz": null,
-      "airplay": null,
-      "bluetooth": null,
-      "mac": null
-     },
-     "session": {
-      "id": "session-1",
-      "phase": "playing",
-      "title": "The Sunday Read",
-      "artist": "The Daily",
-      "album": "The Daily",
-      "artwork": "https://img.example/daily-0921.jpg",
-      "senders": [],
-      "duration_ms": 1800000,
-      "position": {
-       "ms": 1200000,
-       "at": 1790270002.0,
-       "rate": 1.25
-      }
-     },
-     "controls": [
-      "pause",
-      "seek",
-      "skip",
-      "set_speed"
-     ],
-     "resume": null,
-     "details": {
-      "kind": "podcast",
-      "episode": {
-       "uuid": "1200361736:a1b2c3",
-       "guid": "daily-0921",
-       "name": "The Sunday Read",
-       "description": "A long story, read aloud.",
-       "date_published": 1758441600,
-       "duration": 1800,
-       "audio_url": "https://cdn.example/daily-0921.mp3",
-       "image_url": "https://img.example/daily-0921.jpg",
-       "episode_type": "full",
-       "season_number": null,
-       "episode_number": 412,
-       "is_explicit": false,
-       "website_url": "https://daily.example/0921",
-       "file_length": 28800000,
-       "file_type": "audio/mpeg",
-       "podcast": {
-        "uuid": "1200361736",
-        "name": "The Daily",
-        "image_url": "https://img.example/daily.jpg"
-       }
-      },
-      "speed": 1.25
-     },
-     "multiroom_enabled": false,
-     "equalizer_effects_enabled": false
     }
    },
    {
@@ -1129,14 +1032,13 @@
      "position": {
       "ms": 1200000,
       "at": 1790270002.0,
-      "rate": 1.25
+      "rate": 1.0
      }
     },
     "controls": [
      "pause",
      "seek",
-     "skip",
-     "set_speed"
+     "skip"
     ],
     "resume": null,
     "details": {
@@ -1162,8 +1064,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.25
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -1223,9 +1124,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -1269,8 +1168,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -1296,8 +1194,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -1342,8 +1239,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -1369,8 +1265,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -1415,8 +1310,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -1442,8 +1336,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -1568,8 +1461,7 @@
     "controls": [
      "pause",
      "seek",
-     "skip",
-     "set_speed"
+     "skip"
     ],
     "resume": null,
     "details": {
@@ -1595,8 +1487,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -1656,9 +1547,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -1702,8 +1591,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -1729,8 +1617,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -1775,8 +1662,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -1802,8 +1688,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -1855,9 +1740,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -1942,9 +1825,7 @@
      "mac": null
     },
     "session": null,
-    "controls": [
-     "set_speed"
-    ],
+    "controls": [],
     "resume": null,
     "details": null,
     "multiroom_enabled": false,
@@ -2005,9 +1886,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -2051,8 +1930,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -2078,8 +1956,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2124,8 +2001,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -2151,8 +2027,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2211,8 +2086,7 @@
      "controls": [
       "resume",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -2238,8 +2112,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2278,8 +2151,7 @@
      },
      "session": null,
      "controls": [
-      "resume",
-      "set_speed"
+      "resume"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -2312,8 +2184,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2356,8 +2227,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -2383,8 +2253,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2429,8 +2298,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -2456,8 +2324,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2552,8 +2419,7 @@
     },
     "session": null,
     "controls": [
-     "resume",
-     "set_speed"
+     "resume"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -2586,8 +2452,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -2627,8 +2492,7 @@
     "controls": [
      "pause",
      "seek",
-     "skip",
-     "set_speed"
+     "skip"
     ],
     "resume": null,
     "details": {
@@ -2654,8 +2518,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -2715,9 +2578,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -2761,8 +2622,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -2788,8 +2648,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2834,8 +2693,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -2861,8 +2719,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -2915,8 +2772,7 @@
      },
      "session": null,
      "controls": [
-      "resume",
-      "set_speed"
+      "resume"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -2949,8 +2805,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3075,8 +2930,7 @@
      },
      "session": null,
      "controls": [
-      "resume",
-      "set_speed"
+      "resume"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -3109,8 +2963,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3195,8 +3048,7 @@
     },
     "session": null,
     "controls": [
-     "resume",
-     "set_speed"
+     "resume"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -3229,8 +3081,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -3254,8 +3105,7 @@
     },
     "session": null,
     "controls": [
-     "resume",
-     "set_speed"
+     "resume"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -3288,8 +3138,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -3349,9 +3198,7 @@
       "mac": null
      },
      "session": null,
-     "controls": [
-      "set_speed"
-     ],
+     "controls": [],
      "resume": null,
      "details": null,
      "multiroom_enabled": false,
@@ -3395,8 +3242,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -3422,8 +3268,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3468,8 +3313,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -3495,8 +3339,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3636,8 +3479,7 @@
      },
      "session": null,
      "controls": [
-      "resume",
-      "set_speed"
+      "resume"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -3670,8 +3512,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3714,8 +3555,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -3741,8 +3581,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3787,8 +3626,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -3814,8 +3652,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3868,8 +3705,7 @@
       }
      },
      "controls": [
-      "pause",
-      "set_speed"
+      "pause"
      ],
      "resume": null,
      "details": {
@@ -3895,8 +3731,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -3941,8 +3776,7 @@
      "controls": [
       "pause",
       "seek",
-      "skip",
-      "set_speed"
+      "skip"
      ],
      "resume": null,
      "details": {
@@ -3968,8 +3802,7 @@
         "name": "The Daily",
         "image_url": "https://img.example/daily.jpg"
        }
-      },
-      "speed": 1.0
+      }
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
@@ -4064,8 +3897,7 @@
     },
     "session": null,
     "controls": [
-     "resume",
-     "set_speed"
+     "resume"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -4098,8 +3930,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
@@ -4139,8 +3970,7 @@
     "controls": [
      "pause",
      "seek",
-     "skip",
-     "set_speed"
+     "skip"
     ],
     "resume": null,
     "details": {
@@ -4166,8 +3996,7 @@
        "name": "The Daily",
        "image_url": "https://img.example/daily.jpg"
       }
-     },
-     "speed": 1.0
+     }
     },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false

@@ -6,10 +6,8 @@ Provides REST API for:
 - Discovery (top charts, by genre — iTunes RSS, exact Apple Podcasts order)
 - Search (podcasts only — there is no cross-podcast episode search)
 - Content (series details, episode details)
-- Playback (play, pause, resume, speed)
 - Subscriptions (add, remove, list)
 - Queue (in-progress episodes)
-- Settings (podcast-specific settings)
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 from backend.api.route_helpers import api_error_handler
@@ -236,12 +234,6 @@ async def get_episode(
 # POST /api/audio/control/podcast like every other source's: none composes two
 # commands any more (the start position rides on play_episode's load).
 
-@router.get("/playback-speeds")
-async def get_playback_speeds() -> Dict[str, Any]:
-    """Return the canonical list of valid playback speeds."""
-    from backend.sources.podcast.source import VALID_PLAYBACK_SPEEDS
-    return {"status": "success", "speeds": VALID_PLAYBACK_SPEEDS}
-
 
 # === Subscription Routes ===
 
@@ -334,17 +326,3 @@ async def mark_episode_complete(
     async with api_error_handler("Error marking complete", logger):
         await source.podcast_data.mark_episode_completed(episode_uuid)
         return {"status": "success"}
-
-
-# === Settings Routes ===
-
-@router.get("/settings")
-async def get_settings(
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Get podcast settings."""
-    async with api_error_handler("Error getting settings", logger):
-        settings = await source.podcast_data.get_podcast_settings()
-        return {"settings": settings}
-
-

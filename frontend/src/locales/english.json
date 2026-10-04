@@ -95,9 +95,7 @@
       "retry": "Retry",
       "noStationsFound": "No stations found",
       "minCharactersRequired": "Enter at least 3 characters to search",
-      "noFavorites": "No favorite stations",
-      "playRadio": "Listen",
-      "stopRadio": "Stop"
+      "noFavorites": "No favorite stations"
     }
   },
   "multiroom": {
@@ -388,6 +386,7 @@
     "appVolumeDescription": "Let the Spotify app change the volume. When off, Milō keeps Spotify at full volume and its own volume control sets the level."
   },
   "spotify": {
+    "accountSpotify": "{name}'s Spotify",
     "album": "Album",
     "artist": "Artist",
     "castAgain": "Cast again from your phone",
@@ -411,13 +410,9 @@
     "noTracks": "No tracks",
     "playlist": "Playlist",
     "profiles": "Profiles",
-    "repeatContext": "Repeat the list",
-    "repeatOff": "Repeat off",
-    "repeatTrack": "Repeat the track",
     "retry": "Retry",
     "save": "Save",
     "shortcuts": "Shortcuts",
-    "shuffle": "Shuffle",
     "signingIn": "Signing in to Spotify…",
     "switchStopsPlayback": "Tap again: playback will stop",
     "tracksCount": "{count} track | {count} tracks",
@@ -520,6 +515,12 @@
     "expandPlayer": "Expand the player",
     "selectOption": "Select an option"
   },
+  "player": {
+    "repeatContext": "Repeat the list",
+    "repeatOff": "Repeat off",
+    "repeatTrack": "Repeat the track",
+    "shuffle": "Shuffle"
+  },
   "radio": {
     "country": "Country",
     "genre": "Genre",
@@ -577,7 +578,6 @@
     "episodeDetails": "Episode details",
     "top30": "Top 30",
     "nowPlaying": "Playing",
-    "noEpisode": "No episode",
     "ranking": "Ranking",
     "topPodcasts": "Top podcasts",
     "explore": "Explore",

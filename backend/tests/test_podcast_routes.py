@@ -36,7 +36,6 @@ from fastapi.testclient import TestClient
 
 from backend.sources.podcast.podcast_catalog import PodcastCatalog
 from backend.sources.podcast.routes import setup_podcast_routes
-from backend.sources.podcast.source import VALID_PLAYBACK_SPEEDS
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +86,6 @@ def source():
     src.podcast_data.remove_subscription = AsyncMock(return_value=True)
     src.podcast_data.get_in_progress_episodes = AsyncMock(return_value=[])
     src.podcast_data.mark_episode_completed = AsyncMock(return_value=True)
-    src.podcast_data.get_podcast_settings = AsyncMock(return_value={})
     src.command = AsyncMock(return_value={"success": True})
     return src
 
@@ -509,17 +507,6 @@ class TestEpisode:
         assert [r.levelname for r in caplog.records] == ["DEBUG"]
 
 
-class TestPlaybackSpeeds:
-    def test_the_canonical_speed_list_is_served_from_the_source_module(self, client):
-        """The frontend is forbidden from hardcoding backend-derived values, so
-        `podcastStore` fetches this list. Derived from the constant rather than
-        restated, or the test only pins a literal someone typed twice."""
-        body = client.get("/api/podcast/playback-speeds").json()
-
-        assert body["speeds"] == VALID_PLAYBACK_SPEEDS
-        assert body["status"] == "success"
-
-
 class TestSubscriptions:
     """`/subscriptions` — `SubscriptionsView.vue` and `PodcastDetails.vue`."""
 
@@ -666,19 +653,6 @@ class TestQueue:
 
         assert resp.json() == {"status": "success"}
         assert source.podcast_data.mark_episode_completed.await_args.args[0] == "ep-1"
-
-
-class TestSettings:
-    def test_the_stored_podcast_settings_are_returned_under_settings(
-        self, client, source
-    ):
-        """`podcastStore` reads `settings.playback_speed` to restore the speed
-        control's position on load."""
-        source.podcast_data.get_podcast_settings.return_value = {"playback_speed": 1.5}
-
-        assert client.get("/api/podcast/settings").json() == {
-            "settings": {"playback_speed": 1.5}
-        }
 
 
 class TestTheSourceDependency:

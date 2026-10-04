@@ -29,29 +29,10 @@
         </template>
 
         <template #player="{ isMobile }">
-          <AudioPlayer v-if="station" v-bind="bar" source="radio"
-            :artwork="playerArtwork" :fallback-name="station?.name" :title="playerTitle">
-            <!-- Track info: PlayerInfoText's vertical layout is the desktop sidebar's.
-                 Kicker (station name + icon) only shows when the recognized track has
-                 artwork — a textless "Station Name" line with nothing to back it up reads
-                 as clutter, so a track with no artwork falls back to plain title/artist.
-                 The horizontal-layout title/subtitle pair is the mobile mini-bar's. -->
-            <template #info>
-              <template v-if="track">
-                <PlayerInfoText class="vertical-layout"
-                  :kicker="track.artwork ? station?.name : null"
-                  :kicker-icon="track.artwork ? stationArtwork : null"
-                  :kicker-fallback-name="track.artwork ? station?.name : null"
-                  :title="track.title" :secondary="track.artist" />
-                <p class="player-title text-body horizontal-layout">{{ track.title }}</p>
-                <p class="player-subtitle text-body horizontal-layout">{{ track.artist }}</p>
-              </template>
-              <template v-else>
-                <PlayerInfoText class="vertical-layout" :title="station?.name" />
-                <p class="player-title text-body horizontal-layout">{{ station?.name }}</p>
-              </template>
-            </template>
-
+          <!-- The bar reads what it draws from the state; the source adds
+               what is its own: the station behind a track on the phone, and
+               the favorite. -->
+          <AudioPlayer v-if="station" v-bind="bar" source="radio">
             <!-- Mobile only: station icon sits behind (pinned left), the track artwork
                  rides on top offset to the right and reveals in from the station's position
                  (AudioPlayer widens the frame and does the overlap/animation when this slot
@@ -61,29 +42,11 @@
               <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
             </template>
 
-            <template #controls>
-              <div class="radio-controls" @click.stop>
-                <!-- Desktop sidebar: full on-dark Button with icon+text — NOT a ghost
-                     icon button, unlike podcast/music-library's transport. Radio's own
-                     convention, kept unconditionally as-is. -->
-                <div class="radio-controls-main vertical-layout">
-                  <Button variant="on-dark" :left-icon="canStop ? 'stop' : 'play'"
-                    :loading="isBuffering" @click="handlePlayPause">
-                    {{ canStop ? t('audioSources.radioSource.stopRadio') :
-                      t('audioSources.radioSource.playRadio') }}
-                  </Button>
-                  <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
-                    :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
-                </div>
-                <!-- Mobile mini-bar only: compact row has no room for a text button +
-                     heart — collapse to the single play/pause/stop ghost icon. Wrapped in
-                     .playback-controls so it picks up AudioPlayer.vue's mobile icon-shrink
-                     rule scoped to that class. -->
-                <div class="playback-controls horizontal-layout">
-                  <IconButton :icon="canStop ? 'stop' : 'play'" variant="ghost" size="medium"
-                    class="transport-primary" :loading="isBuffering" @click="handlePlayPause" />
-                </div>
-              </div>
+            <!-- The station's favorite over the cover's corner, opposite the
+                 expand button. -->
+            <template #artwork-action>
+              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-grey" size="small"
+                :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </template>
           </AudioPlayer>
         </template>
@@ -91,10 +54,8 @@
     </template>
 
     <!-- The station's favorite is not a command, so it is this source's to add. -->
-    <template #actions>
-      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
-        class="transport-secondary-round"
-        :color="stationIsFavorite ? 'var(--color-text)' : 'var(--color-text-light)'"
+    <template #top-end>
+      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="background-strong" size="medium"
         :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
     </template>
   </BrowserSourceViews>
@@ -111,11 +72,9 @@ import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
 import IconButton from '@/components/ui/IconButton.vue'
-import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
-import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
@@ -147,17 +106,10 @@ const playback = useSourcePlaybackVisibility('radio', {
   content: () => radioStore.currentStation
 })
 const {
-  isPlaying: isCurrentlyPlaying, isBuffering,
+  isPlaying: isCurrentlyPlaying,
   shouldShowPlayer: shouldShowNowPlayingLayout,
   displayed: station
 } = playback
-
-// A live stream has no pause: the source takes `stop` while a session runs
-// (loading included) and `resume_playback` to re-tune the station it kept.
-const controls = computed(() =>
-  unifiedStore.systemState.source === 'radio' ? unifiedStore.systemState.controls : []
-)
-const canStop = computed(() => controls.value.includes('stop'))
 
 const stationIsFavorite = computed(() =>
   station.value
@@ -170,7 +122,7 @@ const isSearchMode = ref(false)
 const availableCountries = ref([])
 
 // ID of the buffering station (to display the spinner on the correct station).
-// Not the delayed isBuffering: on the card just tapped, the spinner is the
+// Not the delayed buffering flag: on the card just tapped, the spinner is the
 // press's only acknowledgement.
 const bufferingStationId = computed(() => {
   const { source, session } = unifiedStore.systemState
@@ -180,22 +132,9 @@ const bufferingStationId = computed(() => {
   return radioStore.currentStation?.id || null
 })
 
-// Station favicon URL — empty when missing; AudioPlayer generates the inline
-// SVG fallback from `:fallback-name` so the font cascades correctly.
+// Station favicon URL for the phone's badge — empty when missing, and the badge
+// then draws the station's generated avatar from `fallback-name`.
 const stationArtwork = computed(() => getFaviconUrl(station.value?.favicon))
-
-// Player display: the recognised track when there is one, the station
-// otherwise — the same two-layer rule the backend applies to fill the common
-// floor, here in the shape this player draws.
-const playerArtwork = computed(() => {
-  if (track.value?.artwork) return track.value.artwork
-  return stationArtwork.value
-})
-
-const playerTitle = computed(() => {
-  if (track.value) return track.value.title
-  return station.value?.name
-})
 
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
@@ -264,15 +203,6 @@ async function playStation(stationId) {
   }
 }
 
-async function handlePlayPause() {
-  if (canStop.value) {
-    await radioStore.stopPlayback()
-  } else if (controls.value.includes('resume_playback')) {
-    // Re-tunes the station the state is publishing — a stopped radio keeps it.
-    await unifiedStore.sendCommand('radio', 'resume_playback')
-  }
-}
-
 async function handleFavorite() {
   if (station.value) {
     await radioStore.toggleFavorite(station.value.id)
@@ -297,8 +227,4 @@ async function loadAvailableCountries() {
 ::-webkit-scrollbar {
   display: none;
 }
-
-/* The .radio-controls / .radio-controls-main layout lives in AudioPlayer.vue,
-   in :deep() — this row is slotted into it, and the same row is re-authored by
-   the gallery's SourceStage, which scoped CSS here could never reach. */
 </style>

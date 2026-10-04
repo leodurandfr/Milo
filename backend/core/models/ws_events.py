@@ -153,8 +153,8 @@ class AudioStateChanged(AudioState, WsEvent):
 
 
 class SourcePosition(WsEvent):
-    """A discontinuity of the playhead — a seek, a speed change, or a reading
-    more than 2000 ms from where the anchor says it should be. Never a tick.
+    """A discontinuity of the playhead — a seek, or a reading more than
+    2000 ms from where the anchor says it should be. Never a tick.
 
     App.vue → unifiedAudioStore (Zod `source.position`); a client ignores a
     `session_id` that is not its state's.

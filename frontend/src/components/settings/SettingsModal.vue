@@ -30,7 +30,7 @@
             <div class="power-menu-items">
               <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" @click="runPowerAction(action)">
                 <template #icon>
-                  <img class="settings-tile-icon" :src="action.icon" :alt="action.alt" />
+                  <span class="settings-tile" v-html="SETTINGS_ICONS[action.icon]"></span>
                 </template>
                 <template #title="{ headingClass }">
                   <span class="power-text-crossfade" :class="headingClass">
@@ -49,7 +49,7 @@
               <ListItemButton v-for="row in section.rows" :key="row.view" variant="background"
                 :title="t(row.titleKey)" action="caret" @click="push(row.view)">
                 <template #icon>
-                  <img class="settings-tile-icon" :src="row.icon" :alt="row.alt" />
+                  <span class="settings-tile" v-html="SETTINGS_ICONS[row.icon]"></span>
                 </template>
               </ListItemButton>
             </div>
@@ -164,27 +164,10 @@ import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 
-import languagesIcon from '@/assets/settings-icons/languages.svg';
-import applicationsIcon from '@/assets/settings-icons/applications.svg';
-import volumeIcon from '@/assets/settings-icons/volume.svg';
-import displayIcon from '@/assets/settings-icons/display.svg';
-import audioPlaybackIcon from '@/assets/settings-icons/audio-playback.svg';
-import remoteControlsIcon from '@/assets/settings-icons/remote-controls.svg';
-import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
-import updatesIcon from '@/assets/settings-icons/updates.svg';
-import systemIcon from '@/assets/settings-icons/system.svg';
-import radioIcon from '@/assets/settings-icons/radio.svg';
-import macosIcon from '@/assets/settings-icons/macos.svg';
-import spotifyIcon from '@/assets/settings-icons/spotify.svg';
-import qobuzIcon from '@/assets/settings-icons/qobuz.svg';
-import musicLibraryIcon from '@/assets/settings-icons/music-library.svg';
-import hardwareIcon from '@/assets/settings-icons/hardware.svg';
-import networkIcon from '@/assets/settings-icons/network.svg';
-import rebootIcon from '@/assets/settings-icons/reboot.svg';
-import shutdownIcon from '@/assets/settings-icons/shutdown.svg';
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -260,16 +243,14 @@ const POWER_ACTIONS = [
     key: 'restart',
     endpoint: '/api/system/restart',
     error: 'Restart request failed',
-    icon: rebootIcon,
-    alt: 'Restart',
+    icon: 'reboot',
     labels: { idle: 'settings.restart', confirm: 'settings.confirmRestart', running: 'settings.restartInProgress' },
   },
   {
     key: 'shutdown',
     endpoint: '/api/system/shutdown',
     error: 'Shutdown request failed',
-    icon: shutdownIcon,
-    alt: 'Shutdown',
+    icon: 'shutdown',
     labels: { idle: 'settings.shutdown', confirm: 'settings.confirmShutdown', running: 'settings.shutdownInProgress' },
   },
 ];
@@ -315,9 +296,9 @@ const HOME_SECTIONS = [
     key: 'appearance',
     titleKey: 'settings.section.appearance',
     rows: [
-      { view: 'languages', titleKey: 'settings.languageRegion', icon: languagesIcon, alt: 'Language and region' },
-      { view: 'apps', titleKey: 'settings.dock', icon: applicationsIcon, alt: 'Dock' },
-      { view: 'screen', titleKey: 'settings.screen', icon: displayIcon, alt: 'Display',
+      { view: 'languages', titleKey: 'settings.languageRegion', icon: 'languages' },
+      { view: 'apps', titleKey: 'settings.dock', icon: 'dock' },
+      { view: 'screen', titleKey: 'settings.screen', icon: 'display',
         visible: () => screenType.value !== 'none' },
     ],
   },
@@ -325,11 +306,11 @@ const HOME_SECTIONS = [
     key: 'audio',
     titleKey: 'settings.section.audio',
     rows: [
-      { view: 'volume', titleKey: 'settings.volume', icon: volumeIcon, alt: 'Volume',
+      { view: 'volume', titleKey: 'settings.volume', icon: 'volume',
         visible: () => unifiedStore.volumeState.any_volume_control },
-      { view: 'audio-playback', titleKey: 'settings.audioPlayback', icon: audioPlaybackIcon, alt: 'Audio playback' },
-      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: remoteControlsIcon, alt: 'Remote controls' },
-      { view: 'multiroom', titleKey: 'audioSources.multiroom', icon: multiroomIcon, alt: 'Multiroom',
+      { view: 'audio-playback', titleKey: 'settings.audioPlayback', icon: 'audioPlayback' },
+      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: 'remoteControls' },
+      { view: 'multiroom', titleKey: 'audioSources.multiroom', icon: 'multiroom',
         visible: () => settingsStore.dockApps.multiroom },
     ],
   },
@@ -337,15 +318,15 @@ const HOME_SECTIONS = [
     key: 'sources',
     titleKey: 'settings.section.sources',
     rows: [
-      { view: 'macos', titleKey: 'audioSources.macOS', icon: macosIcon, alt: 'Mac',
+      { view: 'macos', titleKey: 'audioSources.macOS', icon: 'mac',
         visible: () => settingsStore.dockApps.mac },
-      { view: 'radio', titleKey: 'audioSources.radio', icon: radioIcon, alt: 'Radio',
+      { view: 'radio', titleKey: 'audioSources.radio', icon: 'radio',
         visible: () => settingsStore.dockApps.radio },
-      { view: 'spotify', titleKey: 'audioSources.spotify', icon: spotifyIcon, alt: 'Spotify',
+      { view: 'spotify', titleKey: 'audioSources.spotify', icon: 'spotify',
         visible: () => settingsStore.dockApps.spotify },
-      { view: 'qobuz', titleKey: 'audioSources.qobuz', icon: qobuzIcon, alt: 'Qobuz',
+      { view: 'qobuz', titleKey: 'audioSources.qobuz', icon: 'qobuz',
         visible: () => settingsStore.dockApps.qobuz },
-      { view: 'music-library', titleKey: 'audioSources.musicLibrary', icon: musicLibraryIcon, alt: 'Music Library',
+      { view: 'music-library', titleKey: 'audioSources.musicLibrary', icon: 'musicLibrary',
         visible: () => settingsStore.dockApps.music_library },
     ],
   },
@@ -353,10 +334,10 @@ const HOME_SECTIONS = [
     key: 'device',
     titleKey: 'settings.section.device',
     rows: [
-      { view: 'network', titleKey: 'settings.network', icon: networkIcon, alt: 'Network' },
-      { view: 'hardware', titleKey: 'settings.hardware', icon: hardwareIcon, alt: 'Hardware' },
-      { view: 'updates', titleKey: 'settings.updates', icon: updatesIcon, alt: 'Updates' },
-      { view: 'system', titleKey: 'settings.system', icon: systemIcon, alt: 'System' },
+      { view: 'network', titleKey: 'settings.network', icon: 'network' },
+      { view: 'hardware', titleKey: 'settings.hardware', icon: 'hardware' },
+      { view: 'updates', titleKey: 'settings.updates', icon: 'updates' },
+      { view: 'system', titleKey: 'settings.system', icon: 'system' },
     ],
   },
 ];
@@ -836,8 +817,21 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
-.settings-tile-icon {
-  filter: var(--filter-icon-tile);
+/* The tile is drawn here and its glyph (settingsIcons.js) paints in
+   currentColor, so both follow the theme through their tokens. The tile fills
+   the icon slot, whose own radius and clipping give it its corners, and whose
+   own rule sizes the glyph. */
+.settings-tile {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: var(--color-background-neutral);
+  color: var(--color-tile-glyph);
+}
+
+.settings-tile :deep(svg) {
+  display: block;
+  fill: currentColor;
 }
 
 /* Override SettingsSection's default 16px gap to 24px for the denser home grid */

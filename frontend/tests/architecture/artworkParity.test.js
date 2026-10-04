@@ -11,11 +11,14 @@
  * mounted-component test would not catch either (it would assert markup, which
  * this suite deliberately does not do).
  *
- * Two halves: *which URL is the cover* (AudioPlayerFull, which reads it from
- * the now-playing record; the playing bar is handed its cover by the source),
- * and *what fills the slot when there is no cover*, which both views answer for
- * every source there is. The second is what would draw a receiver's track title
- * as a generated avatar.
+ * Two halves: *which URL is the cover* and *what fills the slot when there is
+ * no cover*. Both views read both from one composable, usePlayerMetadata
+ * (through usePlayerState, each player's one reading of its state) — the
+ * playing bar used to be handed its cover by the source, which was one more
+ * place to restate the rule — so the rule is asserted there, and each view is
+ * asserted to read it from there rather than deciding a cover of its own. The
+ * second half is what would draw a receiver's track title as a generated
+ * avatar.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -29,6 +32,8 @@ const SRC_DIR = resolve(HERE, '../../src');
 const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayerFull.vue'), 'utf8');
 const browserPlayer = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayer.vue'), 'utf8');
 const transition = readFileSync(join(SRC_DIR, 'composables/useArtworkTransition.js'), 'utf8');
+const metadata = readFileSync(join(SRC_DIR, 'composables/usePlayerMetadata.js'), 'utf8');
+const playerState = readFileSync(join(SRC_DIR, 'composables/usePlayerState.js'), 'utf8');
 
 // Every rule below that asserts a *name is absent* reads these, not the raw
 // files. Writing `// The helper owns album_art_url; do not read it here.` at the
@@ -37,6 +42,8 @@ const transition = readFileSync(join(SRC_DIR, 'composables/useArtworkTransition.
 // believes is worse than no rule. Measured, twice.
 const playerCode = stripComments(player);
 const browserPlayerCode = stripComments(browserPlayer);
+const metadataCode = stripComments(metadata);
+const VIEWS = [playerCode, browserPlayerCode];
 
 describe('artwork parity between the full player and the playing bar', () => {
   it('extracts a plausible surface first', () => {
@@ -45,20 +52,30 @@ describe('artwork parity between the full player and the playing bar', () => {
     expect(player).toMatch(/artwork-container/);
     expect(browserPlayer).toMatch(/player-artwork/);
     expect(transition).toMatch(/export function useArtworkTransition/);
+    expect(metadata).toMatch(/export function usePlayerMetadata/);
   });
 
   it('derives the cover from the one shared helper, never from a record field', () => {
-    // `.artwork` on a session, a resume or the player's snapshot is what the
-    // helper reads; the view reading it itself is a cover expression of its own.
-    expect(player).toMatch(/nowPlayingArtwork\(/);
-    expect(playerCode).not.toMatch(/(nowPlaying|session|resume|Metadata\.value)\??\.artwork/);
+    // `.artwork` on a session, a resume or the held snapshot is what the helper
+    // reads; anything reading it itself is a cover expression of its own.
+    expect(metadataCode).toMatch(/nowPlayingArtwork\(/);
+    for (const code of [metadataCode, ...VIEWS]) {
+      expect(code).not.toMatch(/(nowPlaying|session|resume|etadata\.value|record)\??\.artwork\b/);
+    }
+    // And both views take it from there, through the one reading each player
+    // makes of its state — which must still be that composable's.
+    expect(stripComments(playerState)).toMatch(/metadata: usePlayerMetadata\(source\)/);
+    for (const view of VIEWS) {
+      expect(view).toMatch(/usePlayerState\(props\.source\)/);
+      expect(view).not.toMatch(/nowPlayingArtwork\(/);
+    }
   });
 
   it('runs the held-cover transition, announced wait included', () => {
     // CD veils its placeholder while the jacket is fetched; a player left
     // without the signal shows the bare placeholder and swaps it a moment later.
     expect(playerCode).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
-    expect(playerCode).toMatch(/nowPlayingArtworkPending\(/);
+    expect(metadataCode).toMatch(/nowPlayingArtworkPending\(/);
 
     // And it may not re-roll its own wait: the bounded timeout is the only
     // thing that lifts a veil when a cover never arrives.
@@ -92,19 +109,24 @@ describe('artwork parity between the full player and the playing bar', () => {
   });
 
   it('resolves the no-cover fallback through the same helper in both views', () => {
-    // Asserted on the import as well as the call: a view that shadows the name
-    // with a local `const artworkFallback = …` still mentions it everywhere, so
-    // matching the call alone stays green through the regression. Measured — it
-    // did, on the first version of this assertion.
-    for (const view of [playerCode, browserPlayerCode]) {
-      expect(view).toMatch(/import \{[^}]*artworkFallback[^}]*\} from '@\/utils\/nowPlayingArtwork'/);
-      expect(view).toMatch(/artworkFallback\(/);
-    }
+    // Asserted on the import as well as the call: a module that shadows the
+    // name with a local `const artworkFallback = …` still mentions it
+    // everywhere, so matching the call alone stays green through the
+    // regression. Measured — it did, on the first version of this assertion.
+    expect(metadataCode).toMatch(/import \{[^}]*artworkFallback[^}]*\} from '@\/utils\/nowPlayingArtwork'/);
+    expect(metadataCode).toMatch(/artworkFallback\(source\)/);
 
     // And the generated avatar is reachable from that verdict only. Matching the
     // import alone would stay green through exactly the regression this guards,
     // since the fixed code imports it too — for radio.
-    expect(playerCode).toMatch(/kind !== 'avatar'/);
-    expect(browserPlayerCode).toMatch(/kind === 'avatar'/);
+    expect(metadataCode).toMatch(/kind !== 'avatar'/);
+
+    // The views draw the verdict they are handed and decide none of their own:
+    // no second helper call, no avatar generated beside the composable's.
+    for (const view of VIEWS) {
+      expect(view).toMatch(/\bfallback\b/);
+      expect(view).not.toMatch(/artworkFallback\(/);
+      expect(view).not.toMatch(/generateStationAvatarSvg\(/);
+    }
   });
 });
