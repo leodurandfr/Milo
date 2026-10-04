@@ -7,9 +7,14 @@ own playlists in the language of the session that signed it in ("Leaves Radio"
 one day, "Radio Leaves" the next, measured 2026-10-03). They read what does
 not move with the language — the owner, the cover's image path, and the
 playlist id's prefix.
+
+A playlist nobody gave a picture has no image in the library at all: the
+Spotify apps draw it as a mosaic of its first four albums, which mosaic.scdn.co
+serves from the four cover ids (measured 2026-10-04), so Milō draws the same.
 """
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 SPOTIFY_OWNER = "spotify"
 # Spotify's editorial playlists ("Songs to Test Speakers With"): everyone gets
@@ -23,6 +28,8 @@ SHORTCUTS = 7     # the 8th tile is Liked Songs, added by the browser
 # 1e02 (300 px), 4851 (64 px). The three are served for every cover (measured).
 _ALBUM_COVER = re.compile(r"^(https://i\.scdn\.co/image/ab67616d0000)(b273|1e02|4851)(\w+)$")
 THUMBNAIL_SIZE = "4851"
+MOSAIC_URL = "https://mosaic.scdn.co/300/{}"
+MOSAIC_TILES = 4
 
 
 def thumbnail_url(url: Optional[str]) -> Optional[str]:
@@ -40,13 +47,41 @@ def liked_songs_uri(account: str) -> str:
     return f"spotify:user:{account}:collection"
 
 
+def leading_covers(entries: List[Dict[str, Any]], complete: bool = False) -> List[str]:
+    """The first distinct album covers of a listing, in its order, up to the
+    mosaic's four. While the listing is read, stops at the first entry not
+    described yet: a cover further down would take a place that is not its
+    own. Once it is `complete`, such an entry is a track Spotify no longer
+    describes (old playlists hold several, measured) and is skipped."""
+    covers: List[str] = []
+    for entry in entries:
+        track = entry.get("track")
+        if not track:
+            if complete:
+                continue
+            break
+        cover = track.get("album_cover_url")
+        if cover and _ALBUM_COVER.match(cover) and cover not in covers:
+            covers.append(cover)
+            if len(covers) == MOSAIC_TILES:
+                break
+    return covers
+
+
+def playlist_cover(covers: List[str]) -> Optional[str]:
+    """Four albums make a mosaic; fewer, the first one's cover, as Spotify does."""
+    if len(covers) >= MOSAIC_TILES:
+        return MOSAIC_URL.format("".join(cover.rsplit("/", 1)[1] for cover in covers[:MOSAIC_TILES]))
+    return covers[0] if covers else None
+
+
 def normalize_playlist(item: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "uri": item["uri"],
         "name": item.get("name") or None,
         "description": item.get("description") or None,
         "owner": item.get("owner_username") or None,
-        "image": item.get("image_url") or None,
+        "image": item.get("image_url") or f"/api/spotify/contexts/{quote(item['uri'], safe='')}/cover",
         "editable": bool(item.get("can_edit") or item.get("collaborative")),
     }
 
@@ -88,11 +123,25 @@ def _section_of(item: Dict[str, Any], account: Optional[str]) -> str:
     return "followed"
 
 
+def _has_tracks(item: Dict[str, Any]) -> bool:
+    """Whether a raw /library/playlists entry holds anything to play. Its
+    `length` is the truth for a playlist a person keeps, but not for one Spotify
+    generates: a live mix lists 0 and holds 50 (measured 2026-10-04), so such a
+    playlist is empty only once it has lost its name and its picture too — an
+    expired mix, whose listing never completes."""
+    if item.get("length"):
+        return True
+    if item.get("owner_username") == SPOTIFY_OWNER:
+        return bool(item.get("name") or item.get("image_url"))
+    return False
+
+
 def classify_home(items: List[Dict[str, Any]], account: Optional[str]) -> Dict[str, List[Dict[str, Any]]]:
     """The home sections, each in library order. `items` are raw
-    /library/playlists entries; every one lands in exactly one section, and the
-    first few in the shortcuts too, as the Spotify app's home does."""
-    playlists = [normalize_playlist(item) for item in items]
+    /library/playlists entries; every one holding tracks lands in exactly one
+    section, and the first few in the shortcuts too, as the Spotify app's home
+    does. An empty playlist is left out: there is nothing to play in it."""
+    playlists = [normalize_playlist(item) for item in items if _has_tracks(item)]
     sections: Dict[str, List[Dict[str, Any]]] = {
         "shortcuts": playlists[:SHORTCUTS],
         "made_for_you": [], "radios": [], "mine": [], "followed": [],

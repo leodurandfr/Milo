@@ -297,6 +297,72 @@ async def test_a_listing_whose_cache_stops_short_is_shown_with_what_it_has(world
     assert [t["title"] for t in ready["tracks"]] == ["A"]
 
 
+def described(cover_id):
+    return {"uri": f"spotify:track:{cover_id}",
+            "track": {"uri": f"spotify:track:{cover_id}", "name": cover_id, "artist_names": [], "artist_uris": [],
+                      "album_cover_url": f"https://i.scdn.co/image/ab67616d0000b273{cover_id}"}}
+
+
+async def test_a_cover_redirects_to_the_mosaic_without_waiting_for_the_whole_listing(world):
+    """A home draws one cover per playlist: four described albums are enough,
+    and asking again for the rest of a long listing would hold the browser's
+    connections for nothing."""
+    world.daemon.listings[PLAYLIST] = [described(c) for c in ("a1", "b2", "c3", "d4")] + [
+        {"uri": "spotify:track:later", "track": None},
+    ]
+    answer = await routes.get_context_cover(PLAYLIST, source=world.source)
+
+    assert answer.status_code == 302
+    assert answer.headers["location"].startswith("https://mosaic.scdn.co/300/ab67616d0000b273a1")
+    assert world.daemon.listing_calls[PLAYLIST] == 1
+
+
+async def test_a_playlist_opening_on_a_track_spotify_no_longer_describes_still_has_its_cover(world):
+    """Old playlists keep tracks that stay undescribed for good: once the
+    listing stops moving, the albums around them make the cover."""
+    world.daemon.listings[PLAYLIST] = [{"uri": "spotify:track:gone", "track": None}, described("a1")]
+    answer = await routes.get_context_cover(PLAYLIST, source=world.source)
+
+    assert answer.status_code == 302
+    assert answer.headers["location"] == "https://i.scdn.co/image/ab67616d0000b273a1"
+
+
+async def test_a_listing_with_nothing_described_yet_is_never_taken_as_complete(world, monkeypatch):
+    """go-librespot rebuilds an evicted listing ready but with nothing
+    described, and under load stays so for over a second: taken as complete,
+    the playlist page drew an empty playlist and the cover a placeholder."""
+    from backend.sources.spotify.library import SpotifyLibrary
+
+    monkeypatch.setattr(SpotifyLibrary, "CONTEXT_WAIT_S", 0.1)
+    monkeypatch.setattr(SpotifyLibrary, "CONTEXT_POLL_S", 0.01)
+    world.daemon.listings[PLAYLIST] = [{"uri": "spotify:track:pending", "track": None}]
+
+    listing = await routes.get_context(PLAYLIST, source=world.source)
+    assert listing["ready"] is False
+    await routes.get_context_cover(PLAYLIST, source=world.source)
+    assert world.daemon.listing_calls[PLAYLIST] > 2 * (SpotifyLibrary.STALLED_POLLS + 1)
+
+
+async def test_a_cover_the_wait_ran_out_on_is_not_drawn_from_albums_past_a_gap(world, monkeypatch):
+    """Under load the first tracks can still be undescribed when the wait
+    ends: the albums cached after them are not the playlist's first ones."""
+    from backend.sources.spotify.library import SpotifyLibrary
+
+    monkeypatch.setattr(SpotifyLibrary, "CONTEXT_WAIT_S", 0.1)
+    monkeypatch.setattr(SpotifyLibrary, "CONTEXT_POLL_S", 0.01)
+    monkeypatch.setattr(SpotifyLibrary, "STALLED_POLLS", 1000)
+    world.daemon.listings[PLAYLIST] = [{"uri": "spotify:track:pending", "track": None}, described("a1")]
+
+    answer = await routes.get_context_cover(PLAYLIST, source=world.source)
+    assert answer.status_code == 404
+
+
+async def test_an_empty_playlist_has_no_cover(world):
+    world.daemon.listings[PLAYLIST] = []
+    answer = await routes.get_context_cover(PLAYLIST, source=world.source)
+    assert answer.status_code == 404
+
+
 async def test_a_request_cut_by_a_daemon_restart_answers_409(world, monkeypatch):
     """A profile switch stops go-librespot under an in-flight listing: the
     browser reads 'signing in', never a 500."""

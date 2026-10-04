@@ -12,7 +12,8 @@ import contextlib
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.spotify.catalog import classify_home, liked_songs_uri, normalize_track
@@ -96,6 +97,19 @@ async def get_context(uri: str, source: SpotifySource = Depends(get_source)):
             tracks = (normalize_track(entry) for entry in listing.get("tracks") or [])
             answer["tracks"] = [track for track in tracks if track is not None]
         return answer
+
+
+@router.get("/contexts/{uri}/cover")
+async def get_context_cover(uri: str, source: SpotifySource = Depends(get_source)) -> Response:
+    """The picture of a playlist that has none in the library: a redirect to
+    the mosaic of its first albums, as the Spotify apps draw it. 404 for an
+    empty playlist, which the browser draws as its placeholder."""
+    async with _library_errors("Spotify cover"):
+        cover = await source.library.cover(uri)
+    if cover is None:
+        logger.debug("Spotify cover: nothing to draw one from")
+        return Response(status_code=404)
+    return RedirectResponse(cover, status_code=302)
 
 
 @router.get("/liked-tracks")

@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
+from backend.sources.spotify.catalog import MOSAIC_TILES, leading_covers, playlist_cover
+
 logger = logging.getLogger("source.spotify.library")
 
 # Spotify's own profile service, the one the apps read a profile from. The Web
@@ -92,7 +94,8 @@ class SpotifyLibrary:
         complete: `ready` with every track, or the progress so far. A listing
         whose cache stops short of its length (a track Spotify will not
         describe) is complete once its count stops moving: what is cached is
-        all there will be."""
+        all there will be. Never at 0: a listing rebuilt under load sits ready
+        with nothing described for over a second (measured)."""
         polls = int(self.CONTEXT_WAIT_S / self.CONTEXT_POLL_S)
         cached, still = None, 0
         for poll in range(polls):
@@ -101,12 +104,38 @@ class SpotifyLibrary:
                 if listing.get("cached") == listing.get("length"):
                     return listing
                 still = still + 1 if listing.get("cached") == cached else 0
-                if still >= self.STALLED_POLLS:
+                if still >= self.STALLED_POLLS and cached:
                     return listing
             cached = listing.get("cached")
             if poll < polls - 1:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
         return {**listing, "ready": False}
+
+    async def cover(self, uri: str) -> Optional[str]:
+        """The picture the Spotify apps draw for a playlist that has none: as
+        soon as its first four albums are described (go-librespot describes a
+        listing front to back, ~1 s for the first ones of 500 tracks,
+        measured), else from the whole listing once it is complete, or from
+        what leads it when the wait runs out — never from albums past a gap."""
+        polls = int(self.CONTEXT_WAIT_S / self.CONTEXT_POLL_S)
+        covers: List[str] = []
+        cached, still = None, 0
+        for poll in range(polls):
+            listing = await self._request("GET", "/context/tracks", params={"uri": uri})
+            tracks = listing.get("tracks") or []
+            covers = leading_covers(tracks)
+            if len(covers) == MOSAIC_TILES:
+                break
+            if listing.get("ready"):
+                if listing.get("cached") == listing.get("length"):
+                    return playlist_cover(leading_covers(tracks, complete=True))
+                still = still + 1 if listing.get("cached") == cached else 0
+                if still >= self.STALLED_POLLS and cached:
+                    return playlist_cover(leading_covers(tracks, complete=True))
+            cached = listing.get("cached")
+            if poll < polls - 1:
+                await asyncio.sleep(self.CONTEXT_POLL_S)
+        return playlist_cover(covers)
 
     async def liked(self, uris: List[str]) -> List[Dict[str, Any]]:
         answer = await self._request("GET", "/library/liked", params={"uris": ",".join(uris)})

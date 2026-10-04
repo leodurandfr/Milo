@@ -4,7 +4,9 @@ The fixture has the shapes measured on the owner's library (2026-10-03), not
 its names: Spotify's own playlists are named in the session's language, so the
 home sections must hold whatever the names say.
 """
-from backend.sources.spotify.catalog import classify_home, normalize_track, thumbnail_url
+from backend.sources.spotify.catalog import (
+    classify_home, leading_covers, normalize_playlist, normalize_track, playlist_cover, thumbnail_url,
+)
 
 ACCOUNT = "owner"
 RADIO_IMAGE = "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/track/73Ik/en"
@@ -22,8 +24,10 @@ LIBRARY = [
     playlist("37i9dQZF1E8PE5vUgEe9T7", "Radio Leaves", "spotify", RADIO_IMAGE),
     playlist("37i9dQZF1DX0abcdefgh", "Songs to Test Speakers With", "spotify", "https://i.scdn.co/image/x"),
     playlist("1mineabcdefgh", "Chill appart", ACCOUNT),
-    playlist("37i9dQZF1EYkqdzj48dyYq", "", "spotify"),                       # an expired mix: no name, no image
-    playlist("37i9dQZF1E4mixabcdef", "Mix Jazz", "spotify", "https://seed-mix-image.spotifycdn.com/v6/img/desc/x"),
+    playlist("37i9dQZF1EYkqdzj48dyYq", "", "spotify", length=0),             # an expired mix: no name, no image
+    playlist("37i9dQZF1E4mixabcdef", "Mix Jazz", "spotify", "https://seed-mix-image.spotifycdn.com/v6/img/desc/x",
+             length=0),                                                      # lists 0, holds 50
+    playlist("4emptyabcdefgh", "Pour plus tard", ACCOUNT, length=0),
     playlist("37i9dQZEVXbReleaseRad", "Radar des sorties", "spotify", length=200),   # lists 66
     playlist("37i9dQZF1F0wrapped", "Votre Top Titres 2023", "spotify", "https://wrapped-images.spotifycdn.com/x"),
     playlist("37i9dQZF1E3blendabcd", "Cla + Léo", "spotify", "https://blend-playlist-covers.spotifycdn.com/x"),
@@ -44,18 +48,33 @@ def test_home_sections_never_read_a_name():
 
     assert names(sections["radios"]) == ["Radio Leaves"]
     assert names(sections["made_for_you"]) == [
-        None, "Mix Jazz", "Radar des sorties", "Votre Top Titres 2023", "Cla + Léo",
+        "Mix Jazz", "Radar des sorties", "Votre Top Titres 2023", "Cla + Léo",
     ]
     assert names(sections["mine"]) == ["Chill appart", "Claléo"]
     assert names(sections["followed"]) == ["Songs to Test Speakers With", "Funk à l'ancienne!"]
 
 
+EMPTY = {"spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "spotify:playlist:4emptyabcdefgh"}
+
+
 def test_every_playlist_lands_in_exactly_one_section_and_shortcuts_follow_the_library():
     sections = classify_home(LIBRARY, ACCOUNT)
     placed = [p["uri"] for key in ("made_for_you", "radios", "mine", "followed") for p in sections[key]]
+    shown = [item["uri"] for item in LIBRARY if item["uri"] not in EMPTY]
 
-    assert sorted(placed) == sorted(item["uri"] for item in LIBRARY)
-    assert [p["uri"] for p in sections["shortcuts"]] == [item["uri"] for item in LIBRARY[:7]]
+    assert sorted(placed) == sorted(shown)
+    assert [p["uri"] for p in sections["shortcuts"]] == shown[:7]
+
+
+def test_an_empty_playlist_is_left_out_but_a_live_mix_listing_zero_is_not():
+    """A playlist a person keeps with no track is hidden whatever its name; a
+    Spotify mix lists 0 while it holds 50, and only an expired one (no name,
+    no picture) is empty."""
+    sections = classify_home(LIBRARY, ACCOUNT)
+    placed = {p["uri"] for key in ("shortcuts", "made_for_you", "radios", "mine", "followed") for p in sections[key]}
+
+    assert not placed & EMPTY
+    assert "spotify:playlist:37i9dQZF1E4mixabcdef" in placed
 
 
 def test_a_track_whose_metadata_is_not_cached_yet_is_left_out():
@@ -84,3 +103,42 @@ def test_only_album_covers_are_resized():
     other = "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/x"
     assert thumbnail_url(other) == other
     assert thumbnail_url(None) is None
+
+
+def album(cover_id):
+    return {"track": {"album_cover_url": f"https://i.scdn.co/image/ab67616d0000b273{cover_id}"}}
+
+
+def test_a_playlist_with_no_picture_is_drawn_from_its_first_four_albums():
+    """The Spotify apps' mosaic: the first four distinct albums in playlist
+    order, an album met twice taking one tile."""
+    listing = [album("a1"), album("b2"), album("a1"), album("c3"), album("d4"), album("e5")]
+
+    assert playlist_cover(leading_covers(listing)) == (
+        "https://mosaic.scdn.co/300/"
+        "ab67616d0000b273a1ab67616d0000b273b2ab67616d0000b273c3ab67616d0000b273d4"
+    )
+
+
+def test_fewer_than_four_albums_draw_the_first_cover():
+    listing = [album("a1"), album("b2"), album("a1")]
+    assert playlist_cover(leading_covers(listing)) == "https://i.scdn.co/image/ab67616d0000b273a1"
+    assert playlist_cover(leading_covers([])) is None
+
+
+def test_an_entry_not_described_yet_ends_the_mosaic_until_the_listing_is_complete():
+    """go-librespot describes a listing while it is read: an album after a gap
+    is not the playlist's second one yet. Once the listing is complete, the gap
+    is a track Spotify no longer describes, and the albums around it are the
+    mosaic."""
+    listing = [album("a1"), {"uri": "spotify:track:x", "track": None}, album("b2"), album("c3"), album("d4")]
+    assert leading_covers(listing) == ["https://i.scdn.co/image/ab67616d0000b273a1"]
+    assert len(leading_covers(listing, complete=True)) == 4
+
+
+def test_only_a_playlist_without_a_picture_is_pointed_at_the_mosaic():
+    uploaded = normalize_playlist(playlist("2collabxyz", "Claléo", "someone", "https://i.scdn.co/image/y"))
+    bare = normalize_playlist(playlist("1mineabcdefgh", "Chill appart", ACCOUNT))
+
+    assert "/cover" not in uploaded["image"]
+    assert bare["image"] == "/api/spotify/contexts/spotify%3Aplaylist%3A1mineabcdefgh/cover"
