@@ -30,10 +30,6 @@
 
         <div v-else key="loaded" class="sections">
           <section class="section">
-            <header class="section-header">
-              <span class="section-overline text-mono-small">{{ t('spotify.libraryOverline') }}</span>
-              <h2 class="section-title heading-2">{{ t('spotify.shortcuts') }}</h2>
-            </header>
             <div class="shortcuts-grid">
               <SpotifyShortcutTile liked :title="t('spotify.likedSongs')" @click="$emit('select-liked')" />
               <SpotifyShortcutTile v-for="playlist in home.sections.shortcuts" :key="playlist.uri"

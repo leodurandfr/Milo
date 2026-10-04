@@ -412,7 +412,6 @@
     "profiles": "Profiles",
     "retry": "Retry",
     "save": "Save",
-    "shortcuts": "Shortcuts",
     "signingIn": "Signing in to Spotify…",
     "switchStopsPlayback": "Tap again: playback will stop",
     "tracksCount": "{count} track | {count} tracks",
