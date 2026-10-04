@@ -17,7 +17,7 @@
 
           <div class="tracks">
             <TrackRow
-              v-for="(song, idx) in store.likedSongs"
+              v-for="(song, idx) in visibleSongs"
               :key="song.id"
               :song="song"
               :number="idx + 1"
@@ -30,6 +30,7 @@
               @play="playFrom(idx)"
               @menu="store.requestAddToPlaylist([song.id])"
             />
+            <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
           </div>
         </div>
       </Transition>
@@ -44,9 +45,12 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import { useRenderWindow } from '@/composables/useRenderWindow';
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
+
+const { visible: visibleSongs, hasMore, sentinelRef } = useRenderWindow(() => store.likedSongs);
 
 const subtitle = computed(() => t('musicLibrary.tracksCount', { count: store.likedSongsCount }));
 

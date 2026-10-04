@@ -275,11 +275,62 @@ async def test_a_listing_still_loading_answers_its_progress(world):
     ]
     world.daemon.listing_calls_until_ready = 1000
     pending = await routes.get_context(PLAYLIST, source=world.source)
-    assert pending["ready"] is False and "tracks" not in pending
+    assert pending["complete"] is False and pending["tracks"] == []
 
     world.daemon.listing_calls_until_ready = 0
     ready = await routes.get_context(PLAYLIST, source=world.source)
-    assert ready["ready"] is True and [t["title"] for t in ready["tracks"]] == ["A"]
+    assert ready["complete"] is True and [t["title"] for t in ready["tracks"]] == ["A"]
+
+
+def track(name):
+    return {"uri": f"spotify:track:{name}",
+            "track": {"uri": f"spotify:track:{name}", "name": name, "artist_names": [], "artist_uris": []}}
+
+
+async def test_a_long_listing_is_handed_over_as_it_is_described(world):
+    """A cold Liked Songs takes go-librespot 12 s to describe whole and one
+    for its first 100 tracks: waiting for all of them is what kept the page
+    empty. Each answer carries the tracks described past what the browser
+    has, in order, until the listing is complete."""
+    world.daemon.listings[PLAYLIST] = [track(n) for n in "abcde"]
+    world.daemon.described_per_call = 2
+
+    first = await routes.get_context(PLAYLIST, after=0, source=world.source)
+    second = await routes.get_context(PLAYLIST, after=2, source=world.source)
+    last = await routes.get_context(PLAYLIST, after=4, source=world.source)
+
+    assert [([t["title"] for t in a["tracks"]], a["complete"]) for a in (first, second, last)] == [
+        (["a", "b"], False), (["c", "d"], False), (["e"], True),
+    ]
+    assert world.daemon.listing_calls[PLAYLIST] == 3
+
+
+async def test_a_listing_read_again_from_the_start_takes_no_rows_back(world, monkeypatch):
+    """go-librespot restarted reads a half-loaded Liked Songs from nothing:
+    the browser still holds 3 rows and must keep them, not be told to start
+    over with fewer."""
+    from backend.sources.spotify.library import SpotifyLibrary
+
+    monkeypatch.setattr(SpotifyLibrary, "CONTEXT_WAIT_S", 0.1)
+    monkeypatch.setattr(SpotifyLibrary, "CONTEXT_POLL_S", 0.01)
+    world.daemon.listings[PLAYLIST] = [track(n) for n in "abcde"]
+    world.daemon.described_per_call = 0
+
+    answer = await routes.get_context(PLAYLIST, after=3, source=world.source)
+
+    assert answer["tracks"] == [] and answer["complete"] is False
+
+
+async def test_a_track_not_described_yet_holds_back_the_ones_after_it(world):
+    """A track the cache already holds further down (the one playing) must
+    not show above the gap: the rows on screen would move when it fills."""
+    world.daemon.listings[PLAYLIST] = [track("a"), {"uri": "spotify:track:gap", "track": None}, track("c")]
+    world.daemon.listing_calls_until_ready = 1
+    world.daemon.described_per_call = None
+
+    answer = await routes.get_context(PLAYLIST, after=0, source=world.source)
+
+    assert [t["title"] for t in answer["tracks"]] == ["a"]
 
 
 async def test_a_listing_whose_cache_stops_short_is_shown_with_what_it_has(world):
@@ -291,10 +342,11 @@ async def test_a_listing_whose_cache_stops_short_is_shown_with_what_it_has(world
                                              "artist_uris": [], "duration": 1000}},
         {"uri": "spotify:track:gone", "track": None},
     ]
-    ready = await routes.get_context(PLAYLIST, source=world.source)
+    first = await routes.get_context(PLAYLIST, source=world.source)
+    rest = await routes.get_context(PLAYLIST, after=len(first["tracks"]), source=world.source)
 
-    assert ready["ready"] is True
-    assert [t["title"] for t in ready["tracks"]] == ["A"]
+    assert [t["title"] for t in first["tracks"]] == ["A"]
+    assert rest["complete"] is True and rest["tracks"] == []
 
 
 def described(cover_id):
@@ -338,7 +390,7 @@ async def test_a_listing_with_nothing_described_yet_is_never_taken_as_complete(w
     world.daemon.listings[PLAYLIST] = [{"uri": "spotify:track:pending", "track": None}]
 
     listing = await routes.get_context(PLAYLIST, source=world.source)
-    assert listing["ready"] is False
+    assert listing["complete"] is False
     await routes.get_context_cover(PLAYLIST, source=world.source)
     assert world.daemon.listing_calls[PLAYLIST] > 2 * (SpotifyLibrary.STALLED_POLLS + 1)
 

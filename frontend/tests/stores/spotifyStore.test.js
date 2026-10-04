@@ -4,7 +4,8 @@
  * break, silently: a list cached for the last account shown under the next one
  * (a guest's cast replaces the signed-in account mid-browse), a heart that
  * stays turned after Spotify refused it, a listing that stops at its first
- * "not ready yet" answer and shows an empty playlist, and the profile screen
+ * partial answer and shows a playlist cut short (or one that asks for its
+ * tracks from the start again and draws them twice), and the profile screen
  * opening over music someone is listening to.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -85,16 +86,34 @@ describe('spotifyStore', () => {
     expect(store.isLiked(TRACK)).toBeNull();
   });
 
-  it('asks for a listing again until go-librespot has all of it', async () => {
-    apiCall.get
-      .mockResolvedValueOnce(ok({ ready: false, cached: 120, length: 618 }))
-      .mockResolvedValueOnce(ok({ ready: false, cached: 400, length: 618 }))
-      .mockResolvedValueOnce(ok({ ready: true, cached: 618, length: 618, tracks: [{ uri: TRACK }] }));
+  it('adds a listing\'s tracks as they are described, asking from what it has', async () => {
+    // The route as measured: go-librespot describes a listing front to back,
+    // and each answer carries the tracks past `after`.
+    const listing = ['a', 'b', 'c', 'd', 'e'].map((n) => ({ uri: `spotify:track:${n}` }));
+    let described = 0;
+    apiCall.get.mockImplementation(async (url, { params }) => {
+      described = Math.min(described + 2, listing.length);
+      return ok({
+        complete: described === listing.length, cached: described, length: listing.length,
+        tracks: listing.slice(params.after, described),
+      });
+    });
 
     await store.loadContext(PLAYLIST);
 
-    expect(apiCall.get.mock.calls.filter(([url]) => url.includes('/contexts/'))).toHaveLength(3);
-    expect(store.contexts[PLAYLIST]).toMatchObject({ ready: true, tracks: [{ uri: TRACK }] });
+    expect(apiCall.get.mock.calls.map(([, options]) => options.params.after)).toEqual([0, 2, 4]);
+    expect(store.contexts[PLAYLIST]).toMatchObject({ complete: true, tracks: listing });
+  });
+
+  it('gives a listing up once it stops moving, keeping what it has', async () => {
+    apiCall.get
+      .mockResolvedValueOnce(ok({ complete: false, cached: 1, length: 9, tracks: [{ uri: TRACK }] }))
+      .mockResolvedValue(ok({ complete: false, cached: 1, length: 9, tracks: [] }));
+
+    await store.loadContext(PLAYLIST);
+
+    expect(store.contextErrors[PLAYLIST]).toBe('unavailable');
+    expect(store.contexts[PLAYLIST].tracks).toEqual([{ uri: TRACK }]);
   });
 
   it('stops asking once the page that wanted the listing is gone', async () => {

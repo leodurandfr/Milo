@@ -10,13 +10,13 @@ the browser reads as "signing in" or "cast from your phone", never as a fault.
 """
 import contextlib
 import logging
-from typing import List
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
-from backend.sources.spotify.catalog import classify_home, liked_songs_uri, normalize_track
+from backend.sources.spotify.catalog import classify_home, liked_songs_uri
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
 from backend.sources.spotify.models import ActiveProfileRequest, RenameProfileRequest
 from backend.sources.spotify.source import SpotifySource
@@ -80,23 +80,26 @@ async def get_home(source: SpotifySource = Depends(get_source)):
 
 
 @router.get("/contexts/{uri}")
-async def get_context(uri: str, source: SpotifySource = Depends(get_source)):
-    """A playlist's, an album's, an artist's or Liked Songs' tracks: the whole
-    listing once go-librespot has it, its progress until then (the browser asks
-    again while `ready` is false)."""
+async def get_context(
+    uri: str,
+    after: Annotated[int, Query(ge=0, description="How many of its tracks the browser already has")] = 0,
+    source: SpotifySource = Depends(get_source),
+):
+    """A playlist's, an album's, an artist's or Liked Songs' tracks, as
+    go-librespot describes them: `tracks` are the ones past the `after` the
+    browser has, and it asks again until `complete` (`cached` of `length` say
+    how far the listing is). Never fewer than it has: a listing the daemon
+    reads again from the start (a restart) answers nothing new."""
     async with _library_errors("Spotify listing"):
-        listing = await source.library.context(uri)
-        answer = {
+        tracks, listing = await source.library.context(uri, after)
+        return {
             "status": "success",
             "uri": uri,
-            "ready": bool(listing.get("ready")),
+            "complete": listing["complete"],
             "cached": listing.get("cached") or 0,
             "length": listing.get("length") or 0,
+            "tracks": tracks[after:],
         }
-        if answer["ready"]:
-            tracks = (normalize_track(entry) for entry in listing.get("tracks") or [])
-            answer["tracks"] = [track for track in tracks if track is not None]
-        return answer
 
 
 @router.get("/contexts/{uri}/cover")

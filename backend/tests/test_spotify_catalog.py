@@ -5,7 +5,8 @@ its names: Spotify's own playlists are named in the session's language, so the
 home sections must hold whatever the names say.
 """
 from backend.sources.spotify.catalog import (
-    classify_home, leading_covers, normalize_playlist, normalize_track, playlist_cover, thumbnail_url,
+    classify_home, described_tracks, leading_covers, normalize_playlist, normalize_track, playlist_cover,
+    thumbnail_url,
 )
 
 ACCOUNT = "owner"
@@ -142,3 +143,16 @@ def test_only_a_playlist_without_a_picture_is_pointed_at_the_mosaic():
 
     assert "/cover" not in uploaded["image"]
     assert bare["image"] == "/api/spotify/contexts/spotify%3Aplaylist%3A1mineabcdefgh/cover"
+
+
+def test_a_track_not_described_yet_ends_the_listing_until_it_is_complete():
+    """go-librespot describes a listing front to back: a track already cached
+    past a gap is not shown yet, or the rows on screen would move when the gap
+    fills. Once complete, the gap is a track Spotify no longer describes."""
+    def entry(name):
+        return {"uri": f"spotify:track:{name}", "track": {"uri": f"spotify:track:{name}", "name": name}}
+
+    listing = [entry("a"), {"uri": "spotify:track:gap", "track": None}, entry("c")]
+
+    assert [t["title"] for t in described_tracks(listing, complete=False)] == ["a"]
+    assert [t["title"] for t in described_tracks(listing, complete=True)] == ["a", "c"]

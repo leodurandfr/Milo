@@ -147,7 +147,8 @@ import SkeletonMediaRow from '../cards/SkeletonMediaRow.vue';
 import SkeletonGenreRow from '../cards/SkeletonGenreRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 import ArtistIndexRail from '../ArtistIndexRail.vue';
-import { offsetWithin, scrollParentOf } from '../indexRail';
+import { offsetWithin } from '../indexRail';
+import { scrollParentOf } from '@/utils/scroll';
 
 defineEmits(['select-album', 'select-artist', 'select-genre', 'select-playlist', 'select-liked']);
 

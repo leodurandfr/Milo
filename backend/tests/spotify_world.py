@@ -155,6 +155,10 @@ class Librespot:
         self.playlists: List[Dict[str, Any]] = []
         self.listings: Dict[str, List[Dict[str, Any]]] = {}   # uri -> tracks
         self.listing_calls_until_ready = 1   # /context/tracks answers ready on this call
+        # go-librespot describes a listing front to back while it is read
+        # (batches of 100 a second): None describes it whole at once, n
+        # describes n more tracks on each call after it is ready.
+        self.described_per_call: Optional[int] = None
         self.listing_calls: Dict[str, int] = {}
         self.liked: set = set()
         # Spotify's profile service (spclient user-profile-view): the answer
@@ -253,6 +257,9 @@ class Librespot:
             calls = self.listing_calls[uri] = self.listing_calls.get(uri, 0) + 1
             tracks = self.listings[uri]
             ready = calls >= self.listing_calls_until_ready
+            if ready and self.described_per_call is not None:
+                shown = (calls - self.listing_calls_until_ready + 1) * self.described_per_call
+                tracks = [t if i < shown else {"uri": t["uri"], "track": None} for i, t in enumerate(tracks)]
             return _Exchange(_Response(200, {
                 "uri": uri, "ready": ready, "length": len(tracks),
                 "cached": sum(1 for t in tracks if t.get("track")) if ready else 0,

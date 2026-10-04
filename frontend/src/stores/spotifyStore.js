@@ -6,10 +6,11 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 const BASE = '/api/spotify';
 // go-librespot's /library/liked answers for 1 to 50 tracks per call.
 const LIKED_BATCH = 50;
-// Each listing request waits about 6 s server-side: 20 of them is two minutes
-// of a listing that never completes, which no measured one came near (1159
-// tracks took 12 s).
-const MAX_LISTING_ROUNDS = 20;
+// A listing request answers as soon as more tracks are described, else after
+// about 6 s: 20 answers in a row bringing nothing is two minutes of a listing
+// that stopped moving, which no measured one came near (1159 tracks took 12 s
+// to describe whole).
+const MAX_IDLE_ROUNDS = 20;
 // The answer the library routes give while nobody is signed in to the daemon
 // (between a session end and the stored account signing back in, or with no
 // account at all): a state the browser draws, not a failure.
@@ -89,22 +90,27 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // =========================================================================
   // CONTEXTS — a playlist's, album's, artist's or Liked Songs' tracks
   // =========================================================================
-  // uri → { ready, cached, length, tracks } (tracks only once ready)
+  // uri → { complete, cached, length, tracks } (tracks: as far as described)
   const contexts = ref({});
   // uri → 'not_signed_in' | 'unavailable'
   const contextErrors = ref({});
 
   /**
-   * Load a context's listing. The route waits a few seconds for go-librespot
-   * to have it all and answers its progress otherwise: asking again while
-   * `ready` is false is the whole protocol, so there is no timer here.
+   * Load a context's listing, its tracks added as go-librespot describes them
+   * (front to back, the first 100 within a second). The route answers as soon
+   * as there are tracks past the ones sent along as `after`: asking again until
+   * `complete` is the whole protocol, so there is no timer here. A listing left
+   * half loaded (the page closed) carries on from where it stopped.
    */
-  async function loadContext(uri, { signal, force = false } = {}) {
-    if (!force && contexts.value[uri]?.ready) return;
+  async function loadContext(uri, { signal } = {}) {
+    if (contexts.value[uri]?.complete) return;
     const { [uri]: _dropped, ...otherErrors } = contextErrors.value;
     contextErrors.value = otherErrors;
-    for (let round = 0; round < MAX_LISTING_ROUNDS; round += 1) {
+    for (let idle = 0; idle < MAX_IDLE_ROUNDS;) {
+      const entry = contexts.value[uri];
+      const known = entry?.tracks ?? [];
       const result = await apiCall.get(`${BASE}/contexts/${encodeURIComponent(uri)}`, {
+        params: { after: known.length },
         category: 'spotify',
         message: 'Error loading a Spotify list',
         logLevel: 'warn',
@@ -118,12 +124,13 @@ export const useSpotifyStore = defineStore('spotify', () => {
         };
         return;
       }
-      const { ready, cached, length, tracks } = result.data;
-      contexts.value = { ...contexts.value, [uri]: { ready, cached, length, tracks: tracks ?? [] } };
-      if (ready) {
-        if (uri === home.value?.liked_songs_uri) markLiked(tracks ?? []);
-        return;
-      }
+      // Another load of this listing wrote meanwhile: ask again from what it has.
+      if (contexts.value[uri] !== entry) continue;
+      const { complete, cached, length, tracks } = result.data;
+      contexts.value = { ...contexts.value, [uri]: { complete, cached, length, tracks: known.concat(tracks) } };
+      if (uri === home.value?.liked_songs_uri) markLiked(tracks);
+      if (complete) return;
+      idle = tracks.length ? 0 : idle + 1;
     }
     contextErrors.value = { ...contextErrors.value, [uri]: 'unavailable' };
   }

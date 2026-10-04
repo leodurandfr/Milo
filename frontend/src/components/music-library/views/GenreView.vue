@@ -28,7 +28,7 @@
 
                 <div class="tracks">
                   <TrackRow
-                    v-for="(song, idx) in songs"
+                    v-for="(song, idx) in visibleSongs"
                     :key="song.id"
                     :song="song"
                     :number="idx + 1"
@@ -41,6 +41,7 @@
                     @play="playFrom(idx)"
                     @menu="store.requestAddToPlaylist([song.id])"
                   />
+                  <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
                 </div>
               </div>
             </Transition>
@@ -73,6 +74,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
+import { useRenderWindow } from '@/composables/useRenderWindow';
 
 const props = defineProps({
   genre: {
@@ -90,6 +92,7 @@ const viewMode = ref('tracks');
 const songs = ref([]);
 const albums = ref([]);
 const loading = ref(false);
+const { visible: visibleSongs, hasMore, sentinelRef } = useRenderWindow(songs);
 
 function playFrom(index) {
   store.playContext(songs.value, index, false);

@@ -14,7 +14,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { condenseLetters, letterAtRatio, offsetWithin, scrollParentOf } from './indexRail';
+import { condenseLetters, letterAtRatio, offsetWithin } from './indexRail';
+import { scrollParentOf } from '@/utils/scroll';
 
 const props = defineProps({
   // Every bucket name in the index, mounted or not — the rail is how a letter is

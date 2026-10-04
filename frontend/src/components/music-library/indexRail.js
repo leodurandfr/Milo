@@ -44,23 +44,6 @@ export function letterAtRatio(letters, ratio) {
 }
 
 /**
- * The element `el` scrolls in, or null.
- *
- * The rail needs it twice, and both times because the alternative moves or
- * measures the wrong box: the room for letters is the scroll container's, not
- * the window's, and `scrollIntoView()` scrolls EVERY scrollable ancestor (an
- * `overflow: hidden` one included — it still scrolls under script), which slid
- * the whole interface up by the offset it wanted and never slid it back.
- */
-export function scrollParentOf(el) {
-  for (let node = el?.parentElement; node; node = node.parentElement) {
-    const overflowY = getComputedStyle(node).overflowY;
-    if (overflowY === 'auto' || overflowY === 'scroll') return node;
-  }
-  return null;
-}
-
-/**
  * `el`'s top in the laid-out pixels of `ancestor`, summed up the offsetParent
  * chain rather than taken from a bounding rect: both operands are then in the
  * same space as scrollTop.

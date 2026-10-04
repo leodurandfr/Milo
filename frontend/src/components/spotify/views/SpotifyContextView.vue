@@ -2,11 +2,12 @@
   <div class="spotify-context">
     <div class="transition-container">
       <Transition name="content-swap">
-        <MessageContent v-if="error" key="error" icon="network"
+        <!-- Rows already listed stay over an error: reopening asks for the rest. -->
+        <MessageContent v-if="error && !tracks.length" key="error" icon="network"
           :title="error === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable')"
           :cta-label="t('spotify.retry')" cta-variant="background-strong" :cta-click="load" />
 
-        <MessageContent v-else-if="!listing?.ready" key="loading" loading
+        <MessageContent v-else-if="!tracks.length && !listing?.complete" key="loading" loading
           :title="progress" />
 
         <MessageContent v-else-if="!tracks.length" key="empty" :title="t('spotify.noTracks')" />
@@ -18,14 +19,14 @@
             :icon="headerIcon"
             :title="headerTitle"
             :subtitle="headerSubtitle"
-            :subtitle-meta="t('spotify.tracksCount', { count: tracks.length })"
+            :subtitle-meta="t('spotify.tracksCount', { count: trackCount })"
             @play="play()"
             @shuffle="shufflePlay"
           />
 
           <div class="tracks">
             <TrackRow
-              v-for="(track, idx) in tracks"
+              v-for="(track, idx) in visibleTracks"
               :key="`${track.uri}-${idx}`"
               :song="rowSong(track)"
               :number="kind === 'album' ? (track.track_number || idx + 1) : idx + 1"
@@ -41,6 +42,7 @@
               @artist="$emit('select-artist', track.artists[0])"
               @menu="$emit('select-album', track.album)"
             />
+            <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
           </div>
         </div>
       </Transition>
@@ -56,6 +58,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { useRenderWindow } from '@/composables/useRenderWindow';
 
 const props = defineProps({
   uri: {
@@ -90,6 +93,10 @@ const store = useSpotifyStore();
 const listing = computed(() => store.contexts[props.uri] ?? null);
 const error = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
+// The rows mounted, out of the tracks described so far.
+const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
+// While the rest is described, the listing's own length.
+const trackCount = computed(() => (listing.value?.complete ? tracks.value.length : listing.value?.length ?? 0));
 
 const progress = computed(() => {
   const l = listing.value;
@@ -142,9 +149,10 @@ function play({ skipToUri = null, shuffle = false } = {}) {
   store.playContext(props.uri, { skipToUri, shuffle });
 }
 
-// The first track of a shuffled play is picked here, from the whole listing on
-// screen: go-librespot starts a context from a signed-in idle state with its
-// shuffle off, so it cannot be left to pick (measured).
+// The first track of a shuffled play is picked here, from the tracks described
+// so far (the whole listing once complete; the order after it is the daemon's,
+// over all of it): go-librespot starts a context from a signed-in idle state
+// with its shuffle off, so it cannot be left to pick (measured).
 function shufflePlay() {
   // A local file in a playlist lists here but cannot be played from Milō.
   const list = tracks.value.filter((track) => !track.uri.startsWith('spotify:local:'));
@@ -157,12 +165,12 @@ let controller = null;
 function load() {
   controller?.abort();
   controller = new AbortController();
-  store.loadContext(props.uri, { signal: controller.signal, force: true });
+  store.loadContext(props.uri, { signal: controller.signal });
 }
 
 onBeforeUnmount(() => controller?.abort());
 
-if (!listing.value?.ready) load();
+if (!listing.value?.complete) load();
 </script>
 
 <style scoped>

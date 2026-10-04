@@ -1,14 +1,18 @@
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
+import { scrollParentOf } from '@/utils/scroll';
 
 /**
  * Infinite scroll via IntersectionObserver.
- * Bind the returned `sentinelRef` to a DOM element; `onLoadMore` fires when it enters the viewport.
+ * Bind the returned `sentinelRef` to a DOM element; `onLoadMore` fires when it
+ * comes within `rootMargin` of the visible part of the box it scrolls in.
  *
  * @param {Object} options
  * @param {Function} options.onLoadMore - Called when sentinel is visible and loading is allowed
  * @param {import('vue').Ref<boolean>} options.canLoadMore - Whether more items can be loaded
  * @param {import('vue').Ref<boolean>} [options.isLoading] - Whether a load is already in progress
- * @returns {{ sentinelRef: import('vue').Ref<HTMLElement|null> }}
+ * @returns {{ sentinelRef: import('vue').Ref<HTMLElement|null>, recheck: Function }}
+ *   `recheck()` asks again whether the sentinel is in reach — after an append
+ *   that left it there, which the observer alone never reports.
  */
 export function useInfiniteScroll({
   onLoadMore,
@@ -19,39 +23,36 @@ export function useInfiniteScroll({
   const sentinelRef = ref(null);
   let observer = null;
 
-  function setup() {
-    if (observer) {
-      observer.disconnect();
-    }
-
+  // Observed against the box the sentinel scrolls in: against the viewport, the
+  // margin never reaches a sentinel that box clips, and nothing loads before
+  // the end is on screen. Observing anew also reports where the sentinel is now.
+  function observe(el) {
+    observer?.disconnect();
+    observer = null;
+    if (!el) return;
     observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && canLoadMore.value && !isLoading?.value) {
           onLoadMore();
         }
       },
-      { rootMargin, threshold: 0 }
+      { root: scrollParentOf(el), rootMargin, threshold: 0 }
     );
-
-    if (sentinelRef.value) {
-      observer.observe(sentinelRef.value);
-    }
+    observer.observe(el);
   }
 
-  // Re-observe when the sentinel element appears/disappears (v-if toggling)
-  watch(sentinelRef, (el, oldEl) => {
-    if (oldEl && observer) observer.unobserve(oldEl);
-    if (el && observer) observer.observe(el);
-  });
+  function recheck() {
+    observe(sentinelRef.value);
+  }
 
-  onMounted(setup);
+  // Post-flush: the sentinel's ancestors are laid out by then, so its scroll
+  // box can be found.
+  watch(sentinelRef, observe, { flush: 'post' });
 
   onBeforeUnmount(() => {
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
+    observer?.disconnect();
+    observer = null;
   });
 
-  return { sentinelRef };
+  return { sentinelRef, recheck };
 }

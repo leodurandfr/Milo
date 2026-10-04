@@ -40,7 +40,7 @@
 
           <div v-else class="tracks" :class="{ reordering: editing }">
             <div
-              v-for="(song, idx) in tracks"
+              v-for="(song, idx) in visibleTracks"
               :key="song.id"
               class="drag-item"
               :class="{
@@ -65,6 +65,7 @@
                 @grip-down="onGripDown($event, idx)"
               />
             </div>
+            <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
           </div>
         </div>
       </Transition>
@@ -94,6 +95,7 @@ import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { useRenderWindow } from '@/composables/useRenderWindow';
 
 const props = defineProps({
   playlistId: {
@@ -113,6 +115,7 @@ const loading = ref(false);
 // Local, mutable copy of the ordered entries — the edit surface (reorder/remove)
 // works on this and persists the whole new order through setPlaylistTracks.
 const tracks = ref([]);
+const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
 
 const editing = ref(false);
 const renameOpen = ref(false);
@@ -220,7 +223,8 @@ function onDragMove(event) {
   const threshold = dragState.value.itemHeight * 0.5;
   const dragged = dragState.value.index;
 
-  if (deltaY > threshold && dragged < tracks.value.length - 1) {
+  // Down to the last mounted row: a swap past it would hide the dragged row.
+  if (deltaY > threshold && dragged < visibleTracks.value.length - 1) {
     swap(dragged, dragged + 1);
     dragState.value.index = dragged + 1;
     dragState.value.startY += dragState.value.itemHeight;

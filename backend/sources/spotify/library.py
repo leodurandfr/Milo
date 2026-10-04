@@ -10,11 +10,11 @@ SpotifyUnavailable for the browser to retry.
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-from backend.sources.spotify.catalog import MOSAIC_TILES, leading_covers, playlist_cover
+from backend.sources.spotify.catalog import MOSAIC_TILES, described_tracks, leading_covers, playlist_cover
 
 logger = logging.getLogger("source.spotify.library")
 
@@ -89,27 +89,36 @@ class SpotifyLibrary:
             if not batch or len(items) >= (page.get("total") or 0):
                 return items
 
-    async def context(self, uri: str) -> Dict[str, Any]:
-        """A context's listing, waiting about CONTEXT_WAIT_S for it to be
-        complete: `ready` with every track, or the progress so far. A listing
-        whose cache stops short of its length (a track Spotify will not
-        describe) is complete once its count stops moving: what is cached is
-        all there will be. Never at 0: a listing rebuilt under load sits ready
-        with nothing described for over a second (measured)."""
+    async def context(self, uri: str, after: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """A context's tracks as far as they are described, and the listing
+        they came from (`ready` once its tracks are enumerated, `complete` once
+        nothing more will be described). Answers as soon as more than `after`
+        tracks are described, or the listing is complete — a cold Liked Songs
+        takes 12 s to describe whole, its first 100 tracks one — else after
+        about CONTEXT_WAIT_S with what there is. A listing whose cache stops
+        short of its length (a track Spotify will not describe) is complete
+        once its count stops moving: what is cached is all there will be.
+        Never at 0: a listing rebuilt under load sits ready with nothing
+        described for over a second (measured)."""
         polls = int(self.CONTEXT_WAIT_S / self.CONTEXT_POLL_S)
         cached, still = None, 0
+        tracks: List[Dict[str, Any]] = []
         for poll in range(polls):
             listing = await self._request("GET", "/context/tracks", params={"uri": uri})
+            complete = False
             if listing.get("ready"):
                 if listing.get("cached") == listing.get("length"):
-                    return listing
-                still = still + 1 if listing.get("cached") == cached else 0
-                if still >= self.STALLED_POLLS and cached:
-                    return listing
+                    complete = True
+                else:
+                    still = still + 1 if listing.get("cached") == cached else 0
+                    complete = still >= self.STALLED_POLLS and bool(cached)
+                tracks = described_tracks(listing.get("tracks") or [], complete)
+                if complete or len(tracks) > after:
+                    return tracks, {**listing, "complete": complete}
             cached = listing.get("cached")
             if poll < polls - 1:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
-        return {**listing, "ready": False}
+        return tracks, {**listing, "complete": False}
 
     async def cover(self, uri: str) -> Optional[str]:
         """The picture the Spotify apps draw for a playlist that has none: as

@@ -111,6 +111,24 @@ def normalize_track(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def described_tracks(entries: List[Dict[str, Any]], complete: bool) -> List[Dict[str, Any]]:
+    """A listing's tracks as far as go-librespot has described them. It
+    describes a listing front to back, 100 tracks a second (daemon/
+    track_meta_cache.go, 0.10.3), so while it reads, the first entry not
+    described yet ends what can be shown: a row slotted in above the rows on
+    screen would push them down. Once `complete`, such an entry is a track
+    Spotify no longer describes, and is left out."""
+    tracks: List[Dict[str, Any]] = []
+    for entry in entries:
+        track = normalize_track(entry)
+        if track is None:
+            if complete:
+                continue
+            break
+        tracks.append(track)
+    return tracks
+
+
 def _section_of(item: Dict[str, Any], account: Optional[str]) -> str:
     if item["owner"] == SPOTIFY_OWNER:
         if RADIO_IMAGE in (item["image"] or ""):
