@@ -5,7 +5,8 @@ import { isKiosk } from '@/utils/kiosk';
 /**
  * Whether the on-screen virtual keyboard is allowed on this device.
  * The keyboard is exclusive to the Pi's own touchscreen (the kiosk) — same
- * `isKiosk` signal used for the color filter, ui_scale and screensaver.
+ * `isKiosk` signal used for the color filter, ui_scale and the automatic
+ * full-screen player.
  * `?virtualKeyboard=true` forces it on for dev/testing; the dev server
  * (localhost:5173) is otherwise excluded even though it is technically kiosk.
  */

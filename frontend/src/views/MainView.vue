@@ -9,81 +9,25 @@
     </div>
 
     <Logo :position="logoPosition" :visible="logoVisible" />
-
-    <AudioScreensaver
-      :is-visible="isScreensaverVisible"
-      :progress-converges="progressConverges"
-      :artwork-rises="artworkRises"
-      :mode="screensaverData.mode || 'media'"
-      :source-type="screensaverData.sourceType"
-      :artwork="screensaverData.artwork"
-      :artwork-announced="screensaverData.artworkAnnounced"
-      :title="screensaverData.title"
-      :subtitle="screensaverData.subtitle"
-      :station-favicon="screensaverData.stationFavicon"
-      :station-icon="screensaverData.stationIcon"
-      :station-name="screensaverData.stationName"
-      :use-mono-subtitle="screensaverData.useMonoSubtitle"
-      :progress="screensaverProgress"
-      @close="closeScreensaver"
-    />
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch, inject, provide, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
-import { useCdStore } from '@/stores/cdStore';
-import { useScreensaver } from '@/composables/useScreensaver';
-import { SCREENSAVER_REVEAL_NONCE } from '@/composables/useScreensaverReveal';
+import { useAutoPlayer } from '@/composables/useAutoPlayer';
 import { useRichDisplay } from '@/composables/useRichDisplay';
-import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
 import { useTimer } from '@/composables/useTimer';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
-import { BROWSER_SOURCES } from '@/constants/audioSources';
-
-// Lazy-loaded components
-const AudioScreensaver = defineAsyncComponent(() =>
-  import('@/components/audio/AudioScreensaver.vue')
-);
 
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 const timer = useTimer();
 
-// === Audio Screensaver ===
-const { isScreensaverVisible, screensaverRevealNonce, screensaverData, screensaverProgress, closeScreensaver } = useScreensaver();
-
-// Let revealed source views replay their entrance when the screensaver closes.
-provide(SCREENSAVER_REVEAL_NONCE, screensaverRevealNonce);
-
-// The screensaver artwork stays fixed only when the revealed view shows a cover
-// at the same spot (AudioPlayerFull). Over a browser source's navigation there's
-// no matching cover, so it rises + fades with the rest — unless that source is
-// expanded into its full player.
-const { expanded: playerExpanded } = usePlayerExpansion();
-const artworkRises = computed(() =>
-  BROWSER_SOURCES.includes(unifiedStore.systemState.source) && !playerExpanded.value
-);
-
-// Whether the screensaver's progress bar should fly to AudioPlayerFull's bar
-// position on close: only when the revealed player actually shows a bar there —
-// an AudioPlayerFull source with a bar of its own, CD only when showing the
-// player (not its tracklist).
-const cdStore = useCdStore();
-const progressConverges = computed(() => {
-  if (!screensaverProgress.value || artworkRises.value) return false;
-  return !(unifiedStore.systemState.source === 'cd' && cdStore.showTracklist);
-});
-
-// Dismiss screensaver when App.vue signals (e.g., new pending client detected)
-const dismissScreensaverSignal = inject('dismissScreensaver', ref(0));
-watch(dismissScreensaverSignal, () => {
-  if (isScreensaverVisible.value) closeScreensaver();
-});
+useAutoPlayer();
 
 // === LOGO STATE ===
 const lastVisiblePosition = ref('center');

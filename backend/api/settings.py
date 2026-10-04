@@ -29,7 +29,7 @@ from backend.api.models import (
     AudioStopRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
-    ScreenScreensaverRequest,
+    ScreenAutoPlayerRequest,
     ScreenUiScaleRequest,
     ScreenColorFilterRequest,
     ScreenThemeRequest,
@@ -66,8 +66,8 @@ from backend.core.models.ws_events import (
     ScreenBrightnessConfig,
     ScreenColorFilterChanged,
     ScreenColorFilterConfig,
-    ScreenScreensaverChanged,
-    ScreenScreensaverConfig,
+    ScreenAutoPlayerChanged,
+    ScreenAutoPlayerConfig,
     ScreenThemeChanged,
     ScreenThemeConfig,
     ScreenTimeoutChanged,
@@ -225,9 +225,9 @@ def create_settings_router(
             },
             "screen_brightness": {"brightness_on": screen['brightness_on']},
             "screen_ui_scale": {"ui_scale": screen['ui_scale']},
-            "screen_screensaver": {
-                "screensaver_enabled": screen['screensaver_enabled'],
-                "screensaver_delay_seconds": screen['screensaver_delay_seconds']
+            "screen_auto_player": {
+                "auto_player_enabled": screen['auto_player_enabled'],
+                "auto_player_delay_seconds": screen['auto_player_delay_seconds']
             },
             "screen_color_filter": {
                 "enabled": screen['color_filter_enabled'],
@@ -575,26 +575,26 @@ def create_settings_router(
                 "timeout_restarted": True,
             }
 
-    # Screen screensaver
-    @router.put("/screen-screensaver")
-    async def set_screen_screensaver(payload: ScreenScreensaverRequest):
+    # Screen auto player
+    @router.put("/screen-auto-player")
+    async def set_screen_auto_player(payload: ScreenAutoPlayerRequest):
         def setter():
             updates = {}
-            if payload.screensaver_enabled is not None:
-                updates['screen.screensaver_enabled'] = payload.screensaver_enabled
-            if payload.screensaver_delay_seconds is not None:
-                updates['screen.screensaver_delay_seconds'] = payload.screensaver_delay_seconds
+            if payload.auto_player_enabled is not None:
+                updates['screen.auto_player_enabled'] = payload.auto_player_enabled
+            if payload.auto_player_delay_seconds is not None:
+                updates['screen.auto_player_delay_seconds'] = payload.auto_player_delay_seconds
             return settings.set_settings(updates)
 
         screen = await settings.get_setting('screen')
         config = {
-            "screensaver_enabled": payload.screensaver_enabled if payload.screensaver_enabled is not None else screen["screensaver_enabled"],
-            "screensaver_delay_seconds": payload.screensaver_delay_seconds if payload.screensaver_delay_seconds is not None else screen["screensaver_delay_seconds"]
+            "auto_player_enabled": payload.auto_player_enabled if payload.auto_player_enabled is not None else screen["auto_player_enabled"],
+            "auto_player_delay_seconds": payload.auto_player_delay_seconds if payload.auto_player_delay_seconds is not None else screen["auto_player_delay_seconds"]
         }
 
         return await _handle_setting_update(
             setter=setter,
-            event=ScreenScreensaverChanged(config=ScreenScreensaverConfig(**config))
+            event=ScreenAutoPlayerChanged(config=ScreenAutoPlayerConfig(**config))
         )
 
     # Screen UI scale

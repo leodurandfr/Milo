@@ -6,7 +6,7 @@
          player card. The fill drops to -32 when the bar is not interactive
          (a source that cannot seek) — not for a short load, see `loading`.
        - variant "dark": light fill, for the always-dark surfaces that render
-         over artwork (lyrics bar, screensaver, mini-player cards).
+         over artwork (lyrics bar, mini-player cards).
      Self-hides when the source reports no duration (e.g. Qobuz, radio). -->
 
 <template>
@@ -60,7 +60,7 @@ const props = defineProps({
     validator: (v) => ['light', 'dark'].includes(v)
   },
   // Spring rise + fade on mount, for the surfaces whose whole player stages in
-  // (AudioPlayerFull, screensaver, lyrics bar). Off for bars that are already
+  // (AudioPlayerFull, lyrics bar). Off for bars that are already
   // part of a staged parent.
   animateIn: {
     type: Boolean,

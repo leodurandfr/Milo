@@ -63,9 +63,9 @@ class ScreenBrightnessConfig(BaseModel):
     brightness_on: int
 
 
-class ScreenScreensaverConfig(BaseModel):
-    screensaver_enabled: bool
-    screensaver_delay_seconds: int
+class ScreenAutoPlayerConfig(BaseModel):
+    auto_player_enabled: bool
+    auto_player_delay_seconds: int
 
 
 class ScreenUiScaleConfig(BaseModel):

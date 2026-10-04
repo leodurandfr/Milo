@@ -6,7 +6,7 @@
  * Shared because both consumers learned it the hard way. `artworkParity` asserts
  * non-presence — `not.toMatch(/album_art_url/)` — and writing
  * `// The helper owns album_art_url; do not read it here.` at exactly the right
- * place in useScreensaver.js turned it red. Documenting a rule where it applies
+ * place in a view it scans turned it red. Documenting a rule where it applies
  * is the most natural thing a reader can do; it must not read as a violation.
  *
  * Handles block comments, line comments and HTML comments (a .vue template's

@@ -1,9 +1,8 @@
 // frontend/src/composables/usePlayerExpansion.js
 // Whether a browser source (radio, podcast, music library, Spotify) shows its
 // navigation or its full player. Module state, because the screen has one
-// answer: the shell that draws the two views (BrowserSourceViews), the
-// screensaver's hand-off in MainView, and anything that opens the player on its
-// own all read the same flag.
+// answer: the shell that draws the two views (BrowserSourceViews) and the
+// automatic expansion after inactivity (useAutoPlayer) read the same flag.
 //
 // It holds only "expanded or not" and never the source it was expanded for:
 // another source opens on its own default view, so a change of source drops

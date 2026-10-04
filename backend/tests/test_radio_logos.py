@@ -378,7 +378,7 @@ class TestWhatIsALogo:
         assert middle[0] > 180, "the logo itself must sit in the middle"
 
     async def test_a_dark_logo_on_transparency_is_flattened_onto_white(self, fetches, public):
-        """Radio Meuh is black on nothing: it vanished on the screensaver's black."""
+        """Radio Meuh is black on nothing: it vanished on a dark background."""
         fetches(_Resp(200, _png(400, 100, mode="RGBA", background=(0, 0, 0, 0),
                                 center=(20, 20, 20, 255))))
 

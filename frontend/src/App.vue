@@ -159,8 +159,8 @@ const updatesStore = useUpdatesStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, showDisconnectedBanner } = useWebSocket();
 
 // The volume bar is fixed above every view, so it is the one component that
-// cannot see what it is drawn on. The dark full-bleed surfaces (screensaver,
-// Lyrics) declare themselves; the bar just takes the matching variant.
+// cannot see what it is drawn on. The dark full-bleed surface (Lyrics)
+// declares itself; the bar just takes the matching variant.
 const { isDarkSurface } = useDarkSurface();
 const { loadHardwareInfo } = useHardwareConfig();
 const timer = useTimer();
@@ -513,9 +513,6 @@ function registerDockControl(showFn) {
   showDockFn = showFn;
 }
 
-// Signal to dismiss screensaver from App.vue (incremented to trigger watch in MainView)
-const dismissScreensaverSignal = ref(0);
-
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
 provide('openLyrics', () => lyricsStore.open());
@@ -527,7 +524,6 @@ provide('closeModals', () => {
   closeSettings();
 });
 provide('registerDockControl', registerDockControl);
-provide('dismissScreensaver', dismissScreensaverSignal);
 
 // === WebSocket dispatch tables ===
 // 46 of the 64 subscriptions do one thing: hand a payload to a store. Written
@@ -614,7 +610,7 @@ const SETTINGS_CONFIG_EVENTS = [
   ['audio_stop_changed', settingsStore.updateAudioPlayback],
   ['screen_timeout_changed', settingsStore.updateScreenTimeout],
   ['screen_brightness_changed', settingsStore.updateScreenBrightness],
-  ['screen_screensaver_changed', settingsStore.updateScreenScreensaver],
+  ['screen_auto_player_changed', settingsStore.updateScreenAutoPlayer],
   ['screen_color_filter_changed', settingsStore.updateScreenColorFilter],
   ['screen_theme_changed', settingsStore.updateScreenTheme],
   ['radio_settings_changed', settingsStore.updateRadioSettings],
@@ -727,8 +723,6 @@ onMounted(async () => {
           });
           settingsStore.updateScreenSleeping(false);
         }
-        // Dismiss screensaver
-        dismissScreensaverSignal.value++;
         openSettings('multiroom');
       }
     }),

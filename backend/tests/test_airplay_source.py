@@ -460,7 +460,7 @@ class TestSessionControl:
     async def test_a_stream_is_loading_until_its_first_frame(self, world):
         """`pbeg` opens the stream; sound arrives at `pffr`, and `styp` says
         whether the stream will report its pauses. Published as playing before
-        that, the screensaver and the lock screen ran ahead of silence."""
+        that, the screen and the lock screen ran ahead of silence."""
         await world.connects()
         await world.send(ssnc("pbeg"), ssnc("pres"))
 

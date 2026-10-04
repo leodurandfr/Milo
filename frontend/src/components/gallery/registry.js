@@ -85,7 +85,6 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
-import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SkeletonStationCard from '@/components/radio/SkeletonStationCard.vue';
 import PodcastCard from '@/components/podcasts/PodcastCard.vue';
@@ -649,8 +648,8 @@ export const REGISTRY = {
         apply: (value, stores) => { stores.settings.volumeLimits.max_db = value; }
       }
     },
-    // `dark` is the white-fill variant App.vue picks for the screensaver and the
-    // Lyrics view — on the light stage its fill is white on white.
+    // `dark` is the white-fill variant App.vue picks for the Lyrics view — on
+    // the light stage its fill is white on white.
     surface: args => (args.variant === 'dark' ? 'contrast' : null)
   },
 
@@ -934,43 +933,6 @@ export const REGISTRY = {
         'One sender': ['Leo’s iPhone'],
         'Two senders (ROC)': ['Leo’s MacBook', 'Studio iMac'],
         none: []
-      }
-    }
-  },
-
-  AudioScreensaver: {
-    component: AudioScreensaver,
-    args: {
-      isVisible: true,
-      mode: 'media',
-      artwork: musicPlaceholder,
-      title: 'Ainsi parlait Zarathoustra',
-      subtitle: 'Alain Bashung',
-      stationName: 'Radio Nova',
-      sourceType: 'bluetooth'
-    },
-    notes: {
-      sourceType: 'Simple mode only \u2014 in media mode the artwork stands where the icon would.',
-      artworkRises: 'A leave rule: the artwork lifts only while the overlay closes \u2014 turn isVisible off to see it.',
-      progressConverges: 'A leave rule too, and it needs a progress record \u2014 the bar it lifts is not drawn without one.'
-    },
-    overrides: {
-      // Doubles as an AppIcon name in simple mode, and has no validator of its
-      // own — the accepted set is AppIcon's, which is the source list.
-      sourceType: { kind: 'enum', options: [null, ...ALL_AUDIO_SOURCES] },
-      // The bottom-bar glyph for the sources with no favicon (AirPlay's sender).
-      // An AppIcon name, not an SvgIcon one — the bar renders <AppIcon>.
-      stationIcon: { kind: 'enum', options: [null, ...APP_ICON_NAMES] }
-    },
-    presets: {
-      progress: {
-        none: null,
-        'Mid-episode': {
-          currentPosition: 812000,
-          duration: 2940000,
-          progressPercentage: 27.6,
-          isReady: true
-        }
       }
     }
   },

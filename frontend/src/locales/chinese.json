@@ -285,8 +285,8 @@
     "brightnessIntensity": "亮度强度",
     "autoSleep": "屏幕休眠",
     "sleepDelay": "应用无操作时，在以下时间后关闭屏幕：",
-    "screensaver": "屏幕保护程序",
-    "screensaverDelay": "在以下时间后启动屏幕保护程序：",
+    "autoPlayer": "自动全屏播放器",
+    "autoPlayerDelay": "播放时应用无操作，在以下时间后打开全屏播放器：",
     "uiScale": "显示",
     "uiScaleLevel": "Milō 触摸屏上的界面缩放",
     "colorFilter": "暖色滤镜",
@@ -523,8 +523,6 @@
   "radio": {
     "country": "国家",
     "genre": "类型",
-    "unknownStation": "未知电台",
-    "live": "直播",
     "genres": {
       "classical": "古典",
       "news": "新闻",

@@ -1,8 +1,7 @@
 // frontend/tests/pure/nowPlayingArtwork.test.js
 /**
- * The two cover rules shared by AudioPlayer, AudioPlayerFull and the
- * screensaver: which URL is the cover, and what fills the slot when there is
- * none.
+ * The two cover rules shared by AudioPlayer and AudioPlayerFull: which URL is
+ * the cover, and what fills the slot when there is none.
  *
  * Only the branches that decide something are asserted — handing the helper an
  * artwork URL and checking it comes back would assert the language, not the
@@ -25,8 +24,8 @@ describe('nowPlayingArtwork', () => {
   });
 
   it('survives the record being absent entirely', () => {
-    // The screensaver reads this while a source switches, when there is no
-    // session and no resume — a throw there blanks the whole screen.
+    // A source switching has no session and no resume to hand over — a throw
+    // there blanks the whole screen.
     expect(nowPlayingArtwork(null)).toBe('');
   });
 });

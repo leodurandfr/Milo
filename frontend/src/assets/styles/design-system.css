@@ -173,8 +173,7 @@
     --shadow-raised-02: 0 4px 16px rgba(0, 0, 0, 0.2);
     --shadow-raised-03: 0 4px 16px rgba(0, 0, 0, 0.24);
 
-    /* Halo behind full-bleed artwork: no offset, very wide, barely there.
-       Shared byte-for-byte by the full player and the screensaver. */
+    /* Halo behind the full player's artwork: no offset, very wide, barely there. */
     --shadow-artwork: 0 0 96px #0000000d;
 
     /* Hairline under a key at rest — a bottom edge that takes no layout space. */
@@ -657,26 +656,6 @@
 
 .fade-in {
     animation: fadeIn var(--transition-normal);
-}
-
-/* Replays a source view's entrance when the audio screensaver is dismissed.
-   Toggled by useScreensaverRevealPulse on views that have no stagger of their
-   own (AudioSourceLayout, AudioSourceStatus). Matches the app's stagger feel:
-   springy slide-up + a quicker fade. */
-.screensaver-revealing {
-    animation:
-        screensaverRevealRise var(--transition-spring) both,
-        screensaverRevealFade 0.4s ease both;
-}
-
-@keyframes screensaverRevealRise {
-    from { transform: translateY(var(--space-06)); }
-    to { transform: translateY(0); }
-}
-
-@keyframes screensaverRevealFade {
-    from { opacity: 0; }
-    to { opacity: 1; }
 }
 
 @keyframes fadeIn {

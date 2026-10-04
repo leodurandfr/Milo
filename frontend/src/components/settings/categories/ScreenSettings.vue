@@ -51,18 +51,18 @@
       </SettingItem>
     </ToggleSection>
 
-    <!-- Screensaver -->
+    <!-- Automatic full-screen player -->
     <ToggleSection
-      :title="t('screenSettings.screensaver')"
-      :enabled="config.screensaver_enabled"
-      @change="handleScreensaverToggle"
+      :title="t('screenSettings.autoPlayer')"
+      :enabled="config.auto_player_enabled"
+      @change="handleAutoPlayerToggle"
     >
-      <div class="screensaver-content">
-        <SettingItem :label="t('screenSettings.screensaverDelay')">
+      <div class="auto-player-content">
+        <SettingItem :label="t('screenSettings.autoPlayerDelay')">
           <RangeSlider
-            :model-value="config.screensaver_delay_seconds"
+            :model-value="config.auto_player_delay_seconds"
             :steps="delaySteps"
-            @change="setScreensaverDelay"
+            @change="setAutoPlayerDelay"
           />
         </SettingItem>
       </div>
@@ -111,8 +111,8 @@ const config = ref({
   brightness_on: 5,
   timeout_enabled: true,
   timeout_seconds: DEFAULT_DELAY,
-  screensaver_enabled: true,
-  screensaver_delay_seconds: DEFAULT_DELAY,
+  auto_player_enabled: true,
+  auto_player_delay_seconds: DEFAULT_DELAY,
   ui_scale: 1.0,
   color_filter_enabled: false,
   color_filter_warmth: 50
@@ -126,8 +126,8 @@ function syncFromStore() {
   config.value.brightness_on = settingsStore.screenBrightness.brightness_on;
   config.value.timeout_enabled = settingsStore.screenTimeout.screen_timeout_enabled;
   config.value.timeout_seconds = settingsStore.screenTimeout.screen_timeout_seconds;
-  config.value.screensaver_enabled = settingsStore.screenScreensaver.screensaver_enabled;
-  config.value.screensaver_delay_seconds = settingsStore.screenScreensaver.screensaver_delay_seconds;
+  config.value.auto_player_enabled = settingsStore.screenAutoPlayer.auto_player_enabled;
+  config.value.auto_player_delay_seconds = settingsStore.screenAutoPlayer.auto_player_delay_seconds;
 
   config.value.ui_scale = settingsStore.screenUiScale.ui_scale;
 
@@ -208,10 +208,10 @@ function commitTimeout(seconds) {
   updateSetting('screen-timeout', payload);
 }
 
-function commitScreensaver(payload) {
+function commitAutoPlayer(payload) {
   Object.assign(config.value, payload);
-  settingsStore.updateScreenScreensaver(payload);
-  updateSetting('screen-screensaver', payload);
+  settingsStore.updateScreenAutoPlayer(payload);
+  updateSetting('screen-auto-player', payload);
 }
 
 function handleAutoSleepToggle(enabled) {
@@ -226,12 +226,12 @@ function setScreenTimeout(value) {
   commitTimeout(value);
 }
 
-function handleScreensaverToggle(enabled) {
-  commitScreensaver({ screensaver_enabled: enabled });
+function handleAutoPlayerToggle(enabled) {
+  commitAutoPlayer({ auto_player_enabled: enabled });
 }
 
-function setScreensaverDelay(value) {
-  commitScreensaver({ screensaver_delay_seconds: value });
+function setAutoPlayerDelay(value) {
+  commitAutoPlayer({ auto_player_delay_seconds: value });
 }
 
 function handleColorFilterToggle(enabled) {
@@ -255,7 +255,7 @@ watch(
   [
     () => settingsStore.screenBrightness,
     () => settingsStore.screenTimeout,
-    () => settingsStore.screenScreensaver,
+    () => settingsStore.screenAutoPlayer,
     () => settingsStore.screenUiScale,
     () => settingsStore.screenColorFilter
   ],
@@ -269,13 +269,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.screensaver-content {
+.auto-player-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
 }
 
-.screensaver-content :deep(.setting-item) {
+.auto-player-content :deep(.setting-item) {
   gap: var(--space-04);
 }
 </style>

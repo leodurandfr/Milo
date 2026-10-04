@@ -5,7 +5,7 @@
        no cut. Sliding its contents inside a pinned card would mean giving the
        card overflow: hidden — inventing the very edge the swap was fixed to
        stop showing. -->
-  <div class="source-status source-motion" :class="{ 'screensaver-revealing': revealing }">
+  <div class="source-status source-motion">
     <div class="source-status-content">
       <div class="source-status-inner">
         <!-- Device info section -->
@@ -53,14 +53,10 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { useI18n } from '@/services/i18n';
-import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { DISPLAY_STATES, SESSION_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 
 const { t } = useI18n();
-
-// Replay the card entrance when the screensaver is dismissed.
-const revealing = useScreensaverRevealPulse();
 
 // Props
 const props = defineProps({

@@ -33,7 +33,7 @@ from backend.core.models.settings_config import (
     ScreenBrightnessConfig,
     ScreenColorFilterConfig,
     ScreenThemeConfig,
-    ScreenScreensaverConfig,
+    ScreenAutoPlayerConfig,
     ScreenTimeoutConfig,
     ScreenUiScaleConfig,
     SpotifySettingsConfig,
@@ -388,10 +388,10 @@ class ScreenBrightnessChanged(SettingsEvent):
     config: ScreenBrightnessConfig
 
 
-class ScreenScreensaverChanged(SettingsEvent):
+class ScreenAutoPlayerChanged(SettingsEvent):
     """App.vue settings listener."""
-    TYPE = "screen_screensaver_changed"
-    config: ScreenScreensaverConfig
+    TYPE = "screen_auto_player_changed"
+    config: ScreenAutoPlayerConfig
 
 
 class ScreenUiScaleChanged(SettingsEvent):

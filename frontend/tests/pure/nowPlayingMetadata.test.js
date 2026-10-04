@@ -1,6 +1,6 @@
 // frontend/tests/pure/nowPlayingMetadata.test.js
 /**
- * What AudioPlayerFull and the screensaver name: which record they read, and
+ * What AudioPlayerFull names: which record it reads, and
  * what the player keeps as its last-known snapshot. Only the branches that
  * decide something are asserted — handing the helper a full record and reading
  * the keys back would assert the language, not the rule.

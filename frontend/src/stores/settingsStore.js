@@ -136,9 +136,9 @@ export const useSettingsStore = defineStore('settings', () => {
     brightness_on: 5
   });
 
-  const screenScreensaver = ref({
-    screensaver_enabled: true,
-    screensaver_delay_seconds: 120
+  const screenAutoPlayer = ref({
+    auto_player_enabled: true,
+    auto_player_delay_seconds: 120
   });
 
   const screenUiScale = ref({
@@ -228,7 +228,7 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(audioPlayback, d.audio_stop);
         setIfChanged(screenTimeout, d.screen_timeout);
         setIfChanged(screenBrightness, d.screen_brightness);
-        setIfChanged(screenScreensaver, d.screen_screensaver);
+        setIfChanged(screenAutoPlayer, d.screen_auto_player);
 
         setIfChanged(screenUiScale, d.screen_ui_scale);
 
@@ -471,7 +471,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const updateScreenTimeout = makeUpdater(screenTimeout);
   const updateScreenBrightness = makeUpdater(screenBrightness);
-  const updateScreenScreensaver = makeUpdater(screenScreensaver);
+  const updateScreenAutoPlayer = makeUpdater(screenAutoPlayer);
   const updateScreenColorFilter = makeUpdater(screenColorFilter);
   const updateScreenTheme = makeUpdater(screenTheme);
 
@@ -552,7 +552,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isScreenSleeping,
     screenTimeout,
     screenBrightness,
-    screenScreensaver,
+    screenAutoPlayer,
     screenUiScale,
     screenColorFilter,
     screenTheme,
@@ -595,7 +595,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateScreenTheme,
     loadDaylightLocation,
     handleTimezoneEvent,
-    updateScreenScreensaver,
+    updateScreenAutoPlayer,
     updateScreenUiScale
   };
 });

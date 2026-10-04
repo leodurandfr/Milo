@@ -34,7 +34,7 @@ from backend.core.models.settings_config import (
     RotaryStepsConfig,
     ScreenBrightnessConfig,
     ScreenColorFilterConfig,
-    ScreenScreensaverConfig,
+    ScreenAutoPlayerConfig,
     ScreenThemeConfig,
     ScreenTimeoutConfig,
     ScreenUiScaleConfig,
@@ -194,7 +194,7 @@ class BulkSettingsResponse(BaseModel):
     screen_timeout: ScreenTimeoutConfig
     screen_brightness: ScreenBrightnessConfig
     screen_ui_scale: ScreenUiScaleConfig
-    screen_screensaver: ScreenScreensaverConfig
+    screen_auto_player: ScreenAutoPlayerConfig
     screen_color_filter: ScreenColorFilterConfig
     screen_theme: ScreenThemeConfig
     radio_settings: RadioSettingsConfig

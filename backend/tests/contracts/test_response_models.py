@@ -279,7 +279,7 @@ def test_bulk_settings_full_key_set():
         "screen_timeout": {"screen_timeout_enabled": True, "screen_timeout_seconds": 30},
         "screen_brightness": {"brightness_on": 6},
         "screen_ui_scale": {"ui_scale": 1.15},
-        "screen_screensaver": {"screensaver_enabled": True, "screensaver_delay_seconds": 120},
+        "screen_auto_player": {"auto_player_enabled": True, "auto_player_delay_seconds": 120},
         "screen_color_filter": {"enabled": True, "warmth": 72},
         "screen_theme": {"theme": "dark"},
         "radio_settings": {"shazam_enabled": True},

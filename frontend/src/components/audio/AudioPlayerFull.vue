@@ -22,9 +22,9 @@
                OBEX channel BlueZ gives no client for), so when the lookup that
                replaces it finds nothing, this is what the slot shows instead of
                a blank square reading as a failed image. Which of the two it is
-               comes from the shared helper, not from here — the screensaver
+               comes from the shared helper, not from here — the playing bar
                resolves it the same way, and a fallback chosen per view is how
-               the two came to disagree in the first place. A station with no
+               two views came to disagree in the first place. A station with no
                logo is the one exception to a fallback: the generated avatar
                is its identity. -->
           <div v-press="albumLink" class="artwork"
@@ -49,18 +49,15 @@
           </div>
 
           <!-- Decodes the incoming cover off-screen; @load is what promotes it —
-               or rejects it, the size rule living in the composable so this view
-               and the screensaver cannot reach opposite verdicts. -->
+               or rejects it, the size rule living in the composable rather than
+               in this view. -->
           <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="artwork-preload"
             @load="settleFromLoad" @error="settleFromError" />
         </div>
       </div>
 
-      <!-- Right side: Info and controls with CSS staggering.
-           Keyed on the screensaver reveal nonce so dismissing the screensaver
-           remounts just this column and replays its stagger — the artwork column
-           (left) stays put, giving a seamless cover-to-player continuity. -->
-      <div class="content-section stagger-2" :key="revealNonce">
+      <!-- Right side: Info and controls with CSS staggering. -->
+      <div class="content-section stagger-2">
         <!-- Back to the navigation this player was expanded out of: drawn only
              when one is provided (BrowserSourceViews), so the sources whose only
              view this is draw no button at all. -->
@@ -153,7 +150,6 @@ import { computed, inject, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
-import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion';
 import { useI18n } from '@/services/i18n';
@@ -198,10 +194,6 @@ const { isMobile } = useIsMobile();
 const {
   currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized
 } = useSourceProgress(props.source);
-
-// Remount the right column (title/controls) to replay its entrance when the
-// screensaver is dismissed — the artwork column is left untouched on purpose.
-const revealNonce = useScreensaverRevealNonce();
 
 // This source's slice of the state: another source's session, controls and
 // phase are not ours (the player is still on screen while it leaves).
@@ -388,8 +380,7 @@ const sourceBarName = computed(
 );
 
 // === ARTWORK TRANSITION ===
-// Which cover this source shows is decided in one place, shared with
-// useScreensaver so the two views can never disagree — see the util.
+// Which cover this source shows is decided in one place — see the util.
 const targetArtwork = computed(() => nowPlayingArtwork(persistentMetadata.value));
 // What the slot shows with no cover at all — a bundled placeholder for the
 // sources that ship one, this source's own glyph otherwise.
@@ -402,9 +393,7 @@ const stationAvatarSvg = computed(() => {
   return name ? generateStationAvatarSvg(name) : '';
 });
 
-// Holding the outgoing cover under a veil while the next one decodes is shared
-// with the screensaver — the two are superimposed during its leave crossfade,
-// so the transition has to behave identically in both.
+// Holding the outgoing cover under a veil while the next one decodes.
 const trackKey = computed(
   () => `${persistentMetadata.value.title}|${persistentMetadata.value.artist}`
 );

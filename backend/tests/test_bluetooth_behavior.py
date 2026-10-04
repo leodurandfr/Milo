@@ -325,8 +325,8 @@ async def test_a_command_the_phone_refuses_fails_alone(bt):
 
 
 async def test_a_player_with_nothing_to_say_is_still_announced(bt):
-    """The transport buttons are drawn from `controls`, and the screensaver
-    can only tell a pause from a sender that never reports playback by reading
+    """The transport buttons are drawn from `controls`, and a client can
+    only tell a pause from a sender that never reports playback by reading
     them: a Mac registers a player that serves no track and no Status for
     100 s, and its transport works meanwhile (E33)."""
     await bt.select()
@@ -352,7 +352,7 @@ async def test_a_phone_with_no_player_offers_only_the_disconnect(bt):
 async def test_a_player_leaving_with_nothing_else_to_say_is_published(bt):
     """A trackless, paused player looks the same present or gone on every other
     field. Its departure must still be published, or the transport stays on
-    screen for the rest of the link and the screensaver never arms again."""
+    screen for the rest of the link."""
     await bt.select()
     await bt.pcm_added(MAC_MINI)
     await bt.player_added(MAC_MINI, None, status="paused", position=0)

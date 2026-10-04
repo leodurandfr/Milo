@@ -21,7 +21,7 @@
            two stay welded to the screen edges instead. -->
       <div
         class="content-container source-motion"
-        :class="{ 'has-player': showPlayer, 'screensaver-revealing': revealing }"
+        :class="{ 'has-player': showPlayer }"
       >
         <!-- Back-to-top threshold marker. Absolute so it takes no row in the flex
              column (a zero-height item would still claim the container's gap), and
@@ -90,7 +90,6 @@ import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useViewTransition } from '@/composables/useViewTransition'
 import { useScrollToTop } from '@/composables/useScrollToTop'
-import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { useI18n } from '@/services/i18n'
 
 const { t } = useI18n()
@@ -311,9 +310,6 @@ const { sentinelRef: scrollSentinel, isVisible: scrollTopVisible, scrollToTop } 
 
 // Mobile detection for padding-bottom
 const { isMobile } = useIsMobile()
-
-// Replay the content entrance when the screensaver is dismissed.
-const revealing = useScreensaverRevealPulse()
 
 // Computed padding for mobile player
 const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)

@@ -10,7 +10,7 @@
       />
       <span class="text-mono-small">seek → {{ position }} ms</span>
     </GalleryVariant>
-    <GalleryVariant label="variant=&quot;dark&quot; :interactive=&quot;false&quot; — the screensaver / lyrics surfaces" stacked>
+    <GalleryVariant label="variant=&quot;dark&quot; :interactive=&quot;false&quot; — the lyrics surface" stacked>
       <div class="dark-strip">
         <ProgressBar :current-position="812000" :duration="2940000" :progress-percentage="27.6"
           variant="dark" :interactive="false" />

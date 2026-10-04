@@ -118,25 +118,6 @@
     </GalleryVariant>
     <GalleryVariant :label="`last event: ${log || 'none'}`" />
   </GalleryItem>
-
-  <GalleryItem id="AudioScreensaver">
-    <GalleryVariant label=":mode=&quot;media&quot; — artwork, title, station bar" contain :contain-height="300">
-      <AudioScreensaver is-visible :artwork="musicPlaceholder"
-        title="Ainsi parlait Zarathoustra" subtitle="Alain Bashung" station-name="Radio Nova" />
-    </GalleryVariant>
-    <GalleryVariant label="no artwork — the generated station avatar takes its place" contain :contain-height="300">
-      <AudioScreensaver is-visible title="Le Code a changé" subtitle="France Inter"
-        station-name="France Inter" use-mono-subtitle />
-    </GalleryVariant>
-    <GalleryVariant label=":progress — the read-only bar at the bottom right" contain :contain-height="300">
-      <AudioScreensaver is-visible :artwork="musicPlaceholder" title="Épisode 214"
-        subtitle="Le Code a changé" :progress="progress" />
-    </GalleryVariant>
-    <GalleryVariant label=":mode=&quot;simple&quot; — icon and two lines (Bluetooth, Mac)" contain :contain-height="300">
-      <AudioScreensaver is-visible mode="simple" source-type="bluetooth"
-        title="Connected to" subtitle="Leo’s iPhone" />
-    </GalleryVariant>
-  </GalleryItem>
 </template>
 
 <script setup>
@@ -150,7 +131,6 @@ import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import PlaybackControls from '@/components/audio/PlaybackControls.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
-import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
@@ -158,13 +138,6 @@ import { musicPlaceholder } from '@/constants/placeholders';
 const playerShown = ref(false);
 const viewIndex = ref(1);
 const log = ref('');
-
-const progress = {
-  currentPosition: 812000,
-  duration: 2940000,
-  progressPercentage: 27.6,
-  isReady: true
-};
 </script>
 
 <style scoped>

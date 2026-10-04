@@ -3,19 +3,14 @@
 // is read from the now-playing record (the AudioPlayerFull family) — and, for
 // `artworkFallback`, for every source there is.
 //
-// Read by AudioPlayerFull — what the player paints — AND by useScreensaver /
-// AudioScreensaver — what the screensaver paints. The two must never disagree:
-// the screensaver is a full-screen restatement of the player and crossfades
-// into it on dismiss, so two different covers there read as a glitch rather
-// than as two views of one track. Restating the rule per source is what let
-// Bluetooth show its resolved cover in the player and a generated text avatar
-// on the screensaver.
+// Read by AudioPlayerFull for every source it draws. Restating the rule per
+// source is what once let Bluetooth show its resolved cover in one view and a
+// generated text avatar in another.
 //
-// The three browser sources (radio, podcast, music_library) are deliberately
-// out of scope for `nowPlayingArtwork`: their artwork comes from their own
-// Pinia store, which both AudioPlayer and the screensaver already read — one
-// source of truth already. They are *in* scope for `artworkFallback`, which is
-// the half that had no shared rule at all.
+// The playing bar of the browser sources (AudioPlayer) is handed its cover by
+// the source, from the source's own Pinia store, so `nowPlayingArtwork` is not
+// its rule. `artworkFallback` is: the bar and the full player fill an empty
+// slot alike.
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 
 /**

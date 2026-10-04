@@ -14,10 +14,9 @@
  *  - and the wait is bounded, because nothing ever reports "there will be no
  *    cover for this track" — an image that will not decode fires no event.
  *
- * The size rule sits here rather than in the two views because they are
- * superimposed during the screensaver's leave crossfade: when it lived in each
- * consumer, the player promoted a 1×1 image the screensaver rejected, and the
- * same track showed a cover in one view and a generated avatar in the other.
+ * The size rule sits here rather than in a view: when it lived in each
+ * consumer, one view promoted a 1×1 image another rejected, and the same track
+ * showed a cover in one view and a generated avatar in the other.
  * artworkParity.test.js pins the wiring; this pins the behaviour.
  *
  * A host component is mounted only to give the composable a lifecycle; nothing
@@ -70,7 +69,7 @@ describe('useArtworkTransition', () => {
   });
 
   it('rejects an image too small to be a cover', () => {
-    // The bug this replaces: the player accepted this, the screensaver did not.
+    // The bug this replaces: one view accepted this, another did not.
     const target = ref('http://sender.local/art.png');
     const { shownArtwork, artworkPending, settleFromLoad } =
       mountTransition(target, ref('track|artist'));

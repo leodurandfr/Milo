@@ -107,7 +107,7 @@ export const GROUPS = [
   {
     id: 'layout',
     title: 'Source layouts',
-    blurb: 'The five full-surface shapes a source can take: the browsing layout, the two shared players, the idle status card, and the screensaver over all of them. Which player mounts — and whether the status card takes over instead — is decided in one place, useRichDisplay().',
+    blurb: 'The four full-surface shapes a source can take: the browsing layout, the two shared players and the idle status card. Which player mounts — and whether the status card takes over instead — is decided in one place, useRichDisplay().',
   },
   {
     id: 'cards',
@@ -273,7 +273,7 @@ export const ENTRIES = [
     group: 'structure',
     file: 'components/ui/VolumeBar.vue',
     coupling: 'store',
-    summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set, and its fill interpolates the volume between the two configured limits — all four of those live in stores, so they are in the State section rather than the props table. Its one prop is the surface tone: the bar is fixed above every view and cannot see what it is drawn on, so App.vue reads it from the dark surfaces (screensaver, Lyrics) that declare themselves.',
+    summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set, and its fill interpolates the volume between the two configured limits — all four of those live in stores, so they are in the State section rather than the props table. Its one prop is the surface tone: the bar is fixed above every view and cannot see what it is drawn on, so App.vue reads it from the dark surface (Lyrics) that declares itself.',
   },
 
   // --- Player parts ---
@@ -333,13 +333,6 @@ export const ENTRIES = [
     group: 'layout',
     file: 'components/audio/AudioSourceStatus.vue',
     summary: 'The card shown whenever the selected source has no rich display to give. Both lines are derived from (sourceType, displayState) over 10 sources and 9 states — the service starting or failed, ready, the session\'s four phases, and CD\'s two drive operations — plus the prerequisite that outranks them, so the 3 selects below are the whole component. There is no fall-through: line 1 names the source and line 2 says what it is doing, except in the two cases that read as one sentence over two lines — "Démarrage de <source>" and "Connecté à <sender>" — where the phrase leads and the name takes the emphasis. 5 mutually exclusive CTAs hang off it, in the order it resolves them: a missing prerequisite first — Qobuz connect for the account, eject for an unreadable disc, network settings for a missing link — then retry on error, then Bluetooth disconnect while a session is live.',
-  },
-  {
-    id: 'AudioScreensaver',
-    group: 'layout',
-    file: 'components/audio/AudioScreensaver.vue',
-    coupling: 'fixed',
-    summary: 'The idle takeover: position: fixed at z-index 7000, over whatever was on screen. media mode is blurred artwork + title + an optional station bar and progress bar; simple mode is an icon and two lines (Bluetooth, Mac). Turning isVisible off plays the leave animation, which lifts each element towards where its AudioPlayerFull counterpart sits. The bottom bar is gated on stationName alone — stationIcon without it renders nothing.',
   },
 
   // --- Cards & skeletons ---

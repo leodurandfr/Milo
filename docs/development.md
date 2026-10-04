@@ -100,7 +100,7 @@ backend/
 ```
 frontend/src/
 ├── components/
-│   ├── audio/                # Shared audio player + screensaver + source layout
+│   ├── audio/                # Shared audio players + source layout
 │   ├── airplay/              # AirPlay source UI
 │   ├── cd/                   # CD source UI
 │   ├── equalizer/            # Equalizer / DSP controls
@@ -539,7 +539,7 @@ The Radio source (`backend/sources/radio/`) is a complete, production-ready refe
 - File uploads (station images with validation and storage)
 - Caching strategy (API responses cached for performance)
 - Error handling (broken station detection and filtering)
-- Frontend integration (search, filters, modals, screensaver)
+- Frontend integration (search, filters, modals, full-screen player)
 
 **API routes:** 25+ endpoints including search, favorites, custom stations, image uploads
 **Frontend components:** RadioSource.vue, FavoritesView.vue, SearchView.vue, StationCard.vue, SkeletonStationCard.vue

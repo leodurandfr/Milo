@@ -25,9 +25,9 @@ played stations, what arrives there is:
 - **A wide logo.** Every renderer fills a square with `object-fit: cover`,
   which cut the sides off one logo in ten. A logo is padded to a square here,
   once, for all of them.
-- **A transparent logo.** One in three; drawn on the screensaver's black, a
-  dark one vanishes, and drawn on white a white one does. Each is flattened
-  here onto the ground its own ink reads on (`_backdrop`).
+- **A transparent logo.** One in three; drawn on a dark surface, a dark one
+  vanishes, and drawn on white a white one does. Each is flattened here onto
+  the ground its own ink reads on (`_backdrop`).
 
 A dead host used to cost a 5 s timeout on every render, for every client. An
 answer that settles the question — a logo, or a server saying there is none —

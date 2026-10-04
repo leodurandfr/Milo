@@ -119,14 +119,6 @@ module.exports = {
       },
     },
     {
-      // Screensaver: pure-black backdrop + its dim scrim.
-      files: ['src/components/audio/AudioScreensaver.vue'],
-      rules: {
-        'color-no-hex': null,
-        'declaration-property-value-disallowed-list': NO_TYPOGRAPHY,
-      },
-    },
-    {
       // An intermediate error-shade border: --color-error-subtle (12%) is too
       // faint for a 2px stroke and --color-error too loud.
       files: ['src/components/settings/categories/radio/ManageStation.vue'],

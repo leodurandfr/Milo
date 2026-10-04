@@ -30,8 +30,8 @@ async def _phone_plays(world: AirPlayWorld) -> None:
 # === A sender's pause (Buffered: iPhone Music) ===
 
 async def test_a_music_pause_is_published(world):
-    """E55: shairport announces a Buffered pause (`paus`); the screen, the
-    lock screen and the screensaver read is_playing, which stayed true."""
+    """E55: shairport announces a Buffered pause (`paus`); the screen and
+    the lock screen read is_playing, which stayed true."""
     await _phone_plays(world)
     await world.pauses()
     assert world.active() and not world.playing()

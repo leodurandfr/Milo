@@ -5,9 +5,9 @@
  * The kiosk always loads the app from http://localhost (see
  * system/milo-kiosk.service); remote devices reach the unit via milo.local / IP,
  * so their hostname is never 'localhost'. Single source of truth for the
- * "Pi-screen-only" features — ui_scale, warm color filter, screensaver, and
- * screen-activity wake reporting — so a remote Mac/iPhone viewing the UI never
- * drives the physical display.
+ * "Pi-screen-only" features — ui_scale, warm color filter, the automatic
+ * full-screen player, and screen-activity wake reporting — so a remote
+ * Mac/iPhone viewing the UI never drives the physical display.
  *
  * Dev note: the dev server at localhost:5173 also counts as kiosk. The backend
  * enforces the same distinction server-side on /screen-activity via nginx's

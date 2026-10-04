@@ -1,6 +1,6 @@
 // frontend/src/utils/nowPlayingMetadata.js
-// What a now-playing view names, read the same way by AudioPlayerFull and the
-// screensaver so the two cannot draw different tracks.
+// What a now-playing view names: the record AudioPlayerFull draws, and the
+// snapshot it holds on to while that record moves.
 
 /**
  * The record the view of `source` draws: the session, or — with none — what

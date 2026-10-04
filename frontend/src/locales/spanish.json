@@ -285,8 +285,8 @@
     "brightnessIntensity": "Intensidad del brillo",
     "autoSleep": "Suspensión de pantalla",
     "sleepDelay": "Si la aplicación está inactiva, apagar la pantalla después de:",
-    "screensaver": "Protector de pantalla",
-    "screensaverDelay": "Iniciar el protector de pantalla después de:",
+    "autoPlayer": "Reproductor a pantalla completa automático",
+    "autoPlayerDelay": "Si la aplicación está inactiva durante la reproducción, abrir el reproductor a pantalla completa después de:",
     "uiScale": "Pantalla",
     "uiScaleLevel": "Escala de la interfaz en la pantalla táctil de Milō",
     "colorFilter": "Filtro de color cálido",
@@ -523,8 +523,6 @@
   "radio": {
     "country": "País",
     "genre": "Género",
-    "unknownStation": "Emisora desconocida",
-    "live": "En directo",
     "genres": {
       "classical": "Clásica",
       "news": "Noticias",

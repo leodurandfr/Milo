@@ -4,7 +4,7 @@
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
       <div v-if="visible" class="audio-player"
-        :class="[playerClasses, { 'audio-player-revealing': revealing }]"
+        :class="playerClasses"
         @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
@@ -16,8 +16,8 @@
         <div class="player-content">
           <!-- Artwork: with none valid, the shared helper says what the slot shows —
              radio's font-aware inline avatar, or the bundled placeholder for the other
-             two. The player never picks that itself; AudioPlayerFull and the screensaver
-             ask the same helper, so the three cannot disagree on one silence.
+             two. The player never picks that itself; AudioPlayerFull asks the same
+             helper, so the two cannot disagree on one silence.
              Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child. -->
@@ -84,7 +84,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
-import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { artworkFallback } from '@/utils/nowPlayingArtwork'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
@@ -94,10 +93,6 @@ import { useI18n } from '@/services/i18n'
 const { isMobile } = useIsMobile()
 const { t } = useI18n()
 const timer = useTimer()
-
-// Replay the slide-in entrance when the screensaver is dismissed (desktop only —
-// the screensaver never shows on mobile). Duration covers the spring-slow enter.
-const revealing = useScreensaverRevealPulse(1700)
 
 const props = defineProps({
   /**
@@ -1063,24 +1058,6 @@ img.player-artwork.loaded {
   .audio-player-leave-to {
     opacity: 0;
     transform: translateX(100px);
-  }
-
-  /* Screensaver reveal: replay the slide-in (same as the enter transition above)
-     when the screensaver is dismissed, without toggling the v-if/Transition. */
-  .audio-player.audio-player-revealing {
-    animation: audioPlayerReveal var(--transition-spring-slow) forwards;
-  }
-}
-
-@keyframes audioPlayerReveal {
-  from {
-    opacity: 0;
-    transform: translateX(100px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
   }
 }
 

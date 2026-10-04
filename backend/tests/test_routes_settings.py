@@ -128,7 +128,7 @@ class TestSettingsRoutes:
 
         # The real service guarantees every declared section, keys included, so
         # the mock answers from the same declaration: a route that reads
-        # screen['screensaver_enabled'] must be testable without a fallback that
+        # screen['auto_player_enabled'] must be testable without a fallback that
         # cannot happen in production.
         defaults = SettingsService().defaults
 
@@ -466,30 +466,30 @@ class TestSettingsRoutes:
         assert response.json()["brightness_applied"] == 7
 
     # ===================
-    # SCREEN SCREENSAVER TESTS
+    # SCREEN AUTO PLAYER TESTS
     # ===================
 
-    def test_set_screen_screensaver_valid(self, client):
-        """Test PUT /screen-screensaver with valid values"""
-        response = client.put("/api/settings/screen-screensaver", json={
-            "screensaver_enabled": True,
-            "screensaver_delay_seconds": 30
+    def test_set_screen_auto_player_valid(self, client):
+        """Test PUT /screen-auto-player with valid values"""
+        response = client.put("/api/settings/screen-auto-player", json={
+            "auto_player_enabled": True,
+            "auto_player_delay_seconds": 30
         })
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
-    def test_set_screen_screensaver_partial(self, client):
-        """Test PUT /screen-screensaver with partial update (only enabled)"""
-        response = client.put("/api/settings/screen-screensaver", json={
-            "screensaver_enabled": False
+    def test_set_screen_auto_player_partial(self, client):
+        """Test PUT /screen-auto-player with partial update (only enabled)"""
+        response = client.put("/api/settings/screen-auto-player", json={
+            "auto_player_enabled": False
         })
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
-    def test_set_screen_screensaver_delay_out_of_range(self, client):
-        """Test PUT /screen-screensaver with delay < 5 - should return 422"""
-        response = client.put("/api/settings/screen-screensaver", json={
-            "screensaver_delay_seconds": 2
+    def test_set_screen_auto_player_delay_out_of_range(self, client):
+        """Test PUT /screen-auto-player with delay < 5 - should return 422"""
+        response = client.put("/api/settings/screen-auto-player", json={
+            "auto_player_delay_seconds": 2
         })
         assert response.status_code == 422
 
@@ -702,7 +702,7 @@ class TestSettingsRoutes:
     # ===================
 
     def test_set_screen_color_filter_writes_both_keys(self, client):
-        """Same shape as /screen-screensaver, and the only route pair in this
+        """Same shape as /screen-auto-player, and the only route pair in this
         file where the setter builds its own update dict — a key spelled wrong
         here writes nothing and still answers 200."""
         response = client.put("/api/settings/screen-color-filter", json={
@@ -1013,8 +1013,8 @@ class TestBulkSettings:
         ("screen_timeout", "screen_timeout_seconds"): ("screen", "timeout_seconds"),
         ("screen_brightness", "brightness_on"): ("screen", "brightness_on"),
         ("screen_ui_scale", "ui_scale"): ("screen", "ui_scale"),
-        ("screen_screensaver", "screensaver_enabled"): ("screen", "screensaver_enabled"),
-        ("screen_screensaver", "screensaver_delay_seconds"): ("screen", "screensaver_delay_seconds"),
+        ("screen_auto_player", "auto_player_enabled"): ("screen", "auto_player_enabled"),
+        ("screen_auto_player", "auto_player_delay_seconds"): ("screen", "auto_player_delay_seconds"),
         ("screen_color_filter", "enabled"): ("screen", "color_filter_enabled"),
         ("screen_color_filter", "warmth"): ("screen", "color_filter_warmth"),
         ("screen_theme", "theme"): ("screen", "theme"),
@@ -1124,7 +1124,7 @@ class TestBulkSettings:
 
         Asserting `body[group][key] == stored[section][stored_key]` cannot see a
         swap between two leaves that hold the same value — and the four
-        `step_*_db` all default to 2.0, `screensaver_enabled` and
+        `step_*_db` all default to 2.0, `auto_player_enabled` and
         `shazam_enabled` are both True. Moving one leaf and requiring exactly one
         wire leaf to follow discriminates them: a wire key fed from the wrong
         stored key moves twice for one edit and not at all for the other.

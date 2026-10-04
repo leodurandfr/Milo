@@ -5,7 +5,7 @@
 // an isolated context and do NOT inherit document @font-face, so they would fall
 // back to the system monospace and break visual parity with the rest of the app.
 // Consumers must render the returned markup via v-html (e.g. LazyImage,
-// AudioPlayer, AudioScreensaver).
+// AudioPlayer, AudioPlayerFull).
 
 const VIEW = 1024;
 const FONT_FAMILY = "'Space Mono Bold', 'Space Mono Regular', monospace";

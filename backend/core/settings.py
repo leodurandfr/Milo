@@ -88,8 +88,8 @@ class SettingsService:
             "screen": {
                 "timeout_seconds": 120,
                 "brightness_on": 5,
-                "screensaver_enabled": True,
-                "screensaver_delay_seconds": 120,
+                "auto_player_enabled": True,
+                "auto_player_delay_seconds": 120,
                 "ui_scale": 1.0,
                 "color_filter_enabled": False,
                 "color_filter_warmth": 50,
@@ -286,8 +286,8 @@ class SettingsService:
             # 0 = disabled, otherwise minimum 3 seconds
             'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', screen_d['brightness_on'])))),
-            'screensaver_enabled': bool(screen_input.get('screensaver_enabled', screen_d['screensaver_enabled'])),
-            'screensaver_delay_seconds': max(5, min(9999, int(screen_input.get('screensaver_delay_seconds', screen_d['screensaver_delay_seconds'])))),
+            'auto_player_enabled': bool(screen_input.get('auto_player_enabled', screen_d['auto_player_enabled'])),
+            'auto_player_delay_seconds': max(5, min(9999, int(screen_input.get('auto_player_delay_seconds', screen_d['auto_player_delay_seconds'])))),
             'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', screen_d['ui_scale'])))),
             'color_filter_enabled': bool(screen_input.get('color_filter_enabled', screen_d['color_filter_enabled'])),
             'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', screen_d['color_filter_warmth'])))),
