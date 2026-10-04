@@ -34,12 +34,10 @@
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
-              :liked="store.isLiked(track.uri)"
               :artist-link="kind !== 'artist' && !!track.artists[0]?.uri"
               :show-menu="kind !== 'album' && !!track.album.uri"
               :menu-label="t('spotify.goToAlbum')"
               @play="play({ skipToUri: track.uri })"
-              @like="(on) => store.setLiked(track.uri, on)"
               @artist="$emit('select-artist', track.artists[0])"
               @menu="$emit('select-album', track.album)"
             />
@@ -51,7 +49,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue';
+import { computed, onBeforeUnmount } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -163,11 +161,6 @@ function load() {
 }
 
 onBeforeUnmount(() => controller?.abort());
-
-// Which listed tracks are liked: Liked Songs is all of them already.
-watch(() => listing.value?.ready, (ready) => {
-  if (ready && props.kind !== 'liked') store.fetchLiked(tracks.value.map((track) => track.uri));
-}, { immediate: true });
 
 if (!listing.value?.ready) load();
 </script>

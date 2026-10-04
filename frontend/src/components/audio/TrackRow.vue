@@ -36,12 +36,6 @@
     </div>
     <template v-else>
       <span class="track-duration text-mono-medium">{{ formatDuration(song.duration) }}</span>
-      <button v-if="liked !== null" v-press type="button" class="track-icon-btn track-like"
-        :class="{ liked }" :aria-pressed="liked"
-        :aria-label="liked ? t('spotify.unlike') : t('spotify.like')"
-        @pointerdown.stop @click.stop="$emit('like', !liked)">
-        <SvgIcon :name="liked ? 'heart' : 'heartOff'" :size="20" />
-      </button>
       <button v-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
         :aria-label="menuLabel || t('musicLibrary.playlists.addToPlaylist')"
         @pointerdown.stop @click.stop="$emit('menu')">
@@ -106,12 +100,6 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  // Whether the track is in Liked Songs; null draws no heart (a catalogue
-  // without likes). The click emits `like` with the state it asks for.
-  liked: {
-    type: Boolean,
-    default: null,
-  },
   // The artist line opens the artist's page (emits `artist`).
   artistLink: {
     type: Boolean,
@@ -124,7 +112,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['play', 'menu', 'remove', 'grip-down', 'like', 'artist']);
+const emit = defineEmits(['play', 'menu', 'remove', 'grip-down', 'artist']);
 
 const { t } = useI18n();
 
@@ -262,10 +250,6 @@ function formatDuration(totalSeconds) {
 
 .track-remove {
   color: var(--color-error);
-}
-
-.track-like.liked {
-  color: var(--color-brand);
 }
 
 .track-artist-link {
