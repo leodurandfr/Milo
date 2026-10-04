@@ -8,6 +8,7 @@ Playback is not here: `play_context`, shuffle and repeat are commands, through
 runs (go-librespot's API does); with nobody signed in they answer 409, which
 the browser reads as "signing in" or "cast from your phone", never as a fault.
 """
+import asyncio
 import contextlib
 import logging
 from typing import Annotated, List
@@ -16,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
-from backend.sources.spotify.catalog import classify_home, liked_songs_uri
+from backend.sources.spotify.catalog import home_shelves, library_sections, liked_songs_uri
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
 from backend.sources.spotify.models import ActiveProfileRequest, RenameProfileRequest
 from backend.sources.spotify.source import SpotifySource
@@ -62,20 +63,45 @@ def _require_profiles(source: SpotifySource):
 
 # === Library ===
 
+async def _spotify_home(source: SpotifySource, locale: str):
+    """Spotify's home, or None when its service failed: the account's own
+    playlists are still worth a page."""
+    try:
+        return home_shelves(await source.library.home(locale))
+    except SpotifyLibraryError as exc:
+        logger.warning(f"Spotify home: {exc}; only the library is shown")
+        return None
+
+
 @router.get("/home")
-async def get_home(source: SpotifySource = Depends(get_source)):
-    """The signed-in account's playlists, in the home's sections."""
+async def get_home(
+    locale: Annotated[str, Query(pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?$",
+                                 description="The language Spotify titles its shelves in")] = "en",
+    source: SpotifySource = Depends(get_source),
+):
+    """Spotify's home for the signed-in account — its shortcuts and its
+    shelves, as its apps draw them — then the account's own playlists."""
     account = source.account
     if account is None:
         logger.warning("Spotify home: nobody is signed in")
         raise HTTPException(status_code=409, detail="Spotify is not signed in")
     async with _library_errors("Spotify home"):
-        items = await source.library.playlists()
+        # Both read at once, and both awaited to the end: a failure of one must
+        # not leave the other running with nobody to collect its own.
+        items, home = await asyncio.gather(
+            source.library.playlists(), _spotify_home(source, locale), return_exceptions=True,
+        )
+        for result in (items, home):
+            if isinstance(result, BaseException):
+                raise result
+        shortcuts, shelves = home or ([], [])
         return {
             "status": "success",
             "account": account,
             "liked_songs_uri": liked_songs_uri(account),
-            "sections": classify_home(items, account),
+            "shortcuts": shortcuts,
+            "shelves": shelves,
+            "playlists": library_sections(items, account),
         }
 
 

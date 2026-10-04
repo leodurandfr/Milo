@@ -165,6 +165,10 @@ class Librespot:
         # per account, as measured ({name, image_url, ...}); None
         # answers 503.
         self.profile_answers: Dict[str, Optional[Dict[str, Any]]] = {}
+        # Spotify's home (spclient homeview) for the signed-in account; None
+        # answers 503.
+        self.home_answer: Optional[Dict[str, Any]] = {"body": []}
+        self.home_locales: List[str] = []
         self.closed = False
 
     # -- aiohttp.ClientSession surface --------------------------------------
@@ -173,6 +177,10 @@ class Librespot:
         return self
 
     def get(self, url: str, *a: Any, **k: Any) -> _Exchange:
+        if "homeview" in url:
+            self.home_locales.append(k["params"]["locale"])
+            answer = self.home_answer
+            return _Exchange(_Response(503) if answer is None else _Response(200, answer))
         if "user-profile-view" in url:
             answer = self.profile_answers.get(url.rsplit("/", 1)[1])
             return _Exchange(_Response(503) if answer is None else _Response(200, answer))

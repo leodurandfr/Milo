@@ -21,6 +21,8 @@ logger = logging.getLogger("source.spotify.library")
 # Spotify's own profile service, the one the apps read a profile from. The Web
 # API's /v1/me answers the daemon's token with 429 (measured 2026-10-03).
 PROFILE_URL = "https://spclient.wg.spotify.com/user-profile-view/v3/profile/{username}"
+# Spotify's home, as its apps draw it, for the account whose token asks.
+HOME_URL = "https://spclient.wg.spotify.com/homeview/v1/home"
 PAGE = 100
 
 
@@ -153,31 +155,46 @@ class SpotifyLibrary:
     async def set_liked(self, uris: List[str], liked: bool) -> None:
         await self._request("POST", "/library/liked", json={"uris": uris, "liked": liked})
 
+    async def _spotify_service(self, url: str, params: Dict[str, Any], what: str) -> Any:
+        """One of Spotify's own services, with the signed-in session's token:
+        only the account signed in now can be asked about."""
+        internet = self._internet
+        if internet is None or internet.closed:
+            raise SpotifyUnavailable("Spotify stopped")
+        token = (await self._request("POST", "/token") or {}).get("token")
+        if not token:
+            raise SpotifyUnavailable("Spotify gave no token")
+        try:
+            async with internet.get(url, params=params, headers={"Authorization": f"Bearer {token}"}) as resp:
+                if resp.status != 200:
+                    raise SpotifyLibraryError(f"Spotify's {what} service answered {resp.status}")
+                return await resp.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            raise SpotifyLibraryError(f"Spotify's {what} service unreachable: {type(e).__name__}") from e
+
+    async def home(self, locale: str) -> Dict[str, Any]:
+        """Spotify's home for the signed-in account, its titles in `locale`
+        (a BCP 47 tag; all eight of Milō's languages were measured)."""
+        view = await self._spotify_service(HOME_URL, {"platform": "android", "locale": locale}, "home")
+        if not isinstance(view, dict):
+            raise SpotifyLibraryError("Spotify's home answered no view")
+        return view
+
     async def fetch_profile(self, username: str) -> Optional[Dict[str, Optional[str]]]:
         """What Spotify's profile service says of the account, with the
         signed-in session's token — so only for the account signed in now — as
         the identity fields it answered (`spotify_name`, and `avatar_url` when
-        the answer carries it: a field it left out is no statement about it). None when anything fails, or when the answer does
-        not name the account, which every real one does."""
-        internet = self._internet
-        if internet is None or internet.closed:
-            return None
+        the answer carries it: a field it left out is no statement about it).
+        None when anything fails, or when the answer does not name the
+        account, which every real one does."""
         try:
-            token = (await self._request("POST", "/token") or {}).get("token")
-            if not token:
-                return None
-            async with internet.get(
+            profile = await self._spotify_service(
                 PROFILE_URL.format(username=username),
-                params={"playlist_limit": 0, "artist_limit": 0, "episode_limit": 0},
-                headers={"Authorization": f"Bearer {token}"},
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(f"Spotify profile service answered {resp.status}")
-                    return None
-                profile = await resp.json(content_type=None)
-        except (SpotifyUnavailable, SpotifyLibraryError, aiohttp.ClientError,
-                asyncio.TimeoutError, ValueError) as e:
-            logger.warning(f"Spotify profile unavailable: {type(e).__name__}")
+                {"playlist_limit": 0, "artist_limit": 0, "episode_limit": 0},
+                "profile",
+            )
+        except (SpotifyUnavailable, SpotifyLibraryError) as e:
+            logger.warning(f"Spotify profile unavailable: {e}")
             return None
         if not isinstance(profile, dict) or not profile.get("name"):
             logger.warning("Spotify profile answer without a name, ignored")
@@ -186,4 +203,3 @@ class SpotifyLibrary:
         if "image_url" in profile:
             identity["avatar_url"] = profile["image_url"] or None
         return identity
-

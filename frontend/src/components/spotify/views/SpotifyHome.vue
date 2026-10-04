@@ -31,22 +31,26 @@
         <div v-else key="loaded" class="sections">
           <section class="section">
             <div class="shortcuts-grid">
-              <SpotifyShortcutTile liked :title="t('spotify.likedSongs')" @click="$emit('select-liked')" />
-              <SpotifyShortcutTile v-for="playlist in home.sections.shortcuts" :key="playlist.uri"
-                :title="playlist.name || t('spotify.untitledPlaylist')" :image="playlist.image || ''"
-                @click="$emit('select-playlist', playlist)" />
+              <SpotifyShortcutTile v-for="item in shortcuts" :key="item.uri"
+                :liked="item.kind === 'liked'"
+                :title="item.kind === 'liked' ? t('spotify.likedSongs') : item.name || t('spotify.untitledPlaylist')"
+                :image="item.image || ''" @click="$emit('select', item)" />
             </div>
           </section>
 
-          <section v-for="section in sections" :key="section.key" class="section">
+          <!-- Spotify's own shelves, in its order and under its titles. -->
+          <section v-for="shelf in home.shelves" :key="shelf.id" class="section">
+            <h2 class="section-title heading-2">{{ shelf.title }}</h2>
+            <SpotifyShelfRow :items="shelf.items" @select="$emit('select', $event)" />
+          </section>
+
+          <section v-for="section in librarySections" :key="section.key" class="section">
             <header class="section-header">
-              <span class="section-overline text-mono-small">{{ section.overline }}</span>
+              <span class="section-overline text-mono-small">{{ t('spotify.libraryOverline') }}</span>
               <h2 class="section-title heading-2">{{ section.title }}</h2>
             </header>
-            <div class="cards-grid">
-              <SpotifyPlaylistCard v-for="playlist in section.items" :key="playlist.uri"
-                :playlist="playlist" @click="$emit('select-playlist', playlist)" />
-            </div>
+            <SpotifyPlaylistGrid :items="section.items" :state-key="`rows:${section.key}`"
+              @select="$emit('select', { ...$event, kind: 'playlist' })" />
           </section>
         </div>
       </Transition>
@@ -60,11 +64,13 @@ import { useI18n } from '@/services/i18n';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useCardGridColumns } from '@/composables/useCardGridColumns';
 import MessageContent from '@/components/ui/MessageContent.vue';
-import SpotifyPlaylistCard from '../cards/SpotifyPlaylistCard.vue';
+import SpotifyShelfRow from '../SpotifyShelfRow.vue';
+import SpotifyPlaylistGrid from '../SpotifyPlaylistGrid.vue';
 import SpotifyShortcutTile from '../cards/SpotifyShortcutTile.vue';
 import SkeletonSpotifyCard from '../cards/SkeletonSpotifyCard.vue';
 
-defineEmits(['select-playlist', 'select-liked']);
+// A card or a tile, with the kind of page it opens: playlist, album, artist or liked.
+defineEmits(['select']);
 
 const { t } = useI18n();
 const store = useSpotifyStore();
@@ -73,16 +79,22 @@ const { columns } = useCardGridColumns();
 const home = computed(() => store.home);
 const castFirst = computed(() => !store.account && !store.signingIn);
 
-// The four card sections, in the order the Spotify app's home reads them; an
-// empty one is left out.
-const sections = computed(() => {
-  const s = home.value?.sections;
-  if (!s) return [];
+// The tiles above the shelves: Spotify's shortcuts, as many as its app shows.
+// Without its home, Liked Songs alone.
+const SHORTCUTS = 8;
+const shortcuts = computed(() => {
+  const h = home.value;
+  if (h.shortcuts.length) return h.shortcuts.slice(0, SHORTCUTS);
+  return [{ uri: h.liked_songs_uri, kind: 'liked' }];
+});
+
+// The account's own playlists, after Spotify's shelves: the home lists only a
+// few of them. An empty section is left out.
+const librarySections = computed(() => {
+  const p = home.value.playlists;
   return [
-    { key: 'made_for_you', overline: 'Spotify', title: t('spotify.madeForYou'), items: s.made_for_you },
-    { key: 'radios', overline: 'Spotify', title: t('spotify.yourRadios'), items: s.radios },
-    { key: 'mine', overline: t('spotify.libraryOverline'), title: t('spotify.yourPlaylists'), items: s.mine },
-    { key: 'followed', overline: t('spotify.libraryOverline'), title: t('spotify.followedPlaylists'), items: s.followed },
+    { key: 'mine', title: t('spotify.yourPlaylists'), items: p.mine },
+    { key: 'followed', title: t('spotify.followedPlaylists'), items: p.followed },
   ].filter((section) => section.items.length > 0);
 });
 

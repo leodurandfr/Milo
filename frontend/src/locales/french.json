@@ -405,21 +405,20 @@
     "listUnavailable": "Cette liste n'a pas pu être chargée",
     "loadingTracks": "Chargement des titres",
     "loadingTracksProgress": "Chargement de {loaded} titres sur {total}",
-    "madeForYou": "Conçues pour vous",
     "manageProfile": "Gérer le profil",
     "noTracks": "Aucun morceau",
     "playlist": "Playlist",
     "profiles": "Profils",
     "retry": "Réessayer",
     "save": "Enregistrer",
+    "showMore": "Afficher plus",
     "signingIn": "Connexion à Spotify…",
     "switchStopsPlayback": "Touchez à nouveau : la lecture s'arrêtera",
     "tracksCount": "{count} morceau | {count} morceaux",
     "unlike": "Retirer des Titres likés",
     "untitledPlaylist": "Playlist sans titre",
     "whoIsListening": "Qui écoute ?",
-    "yourPlaylists": "Vos playlists",
-    "yourRadios": "Vos radios"
+    "yourPlaylists": "Vos playlists"
   },
   "multiroomSettings": {
     "globalBuffer": "Buffer global (ms)",

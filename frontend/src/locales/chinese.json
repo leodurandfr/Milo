@@ -405,21 +405,20 @@
     "listUnavailable": "无法加载此列表",
     "loadingTracks": "正在加载歌曲",
     "loadingTracksProgress": "正在加载 {loaded}/{total} 首歌曲",
-    "madeForYou": "为您打造",
     "manageProfile": "管理个人资料",
     "noTracks": "没有曲目",
     "playlist": "歌单",
     "profiles": "个人资料",
     "retry": "重试",
     "save": "保存",
+    "showMore": "显示更多",
     "signingIn": "正在登录 Spotify…",
     "switchStopsPlayback": "请再次轻触：播放将停止",
     "tracksCount": "{count} 首曲目",
     "unlike": "从已点赞的歌曲中移除",
     "untitledPlaylist": "未命名歌单",
     "whoIsListening": "谁在收听？",
-    "yourPlaylists": "您的歌单",
-    "yourRadios": "您的电台"
+    "yourPlaylists": "您的歌单"
   },
   "multiroomSettings": {
     "globalBuffer": "全局缓冲区 (ms)",

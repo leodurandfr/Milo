@@ -6,7 +6,8 @@
  * stays turned after Spotify refused it, a listing that stops at its first
  * partial answer and shows a playlist cut short (or one that asks for its
  * tracks from the start again and draws them twice), and the profile screen
- * opening over music someone is listening to.
+ * opening over music someone is listening to, and Spotify's shelves left titled
+ * in the language the interface just left.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
@@ -14,6 +15,7 @@ import { setActivePinia, createPinia } from 'pinia';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
+import { i18n } from '@/services/i18n';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 import { publishState, makeSession } from '../helpers/audioState';
 
@@ -21,6 +23,12 @@ vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
 const PLAYLIST = 'spotify:playlist:chill';
 const TRACK = 'spotify:track:says';
+const HOME = {
+  status: 'success', account: 'owner', liked_songs_uri: 'x', shortcuts: [], shelves: [],
+  playlists: { mine: [], followed: [] },
+};
+const homeLocales = () =>
+  apiCall.get.mock.calls.filter(([url]) => url === '/api/spotify/home').map(([, options]) => options.params.locale);
 
 function details(overrides = {}) {
   return {
@@ -64,7 +72,7 @@ describe('spotifyStore', () => {
 
   it('drops what it loaded for one account when another signs in', async () => {
     publish({ details: details() });
-    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', account: 'owner', liked_songs_uri: 'x', sections: {} }));
+    apiCall.get.mockResolvedValueOnce(ok(HOME));
     await store.loadHome();
     store.liked[TRACK] = true;
     expect(store.home).not.toBeNull();
@@ -75,6 +83,19 @@ describe('spotifyStore', () => {
     expect(store.home).toBeNull();
     expect(store.contexts).toEqual({});
     expect(store.isLiked(TRACK)).toBeNull();
+  });
+
+  it("asks for Spotify's home in the interface language, and again when it changes", async () => {
+    i18n.currentLanguage.value = 'french';
+    apiCall.get.mockResolvedValue(ok(HOME));
+    await store.loadHome();
+
+    i18n.currentLanguage.value = 'portuguese';
+    await nextTick();
+    await vi.waitFor(() => expect(homeLocales()).toHaveLength(2));
+
+    expect(homeLocales()).toEqual(['fr', 'pt-PT']);
+    i18n.currentLanguage.value = 'english';
   });
 
   it('turns a heart back when Spotify refuses it', async () => {

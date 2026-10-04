@@ -1,28 +1,31 @@
 # backend/sources/spotify/catalog.py
 """
-What go-librespot's library answers, shaped for the browser. Pure functions.
+What go-librespot's library and Spotify's home answer, shaped for the
+browser. Pure functions.
 
-The home sections never read a playlist's name: go-librespot names Spotify's
-own playlists in the language of the session that signed it in ("Leaves Radio"
-one day, "Radio Leaves" the next, measured 2026-10-03). They read what does
-not move with the language — the owner, the cover's image path, and the
-playlist id's prefix.
+The home is Spotify's own, the one its apps draw (spclient homeview, measured
+2026-10-04): its shelves in its order, titled in the language asked for, each
+card a playlist, an album, an artist or Liked Songs. The account's own
+playlists follow it, read from the library — the home lists only a few of
+them, and the apps keep the rest under their library tab, which Milō has not.
 
 A playlist nobody gave a picture has no image in the library at all: the
 Spotify apps draw it as a mosaic of its first four albums, which mosaic.scdn.co
 serves from the four cover ids (measured 2026-10-04), so Milō draws the same.
 """
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 SPOTIFY_OWNER = "spotify"
-# Spotify's editorial playlists ("Songs to Test Speakers With"): everyone gets
-# the same one, so they sit with the followed ones, not "made for you".
-EDITORIAL_PREFIX = "37i9dQZF1D"
-# Spotify draws a radio's cover itself, under this path, whatever its name.
-RADIO_IMAGE = "/img/radio/"
-SHORTCUTS = 7     # the 8th tile is Liked Songs, added by the browser
+# The home's first shelf, drawn as the tiles above the others. Its id is the
+# same in every language and for every account (measured).
+SHORTCUTS_SECTION = "spotify:section:0JQ5DAIiKWzVFULQfUm85Y"
+# What a home card opens, by its uri's kind. A show is left out: its episodes
+# are not something go-librespot lists.
+_CARD_KINDS = {"playlist": "playlist", "album": "album", "artist": "artist"}
+# Liked Songs, as the home names it: the signed-in user is "@".
+_HOME_LIKED_SONGS = re.compile(r"^spotify:user:[^:]+:collection$")
 
 # An album cover on i.scdn.co carries its size in the id: b273 (640 px),
 # 1e02 (300 px), 4851 (64 px). The three are served for every cover (measured).
@@ -129,18 +132,6 @@ def described_tracks(entries: List[Dict[str, Any]], complete: bool) -> List[Dict
     return tracks
 
 
-def _section_of(item: Dict[str, Any], account: Optional[str]) -> str:
-    if item["owner"] == SPOTIFY_OWNER:
-        if RADIO_IMAGE in (item["image"] or ""):
-            return "radios"
-        if item["uri"].rsplit(":", 1)[-1].startswith(EDITORIAL_PREFIX):
-            return "followed"
-        return "made_for_you"
-    if item["owner"] == account or item["editable"]:
-        return "mine"
-    return "followed"
-
-
 def _has_tracks(item: Dict[str, Any]) -> bool:
     """Whether a raw /library/playlists entry holds anything to play. Its
     `length` is the truth for a playlist a person keeps, but not for one Spotify
@@ -154,16 +145,55 @@ def _has_tracks(item: Dict[str, Any]) -> bool:
     return False
 
 
-def classify_home(items: List[Dict[str, Any]], account: Optional[str]) -> Dict[str, List[Dict[str, Any]]]:
-    """The home sections, each in library order. `items` are raw
-    /library/playlists entries; every one holding tracks lands in exactly one
-    section, and the first few in the shortcuts too, as the Spotify app's home
-    does. An empty playlist is left out: there is nothing to play in it."""
-    playlists = [normalize_playlist(item) for item in items if _has_tracks(item)]
-    sections: Dict[str, List[Dict[str, Any]]] = {
-        "shortcuts": playlists[:SHORTCUTS],
-        "made_for_you": [], "radios": [], "mine": [], "followed": [],
-    }
-    for playlist in playlists:
-        sections[_section_of(playlist, account)].append(playlist)
+def library_sections(items: List[Dict[str, Any]], account: Optional[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """The account's playlists, in library order: the ones it owns or may edit,
+    and every other it saved (Spotify's included). `items` are raw
+    /library/playlists entries; an empty playlist is left out, there is nothing
+    to play in it."""
+    sections: Dict[str, List[Dict[str, Any]]] = {"mine": [], "followed": []}
+    for item in items:
+        if not _has_tracks(item):
+            continue
+        playlist = normalize_playlist(item)
+        mine = playlist["owner"] == account or playlist["editable"]
+        sections["mine" if mine else "followed"].append(playlist)
     return sections
+
+
+def _home_card(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    uri = (card.get("target") or {}).get("uri") or ""
+    if _HOME_LIKED_SONGS.match(uri):
+        kind = "liked"
+    else:
+        kind = _CARD_KINDS.get(uri.split(":")[1] if uri.count(":") >= 2 else "")
+    if kind is None:
+        return None
+    text = card.get("text") or {}
+    image = ((card.get("images") or {}).get("main") or {}).get("uri")
+    return {
+        "uri": uri,
+        "kind": kind,
+        "name": text.get("title") or None,
+        "subtitle": text.get("subtitle") or None,
+        "image": image or None,
+    }
+
+
+def home_shelves(view: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Spotify's home as the shortcuts and the shelves after them, each in its
+    order. The view is flat — a header, then its cards — and every card names
+    its shelf. A card the browser cannot open is left out, and a shelf left
+    with nothing (the account's podcasts) with it."""
+    shelves: Dict[str, Dict[str, Any]] = {}
+    for entry in view.get("body") or []:
+        section = (entry.get("metadata") or {}).get("sectionId")
+        if not section:
+            continue
+        if (entry.get("component") or {}).get("category") == "header":
+            shelves[section] = {"id": section, "title": (entry.get("text") or {}).get("title") or None, "items": []}
+            continue
+        card = _home_card(entry)
+        if card is not None and section in shelves:
+            shelves[section]["items"].append(card)
+    shortcuts = shelves.pop(SHORTCUTS_SECTION, None)
+    return (shortcuts["items"] if shortcuts else []), [shelf for shelf in shelves.values() if shelf["items"]]

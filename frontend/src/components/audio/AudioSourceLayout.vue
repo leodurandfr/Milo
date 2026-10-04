@@ -377,6 +377,12 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 
 /* Content container: animates width to make space for player */
 .content-container {
+  /* How far a row may run past this column, into the frame's side space and
+     no further: the frame's padding plus the column's own margin, 8% of the
+     frame on each side. Read in a margin or a padding, a percentage resolves
+     against the column's width, of which 8% of the frame is 8/84. */
+  --content-bleed-start: calc(var(--space-07) + 100% * 8 / 84);
+  --content-bleed-end: var(--content-bleed-start);
   position: relative;
   z-index: 1;
   width: 84%;
@@ -407,6 +413,9 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 }
 
 .content-container.has-player {
+  /* The column starts at the frame's padding and ends at the player's gap. */
+  --content-bleed-start: var(--space-07);
+  --content-bleed-end: var(--space-06);
   width: calc(100% - var(--audio-player-wrapper-width));
   transition:
     width var(--transition-spring),
@@ -541,6 +550,12 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 @media (max-aspect-ratio: 4/3) {
   .audio-source-layout {
     padding: 0 var(--space-05);
+  }
+
+  .content-container,
+  .content-container.has-player {
+    --content-bleed-start: var(--space-05);
+    --content-bleed-end: var(--space-05);
   }
 
   .content-container {

@@ -1,7 +1,7 @@
 <template>
   <div v-press class="playlist-card" @click="$emit('click')">
-    <LazyImage ref="lazyImg" :src="playlist.image || ''" :fallback="musicPlaceholder"
-      :alt="title" lazy class="playlist-cover">
+    <LazyImage ref="lazyImg" :src="item.image || ''" :fallback="musicPlaceholder"
+      :alt="title" lazy class="playlist-cover" :class="{ round: item.kind === 'artist' }">
       <transition name="content-fade">
         <div v-if="!contentReady" class="cover-skeleton shimmer"></div>
       </transition>
@@ -21,9 +21,11 @@ import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
-  // { uri, name, owner, image } as /api/spotify/home lists it. No track count:
-  // the library's is wrong for every playlist Spotify regenerates.
-  playlist: {
+  // A card as /api/spotify/home lists it: one of Spotify's home ({ uri, kind,
+  // name, subtitle, image }) or a library playlist ({ uri, name, owner, image }).
+  // No track count: the library's is wrong for every playlist Spotify
+  // regenerates.
+  item: {
     type: Object,
     required: true,
   },
@@ -33,12 +35,14 @@ defineEmits(['click']);
 
 const { t } = useI18n();
 const lazyImg = ref(null);
-const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.playlist.image);
+const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.item.image);
 
-const title = computed(() => props.playlist.name || t('spotify.untitledPlaylist'));
-const byline = computed(() =>
-  props.playlist.owner === 'spotify' ? 'Spotify' : ''
-);
+const title = computed(() => props.item.name || t('spotify.untitledPlaylist'));
+const byline = computed(() => {
+  if (props.item.subtitle) return props.item.subtitle;
+  if (props.item.kind === 'artist') return t('spotify.artist');
+  return props.item.owner === 'spotify' ? 'Spotify' : '';
+});
 </script>
 
 <style scoped>
@@ -55,6 +59,10 @@ const byline = computed(() =>
   width: 100%;
   border-radius: var(--radius-02);
   background: var(--color-surface-glass);
+}
+
+.playlist-cover.round {
+  border-radius: var(--radius-full);
 }
 
 .cover-skeleton {

@@ -405,21 +405,20 @@
     "listUnavailable": "यह सूची लोड नहीं हो सकी",
     "loadingTracks": "गाने लोड हो रहे हैं",
     "loadingTracksProgress": "{total} में से {loaded} गाने लोड हो रहे हैं",
-    "madeForYou": "आपके लिए बनाई गई",
     "manageProfile": "प्रोफ़ाइल प्रबंधित करें",
     "noTracks": "कोई ट्रैक नहीं",
     "playlist": "प्लेलिस्ट",
     "profiles": "प्रोफ़ाइल",
     "retry": "पुनः प्रयास करें",
     "save": "सहेजें",
+    "showMore": "और दिखाएं",
     "signingIn": "Spotify में साइन इन हो रहा है…",
     "switchStopsPlayback": "फिर से टैप करें: प्लेबैक रुक जाएगा",
     "tracksCount": "{count} ट्रैक",
     "unlike": "पसंद किए गए गानों से हटाएं",
     "untitledPlaylist": "बिना शीर्षक की प्लेलिस्ट",
     "whoIsListening": "कौन सुन रहा है?",
-    "yourPlaylists": "आपकी प्लेलिस्ट",
-    "yourRadios": "आपके रेडियो"
+    "yourPlaylists": "आपकी प्लेलिस्ट"
   },
   "multiroomSettings": {
     "globalBuffer": "ग्लोबल बफर (ms)",

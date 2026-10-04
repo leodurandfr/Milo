@@ -405,21 +405,20 @@
     "listUnavailable": "Diese Liste konnte nicht geladen werden",
     "loadingTracks": "Titel werden geladen",
     "loadingTracksProgress": "{loaded} von {total} Titeln werden geladen",
-    "madeForYou": "Für Sie erstellt",
     "manageProfile": "Profil verwalten",
     "noTracks": "Keine Titel",
     "playlist": "Playlist",
     "profiles": "Profile",
     "retry": "Erneut versuchen",
     "save": "Speichern",
+    "showMore": "Mehr anzeigen",
     "signingIn": "Anmeldung bei Spotify…",
     "switchStopsPlayback": "Tippen Sie erneut: Die Wiedergabe wird beendet",
     "tracksCount": "{count} Titel | {count} Titel",
     "unlike": "Aus Lieblingssongs entfernen",
     "untitledPlaylist": "Unbenannte Playlist",
     "whoIsListening": "Wer hört zu?",
-    "yourPlaylists": "Ihre Playlists",
-    "yourRadios": "Ihre Radios"
+    "yourPlaylists": "Ihre Playlists"
   },
   "multiroomSettings": {
     "globalBuffer": "Globaler Puffer (ms)",

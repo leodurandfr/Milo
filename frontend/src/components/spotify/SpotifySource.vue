@@ -21,8 +21,7 @@
         </template>
 
         <template #content>
-          <SpotifyHome v-if="currentView === 'home'" key="home"
-            @select-playlist="openPlaylist" @select-liked="openLiked" />
+          <SpotifyHome v-if="currentView === 'home'" key="home" @select="openItem" />
 
           <SpotifyProfilesView v-else-if="currentView === 'profiles'" key="profiles" @picked="reset" />
 
@@ -119,10 +118,17 @@ function openLiked() {
   if (uri) openContext({ uri, kind: 'liked' });
 }
 function openAlbum(album) {
-  if (album?.uri) openContext({ uri: album.uri, kind: 'album', name: album.name || '' });
+  if (album?.uri) openContext({ uri: album.uri, kind: 'album', name: album.name || '', image: album.image || '' });
 }
 function openArtist(artist) {
-  if (artist?.uri) openContext({ uri: artist.uri, kind: 'artist', name: artist.name || '' });
+  if (artist?.uri) openContext({ uri: artist.uri, kind: 'artist', name: artist.name || '', image: artist.image || '' });
+}
+// A home card or tile, by the kind of page it opens.
+function openItem(item) {
+  if (item.kind === 'liked') openLiked();
+  else if (item.kind === 'album') openAlbum(item);
+  else if (item.kind === 'artist') openArtist(item);
+  else openPlaylist(item);
 }
 function openPlayerAlbum() {
   const uri = nowPlaying.value?.albumUri;

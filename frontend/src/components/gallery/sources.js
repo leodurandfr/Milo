@@ -471,23 +471,53 @@ function spotifyPlaylist(id, name, owner) {
   return { uri: `spotify:playlist:${id}`, name, description: null, owner, image: null, editable: owner === 'owner' };
 }
 
+function spotifyCard(kind, id, name, subtitle = null) {
+  return { uri: `spotify:${kind}:${id}`, kind, name, subtitle, image: null };
+}
+
 const SPOTIFY_HOME = {
   account: 'owner',
   liked_songs_uri: 'spotify:user:owner:collection',
-  sections: {
-    shortcuts: [
-      spotifyPlaylist('chill', 'Chill appart', 'owner'),
-      spotifyPlaylist('jazz', 'Jazz', 'owner'),
-      spotifyPlaylist('radar', 'Release Radar', 'spotify'),
-      spotifyPlaylist('trip', 'Trip hop', 'owner'),
-      spotifyPlaylist('mix', 'Jazz Mix', 'spotify'),
-      spotifyPlaylist('house', 'House', 'owner'),
-      spotifyPlaylist('khr', 'Khruangbin Radio', 'spotify')
-    ],
-    made_for_you: [spotifyPlaylist('radar', 'Release Radar', 'spotify'), spotifyPlaylist('mix', 'Jazz Mix', 'spotify')],
-    radios: [spotifyPlaylist('khr', 'Khruangbin Radio', 'spotify')],
+  shortcuts: [
+    { uri: 'spotify:user:%40:collection', kind: 'liked', name: 'Liked Songs', subtitle: null, image: null },
+    spotifyCard('playlist', 'mix', 'Jazz Mix'),
+    spotifyCard('album', 'currents', 'Currents'),
+    spotifyCard('artist', 'khr', 'Khruangbin'),
+    spotifyCard('playlist', 'daily1', 'Daily Mix 1'),
+    spotifyCard('playlist', 'chill', 'Chill appart'),
+    spotifyCard('album', 'feel', 'feel'),
+    spotifyCard('playlist', 'radar', 'Release Radar')
+  ],
+  shelves: [
+    {
+      id: 'spotify:section:mixes',
+      title: 'Your top mixes',
+      items: [
+        spotifyCard('playlist', 'hiphop', 'Hip Hop Mix', 'Kery James, Oxmo Puccino and more'),
+        spotifyCard('playlist', 'chillmix', 'Chill Mix', 'Khruangbin, Tia Gordon and more'),
+        spotifyCard('playlist', '90s', '90s Mix', 'Massive Attack, Portishead and more'),
+        spotifyCard('playlist', 'mix', 'Jazz Mix', 'Nils Frahm, Gigi Masin and more'),
+        spotifyCard('playlist', 'indie', 'Indie Mix', 'Oklou, Cleo Sol and more')
+      ]
+    },
+    {
+      id: 'spotify:section:made-for',
+      title: 'Made For Léo',
+      items: [1, 2, 3, 4, 5, 6].map((n) => spotifyCard('playlist', `daily${n}`, `Daily Mix ${n}`, 'Youssoupha, Brass and more'))
+    },
+    {
+      id: 'spotify:section:fans',
+      title: 'For fans of Erika de Casier',
+      items: [
+        spotifyCard('artist', 'erika', 'Erika de Casier'),
+        spotifyCard('album', 'essentials', 'Essentials', 'Erika de Casier'),
+        spotifyCard('playlist', 'erika-radio', 'Erika de Casier Radio', 'With james K, Acopia and more')
+      ]
+    }
+  ],
+  playlists: {
     mine: [spotifyPlaylist('chill', 'Chill appart', 'owner'), spotifyPlaylist('jazz', 'Jazz', 'owner'), spotifyPlaylist('trip', 'Trip hop', 'owner'), spotifyPlaylist('house', 'House', 'owner')],
-    followed: [spotifyPlaylist('funk', "Funk à l'ancienne!", 'furkan_93')]
+    followed: [spotifyPlaylist('funk', "Funk à l'ancienne!", 'furkan_93'), spotifyPlaylist('khr', 'Khruangbin Radio', 'spotify')]
   }
 };
 
@@ -676,8 +706,8 @@ export const SOURCE_PAGES = [
       'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. With several profiles kept and nothing playing it opens on the profile screen; with nobody signed in its home asks for a phone. The player is Music Library\'s track player without the queue carousel — go-librespot does not say what comes next.',
     scenarios: [
       starting('spotify'),
-      browsing('spotify', 'Signed in, nothing playing', 'The daemon signed back in with the kept account and holds no session: the home lists that account\'s playlists in the Spotify app\'s sections, sorted by owner, cover path and id prefix — never by name, since go-librespot names Spotify\'s own playlists in the session\'s language.', {
-        condition: ['account', 'sections'],
+      browsing('spotify', 'Signed in, nothing playing', 'The daemon signed back in with the kept account and holds no session: the home draws Spotify\'s own for that account — its shortcuts, then its shelves in its order and under its titles, in the interface language — and the account\'s playlists after them.', {
+        condition: ['account', 'shelves'],
         layout: SPOTIFY_HEADER,
         view: 'spotify-home',
         state: { details: spotifyDetails() },

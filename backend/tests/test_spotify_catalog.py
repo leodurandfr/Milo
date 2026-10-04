@@ -1,16 +1,14 @@
 """The Spotify browser's pure shaping (sources/spotify/catalog.py).
 
-The fixture has the shapes measured on the owner's library (2026-10-03), not
-its names: Spotify's own playlists are named in the session's language, so the
-home sections must hold whatever the names say.
+The fixtures have the shapes measured on the owner's account: its library
+(2026-10-03) and Spotify's home for it (spclient homeview, 2026-10-04).
 """
 from backend.sources.spotify.catalog import (
-    classify_home, described_tracks, leading_covers, normalize_playlist, normalize_track, playlist_cover,
-    thumbnail_url,
+    SHORTCUTS_SECTION, described_tracks, home_shelves, leading_covers, library_sections, normalize_playlist,
+    normalize_track, playlist_cover, thumbnail_url,
 )
 
 ACCOUNT = "owner"
-RADIO_IMAGE = "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/track/73Ik/en"
 
 
 def playlist(uri_id, name, owner, image=None, can_edit=False, collaborative=False, length=50):
@@ -22,7 +20,7 @@ def playlist(uri_id, name, owner, image=None, can_edit=False, collaborative=Fals
 
 
 LIBRARY = [
-    playlist("37i9dQZF1E8PE5vUgEe9T7", "Radio Leaves", "spotify", RADIO_IMAGE),
+    playlist("37i9dQZF1E8PE5vUgEe9T7", "Radio Leaves", "spotify", "https://pickasso.spotifycdn.com/x"),
     playlist("37i9dQZF1DX0abcdefgh", "Songs to Test Speakers With", "spotify", "https://i.scdn.co/image/x"),
     playlist("1mineabcdefgh", "Chill appart", ACCOUNT),
     playlist("37i9dQZF1EYkqdzj48dyYq", "", "spotify", length=0),             # an expired mix: no name, no image
@@ -41,41 +39,91 @@ def names(section):
     return [p["name"] for p in section]
 
 
-def test_home_sections_never_read_a_name():
-    """Radios by their cover path, editorial by the id prefix, the rest of
-    Spotify's own as made for you; owned or editable as mine. A name in any
-    language lands in the same section."""
-    sections = classify_home(LIBRARY, ACCOUNT)
+def test_the_library_splits_into_the_accounts_own_playlists_and_the_ones_it_saved():
+    """Owned or editable is the account's; everything else it saved —
+    Spotify's own included — follows, in library order."""
+    sections = library_sections(LIBRARY, ACCOUNT)
 
-    assert names(sections["radios"]) == ["Radio Leaves"]
-    assert names(sections["made_for_you"]) == [
-        "Mix Jazz", "Radar des sorties", "Votre Top Titres 2023", "Cla + Léo",
-    ]
     assert names(sections["mine"]) == ["Chill appart", "Claléo"]
-    assert names(sections["followed"]) == ["Songs to Test Speakers With", "Funk à l'ancienne!"]
+    assert names(sections["followed"]) == [
+        "Radio Leaves", "Songs to Test Speakers With", "Mix Jazz", "Radar des sorties",
+        "Votre Top Titres 2023", "Cla + Léo", "Funk à l'ancienne!",
+    ]
 
 
 EMPTY = {"spotify:playlist:37i9dQZF1EYkqdzj48dyYq", "spotify:playlist:4emptyabcdefgh"}
-
-
-def test_every_playlist_lands_in_exactly_one_section_and_shortcuts_follow_the_library():
-    sections = classify_home(LIBRARY, ACCOUNT)
-    placed = [p["uri"] for key in ("made_for_you", "radios", "mine", "followed") for p in sections[key]]
-    shown = [item["uri"] for item in LIBRARY if item["uri"] not in EMPTY]
-
-    assert sorted(placed) == sorted(shown)
-    assert [p["uri"] for p in sections["shortcuts"]] == shown[:7]
 
 
 def test_an_empty_playlist_is_left_out_but_a_live_mix_listing_zero_is_not():
     """A playlist a person keeps with no track is hidden whatever its name; a
     Spotify mix lists 0 while it holds 50, and only an expired one (no name,
     no picture) is empty."""
-    sections = classify_home(LIBRARY, ACCOUNT)
-    placed = {p["uri"] for key in ("shortcuts", "made_for_you", "radios", "mine", "followed") for p in sections[key]}
+    sections = library_sections(LIBRARY, ACCOUNT)
+    placed = {p["uri"] for key in ("mine", "followed") for p in sections[key]}
 
     assert not placed & EMPTY
     assert "spotify:playlist:37i9dQZF1E4mixabcdef" in placed
+
+
+def header(section, title):
+    return {"id": f"{section}-header", "component": {"id": "glue:sectionHeader", "category": "header"},
+            "text": {"title": title, "subtitle": ""}, "metadata": {"sectionId": section}}
+
+
+def card(section, uri, title, subtitle=None):
+    text = {"title": title, **({"subtitle": subtitle} if subtitle else {})}
+    return {"id": f"{section}_card", "component": {"id": "glue2:card", "category": "card"}, "text": text,
+            "images": {"main": {"uri": f"https://i.scdn.co/image/{title}", "placeholder": "playlist"}},
+            "target": {"uri": uri}, "metadata": {"uri": uri, "sectionId": section}}
+
+
+MIXES = "spotify:section:0JQ5DAnM3wGh0gz1MXnu89"
+MADE_FOR = "spotify:section:0JQ5DAUnp4wcj0bCb3wh3S"
+SHOWS = "spotify:section:0JQ5DAnM3wGh0gz1MXnu3N"
+
+HOME = {"body": [
+    header(SHORTCUTS_SECTION, "Raccourcis"),
+    card(SHORTCUTS_SECTION, "spotify:user:%40:collection", "Titres likés"),
+    card(SHORTCUTS_SECTION, "spotify:album:79dL7FLiJFOO0EoehUHQBv", "Currents"),
+    card(SHORTCUTS_SECTION, "spotify:artist:6nB0iY1cjSY1KyhYyuIIKH", "FKA twigs"),
+    header(MIXES, "Vos mix préférés"),
+    card(MIXES, "spotify:playlist:37i9dQZF1EQnqst5TRi17F", "Hip Hop Mix", "Kery James, Oxmo et plus"),
+    header(MADE_FOR, "Conçu pour Léo"),
+    card(MADE_FOR, "spotify:playlist:37i9dQZF1E35HBJ2wuuMhp", "Daily Mix 1"),
+    card(MADE_FOR, "spotify:playlist:37i9dQZF1E39eHkn9AYV7U", "Daily Mix 2"),
+    header(SHOWS, "Vos émissions"),
+    card(SHOWS, "spotify:show:2VRR0TGLn4ckba3J0UyJjq", "Les pieds sur terre", "France Culture"),
+]}
+
+
+def test_the_home_keeps_spotifys_shelves_in_their_order_and_their_titles():
+    """The shelves are Spotify's, titled as it titles them: Milō groups
+    nothing itself."""
+    _, shelves = home_shelves(HOME)
+
+    assert [(shelf["title"], [c["name"] for c in shelf["items"]]) for shelf in shelves] == [
+        ("Vos mix préférés", ["Hip Hop Mix"]),
+        ("Conçu pour Léo", ["Daily Mix 1", "Daily Mix 2"]),
+    ]
+    assert shelves[0]["items"][0]["subtitle"] == "Kery James, Oxmo et plus"
+
+
+def test_the_shortcuts_shelf_is_the_tiles_and_each_card_says_what_it_opens():
+    """The browser opens a playlist, an album, an artist or Liked Songs by
+    kind; Liked Songs is named "@" by the home, not by the account."""
+    shortcuts, shelves = home_shelves(HOME)
+
+    assert [(c["name"], c["kind"]) for c in shortcuts] == [
+        ("Titres likés", "liked"), ("Currents", "album"), ("FKA twigs", "artist"),
+    ]
+    assert SHORTCUTS_SECTION not in {shelf["id"] for shelf in shelves}
+
+
+def test_a_card_the_browser_cannot_open_is_left_out_with_the_shelf_it_empties():
+    """A show's episodes are nothing go-librespot lists: the account's
+    podcasts shelf would be cards that open onto nothing."""
+    _, shelves = home_shelves(HOME)
+    assert SHOWS not in {shelf["id"] for shelf in shelves}
 
 
 def test_a_track_whose_metadata_is_not_cached_yet_is_left_out():

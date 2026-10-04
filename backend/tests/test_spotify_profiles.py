@@ -255,15 +255,49 @@ async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
 
 # === Routes ===
 
-async def test_the_home_route_answers_the_signed_in_library(world):
+HOME_SHELF = "spotify:section:0JQ5DAUnp4wcj0bCb3wh3S"
+DAILY_MIX = {"component": {"id": "glue2:card", "category": "card"}, "text": {"title": "Daily Mix 1"},
+             "target": {"uri": "spotify:playlist:37i9dQZF1E35HBJ2wuuMhp"}, "metadata": {"sectionId": HOME_SHELF}}
+
+
+async def test_the_home_route_answers_spotifys_home_then_the_library(world):
+    """Spotify's shelves, titled in the language asked for, then the
+    account's own playlists."""
+    world.daemon.home_answer = {"body": [
+        {"component": {"id": "glue:sectionHeader", "category": "header"}, "text": {"title": "Conçu pour Léo"},
+         "metadata": {"sectionId": HOME_SHELF}},
+        DAILY_MIX,
+    ]}
     world.daemon.playlists = [
-        {"uri": "spotify:playlist:37i9dQZF1E8PE5vUgEe9T7", "name": "Radio Leaves", "description": "",
-         "owner_username": "spotify", "length": 50, "collaborative": False, "can_edit": False,
-         "folder": [], "image_url": "https://pickasso.spotifycdn.com/image/x/dt/v1/img/radio/track/y/en"},
+        {"uri": "spotify:playlist:1mine", "name": "Chill appart", "description": "",
+         "owner_username": ACCOUNT, "length": 50, "collaborative": False, "can_edit": True,
+         "folder": [], "image_url": "https://i.scdn.co/image/x"},
     ]
-    answer = await routes.get_home(source=world.source)
+    answer = await routes.get_home(locale="fr-FR", source=world.source)
+
+    assert world.daemon.home_locales == ["fr-FR"]
     assert answer["liked_songs_uri"] == f"spotify:user:{ACCOUNT}:collection"
-    assert [p["name"] for p in answer["sections"]["radios"]] == ["Radio Leaves"]
+    assert [(s["title"], [c["name"] for c in s["items"]]) for s in answer["shelves"]] == [
+        ("Conçu pour Léo", ["Daily Mix 1"]),
+    ]
+    assert [p["name"] for p in answer["playlists"]["mine"]] == ["Chill appart"]
+
+
+async def test_a_home_spotify_will_not_serve_still_answers_the_library(world, caplog):
+    """Spotify's home is a service on the internet, not the daemon: its
+    failure costs the shelves, never the account's own playlists."""
+    world.daemon.home_answer = None
+    world.daemon.playlists = [
+        {"uri": "spotify:playlist:1mine", "name": "Chill appart", "description": "",
+         "owner_username": ACCOUNT, "length": 50, "collaborative": False, "can_edit": True,
+         "folder": [], "image_url": "https://i.scdn.co/image/x"},
+    ]
+    caplog.set_level(logging.WARNING)
+    answer = await routes.get_home(source=world.source)
+
+    assert answer["shelves"] == [] and answer["shortcuts"] == []
+    assert [p["name"] for p in answer["playlists"]["mine"]] == ["Chill appart"]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 async def test_a_listing_still_loading_answers_its_progress(world):

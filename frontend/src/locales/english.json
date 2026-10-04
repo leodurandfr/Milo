@@ -405,21 +405,20 @@
     "listUnavailable": "This list could not be loaded",
     "loadingTracks": "Loading the tracks",
     "loadingTracksProgress": "Loading {loaded} of {total} tracks",
-    "madeForYou": "Made for you",
     "manageProfile": "Manage profile",
     "noTracks": "No tracks",
     "playlist": "Playlist",
     "profiles": "Profiles",
     "retry": "Retry",
     "save": "Save",
+    "showMore": "Show more",
     "signingIn": "Signing in to Spotify…",
     "switchStopsPlayback": "Tap again: playback will stop",
     "tracksCount": "{count} track | {count} tracks",
     "unlike": "Remove from Liked Songs",
     "untitledPlaylist": "Untitled playlist",
     "whoIsListening": "Who's listening?",
-    "yourPlaylists": "Your playlists",
-    "yourRadios": "Your radios"
+    "yourPlaylists": "Your playlists"
   },
   "multiroomSettings": {
     "globalBuffer": "Global buffer (ms)",

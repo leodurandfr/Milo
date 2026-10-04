@@ -2,6 +2,8 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { i18n } from '@/services/i18n';
+import { bcp47For } from '@/constants/countries';
 
 const BASE = '/api/spotify';
 // go-librespot's /library/liked answers for 1 to 50 tracks per call.
@@ -63,7 +65,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
   });
 
   // =========================================================================
-  // HOME — the signed-in account's playlists, in sections
+  // HOME — Spotify's home for the signed-in account, then its playlists
   // =========================================================================
   const home = ref(null);
   const homeLoading = ref(false);
@@ -74,6 +76,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
     if (homeLoading.value || (home.value && !force)) return;
     homeLoading.value = true;
     const result = await apiCall.get(`${BASE}/home`, {
+      // Spotify titles its shelves in the language asked for.
+      params: { locale: bcp47For(i18n.currentLanguage.value) },
       category: 'spotify',
       message: 'Error loading the Spotify library',
       logLevel: 'warn',
@@ -253,6 +257,11 @@ export const useSpotifyStore = defineStore('spotify', () => {
     liked.value = {};
     if (now) loadProfiles();
     if (currentTrackUri.value) fetchLiked([currentTrackUri.value]);
+  });
+
+  // Another interface language: the shelves are titled in the last one.
+  watch(i18n.currentLanguage, () => {
+    if (home.value) loadHome({ force: true });
   });
 
   // =========================================================================
