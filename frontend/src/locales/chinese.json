@@ -516,6 +516,8 @@
     "deleting": "删除中…",
     "close": "关闭",
     "backToTop": "返回顶部",
+    "back": "返回",
+    "expandPlayer": "展开播放器",
     "selectOption": "选择一个选项"
   },
   "radio": {

@@ -14,7 +14,9 @@
   The exception is `via: 'browser'`. Radio, Podcasts, Music Library and Spotify dispatch
   to `*Source.vue` files that own feature stores and fetch on mount, so mounting
   *those* would read the real catalogue. What is reassembled here is only that
-  wrapper — the header props it forwards, and the pane it puts `AudioPlayer` in.
+  wrapper — the header props it forwards, the pane it puts `AudioPlayer` in, and
+  the `BrowserSourceViews` shell that swaps the navigation for the full player
+  that bar's expand button opens (its back button returns, as in the app).
   Everything below is the app's: a real `AudioSourceLayout`, the source's real
   browsing view, its real store, its real cards. The scenario supplies what the
   backend would have (see canvasHttp.js), and the store parses it by its own
@@ -41,235 +43,245 @@
         <!-- Store-driven: the app's dispatcher decides what this is. -->
         <AudioSourceView v-if="!browser" />
 
-        <AudioSourceLayout
-          v-else
-          :gradient="page.source"
-          :header-icon="page.source"
-          :header-title="t(browser.layout.titleKey)"
-          :header-show-back="!!browser.layout.showBack"
-          :header-title-muted="!!browser.layout.titleMuted"
-          header-variant="background-neutral"
-          :show-player="!!browser.player"
-          :player-mobile-height="144"
-          :header-actions-key="scenario"
-          :content-key="scenario"
-        >
-          <!-- The source's own browsing view, mounted for real: its store is
-               seeded and its fetches are served, so what renders is the app's
-               screen rather than a drawing of it. -->
-          <template #content>
-            <component :is="VIEWS[browser.view]" v-bind="browser.props || {}" :key="scenario" />
+        <!-- The navigation and the full player its bar expands into, swapped
+             by the same shell the four sources use. What is not a command — the
+             favorite, the star, the like — is the source's, read from the
+             scenario like the bar's own heart. -->
+        <BrowserSourceViews v-else :source="page.source">
+          <template #navigation="{ bar }">
+            <AudioSourceLayout
+              :gradient="page.source"
+              :header-icon="page.source"
+              :header-title="t(browser.layout.titleKey)"
+              :header-show-back="!!browser.layout.showBack"
+              :header-title-muted="!!browser.layout.titleMuted"
+              header-variant="background-neutral"
+              :show-player="!!browser.player"
+              :player-mobile-height="144"
+              :header-actions-key="scenario"
+              :content-key="scenario"
+            >
+              <!-- The source's own browsing view, mounted for real: its store is
+                   seeded and its fetches are served, so what renders is the app's
+                   screen rather than a drawing of it. -->
+              <template #content>
+                <component :is="VIEWS[browser.view]" v-bind="browser.props || {}" :key="scenario" />
+              </template>
+
+              <template v-if="browser.layout.actions?.length" #header-actions="{ iconVariant }">
+                <IconButton
+                  v-for="icon in browser.layout.actions"
+                  :key="icon"
+                  :icon="icon"
+                  :variant="iconVariant"
+                />
+              </template>
+
+              <template v-if="browser.player" #player>
+                <!-- Props transcribed per source too: radio falls back from the
+                     track's cover to the station's and passes the station name as
+                     the avatar seed, podcasts pass only the episode, music library
+                     is the one that hands over a queue. -->
+                <AudioPlayer
+                  :source="page.source"
+                  v-bind="bar"
+                  :artwork="playerArtwork"
+                  :fallback-name="playerFallbackName"
+                  :title="playerTitle"
+                  :swipe-enabled="page.source !== 'radio'"
+                  :tracks="player.tracks || []"
+                  :current-index="player.currentIndex ?? -1"
+                >
+                  <!-- Radio, mobile, track recognised: the station icon rides behind
+                       the track cover. Only ever rendered in the docked mini-bar. -->
+                  <template v-if="page.source === 'radio' && isMobile && player.track?.artwork" #artwork-badge>
+                    <LazyImage
+                      class="player-artwork-badge"
+                      :src="player.station.artwork"
+                      :fallback-name="player.station.name"
+                      alt=""
+                    />
+                  </template>
+
+                  <!--
+                    Transcribed from each source's own #info, and they are three
+                    different shapes — a generic one would be inventing a screen.
+                    Radio drops the station to a kicker only once a track is
+                    recognised AND that track has artwork; Podcasts pass a kicker and
+                    a title but never a secondary; Music Library passes title +
+                    secondary and no flat lines at all, because on mobile its
+                    mini-bar is the swipe carousel rather than this slot.
+                  -->
+                  <template #info>
+                    <template v-if="page.source === 'radio'">
+                      <template v-if="player.track">
+                        <PlayerInfoText
+                          class="vertical-layout"
+                          :kicker="player.track.artwork ? player.station.name : null"
+                          :kicker-icon="player.track.artwork ? player.station.artwork : null"
+                          :kicker-fallback-name="player.track.artwork ? player.station.name : null"
+                          :title="player.track.title"
+                          :secondary="player.track.artist"
+                        />
+                        <p class="player-title text-body horizontal-layout">{{ player.track.title }}</p>
+                        <p class="player-subtitle text-body horizontal-layout">{{ player.track.artist }}</p>
+                      </template>
+                      <template v-else>
+                        <PlayerInfoText class="vertical-layout" :title="player.station.name" />
+                        <p class="player-title text-body horizontal-layout">{{ player.station.name }}</p>
+                      </template>
+                    </template>
+
+                    <template v-else-if="page.source === 'podcast'">
+                      <PlayerInfoText
+                        class="vertical-layout"
+                        :kicker="player.podcastName"
+                        :title="player.episodeName"
+                      />
+                      <p class="player-title text-body horizontal-layout">{{ player.episodeName }}</p>
+                      <p v-if="player.podcastName" class="player-subtitle text-body horizontal-layout">
+                        {{ player.podcastName }}
+                      </p>
+                    </template>
+
+                    <PlayerInfoText
+                      v-else
+                      class="vertical-layout"
+                      :title="player.title"
+                      :secondary="player.artist"
+                    />
+                  </template>
+
+                  <template v-if="browser.player.progress" #progress>
+                    <ProgressBar
+                      :current-position="browser.player.progress.currentPosition"
+                      :duration="browser.player.progress.duration"
+                      :progress-percentage="browser.player.progress.progressPercentage"
+                      variant="dark"
+                      :interactive="false"
+                    />
+                  </template>
+
+                  <!--
+                    Each source's own transport, because there is no shared one: the
+                    #controls slot has a default (a lone play/pause) and all three
+                    sources replace it. Radio uses a text Button plus a favourite,
+                    Podcasts a seek pair around play with a speed Dropdown, Music
+                    Library a five-button row — and half of AudioPlayer's CSS keys
+                    off those exact class names (.track-transport-main, .speed-selector,
+                    .desktop-only), so the classes are the contract, not decoration.
+                    Same for the four transport roles: they are what the design
+                    system sizes each control from, so a button missing one here
+                    would be drawn at a size the appliance never uses — and the seek
+                    pair takes secondary-round, which is the rung it wears there.
+                    Handlers are left off: the state is the scenario's to describe.
+                  -->
+                  <template #controls>
+                    <div v-if="page.source === 'radio'" class="radio-controls">
+                      <div class="radio-controls-main vertical-layout">
+                        <Button
+                          variant="on-dark"
+                          :left-icon="browser.player.isPlaying ? 'stop' : 'play'"
+                          :loading="!!browser.player.isLoading"
+                        >
+                          {{ browser.player.isPlaying
+                            ? t('audioSources.radioSource.stopRadio')
+                            : t('audioSources.radioSource.playRadio') }}
+                        </Button>
+                        <IconButton
+                          :icon="controls.favorite ? 'heart' : 'heartOff'"
+                          variant="on-dark"
+                          size="medium"
+                        />
+                      </div>
+                      <!-- Mobile mini-bar only: no room for a text button + heart. -->
+                      <div class="playback-controls horizontal-layout">
+                        <IconButton
+                          :icon="browser.player.isPlaying ? 'stop' : 'play'"
+                          variant="ghost"
+                          size="medium"
+                          class="transport-primary"
+                          :loading="!!browser.player.isLoading"
+                        />
+                      </div>
+                    </div>
+
+                    <template v-else-if="page.source === 'podcast'">
+                      <div class="playback-controls">
+                        <IconButton icon="rewind15" variant="ghost" size="small"
+                          class="desktop-only transport-secondary-round" />
+                        <IconButton
+                          :icon="browser.player.isPlaying ? 'pause' : 'play'"
+                          variant="ghost"
+                          size="medium"
+                          class="transport-primary"
+                          :loading="!!browser.player.isLoading"
+                        />
+                        <IconButton icon="forward30" variant="ghost" size="small"
+                          class="desktop-only transport-secondary-round" />
+                      </div>
+                      <div class="speed-selector desktop-only">
+                        <Dropdown :model-value="speedValue" :options="speedOptions" variant="minimal" />
+                      </div>
+                    </template>
+
+                    <div v-else class="track-controls">
+                      <div class="playback-controls">
+                        <IconButton
+                          icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
+                          :color="controls.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
+                        />
+                        <div class="track-transport-main">
+                          <IconButton icon="previous" variant="ghost" size="small"
+                            class="track-transport-extra transport-secondary" />
+                          <IconButton
+                            :icon="browser.player.isPlaying ? 'pause' : 'play'"
+                            variant="ghost"
+                            size="medium"
+                            class="transport-primary"
+                            :loading="!!browser.player.isLoading"
+                          />
+                          <IconButton
+                            icon="next" variant="ghost" size="small"
+                            class="track-transport-extra transport-secondary"
+                            :disabled="controls.hasNext === false"
+                          />
+                        </div>
+                        <IconButton
+                          v-if="page.source === 'spotify'"
+                          :icon="controls.repeat === 'track' ? 'repeatOnce' : 'repeat'"
+                          variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
+                          :color="controls.repeat && controls.repeat !== 'off' ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
+                        />
+                        <IconButton
+                          :icon="controls.starred ? 'heart' : 'heartOff'"
+                          variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
+                          :color="controls.starred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
+                        />
+                      </div>
+                    </div>
+                  </template>
+                </AudioPlayer>
+              </template>
+            </AudioSourceLayout>
           </template>
 
-          <template v-if="browser.layout.actions?.length" #header-actions="{ iconVariant }">
+          <template v-if="page.source !== 'podcast'" #actions>
             <IconButton
-              v-for="icon in browser.layout.actions"
-              :key="icon"
-              :icon="icon"
-              :variant="iconVariant"
+              :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
+              variant="ghost" size="small" class="transport-secondary-round"
+              :color="(page.source === 'radio' ? controls.favorite : controls.starred)
+                ? 'var(--color-text)' : 'var(--color-text-light)'"
             />
           </template>
-
-          <template v-if="browser.player" #player>
-            <!-- Props transcribed per source too: radio falls back from the
-                 track's cover to the station's and passes the station name as
-                 the avatar seed, podcasts pass only the episode, music library
-                 is the one that hands over a queue. -->
-            <AudioPlayer
-              :source="page.source"
-              visible
-              :artwork="playerArtwork"
-              :fallback-name="playerFallbackName"
-              :title="playerTitle"
-              :swipe-enabled="page.source !== 'radio'"
-              :tracks="player.tracks || []"
-              :current-index="player.currentIndex ?? -1"
-            >
-              <!-- Radio, mobile, track recognised: the station icon rides behind
-                   the track cover. Only ever rendered in the docked mini-bar. -->
-              <template v-if="page.source === 'radio' && isMobile && player.track?.artwork" #artwork-badge>
-                <LazyImage
-                  class="player-artwork-badge"
-                  :src="player.station.artwork"
-                  :fallback-name="player.station.name"
-                  alt=""
-                />
-              </template>
-
-              <!--
-                Transcribed from each source's own #info, and they are three
-                different shapes — a generic one would be inventing a screen.
-                Radio drops the station to a kicker only once a track is
-                recognised AND that track has artwork; Podcasts pass a kicker and
-                a title but never a secondary; Music Library passes title +
-                secondary and no flat lines at all, because on mobile its
-                mini-bar is the swipe carousel rather than this slot.
-              -->
-              <template #info="{ expanded }">
-                <template v-if="page.source === 'radio'">
-                  <template v-if="player.track">
-                    <PlayerInfoText
-                      class="vertical-layout"
-                      :kicker="player.track.artwork ? player.station.name : null"
-                      :kicker-icon="player.track.artwork ? player.station.artwork : null"
-                      :kicker-fallback-name="player.track.artwork ? player.station.name : null"
-                      :title="player.track.title"
-                      :secondary="player.track.artist"
-                    />
-                    <template v-if="!expanded">
-                      <p class="player-title text-body horizontal-layout">{{ player.track.title }}</p>
-                      <p class="player-subtitle text-body horizontal-layout">{{ player.track.artist }}</p>
-                    </template>
-                  </template>
-                  <template v-else>
-                    <PlayerInfoText class="vertical-layout" :title="player.station.name" />
-                    <p v-if="!expanded" class="player-title text-body horizontal-layout">
-                      {{ player.station.name }}
-                    </p>
-                  </template>
-                </template>
-
-                <template v-else-if="page.source === 'podcast'">
-                  <PlayerInfoText
-                    class="vertical-layout"
-                    :kicker="player.podcastName"
-                    :title="player.episodeName"
-                  />
-                  <template v-if="!expanded">
-                    <p class="player-title text-body horizontal-layout">{{ player.episodeName }}</p>
-                    <p v-if="player.podcastName" class="player-subtitle text-body horizontal-layout">
-                      {{ player.podcastName }}
-                    </p>
-                  </template>
-                </template>
-
-                <PlayerInfoText
-                  v-else
-                  class="vertical-layout"
-                  :title="player.title"
-                  :secondary="player.artist"
-                />
-              </template>
-
-              <template v-if="browser.player.progress" #progress>
-                <ProgressBar
-                  :current-position="browser.player.progress.currentPosition"
-                  :duration="browser.player.progress.duration"
-                  :progress-percentage="browser.player.progress.progressPercentage"
-                  variant="dark"
-                  :interactive="false"
-                />
-              </template>
-
-              <!--
-                Each source's own transport, because there is no shared one: the
-                #controls slot has a default (a lone play/pause) and all three
-                sources replace it. Radio uses a text Button plus a favourite,
-                Podcasts a seek pair around play with a speed Dropdown, Music
-                Library a five-button row — and half of AudioPlayer's CSS keys
-                off those exact class names (.track-transport-main, .speed-selector,
-                .desktop-only), so the classes are the contract, not decoration.
-                Same for the four transport roles: they are what the design
-                system sizes each control from, so a button missing one here
-                would be drawn at a size the appliance never uses — and the seek
-                pair takes secondary-round, which is the rung it wears there.
-                Handlers are left off: the state is the scenario's to describe.
-              -->
-              <template #controls="{ expanded }">
-                <div v-if="page.source === 'radio'" class="radio-controls">
-                  <div class="radio-controls-main vertical-layout">
-                    <Button
-                      variant="on-dark"
-                      :left-icon="browser.player.isPlaying ? 'stop' : 'play'"
-                      :loading="!!browser.player.isLoading"
-                    >
-                      {{ browser.player.isPlaying
-                        ? t('audioSources.radioSource.stopRadio')
-                        : t('audioSources.radioSource.playRadio') }}
-                    </Button>
-                    <IconButton
-                      :icon="controls.favorite ? 'heart' : 'heartOff'"
-                      variant="on-dark"
-                      size="medium"
-                    />
-                  </div>
-                  <!-- Mobile mini-bar only: no room for a text button + heart. -->
-                  <div v-if="!expanded" class="playback-controls horizontal-layout">
-                    <IconButton
-                      :icon="browser.player.isPlaying ? 'stop' : 'play'"
-                      variant="ghost"
-                      size="medium"
-                      class="transport-primary"
-                      :loading="!!browser.player.isLoading"
-                    />
-                  </div>
-                </div>
-
-                <template v-else-if="page.source === 'podcast'">
-                  <div class="playback-controls">
-                    <IconButton icon="rewind15" variant="ghost" size="small"
-                      class="desktop-only transport-secondary-round" />
-                    <IconButton
-                      :icon="browser.player.isPlaying ? 'pause' : 'play'"
-                      variant="ghost"
-                      size="medium"
-                      class="transport-primary"
-                      :loading="!!browser.player.isLoading"
-                    />
-                    <IconButton icon="forward30" variant="ghost" size="small"
-                      class="desktop-only transport-secondary-round" />
-                  </div>
-                  <div class="speed-selector desktop-only">
-                    <Dropdown :model-value="speedValue" :options="speedOptions" variant="minimal" />
-                  </div>
-                </template>
-
-                <div v-else class="track-controls">
-                  <div class="playback-controls">
-                    <IconButton
-                      icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                      :color="controls.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                    />
-                    <div class="track-transport-main">
-                      <IconButton icon="previous" variant="ghost" size="small"
-                        class="track-transport-extra transport-secondary" />
-                      <IconButton
-                        :icon="browser.player.isPlaying ? 'pause' : 'play'"
-                        variant="ghost"
-                        size="medium"
-                        class="transport-primary"
-                        :loading="!!browser.player.isLoading"
-                      />
-                      <IconButton
-                        icon="next" variant="ghost" size="small"
-                        class="track-transport-extra transport-secondary"
-                        :disabled="controls.hasNext === false"
-                      />
-                    </div>
-                    <IconButton
-                      v-if="page.source === 'spotify'"
-                      :icon="controls.repeat === 'track' ? 'repeatOnce' : 'repeat'"
-                      variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                      :color="controls.repeat && controls.repeat !== 'off' ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                    />
-                    <IconButton
-                      :icon="controls.starred ? 'heart' : 'heartOff'"
-                      variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                      :color="controls.starred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                    />
-                  </div>
-                </div>
-              </template>
-            </AudioPlayer>
-          </template>
-        </AudioSourceLayout>
+        </BrowserSourceViews>
       </div>
     </Transition>
   </div>
 </template>
 
 <script setup>
-import { computed, watchEffect } from 'vue';
+import { computed, watch, watchEffect } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
@@ -286,6 +298,7 @@ import SpotifyProfilesView from '@/components/spotify/views/SpotifyProfilesView.
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
+import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -293,6 +306,7 @@ import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
+import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
 
 const props = defineProps({
   /**
@@ -337,6 +351,11 @@ const stores = {
 };
 
 const page = computed(() => sourcePageById(props.page));
+
+// A scenario is a fresh screen: it opens on the navigation, whatever the last
+// one was left on.
+const { collapse } = usePlayerExpansion();
+watch(() => props.scenario, collapse);
 
 const current = computed(() => {
   const scenarios = page.value?.scenarios ?? [];

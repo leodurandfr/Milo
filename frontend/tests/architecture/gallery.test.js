@@ -453,7 +453,7 @@ describe('component gallery catalogue', () => {
     {
       id: 'AudioPlayerFull',
       what: 'sources that mount it',
-      phrase: `${importerCount('components/audio/AudioPlayerFull.vue')} sources with nothing to browse`,
+      phrase: `mounted by ${importerCount('components/audio/AudioPlayerFull.vue')} components`,
       count: importerCount('components/audio/AudioPlayerFull.vue')
     },
     {

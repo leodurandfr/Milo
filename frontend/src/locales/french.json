@@ -516,6 +516,8 @@
     "deleting": "Suppression en cours…",
     "close": "Fermer",
     "backToTop": "Retour en haut",
+    "back": "Retour",
+    "expandPlayer": "Agrandir le lecteur",
     "selectOption": "Sélectionner une option"
   },
   "radio": {

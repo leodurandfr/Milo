@@ -48,8 +48,6 @@ const SRC_DIR = resolve(HERE, '../../src');
 const NOT_A_PRESS_SURFACE = {
   'components/audio/AudioPlayer.vue::audio-player':
     'the mini-player itself — a swipe surface (touchstart/move/end); a shrink would fight the drag',
-  'components/audio/AudioPlayer.vue::audio-player-expanded':
-    'the expanded sheet scrim, @click.self to dismiss',
   'components/audio/ProgressBar.vue::progress-container':
     'a seek bar: the tap position is the value, and the bar must not move under the finger',
   'components/audio/DetailHeader.vue::detail-header-subtitle':
@@ -81,7 +79,6 @@ const NOT_A_PRESS_SURFACE = {
 const NO_PRESS_BY_DECISION = [
   'components/audio/AudioPlayer.vue::player-artwork-frame',
   'components/audio/AudioPlayer.vue::player-info-inner',
-  'components/audio/AudioPlayer.vue::expanded-info',
   'components/audio/AudioSourceStatus.vue::action-button',
   'components/equalizer/ItemSelector.vue::tab-button',
   'components/multiroom/MultiroomItem.vue::expand-button',

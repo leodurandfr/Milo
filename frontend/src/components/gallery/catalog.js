@@ -68,6 +68,8 @@ export function isScreen(file) {
 export const EXCLUDED = {
   'components/settings/SettingsModal.vue':
     'The settings application — ~840 lines wiring a dozen stores and every category screen. Its four building blocks are catalogued instead.',
+  'components/audio/BrowserSourceViews.vue':
+    'A wiring shell with no look of its own: it swaps a browser source\'s navigation (AudioSourceLayout) for AudioPlayerFull, both catalogued, and is shown at work on the Radio, Podcasts, Music Library and Spotify source pages, whose bar expands into it.',
 };
 
 /** Groups, in page order. */
@@ -311,14 +313,14 @@ export const ENTRIES = [
     id: 'AudioPlayer',
     group: 'layout',
     file: 'components/audio/AudioPlayer.vue',
-    summary: 'The player for the three sources that have a browser (Radio, Podcasts, Music Library). Props-down / events-up — it knows no store and no command name, which is what lets one component serve three sources. Its second form is only reachable through the Phone viewport: the Teleport is disabled above 4:3, so below it the docked sidebar card becomes a mini-bar teleported to body, expanding into a full sheet.',
+    summary: 'The playing bar of the four sources that have a browser (Radio, Podcasts, Music Library, Spotify), beside their navigation. Props-down / events-up — it knows no store and no command name, which is what lets one component serve four sources; its expand button (and, on the phone, a tap anywhere on the bar) emits expand, and the source answers by drawing AudioPlayerFull in place of its navigation. Its second form is only reachable through the Phone viewport: the Teleport is disabled above 4:3, so below it the docked sidebar card becomes a mini-bar teleported to body.',
   },
   {
     id: 'AudioPlayerFull',
     group: 'layout',
     file: 'components/audio/AudioPlayerFull.vue',
     coupling: 'store',
-    summary: 'The full-screen player: the only view of the 5 sources with nothing to browse (TIDAL, Bluetooth, CD, AirPlay, Qobuz), and able to draw everything the 4 browser sources offer. Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing state sits in the State section rather than the props table — and so does every choice the old booleans made, decided by utils/playerControls.js: a button is drawn for each command the state lists in `controls`, the transport only when a main pair is among them (pause/resume, or a live stream\'s stop/resume_playback; the receivers list neither and get a source bar naming the sender), track steps beside it or else the −15/+30 skip, shuffle, repeat and the speed in a row of their own with their state read from `details`, and the bar interactive only while seek is. What is not a command (a favorite, a like) is the source\'s, in the actions slot; the album and artist are emitted (artwork-click, secondary-click) for a track source, never followed. hideContent replaces the column outright, slot and all. It reads the state only while its source matches the source prop — point them at different sources and it draws nothing it was handed, which is the guard against drawing a session that belongs to the source being left.',
+    summary: 'The full-screen player, mounted by 6 components: the 5 sources with nothing to browse (TIDAL, Bluetooth, CD, AirPlay, Qobuz), for which it is the only view, and BrowserSourceViews, where it is the expanded view of the 4 browser sources — drawn whole, and left through a back button drawn only where that navigation is provided. Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing state sits in the State section rather than the props table — and so does every choice the old booleans made, decided by utils/playerControls.js: a button is drawn for each command the state lists in `controls`, the transport only when a main pair is among them (pause/resume, or a live stream\'s stop/resume_playback; the receivers list neither and get a source bar naming the sender), track steps beside it or else the −15/+30 skip, shuffle, repeat and the speed in a row of their own with their state read from `details`, and the bar interactive only while seek is. What is not a command (a favorite, a like) is the source\'s, in the actions slot; the album and artist are emitted (artwork-click, secondary-click), never followed, and only when the navigation BrowserSourceViews provides says there is one to open — so here, standing alone, the cover and the artist line are inert. hideContent replaces the column outright, slot and all. It reads the state only while its source matches the source prop — point them at different sources and it draws nothing it was handed, which is the guard against drawing a session that belongs to the source being left.',
   },
   {
     id: 'AudioSourceLayout',

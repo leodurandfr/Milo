@@ -4,7 +4,7 @@
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
       <div v-if="visible" class="audio-player"
-        :class="[playerClasses, { 'audio-player-revealing': revealing, 'expand-open': expanded }]"
+        :class="[playerClasses, { 'audio-player-revealing': revealing }]"
         @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
@@ -22,8 +22,8 @@
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child. -->
           <div class="player-artwork-frame"
-            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: hasEntityLinks || expandable }"
-            @click="onMiniArtworkClick">
+            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: hasEntityLinks || isMobile }"
+            @click="onArtworkClick">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
               :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
             <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork" :aria-label="title" />
@@ -48,7 +48,7 @@
             <Transition v-else name="track-none" mode="out-in">
               <div class="player-info-inner" :key="title" :class="{ 'has-entity-links': hasEntityLinks }"
                 @click="onInfoClick">
-                <slot name="info" :expanded="false"></slot>
+                <slot name="info"></slot>
               </div>
             </Transition>
           </div>
@@ -59,64 +59,21 @@
             <slot name="progress"></slot>
 
             <div class="controls transport-scale--compact">
-              <slot name="controls" :expanded="false"></slot>
+              <slot name="controls"></slot>
             </div>
           </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
 
-  <Teleport to="body">
-    <!-- JS hooks (`:css="false"`) own mount/unmount timing only; the open/close
-         motion is a CSS transition on cardStyle/scrimStyle driven by a single
-         offset, so the swipe-drag and the animation share one position value and
-         never fight over the transform. -->
-    <Transition :css="false" @enter="onExpandEnter" @leave="onExpandLeave">
-      <div v-if="expanded" class="audio-player-expanded" :style="scrimStyle"
-        @pointerdown.capture="backdrop.onPointerdown" @click="backdrop.onClick">
-        <!-- Dim layer: pointer-events none so taps fall through to the scrim's
-             dismiss; its opacity fades with the sheet position. -->
-        <div class="expanded-dim" :style="dimStyle"></div>
-        <!-- Wrapper carries the positioning transform; the button keeps its own
-             press-scale transform (which is !important and would otherwise clobber
-             the translateX(-50%) centring, jumping the button sideways on tap). -->
-        <div class="expanded-close" :style="closeStyle">
-          <IconButton icon="close" variant="rounded" size="large"
-            :aria-label="t('common.close')" @click="collapse" />
         </div>
 
-        <div class="expanded-card" :class="playerClasses" :style="cardStyle"
-          @touchstart="onExpandTouchStart" @touchmove="onExpandTouchMove" @touchend="onExpandTouchEnd">
-          <div class="player-art-background">
-            <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
-            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
-            <img v-else-if="fallbackImage" :src="fallbackImage" alt="" class="background-image" />
-          </div>
-
-          <div class="expanded-content">
-            <div class="player-artwork-frame" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
-              <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
-                :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
-              <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork" :aria-label="title" />
-              <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder" />
-            </div>
-
-            <div class="expanded-info" @click="onExpandedInfoClick">
-              <slot name="info" :expanded="true"></slot>
-            </div>
-
-            <div class="expanded-bottom">
-              <div class="expanded-progress">
-                <slot name="progress"></slot>
-              </div>
-
-              <div class="expanded-controls transport-scale--phone">
-                <slot name="controls" :expanded="true"></slot>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Opens the source's full player (AudioPlayerFull), which the source
+             mounts in place of its navigation. Over the cover on the desktop
+             card, at the end of the row on the phone's mini-bar — where a tap
+             anywhere else on the bar does the same. Outside .player-content,
+             which scrolls on the desktop card when its content overflows: the
+             only way into the player must not scroll away with it. -->
+        <IconButton class="player-expand" icon="caretUp" :variant="isMobile ? 'ghost' : 'on-grey'" size="small"
+          :color="isMobile ? 'var(--color-text-contrast-50)' : null"
+          :aria-label="t('common.expandPlayer')" @click.stop="$emit('expand')" />
       </div>
     </Transition>
   </Teleport>
@@ -127,12 +84,11 @@ import { computed, nextTick, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
-import { useBackdropDismiss } from '@/composables/useBackdropDismiss'
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { artworkFallback } from '@/utils/nowPlayingArtwork'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
-import { BROWSER_SOURCES, TRACK_LAYOUT_SOURCES } from '@/constants/audioSources'
+import { TRACK_LAYOUT_SOURCES } from '@/constants/audioSources'
 import { useI18n } from '@/services/i18n'
 
 const { isMobile } = useIsMobile()
@@ -214,7 +170,9 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click'])
+// `expand` asks the source for its full player: the expand button anywhere, and
+// a tap on the phone's mini-bar. The player draws neither view itself.
+const emit = defineEmits(['after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click', 'expand'])
 
 // Only a track player has album/artist pages to link to — radio/podcast render
 // the same artwork frame and #player-info-secondary line but have nothing to
@@ -222,197 +180,21 @@ const emit = defineEmits(['after-hide', 'swipe-next', 'swipe-prev', 'artwork-cli
 const trackLayout = computed(() => TRACK_LAYOUT_SOURCES.includes(props.source))
 const hasEntityLinks = trackLayout
 
+// On the phone the whole mini-bar is one target, the full player; the album and
+// artist links are the full player's there. The transport stops its own taps.
+function onBarClick() {
+  if (isMobile.value) emit('expand')
+}
+
 // Delegated: .player-info-secondary is rendered by the slotted PlayerInfoText,
 // not by this component, so it's caught by class rather than a direct handler.
 function onInfoClick(e) {
-  if (expandable.value) return
+  if (isMobile.value) return
   if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) emit('secondary-click')
 }
 
-const expanded = ref(false)
-const expandable = computed(() => isMobile.value && BROWSER_SOURCES.includes(props.source))
-
-// One source of truth for the sheet's vertical position, in px (0 = fully open,
-// growing downward → toward closed). The open/close animation AND the swipe drag
-// both drive this single value, so there's no inline-style ↔ Vue-transition
-// handoff (which is what used to jump). `placing` is the pre-open frame where the
-// card is parked off-screen with the transition suppressed, before it animates up.
-const offsetY = ref(0)
-const expandDragging = ref(false)
-const placing = ref(false)
-
-// Timing for the non-drag moves. CSS var()s resolve fine inside an inline
-// transition string, so the tokens stay the single source of truth.
-const OPEN_TIMING = '0.62s cubic-bezier(0.16, 1, 0.3, 1)' // dynamic easeOutExpo
-const OPEN_MS = 620
-// easeOut (fast start), NOT easeIn: on a swipe-release the card must keep the
-// finger's downward momentum. easeIn barely moves for the first ~100ms, which
-// reads as a "stall"/lag right after you let go.
-const CLOSE_TIMING = '0.4s var(--easeOutCubic)'
-const CLOSE_MS = 400
-const SNAP_TIMING = 'var(--transition-medium)'
-const moveTiming = ref(OPEN_TIMING)
-
-function closedOffset() {
-  return typeof window !== 'undefined' ? window.innerHeight : 1000
-}
-
-// Scrim blur is derived from the SAME offset, so it always tracks the card's
-// position — eased over moveTiming during open/close, following the finger during
-// a drag. Full (--blur-03 = 24px) at rest, 0 once off-screen.
-const SCRIM_BLUR_MAX_PX = 24
-const SCRIM_BLUR_FALLOFF_PX = 300
-
-const cardStyle = computed(() => ({
-  transform: `translateY(${offsetY.value}px)`,
-  transition: (expandDragging.value || placing.value) ? 'none' : `transform ${moveTiming.value}`
-}))
-
-const scrimStyle = computed(() => {
-  // Blur is derived from the sheet position so it tracks the card everywhere:
-  // per-frame during a drag (transition none → follows the finger), and eased on
-  // open/close (transition set). Mobile-only view, so iOS handles the per-frame
-  // backdrop-filter fine.
-  const blur = SCRIM_BLUR_MAX_PX * Math.max(0, 1 - offsetY.value / SCRIM_BLUR_FALLOFF_PX)
-  const b = `blur(${blur.toFixed(1)}px)`
-  return {
-    backdropFilter: b,
-    WebkitBackdropFilter: b,
-    transition: (expandDragging.value || placing.value)
-      ? 'none'
-      : `backdrop-filter ${moveTiming.value}, -webkit-backdrop-filter ${moveTiming.value}`
-  }
-})
-
-// The top close button rises with the drag (mirror of the card sinking), capped
-// at the distance that tucks it above the top edge. Same position source as the
-// card, so it enters from the top on open and leaves upward on close.
-const CLOSE_UP_MAX_PX = 120
-function closeUpFor(y) {
-  return Math.min(y, CLOSE_UP_MAX_PX)
-}
-const closeStyle = computed(() => ({
-  transform: `translateX(-50%) translateY(${-closeUpFor(offsetY.value)}px)`,
-  transition: (expandDragging.value || placing.value) ? 'none' : `transform ${moveTiming.value}`
-}))
-
-// The dim backdrop fades out with the sheet position (same falloff as the blur),
-// on a dedicated layer so only the darkening fades — not the blur or the content.
-const dimStyle = computed(() => ({
-  opacity: Math.max(0, 1 - offsetY.value / SCRIM_BLUR_FALLOFF_PX).toFixed(3),
-  transition: (expandDragging.value || placing.value) ? 'none' : `opacity ${moveTiming.value}`
-}))
-
-function collapse() {
-  expanded.value = false // fires the <Transition> leave hook, which animates offsetY out
-}
-
-const backdrop = useBackdropDismiss(collapse)
-
-function onBarClick() {
-  if (!expandable.value || expanded.value) return
-  // Park the card off-screen before it mounts so the enter hook animates it up
-  // from the very bottom (no first-paint flash at the rest position).
-  offsetY.value = closedOffset()
-  placing.value = true
-  moveTiming.value = OPEN_TIMING
-  expanded.value = true
-}
-
-// Transition JS hooks own only mount/unmount timing; the motion itself is the CSS
-// transition on cardStyle/scrimStyle, driven by offsetY.
-function onExpandEnter(el, done) {
-  moveTiming.value = OPEN_TIMING
-  nextTick(() => {
-    el.getBoundingClientRect() // commit the parked off-screen frame before animating
-    placing.value = false
-    offsetY.value = 0
-    timer.setTimeout(done, OPEN_MS)
-  })
-}
-
-function onExpandLeave(el, done) {
-  // A leaving element is detached from reactive :style updates, so a ref change
-  // here would NOT reach the card — it would freeze at the release point and then
-  // vanish. Drive the close on the DOM nodes directly instead. `el` is the scrim;
-  // the card is its child. The card starts from whatever transform it currently
-  // has (rest 0 OR a mid-drag offset), so the motion continues seamlessly.
-  const card = el.querySelector('.expanded-card')
-  const closeBtn = el.querySelector('.expanded-close')
-  const dim = el.querySelector('.expanded-dim')
-  const target = closedOffset()
-  el.style.transition = `backdrop-filter ${CLOSE_TIMING}, -webkit-backdrop-filter ${CLOSE_TIMING}`
-  if (card) card.style.transition = `transform ${CLOSE_TIMING}`
-  if (closeBtn) closeBtn.style.transition = `transform ${CLOSE_TIMING}`
-  if (dim) dim.style.transition = `opacity ${CLOSE_TIMING}`
-  el.getBoundingClientRect() // commit the current transform/blur/opacity as the transitions' start
-  el.style.backdropFilter = 'blur(0px)'
-  el.style.webkitBackdropFilter = 'blur(0px)'
-  if (card) card.style.transform = `translateY(${target}px)`
-  if (closeBtn) closeBtn.style.transform = `translateX(-50%) translateY(${-CLOSE_UP_MAX_PX}px)`
-  if (dim) dim.style.opacity = '0'
-  timer.setTimeout(done, CLOSE_MS)
-}
-
-function onMiniArtworkClick() {
-  if (!expandable.value && hasEntityLinks.value) emit('artwork-click')
-}
-
-function onExpandedArtworkClick() {
-  if (hasEntityLinks.value) { emit('artwork-click'); collapse() }
-}
-function onExpandedInfoClick(e) {
-  if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) { emit('secondary-click'); collapse() }
-}
-
-watch(() => props.visible, (v) => { if (!v) expanded.value = false })
-watch(isMobile, (m) => { if (!m) expanded.value = false })
-
-// Swipe-down-to-close: the card follows a downward drag (offsetY = drag distance)
-// and dismisses past the threshold; horizontal/upward drags and taps pass through.
-const EXPAND_CLOSE_THRESHOLD_PX = 100
-let expandStartX = 0
-let expandStartY = 0
-let expandTracking = false
-
-function onExpandTouchStart(e) {
-  const touch = e.touches[0]
-  expandStartX = touch.clientX
-  expandStartY = touch.clientY
-  expandTracking = true
-  expandDragging.value = false
-}
-
-function onExpandTouchMove(e) {
-  if (!expandTracking) return
-  const touch = e.touches[0]
-  const dx = touch.clientX - expandStartX
-  const dy = touch.clientY - expandStartY
-  if (!expandDragging.value) {
-    if (dy > 10 && dy > Math.abs(dx)) {
-      expandDragging.value = true
-    } else {
-      return
-    }
-  }
-  // Own the gesture so the page behind doesn't scroll / native overscroll-bounce
-  // underneath the sheet (a common source of drag jitter).
-  if (e.cancelable) e.preventDefault()
-  offsetY.value = Math.max(0, dy)
-}
-
-function onExpandTouchEnd() {
-  if (!expandTracking) return
-  expandTracking = false
-  const wasDragging = expandDragging.value
-  expandDragging.value = false
-  if (!wasDragging) return
-  if (offsetY.value > EXPAND_CLOSE_THRESHOLD_PX) {
-    collapse() // leave hook animates offsetY from here → off-screen, no jump
-  } else {
-    moveTiming.value = SNAP_TIMING
-    offsetY.value = 0 // snap back up
-  }
+function onArtworkClick() {
+  if (!isMobile.value && hasEntityLinks.value) emit('artwork-click')
 }
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
@@ -608,12 +390,6 @@ function onTouchEnd(e) {
   z-index: 50;
 }
 
-/* While the expanded sheet is open, hide the docked mini-bar so its title doesn't
-   show through the scrim's blur as a ghost second title. */
-.audio-player.expand-open {
-  visibility: hidden;
-}
-
 /* Glass stroke border effect (matching both radio and podcast players exactly) */
 .audio-player::before {
   content: '';
@@ -677,9 +453,8 @@ function onTouchEnd(e) {
   overflow-y: auto;
 }
 
-/* Shared by the docked frame (desktop sidebar + mobile mini-bar, sized via the
-   mobile media query below) and the expanded sheet's artwork (which keeps this
-   base square size — only the docked mobile override shrinks it to 48px). */
+/* The desktop sidebar's square cover; the mobile media query below shrinks it
+   to the mini-bar's 48px thumbnail. */
 .player-artwork-frame {
   position: relative;
   align-self: center;
@@ -689,14 +464,23 @@ function onTouchEnd(e) {
      overridden when vertical space is tight; pinning it preserves the 1:1
      box for both <img> (which has intrinsic size) and the <div v-html=svg>
      wrapper (whose content is the SVG sized below). flex: none (not just
-     flex-shrink: 0) also pins flex-grow/flex-basis so the expanded sheet's
-     column layout can't compress this height (derived from width via
-     aspect-ratio) either. */
+     flex-shrink: 0) also pins flex-grow/flex-basis so the sidebar's column
+     layout can't compress this height (derived from width via aspect-ratio)
+     either. */
   flex: none;
 }
 
 .player-artwork-frame.clickable {
   cursor: pointer;
+}
+
+/* Over the cover's top-right corner: the card's side padding plus the cover's
+   own top inset (.player-content's), then the same again inside the cover. */
+.player-expand {
+  position: absolute;
+  top: calc(var(--space-02) + var(--space-02));
+  right: calc(var(--space-02) + var(--space-02));
+  z-index: 3;
 }
 
 .player-artwork {
@@ -787,9 +571,8 @@ img.player-artwork.loaded {
 
 /* Vertical (column: kicker/title/secondary via PlayerInfoText) vs horizontal
    (compact single-line title/subtitle pair) — the #info slot's own layout
-   toggle, orthogonal to desktop-only/mobile-only above: "vertical" also
-   renders on the mobile expanded sheet for sources that reuse it there
-   (podcast, music-library), so naming it "desktop-only" would be wrong.
+   toggle, orthogonal to desktop-only/mobile-only above, kept apart from them
+   because it names what the slot draws rather than where.
    !important: an element carrying .horizontal-layout can also carry another
    utility class with its own `display` (e.g. radio's .playback-controls,
    `display: flex`) — same specificity, and without !important here the later
@@ -840,10 +623,8 @@ img.player-artwork.loaded {
   width: 100%;
 }
 
-/* .vertical-layout renders identically wherever it's shown — desktop sidebar
-   and the mobile expanded sheet alike (the layout toggle above hides it in the
-   mobile docked mini-bar only) — so its width/justify rules must NOT be
-   aspect-ratio-gated, or the sheet loses parity with the desktop sidebar. */
+/* .vertical-layout is the desktop sidebar's row (the layout toggle above hides
+   it in the mobile mini-bar). */
 :deep(.radio-controls-main) {
   display: flex;
   align-items: center;
@@ -860,11 +641,8 @@ img.player-artwork.loaded {
    transport stays centred on the row whatever the speed chip measures. It was
    pinned with `position: absolute; left: 0` instead, which holds only while the
    chip is narrower than the gap left of the transport: giving it a rim widened
-   it to 66px and it landed 18px on top of the -15s button's target. Being out
-   of flow is also what dropped it *under* the row in the expanded sheet, where
-   a second rule had to put it back and stacked it. One layout now serves both. */
-.source-podcast .controls,
-.expanded-card.source-podcast .expanded-controls {
+   it to 66px and it landed 18px on top of the -15s button's target. */
+.source-podcast .controls {
   display: grid;
   /* minmax(0, 1fr), not 1fr: a plain fr track keeps a min-content floor, so a
      speed chip wider than its share grows the track and walks the transport
@@ -889,26 +667,6 @@ img.player-artwork.loaded {
   align-items: center;
   grid-area: 1 / 1;
   justify-self: start;
-}
-
-/* The sheet's column is far wider than the desktop one, so the same left edge
-   that keeps the chip aligned with the progress bar in the column leaves it
-   marooned here — it is centred in its track instead, equidistant from the
-   card's edge and from the transport. Only the sheet: in the column the two
-   placements differ by 3px, and the alignment is worth more than that.
-
-   The column gap goes with it, and only here: it would sit between the chip's
-   track and the transport, on that side alone, so a chip centred in its track
-   would still read off-centre — 16.5px from the card's edge against 32.5 from
-   the transport, measured. The docked bar keeps its own gap: taking it away
-   there moved the play button 8px toward the screen edge, which is a different
-   row's business. */
-.expanded-card.source-podcast .expanded-controls {
-  column-gap: 0;
-}
-
-.expanded-card.source-podcast :deep(.speed-selector) {
-  justify-self: center;
 }
 
 :deep(.speed-selector .dropdown) {
@@ -1043,10 +801,7 @@ img.player-artwork.loaded {
   /* Single 48px row layout, shared by all three sources (radio, podcast,
      music library) — artwork | title+subtitle | one play/pause(-ish) button.
      Width is animated so the radio station→track reveal (frame 48→72) shifts the
-     title/subtitle text rightward in sync with the track image sliding in.
-     Scoped to .audio-player (the docked bar) — the expanded sheet shares the
-     same .player-artwork-frame/.player-artwork classes but must stay full-size
-     even though it's also viewed under this same mobile aspect-ratio query. */
+     title/subtitle text rightward in sync with the track image sliding in. */
   .audio-player .player-artwork-frame {
     width: 48px;
     height: 48px;
@@ -1103,7 +858,17 @@ img.player-artwork.loaded {
     flex-shrink: 0;
     padding: 0;
     gap: 0;
+  }
 
+  /* The row's last item, after the transport (.player-content shrinks to
+     leave it room). */
+  .player-expand {
+    position: static;
+    flex-shrink: 0;
+  }
+
+  .player-content {
+    min-width: 0;
   }
 
   /* Docked bar: every text line is exactly one line, cut by a right-edge fade
@@ -1195,8 +960,7 @@ img.player-artwork.loaded {
   /* Compact mini-bar: the primary control is too large next to the 48px artwork
      thumbnail in this tight single row. The one place a tier token is bent
      rather than picked — this row is sized against the thumbnail beside it, not
-     against the transport scale. Scoped to .audio-player (the docked bar only)
-     so the desktop sidebar and the expanded sheet keep their tier.
+     against the transport scale. The desktop sidebar keeps its tier.
 
      It has to hang off .controls, not .playback-controls. Scoped CSS stamps this
      file's id on the last compound of a selector, and .playback-controls is slot
@@ -1226,8 +990,8 @@ img.player-artwork.loaded {
      icon sits behind, pinned left; the track artwork rides on top, offset right.
      Frame widens to 72px (48 + 24 overlap) so the flex layout reserves the pair's
      full width and the title/subtitle clears it instead of overlapping.
-     #artwork-badge only ever renders in the docked bar, so these are scoped to
-     .audio-player alongside the 48px sizing above (never reached in the sheet). */
+     #artwork-badge only ever renders in the mini-bar, alongside the 48px sizing
+     above. */
   .audio-player .player-artwork-frame.has-badge {
     width: 72px;
   }
@@ -1372,148 +1136,4 @@ img.player-artwork.loaded {
     transform: translateY(120px);
   }
 }
-
-/* Scrim: full-screen blurred backdrop, exactly like Modal.vue. Tapping it closes. */
-.audio-player-expanded {
-  position: fixed;
-  inset: 0;
-  z-index: 4500;
-  display: flex;
-  flex-direction: column;
-  /* Modal-sized inset around the card: 8px side gutters, 32px bottom margin (or
-     the safe area if larger), and top clearance for the close button. The card
-     fills what remains. */
-  padding:
-    calc(max(var(--space-04), env(safe-area-inset-top, 0px)) + 64px)
-    var(--space-02)
-    max(32px, env(safe-area-inset-bottom, 0px));
-  /* Backdrop blur is driven inline (scrimStyle) from the sheet offset, so it
-     tracks the card through open, close and drag; this base value is just the
-     resting fallback. The dim darkening lives on .expanded-dim so it can fade
-     independently of the blur. */
-  backdrop-filter: blur(var(--blur-03));
-  -webkit-backdrop-filter: blur(var(--blur-03));
-}
-
-/* Dim darkening layer — its opacity is driven inline (dimStyle) so it fades with
-   the sheet position, over the blurred backdrop and under the card/close button. */
-.expanded-dim {
-  position: absolute;
-  inset: 0;
-  background: var(--color-background-medium-32);
-  pointer-events: none;
-}
-
-/* Top-centred rounded close button, mirroring Modal.vue's affordance. */
-.expanded-close {
-  position: absolute;
-  top: max(var(--space-04), env(safe-area-inset-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-}
-
-/* The player itself: a rounded panel floating on the scrim. Slides up from the
-   bottom on open; the swipe-down drag + snap-back also move this. */
-.expanded-card {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-06);
-  overflow: hidden;
-  background: var(--color-background-neutral);
-  will-change: transform;
-  /* Transform is driven inline (cardStyle) from the sheet offset — no base
-     transition here, or it would fight the inline one during a drag. */
-}
-
-.expanded-card .expanded-content {
-  position: relative;
-  z-index: 2;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-  padding: var(--space-02);
-  /* Escape valve for when artwork + info + controls don't all fit (e.g. a tall
-     info block): the column scrolls instead of the artwork getting compressed. */
-  overflow-y: auto;
-}
-
-/* Fills the space between artwork and controls when there's slack (grows,
-   content centred vertically) but — unlike .expanded-content/.expanded-card —
-   deliberately has NO min-height override, so its floor stays its own content
-   size (mirrors desktop .player-info): once content + artwork + controls don't
-   fit, this can't be squeezed smaller — .expanded-content overflows and
-   scrolls instead. */
-.expanded-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.expanded-info :deep(.player-info-text) {
-  align-items: center;
-}
-
-/* Radio and music-library keep --space-03 (12px) between title/artist in the
-   expanded sheet — wider than PlayerInfoText's own default --space-02 (8px). */
-.expanded-card.source-radio .expanded-info :deep(.player-info-text),
-.expanded-card.track-layout .expanded-info :deep(.player-info-text) {
-  gap: var(--space-03);
-}
-
-/* Music-library only: 32px breathing room from artwork/controls on mobile
-   (the only context this renders in) — space-06 would shrink to 24px there. */
-.expanded-card.track-layout .expanded-info :deep(.player-info-text) {
-  padding: var(--space-07) var(--space-06);
-}
-
-.expanded-bottom {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-06);
-  padding-bottom: var(--space-06);
-}
-
-/* Radio only: its controls (Button + heart) carry no side padding of their own
-   (unlike podcast/music-library's .playback-controls, which pads itself) — give
-   them the same 24px gutter as the section's own vertical spacing above. Gap is
-   zeroed instead of inherited: the base gap exists to separate the progress bar
-   from the controls, and radio has no #progress slot content — an empty
-   .expanded-progress would otherwise still claim that gap as blank space. */
-.expanded-card.source-radio .expanded-bottom {
-  gap: 0;
-  padding-left: var(--space-06);
-  padding-right: var(--space-06);
-}
-
-.expanded-progress {
-  flex-shrink: 0;
-}
-
-.expanded-progress :deep(.progress-bar) {
-  padding: 0 var(--space-04);
-}
-
-.expanded-controls {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-04);
-}
-
-.expanded-card.track-layout :deep(.track-controls .playback-controls) {
-  width: 100%;
-  justify-content: space-around;
-  padding: 0 var(--space-02);
-}
-
 </style>

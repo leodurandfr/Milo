@@ -1,111 +1,109 @@
 <template>
-  <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayerLayout"
-    :header-title="currentTitle"
-    :header-subtitle="currentSubtitle"
-    :header-show-back="canGoBack"
-    :header-title-muted="currentView === 'podcast-details' || currentView === 'episode-details'"
-    header-icon="podcast" header-variant="background-neutral"
-    :header-actions-key="currentView" :content-key="currentView"
-    :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
-    @scroll-restored="onScrollRestored">
-    <!-- Header actions (only on home view) -->
-    <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
-      <IconButton icon="heartOff" :variant="iconVariant" @click="goToSubscriptions" />
-      <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
-      <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
-    </template>
-
-    <!-- Content slot: scrollable views -->
-    <template #content>
-        <!-- Home View (Discovery) -->
-        <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
-
-        <!-- Subscriptions View -->
-        <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions"
-          @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
-
-        <!-- Search View -->
-        <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails" />
-
-        <!-- Queue View -->
-        <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
-
-        <!-- Genre View -->
-        <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-          @select-podcast="openPodcastDetails" />
-
-        <!-- Podcast Details (full screen overlay) -->
-        <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid"
-          @play-episode="playEpisode" @select-episode="openEpisodeDetails" @unavailable="onPodcastUnavailable" />
-
-        <!-- Episode Details (full screen overlay) -->
-        <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid"
-          @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
-    </template>
-
-    <!-- Player slot: AudioPlayer component -->
-    <template #player>
-      <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
-        @after-hide="onAfterHide"
-        :swipe-enabled="canSkip"
-        @swipe-next="seekForward" @swipe-prev="seekBackward">
-        <!-- Track info: podcast name kicker + episode title, in the shared
-             PlayerInfoText's vertical layout (desktop sidebar and, since nothing
-             hides it there, the mobile expanded sheet too); the mobile mini-bar's
-             compact single-line horizontal layout renders its own title/podcast-name
-             pair instead. That pair is only ever relevant to the mobile docked
-             mini-bar (CSS never shows .horizontal-layout inside the expanded card),
-             so `expanded` skips rendering it there entirely instead of emitting
-             always-hidden markup. -->
-        <template #info="{ expanded }">
-          <PlayerInfoText class="vertical-layout" :kicker="podcastName" :title="episodeName" />
-          <template v-if="!expanded">
-            <p class="player-title text-body horizontal-layout">{{ episodeName }}</p>
-            <p v-if="podcastName" class="player-subtitle text-body horizontal-layout">{{ podcastName }}</p>
-          </template>
+  <!-- The navigation, and the full player it expands into: BrowserSourceViews
+       swaps the two. -->
+  <BrowserSourceViews source="podcast" :playback="playback">
+    <template #navigation="{ bar }">
+      <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayerLayout"
+        :header-title="currentTitle"
+        :header-subtitle="currentSubtitle"
+        :header-show-back="canGoBack"
+        :header-title-muted="currentView === 'podcast-details' || currentView === 'episode-details'"
+        header-icon="podcast" header-variant="background-neutral"
+        :header-actions-key="currentView" :content-key="currentView"
+        :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
+        @scroll-restored="onScrollRestored">
+        <!-- Header actions (only on home view) -->
+        <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
+          <IconButton icon="heartOff" :variant="iconVariant" @click="goToSubscriptions" />
+          <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
+          <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
         </template>
 
-        <!-- Progress bar: once the episode has a duration and a playhead;
-             seekable while the source takes `seek` -->
-        <template #progress>
-          <div v-if="showProgress" @click.stop>
-            <ProgressBar :currentPosition="positionMs" :duration="durationMs"
-              :progressPercentage="livePercent" :interactive="canSeek" variant="dark" @seek="seekTo" />
-          </div>
+        <!-- Content slot: scrollable views -->
+        <template #content>
+            <!-- Home View (Discovery) -->
+            <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
+              @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
+
+            <!-- Subscriptions View -->
+            <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions"
+              @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+
+            <!-- Search View -->
+            <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails" />
+
+            <!-- Queue View -->
+            <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
+              @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+
+            <!-- Genre View -->
+            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
+              @select-podcast="openPodcastDetails" />
+
+            <!-- Podcast Details (full screen overlay) -->
+            <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid"
+              @play-episode="playEpisode" @select-episode="openEpisodeDetails" @unavailable="onPodcastUnavailable" />
+
+            <!-- Episode Details (full screen overlay) -->
+            <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid"
+              @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
         </template>
 
-        <!-- Podcast controls: play/pause everywhere; seek buttons + speed selector are
-             desktop-only — on mobile the mini-player's swipe gesture covers +30s (right)
-             / -15s (left), speed moves into the future expanded mini-player view. -->
-        <template #controls>
-          <!-- The seek pair takes `secondary-round`, not `secondary`: it fills
-               its box in both axes, and on `secondary` — a rung calibrated on
-               the flattest glyph there is — it came out larger than the pause
-               it flanks. A rung below would leave its two digits unreadable,
-               which is the floor that sets the value. The measurements are in
-               design-system.css. `desktop-only` hides the pair in the docked
-               bar but not in the expanded sheet, which is where a phone
-               actually sees it. -->
-          <div class="playback-controls" @click.stop>
-            <IconButton v-if="canSkip" icon="rewind15" variant="ghost" size="small"
-              class="desktop-only transport-secondary-round" @click="seekBackward" />
+        <!-- Player slot: AudioPlayer component -->
+        <template #player>
+          <AudioPlayer v-bind="bar" source="podcast" :artwork="episodeImage" :title="episodeName"
+            :swipe-enabled="canSkip"
+            @swipe-next="seekForward" @swipe-prev="seekBackward">
+            <!-- Track info: podcast name kicker + episode title, in the shared
+                 PlayerInfoText's vertical layout (the desktop sidebar); the mobile
+                 mini-bar's compact single-line horizontal layout renders its own
+                 title/podcast-name pair instead. -->
+            <template #info>
+              <PlayerInfoText class="vertical-layout" :kicker="podcastName" :title="episodeName" />
+              <p class="player-title text-body horizontal-layout">{{ episodeName }}</p>
+              <p v-if="podcastName" class="player-subtitle text-body horizontal-layout">{{ podcastName }}</p>
+            </template>
 
-            <IconButton :icon="pausesOnPress(phase) ? 'pause' : 'play'" variant="ghost" size="medium"
-              class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
+            <!-- Progress bar: once the episode has a duration and a playhead;
+                 seekable while the source takes `seek` -->
+            <template #progress>
+              <div v-if="showProgress" @click.stop>
+                <ProgressBar :currentPosition="positionMs" :duration="durationMs"
+                  :progressPercentage="livePercent" :interactive="canSeek" variant="dark" @seek="seekTo" />
+              </div>
+            </template>
 
-            <IconButton v-if="canSkip" icon="forward30" variant="ghost" size="small"
-              class="desktop-only transport-secondary-round" @click="seekForward" />
-          </div>
+            <!-- Podcast controls: play/pause everywhere; seek buttons + speed selector are
+                 desktop-only — on mobile the mini-player's swipe gesture covers +30s (right)
+                 / -15s (left), and the full player carries all of them. -->
+            <template #controls>
+              <!-- The seek pair takes `secondary-round`, not `secondary`: it fills
+                   its box in both axes, and on `secondary` — a rung calibrated on
+                   the flattest glyph there is — it came out larger than the pause
+                   it flanks. A rung below would leave its two digits unreadable,
+                   which is the floor that sets the value. The measurements are in
+                   design-system.css. `desktop-only` hides the pair in the docked
+                   bar; a phone reaches it in the full player. -->
+              <div class="playback-controls" @click.stop>
+                <IconButton v-if="canSkip" icon="rewind15" variant="ghost" size="small"
+                  class="desktop-only transport-secondary-round" @click="seekBackward" />
 
-          <div v-if="controls.includes('set_speed')" class="speed-selector desktop-only" @click.stop>
-            <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
-          </div>
+                <IconButton :icon="pausesOnPress(phase) ? 'pause' : 'play'" variant="ghost" size="medium"
+                  class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
+
+                <IconButton v-if="canSkip" icon="forward30" variant="ghost" size="small"
+                  class="desktop-only transport-secondary-round" @click="seekForward" />
+              </div>
+
+              <div v-if="controls.includes('set_speed')" class="speed-selector desktop-only" @click.stop>
+                <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
+              </div>
+            </template>
+          </AudioPlayer>
         </template>
-      </AudioPlayer>
+      </AudioSourceLayout>
     </template>
-  </AudioSourceLayout>
+  </BrowserSourceViews>
 </template>
 
 <script setup>
@@ -120,6 +118,7 @@ import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
+import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
@@ -139,6 +138,7 @@ const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
 const { t } = useI18n()
 
+
 // Ref to AudioSourceLayout — used to access its scroll container for position save/restore
 const audioLayoutRef = ref(null)
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null)
@@ -151,13 +151,14 @@ const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore 
 // publishes the one a play press would reopen, at the second it stopped. An
 // ending publishes no resume identity, so the player goes with it. The store's
 // sticky displayEpisode was a copy of that fact for the length of a fade.
+const playback = useSourcePlaybackVisibility('podcast', {
+  content: () => podcastStore.currentEpisode
+})
 const {
   isBuffering,
   shouldShowPlayer: shouldShowPlayerLayout,
-  displayed: episode, onAfterHide
-} = useSourcePlaybackVisibility('podcast', {
-  content: () => podcastStore.currentEpisode
-})
+  displayed: episode
+} = playback
 
 // The playhead (ms), from the session's position anchor — or the resume point
 // while no session runs.

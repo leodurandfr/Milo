@@ -1,81 +1,97 @@
 <template>
-  <div class="spotify-source">
-    <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
-      :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="currentView === 'context'"
-      header-icon="spotify" header-variant="background-neutral" gradient="spotify"
-      :header-actions-key="currentView" :content-key="contentKey"
-      :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
-      @header-back="back" @scroll-restored="onScrollRestored">
+  <!-- The navigation, and the full player it expands into: BrowserSourceViews
+       swaps the two. -->
+  <BrowserSourceViews source="spotify" :playback="playback"
+    :can-open-album="!!nowPlaying?.albumUri" :can-open-artist="!!nowPlaying?.artistUri"
+    @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
+    <template #navigation="{ bar }">
+      <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
+        :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="currentView === 'context'"
+        header-icon="spotify" header-variant="background-neutral" gradient="spotify"
+        :header-actions-key="currentView" :content-key="contentKey"
+        :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
+        @header-back="back" @scroll-restored="onScrollRestored">
 
-      <!-- Home only: whose library this is, and the way to the others. -->
-      <template v-if="currentView === 'home' && activeProfile" #header-actions>
-        <button v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
-          @click="goTo('profiles')">
-          <ProfileAvatar :profile="activeProfile" :size="40" />
-        </button>
-      </template>
+        <!-- Home only: whose library this is, and the way to the others. -->
+        <template v-if="currentView === 'home' && activeProfile" #header-actions>
+          <button v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
+            @click="goTo('profiles')">
+            <ProfileAvatar :profile="activeProfile" :size="40" />
+          </button>
+        </template>
 
-      <template #content>
-        <SpotifyHome v-if="currentView === 'home'" key="home"
-          @select-playlist="openPlaylist" @select-liked="openLiked" />
+        <template #content>
+          <SpotifyHome v-if="currentView === 'home'" key="home"
+            @select-playlist="openPlaylist" @select-liked="openLiked" />
 
-        <SpotifyProfilesView v-else-if="currentView === 'profiles'" key="profiles" @picked="reset" />
+          <SpotifyProfilesView v-else-if="currentView === 'profiles'" key="profiles" @picked="reset" />
 
-        <SpotifyContextView v-else-if="currentView === 'context'" :key="currentParams.uri"
-          :uri="currentParams.uri" :kind="currentParams.kind" :name="currentParams.name"
-          :image="currentParams.image" :owner="currentParams.owner"
-          @select-artist="openArtist" @select-album="openAlbum" />
-      </template>
+          <SpotifyContextView v-else-if="currentView === 'context'" :key="currentParams.uri"
+            :uri="currentParams.uri" :kind="currentParams.kind" :name="currentParams.name"
+            :image="currentParams.image" :owner="currentParams.owner"
+            @select-artist="openArtist" @select-album="openAlbum" />
+        </template>
 
-      <!-- Docked player: Music Library's track player, without the queue
-           carousel (go-librespot does not say what comes next). -->
-      <template #player>
-        <AudioPlayer :visible="shouldShowPlayer" source="spotify" @after-hide="onAfterHide"
-          :artwork="playerArtwork" :title="playerTitle" swipe-enabled
-          @swipe-next="store.next()" @swipe-prev="store.previous()"
-          @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
-          <template #info>
-            <PlayerInfoText class="vertical-layout" :title="playerTitle" :secondary="playerArtist" />
-          </template>
+        <!-- Docked player: Music Library's track player, without the queue
+             carousel (go-librespot does not say what comes next). -->
+        <template #player>
+          <AudioPlayer v-bind="bar" source="spotify"
+            :artwork="playerArtwork" :title="playerTitle" swipe-enabled
+            @swipe-next="store.next()" @swipe-prev="store.previous()"
+            @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
+            <template #info>
+              <PlayerInfoText class="vertical-layout" :title="playerTitle" :secondary="playerArtist" />
+            </template>
 
-          <template #progress>
-            <div @click.stop>
-              <ProgressBar :current-position="positionMs" :duration="durationMs"
-                :progress-percentage="livePercent" :interactive="store.canSend('seek')"
-                variant="dark" @seek="seekTo" />
-            </div>
-          </template>
-
-          <template #controls>
-            <div class="track-controls" @click.stop>
-              <div class="playback-controls">
-                <IconButton icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
-                  :aria-label="t('spotify.shuffle')"
-                  :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                  :disabled="!store.canSend('set_shuffle')" @click="store.toggleShuffle()" />
-                <div class="track-transport-main">
-                  <IconButton icon="previous" variant="ghost" size="small" class="track-transport-extra transport-secondary"
-                    :disabled="!store.canSend('prev')" @click="store.previous()" />
-                  <IconButton :icon="pausesOnPress(store.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
-                    class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
-                  <IconButton icon="next" variant="ghost" size="small" class="track-transport-extra transport-secondary"
-                    :disabled="!store.canSend('next')" @click="store.next()" />
-                </div>
-                <IconButton :icon="store.repeat === 'track' ? 'repeatOnce' : 'repeat'" variant="ghost" size="small"
-                  class="track-transport-extra transport-secondary-round" :aria-label="repeatLabel"
-                  :color="store.repeat === 'off' ? 'var(--color-text-contrast-50)' : 'var(--color-text-contrast)'"
-                  :disabled="!store.canSend('set_repeat')" @click="store.cycleRepeat()" />
-                <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="ghost" size="small"
-                  :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
-                  :color="store.currentLiked ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                  class="track-transport-extra transport-secondary-round" @click="store.toggleCurrentLike()" />
+            <template #progress>
+              <div @click.stop>
+                <ProgressBar :current-position="positionMs" :duration="durationMs"
+                  :progress-percentage="livePercent" :interactive="store.canSend('seek')"
+                  variant="dark" @seek="seekTo" />
               </div>
-            </div>
-          </template>
-        </AudioPlayer>
-      </template>
-    </AudioSourceLayout>
-  </div>
+            </template>
+
+            <template #controls>
+              <div class="track-controls" @click.stop>
+                <div class="playback-controls">
+                  <IconButton icon="shuffle" variant="ghost" size="small" class="track-transport-extra transport-secondary-round"
+                    :aria-label="t('spotify.shuffle')"
+                    :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
+                    :disabled="!store.canSend('set_shuffle')" @click="store.toggleShuffle()" />
+                  <div class="track-transport-main">
+                    <IconButton icon="previous" variant="ghost" size="small" class="track-transport-extra transport-secondary"
+                      :disabled="!store.canSend('prev')" @click="store.previous()" />
+                    <IconButton :icon="pausesOnPress(store.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
+                      class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
+                    <IconButton icon="next" variant="ghost" size="small" class="track-transport-extra transport-secondary"
+                      :disabled="!store.canSend('next')" @click="store.next()" />
+                  </div>
+                  <IconButton :icon="store.repeat === 'track' ? 'repeatOnce' : 'repeat'" variant="ghost" size="small"
+                    class="track-transport-extra transport-secondary-round" :aria-label="repeatLabel"
+                    :color="store.repeat === 'off' ? 'var(--color-text-contrast-50)' : 'var(--color-text-contrast)'"
+                    :disabled="!store.canSend('set_repeat')" @click="store.cycleRepeat()" />
+                  <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="ghost" size="small"
+                    :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
+                    :color="store.currentLiked ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
+                    class="track-transport-extra transport-secondary-round" @click="store.toggleCurrentLike()" />
+                </div>
+              </div>
+            </template>
+          </AudioPlayer>
+        </template>
+      </AudioSourceLayout>
+    </template>
+
+    <!-- The like is not a command, so it is this source's to add; the album and
+         the artist open in the navigation behind the player. -->
+    <template #actions>
+      <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="ghost" size="small"
+        class="transport-secondary-round"
+        :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
+        :color="store.currentLiked ? 'var(--color-text)' : 'var(--color-text-light)'"
+        @click="store.toggleCurrentLike()" />
+    </template>
+  </BrowserSourceViews>
 </template>
 
 <script setup>
@@ -88,6 +104,7 @@ import { pausesOnPress } from '@/utils/transport';
 import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
+import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
@@ -99,6 +116,7 @@ import SpotifyProfilesView from './views/SpotifyProfilesView.vue';
 const store = useSpotifyStore();
 const { t } = useI18n();
 
+
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
 const { currentView, currentParams, canGoBack, push, back, reset, goTo, pendingScrollRestore } =
@@ -109,12 +127,10 @@ const contentKey = computed(() =>
   currentView.value === 'context' ? `context:${currentParams.value.uri}` : currentView.value
 );
 
-const {
-  isBuffering, shouldShowPlayer,
-  displayed: nowPlaying, onAfterHide,
-} = useSourcePlaybackVisibility('spotify', {
+const playback = useSourcePlaybackVisibility('spotify', {
   content: () => store.nowPlaying,
 });
+const { isBuffering, shouldShowPlayer, displayed: nowPlaying } = playback;
 
 const { duration: durationMs, currentPosition: positionMs, progressPercentage: livePercent, seekTo } =
   useSourceProgress('spotify');
@@ -199,11 +215,6 @@ function togglePlayPause() {
 </script>
 
 <style scoped>
-.spotify-source {
-  width: 100%;
-  height: 100%;
-}
-
 .profile-button {
   display: flex;
   padding: 0;

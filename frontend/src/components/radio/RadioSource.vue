@@ -1,99 +1,103 @@
 <!-- RadioSource.vue - Refactored Router Pattern -->
 <template>
-  <AudioSourceLayout :show-player="shouldShowNowPlayingLayout"
-    :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
-    :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
-    :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
-    :player-mobile-height="144" gradient="radio" @header-back="closeSearch">
-    <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
-      <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
-    </template>
+  <!-- The navigation, and the full player it expands into: BrowserSourceViews
+       swaps the two. -->
+  <BrowserSourceViews source="radio" :playback="playback">
+    <template #navigation="{ bar }">
+      <AudioSourceLayout :show-player="shouldShowNowPlayingLayout"
+        :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
+        :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
+        :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
+        :player-mobile-height="144" gradient="radio" @header-back="closeSearch">
+        <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
+          <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
+        </template>
 
-    <!-- Content slot: scrollable views -->
-    <template #content>
-      <!-- Favorites View -->
-      <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
-        :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
-        :buffering-station-id="bufferingStationId" @play-station="playStation" />
+        <!-- Content slot: scrollable views -->
+        <template #content>
+          <!-- Favorites View -->
+          <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
+            :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
+            :buffering-station-id="bufferingStationId" @play-station="playStation" />
 
-      <!-- Search View -->
-      <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
-        :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
-        :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
-        :search-unavailable="radioStore.searchUnavailable" @search="handleSearch" @retry="retrySearch"
-        @play-station="playStation" />
-    </template>
+          <!-- Search View -->
+          <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
+            :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
+            :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
+            :search-unavailable="radioStore.searchUnavailable" @search="handleSearch" @retry="retrySearch"
+            @play-station="playStation" />
+        </template>
 
-    <template #player="{ isMobile }">
-      <AudioPlayer v-if="station" :visible="shouldShowNowPlayingLayout" source="radio" :artwork="playerArtwork"
-        @after-hide="onAfterHide"
-        :fallback-name="station?.name" :title="playerTitle">
-        <!-- Track info: PlayerInfoText's vertical layout renders identically in the
-             desktop sidebar and the mobile expanded sheet — same as podcast/music-library
-             (nothing hides .vertical-layout inside the expanded card for this source).
-             Kicker (station name + icon) only shows when the recognized track has
-             artwork — a textless "Station Name" line with nothing to back it up reads
-             as clutter, so a track with no artwork falls back to plain title/artist.
-             The horizontal-layout title/subtitle pair is only ever relevant to the
-             mobile docked mini-bar (CSS never shows .horizontal-layout inside the
-             expanded card), so `expanded` skips rendering it there entirely instead
-             of emitting always-hidden markup. -->
-        <template #info="{ expanded }">
-          <template v-if="track">
-            <PlayerInfoText class="vertical-layout"
-              :kicker="track.artwork ? station?.name : null"
-              :kicker-icon="track.artwork ? stationArtwork : null"
-              :kicker-fallback-name="track.artwork ? station?.name : null"
-              :title="track.title" :secondary="track.artist" />
-            <template v-if="!expanded">
-              <p class="player-title text-body horizontal-layout">{{ track.title }}</p>
-              <p class="player-subtitle text-body horizontal-layout">{{ track.artist }}</p>
+        <template #player="{ isMobile }">
+          <AudioPlayer v-if="station" v-bind="bar" source="radio"
+            :artwork="playerArtwork" :fallback-name="station?.name" :title="playerTitle">
+            <!-- Track info: PlayerInfoText's vertical layout is the desktop sidebar's.
+                 Kicker (station name + icon) only shows when the recognized track has
+                 artwork — a textless "Station Name" line with nothing to back it up reads
+                 as clutter, so a track with no artwork falls back to plain title/artist.
+                 The horizontal-layout title/subtitle pair is the mobile mini-bar's. -->
+            <template #info>
+              <template v-if="track">
+                <PlayerInfoText class="vertical-layout"
+                  :kicker="track.artwork ? station?.name : null"
+                  :kicker-icon="track.artwork ? stationArtwork : null"
+                  :kicker-fallback-name="track.artwork ? station?.name : null"
+                  :title="track.title" :secondary="track.artist" />
+                <p class="player-title text-body horizontal-layout">{{ track.title }}</p>
+                <p class="player-subtitle text-body horizontal-layout">{{ track.artist }}</p>
+              </template>
+              <template v-else>
+                <PlayerInfoText class="vertical-layout" :title="station?.name" />
+                <p class="player-title text-body horizontal-layout">{{ station?.name }}</p>
+              </template>
             </template>
-          </template>
-          <template v-else>
-            <PlayerInfoText class="vertical-layout" :title="station?.name" />
-            <p v-if="!expanded" class="player-title text-body horizontal-layout">{{ station?.name }}</p>
-          </template>
-        </template>
 
-        <!-- Mobile only: station icon sits behind (pinned left), the track artwork
-             rides on top offset to the right and reveals in from the station's position
-             (AudioPlayer widens the frame and does the overlap/animation when this slot
-             is populated). Gated on the track cover: a recognized track without an
-             image stays single-image (station) + title/artist text, no overlap. -->
-        <template v-if="isMobile && track?.artwork" #artwork-badge>
-          <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
-        </template>
+            <!-- Mobile only: station icon sits behind (pinned left), the track artwork
+                 rides on top offset to the right and reveals in from the station's position
+                 (AudioPlayer widens the frame and does the overlap/animation when this slot
+                 is populated). Gated on the track cover: a recognized track without an
+                 image stays single-image (station) + title/artist text, no overlap. -->
+            <template v-if="isMobile && track?.artwork" #artwork-badge>
+              <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
+            </template>
 
-        <template #controls="{ expanded }">
-          <div class="radio-controls" @click.stop>
-            <!-- Desktop sidebar / mobile expanded sheet: full on-dark Button with
-                 icon+text — NOT a ghost icon button, unlike podcast/music-library's
-                 transport. Radio's own convention, kept unconditionally as-is. -->
-            <div class="radio-controls-main vertical-layout">
-              <Button variant="on-dark" :left-icon="canStop ? 'stop' : 'play'"
-                :loading="isBuffering" @click="handlePlayPause">
-                {{ canStop ? t('audioSources.radioSource.stopRadio') :
-                  t('audioSources.radioSource.playRadio') }}
-              </Button>
-              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
-                :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
-            </div>
-            <!-- Mobile docked mini-bar only: compact row has no room for a text button +
-                 heart — collapse to the single play/pause/stop ghost icon. Wrapped in
-                 .playback-controls so it picks up AudioPlayer.vue's mobile icon-shrink
-                 rule scoped to that class. `expanded` skips it in the sheet invocation
-                 entirely — CSS never shows .horizontal-layout inside the expanded card
-                 anyway, so rendering it there would only be always-hidden markup. -->
-            <div v-if="!expanded" class="playback-controls horizontal-layout">
-              <IconButton :icon="canStop ? 'stop' : 'play'" variant="ghost" size="medium"
-                class="transport-primary" :loading="isBuffering" @click="handlePlayPause" />
-            </div>
-          </div>
+            <template #controls>
+              <div class="radio-controls" @click.stop>
+                <!-- Desktop sidebar: full on-dark Button with icon+text — NOT a ghost
+                     icon button, unlike podcast/music-library's transport. Radio's own
+                     convention, kept unconditionally as-is. -->
+                <div class="radio-controls-main vertical-layout">
+                  <Button variant="on-dark" :left-icon="canStop ? 'stop' : 'play'"
+                    :loading="isBuffering" @click="handlePlayPause">
+                    {{ canStop ? t('audioSources.radioSource.stopRadio') :
+                      t('audioSources.radioSource.playRadio') }}
+                  </Button>
+                  <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
+                    :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
+                </div>
+                <!-- Mobile mini-bar only: compact row has no room for a text button +
+                     heart — collapse to the single play/pause/stop ghost icon. Wrapped in
+                     .playback-controls so it picks up AudioPlayer.vue's mobile icon-shrink
+                     rule scoped to that class. -->
+                <div class="playback-controls horizontal-layout">
+                  <IconButton :icon="canStop ? 'stop' : 'play'" variant="ghost" size="medium"
+                    class="transport-primary" :loading="isBuffering" @click="handlePlayPause" />
+                </div>
+              </div>
+            </template>
+          </AudioPlayer>
         </template>
-      </AudioPlayer>
+      </AudioSourceLayout>
     </template>
-  </AudioSourceLayout>
+
+    <!-- The station's favorite is not a command, so it is this source's to add. -->
+    <template #actions>
+      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
+        class="transport-secondary-round"
+        :color="stationIsFavorite ? 'var(--color-text)' : 'var(--color-text-light)'"
+        :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
+    </template>
+  </BrowserSourceViews>
 </template>
 
 <script setup>
@@ -109,6 +113,7 @@ import { countryOptions as createCountryOptions } from '@/constants/countries'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
+import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
@@ -120,6 +125,7 @@ import { isCustomStation } from '@/utils/radioStation'
 const radioStore = useRadioStore()
 const unifiedStore = useUnifiedAudioStore()
 const { t, getCurrentLanguage } = useI18n()
+
 
 // === PLAYBACK VISIBILITY ===
 // The pane follows the station, and the station survives a stop: the backend
@@ -137,13 +143,14 @@ const { t, getCurrentLanguage } = useI18n()
 // for the template, which mentions them twenty times over.
 const track = computed(() => radioStore.trackInfo)
 
+const playback = useSourcePlaybackVisibility('radio', {
+  content: () => radioStore.currentStation
+})
 const {
   isPlaying: isCurrentlyPlaying, isBuffering,
   shouldShowPlayer: shouldShowNowPlayingLayout,
-  displayed: station, onAfterHide
-} = useSourcePlaybackVisibility('radio', {
-  content: () => radioStore.currentStation
-})
+  displayed: station
+} = playback
 
 // A live stream has no pause: the source takes `stop` while a session runs
 // (loading included) and `resume_playback` to re-tune the station it kept.

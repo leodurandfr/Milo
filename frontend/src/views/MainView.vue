@@ -38,6 +38,7 @@ import { useCdStore } from '@/stores/cdStore';
 import { useScreensaver } from '@/composables/useScreensaver';
 import { SCREENSAVER_REVEAL_NONCE } from '@/composables/useScreensaverReveal';
 import { useRichDisplay } from '@/composables/useRichDisplay';
+import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
 import { useTimer } from '@/composables/useTimer';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
@@ -60,10 +61,12 @@ const { isScreensaverVisible, screensaverRevealNonce, screensaverData, screensav
 provide(SCREENSAVER_REVEAL_NONCE, screensaverRevealNonce);
 
 // The screensaver artwork stays fixed only when the revealed view shows a cover
-// at the same spot (the AudioPlayerFull sources). For the AudioSourceLayout
-// sources there's no matching cover, so it rises + fades with the rest.
+// at the same spot (AudioPlayerFull). Over a browser source's navigation there's
+// no matching cover, so it rises + fades with the rest — unless that source is
+// expanded into its full player.
+const { expanded: playerExpanded } = usePlayerExpansion();
 const artworkRises = computed(() =>
-  BROWSER_SOURCES.includes(unifiedStore.systemState.source)
+  BROWSER_SOURCES.includes(unifiedStore.systemState.source) && !playerExpanded.value
 );
 
 // Whether the screensaver's progress bar should fly to AudioPlayerFull's bar

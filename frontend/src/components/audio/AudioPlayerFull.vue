@@ -27,8 +27,8 @@
                the two came to disagree in the first place. A station with no
                logo is the one exception to a fallback: the generated avatar
                is its identity. -->
-          <div v-press="hasEntityLinks" class="artwork"
-            :class="{ 'artwork-pending': artworkPending, 'is-link': hasEntityLinks }" @click="onArtworkClick">
+          <div v-press="albumLink" class="artwork"
+            :class="{ 'artwork-pending': artworkPending, 'is-link': albumLink }" @click="onArtworkClick">
             <img v-if="shownArtwork" :src="shownArtwork"
               alt="" />
             <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
@@ -61,6 +61,14 @@
            remounts just this column and replays its stagger — the artwork column
            (left) stays put, giving a seamless cover-to-player continuity. -->
       <div class="content-section stagger-2" :key="revealNonce">
+        <!-- Back to the navigation this player was expanded out of: drawn only
+             when one is provided (BrowserSourceViews), so the sources whose only
+             view this is draw no button at all. -->
+        <div v-if="navigation" class="player-back">
+          <IconButton icon="caretLeft" :variant="isMobile ? 'on-grey' : 'background-strong'" size="medium"
+            :aria-label="t('common.back')" @click="navigation.back" />
+        </div>
+
         <!-- Action buttons (used by CD for eject/tracklist) -->
         <slot name="action-buttons" />
 
@@ -77,8 +85,8 @@
                 <span class="track-kicker-label text-mono-medium">{{ persistentMetadata.kicker }}</span>
               </div>
               <h1 class="track-title heading-1">{{ persistentMetadata.title || t('status.unknownTitle') }}</h1>
-              <p v-if="secondaryLine" v-press="hasEntityLinks" class="track-artist heading-2"
-                :class="{ 'is-link': hasEntityLinks }" @click="onSecondaryClick">{{ secondaryLine }}</p>
+              <p v-if="secondaryLine" v-press="artistLink" class="track-artist heading-2"
+                :class="{ 'is-link': artistLink }" @click="onSecondaryClick">{{ secondaryLine }}</p>
             </div>
             <div class="controls-section">
               <!-- The toggles the source lists, then what the source adds that
@@ -141,14 +149,15 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, inject, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
 import { useIsMobile } from '@/composables/useIsMobile';
+import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion';
 import { useI18n } from '@/services/i18n';
-import { AUDIO_SOURCE_LABEL_KEYS, TRACK_LAYOUT_SOURCES } from '@/constants/audioSources';
+import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
@@ -177,8 +186,9 @@ const props = defineProps({
   }
 });
 
-// The album and artist behind the cover and the artist line. The player does
-// not know how to open either: its source does, in its own browser.
+// The album and artist behind the cover and the artist line, emitted only when
+// the navigation around the player says there is one. The player does not know
+// how to open either: its source does, in its own browser.
 const emit = defineEmits(['artwork-click', 'secondary-click']);
 
 const { t } = useI18n();
@@ -290,17 +300,22 @@ function setSpeed(value) {
   sendSourceCommand('set_speed', { speed: parseFloat(value) });
 }
 
-// === LINKS ===
-// Only a track has an album and an artist to open — the same rule AudioPlayer
-// applies; a station or an episode draws the same cover and line, inert.
-const hasEntityLinks = computed(() => TRACK_LAYOUT_SOURCES.includes(props.source));
+// === BACK AND LINKS ===
+// The navigation this player was expanded out of, when there is one: the way
+// back to it, and whether the cover and the artist line have a page to open
+// there. Injected rather than passed, so the props stay the source's and
+// hideContent's. Without it — the only view of a source with nothing to
+// browse — the player has neither, and the cover and the line are inert.
+const navigation = inject(PLAYER_NAVIGATION, null);
+const albumLink = computed(() => !!navigation?.canOpenAlbum.value);
+const artistLink = computed(() => !!navigation?.canOpenArtist.value);
 
 function onArtworkClick() {
-  if (hasEntityLinks.value) emit('artwork-click');
+  if (albumLink.value) emit('artwork-click');
 }
 
 function onSecondaryClick() {
-  if (hasEntityLinks.value) emit('secondary-click');
+  if (artistLink.value) emit('secondary-click');
 }
 
 // === METADATA PERSISTENCE ===
@@ -477,6 +492,13 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   min-height: 0;
   order: 2;
   z-index: 1;
+}
+
+/* Back to the navigation: the top of the column on the kiosk, where CD keeps
+   its own buttons. */
+.player-back {
+  display: flex;
+  flex-shrink: 0;
 }
 
 /* Player info (track-info + controls) */
@@ -802,6 +824,14 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
   .content-replace {
     margin-bottom: calc(-1 * max(var(--space-06), env(safe-area-inset-bottom, 0px)));
+  }
+
+  /* Over the cover's top-left corner on the phone, as CD's buttons are. */
+  .player-back {
+    position: absolute;
+    top: calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-04));
+    left: calc(var(--space-05) + var(--space-04));
+    z-index: 10;
   }
 
   .controls-section {
