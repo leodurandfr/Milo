@@ -400,7 +400,6 @@
     "goToAlbum": "Zum Album",
     "libraryOverline": "Bibliothek",
     "libraryUnavailable": "Die Spotify-Bibliothek konnte nicht geladen werden",
-    "like": "Zu Lieblingssongs hinzufügen",
     "likedSongs": "Lieblingssongs",
     "listUnavailable": "Diese Liste konnte nicht geladen werden",
     "loadingTracks": "Titel werden geladen",
@@ -415,7 +414,6 @@
     "signingIn": "Anmeldung bei Spotify…",
     "switchStopsPlayback": "Tippen Sie erneut: Die Wiedergabe wird beendet",
     "tracksCount": "{count} Titel | {count} Titel",
-    "unlike": "Aus Lieblingssongs entfernen",
     "untitledPlaylist": "Unbenannte Playlist",
     "whoIsListening": "Wer hört zu?",
     "yourPlaylists": "Ihre Playlists"

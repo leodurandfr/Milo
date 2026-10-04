@@ -20,10 +20,11 @@
              helper, so the two cannot disagree on one silence.
              Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
              behind the track artwork, which rides on top) — needs a real box since two of
-             the three branches below are void <img> elements and can't host a child. -->
-          <div class="player-artwork-frame"
-            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: albumLink || isMobile }"
-            @click="onArtworkClick">
+             the three branches below are void <img> elements and can't host a child.
+             The cover is the way into the full player. -->
+          <div v-press="!isMobile" class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }"
+            role="button" :tabindex="isMobile ? undefined : 0" :aria-label="t('common.expandPlayer')"
+            @click="onArtworkClick" @keydown.enter.space.prevent="onArtworkClick">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
               :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
             <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork" :aria-label="title" />
@@ -33,7 +34,11 @@
 
           <!-- The source bar, the lines, the bar and the transport: the body
                both players share, ranged left on this card. -->
-          <PlayerBody ref="body" :source="source" surface="card" @secondary-click="$emit('secondary-click')">
+          <PlayerBody ref="body" :source="source" surface="card"
+            @title-click="$emit('title-click')" @secondary-click="$emit('secondary-click')">
+            <template v-if="$slots['transport-end']" #transport-end="slotProps">
+              <slot name="transport-end" v-bind="slotProps" />
+            </template>
             <!-- The phone's swipe over a queue: a 3-cell strip [prev｜current｜next]
                  driven by the carousel's own viewIndex into the queue, so the
                  text is rendered locally and never reindexes against the backend
@@ -51,35 +56,16 @@
           </PlayerBody>
 
         </div>
-
-        <!-- On the kiosk's card, over the cover: the way into the full player
-             at the top-left corner, what the source adds that is not a command
-             (the favorite, the star, the like) at the top-right — the full
-             player's order, way between the views on the left and heart on the
-             right. Outside .player-content, which scrolls on the card when its
-             content overflows: the way into the player must not scroll away
-             with it. Not on the phone's mini-bar, which is one target as a
-             whole (a tap anywhere opens the full player, which carries the
-             heart). -->
-        <template v-if="!isMobile">
-          <IconButton class="player-expand" icon="expand" variant="on-image" size="small"
-            :aria-label="t('common.expandPlayer')" @click.stop="$emit('expand')" />
-          <div v-if="$slots['artwork-action']" class="player-artwork-action" @click.stop>
-            <slot name="artwork-action"></slot>
-          </div>
-        </template>
       </div>
     </Transition>
   </Teleport>
 </template>
 
 <script setup>
-import { computed, inject, nextTick, ref, watch } from 'vue'
-import IconButton from '@/components/ui/IconButton.vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
 import { usePlayerState } from '@/composables/usePlayerState'
-import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion'
 import { swipeable, swipeTarget } from '@/utils/playerControls'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { useI18n } from '@/services/i18n'
@@ -108,10 +94,10 @@ const props = defineProps({
   }
 })
 
-// `expand` asks the source for its full player: the expand button anywhere, and
-// a tap on the phone's mini-bar. The album and the artist are emitted where the
-// navigation says there is one to open; the source opens them.
-const emit = defineEmits(['after-hide', 'artwork-click', 'secondary-click', 'expand'])
+// `expand` asks the source for its full player: the cover on the card, a tap
+// anywhere on the phone's mini-bar. The album (the title) and the artist are
+// emitted where the navigation says there is one to open; the source opens them.
+const emit = defineEmits(['after-hide', 'title-click', 'secondary-click', 'expand'])
 
 // What this bar names and what its source offers: this bar's one reading of
 // its state, which the body and the transport under it take too.
@@ -119,11 +105,6 @@ const { metadata, controls: sourceControls } = usePlayerState(props.source)
 const { title, artwork, fallback, stationAvatarSvg } = metadata
 const { controls, details } = sourceControls
 const body = ref(null)
-
-// The album behind the cover, where the navigation around the bar says there is
-// one to open (PLAYER_NAVIGATION, which BrowserSourceViews provides).
-const navigation = inject(PLAYER_NAVIGATION, null)
-const albumLink = computed(() => !!navigation?.canOpenAlbum.value)
 
 // On the phone the whole mini-bar is one target, the full player; the album and
 // artist links are the full player's there. The transport stops its own taps.
@@ -135,8 +116,9 @@ function onBarClick() {
   emit('expand')
 }
 
+// On the phone the tap reaches the bar, which expands it.
 function onArtworkClick() {
-  if (!isMobile.value && albumLink.value) emit('artwork-click')
+  if (!isMobile.value) emit('expand')
 }
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
@@ -420,6 +402,7 @@ function onTouchEnd(e) {
    to the mini-bar's 48px thumbnail. */
 .player-artwork-frame {
   position: relative;
+  cursor: pointer;
   align-self: center;
   width: 100%;
   aspect-ratio: 1;
@@ -431,27 +414,6 @@ function onTouchEnd(e) {
      layout can't compress this height (derived from width via aspect-ratio)
      either. */
   flex: none;
-}
-
-.player-artwork-frame.clickable {
-  cursor: pointer;
-}
-
-/* Over the cover's top-left corner: the card's side padding plus the cover's
-   own top inset (.player-content's), then the same again inside the cover. */
-.player-expand {
-  position: absolute;
-  top: calc(var(--space-02) + var(--space-02));
-  left: calc(var(--space-02) + var(--space-02));
-  z-index: 3;
-}
-
-/* Its mirror over the top-right corner. */
-.player-artwork-action {
-  position: absolute;
-  top: calc(var(--space-02) + var(--space-02));
-  right: calc(var(--space-02) + var(--space-02));
-  z-index: 3;
 }
 
 

@@ -171,12 +171,4 @@ describe('spotifyStore', () => {
     publish({ session: makeSession(), details: details({ track_uri: TRACK }) });
     expect(store.opensOnProfiles).toBe(false);
   });
-
-  it('reads whether the playing track is liked', async () => {
-    publish({ session: makeSession(), details: details({ track_uri: TRACK }) });
-    await nextTick();
-
-    const likedRead = apiCall.get.mock.calls.find(([url]) => url === '/api/spotify/liked-tracks');
-    expect(likedRead?.[1]?.params).toEqual({ uris: TRACK });
-  });
 });

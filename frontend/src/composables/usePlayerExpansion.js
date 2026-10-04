@@ -6,7 +6,7 @@
 //
 // It holds only "expanded or not" and never the source it was expanded for:
 // another source opens on its own default view, so a change of source drops
-// it. Besides the back button, only an ending with nothing to resume does
+// it. Besides the full player's cover, only an ending with nothing to resume does
 // (BrowserSourceViews) — a pause or a stop that keeps something to resume
 // leaves the player on screen.
 import { computed, effectScope, readonly, ref, watch } from 'vue';
@@ -71,10 +71,10 @@ export function useExpandedView(source) {
 }
 
 /**
- * Provided by BrowserSourceViews to the AudioPlayerFull it mounts: the way back
- * to the navigation, and whether the cover and the artist line have a page to
- * open there. A full player with nothing provided has neither — it is the only
- * view of its source. `{ back, canOpenAlbum, canOpenArtist }`, the two flags
+ * Provided by BrowserSourceViews to the players it mounts: the way back to the
+ * navigation (the full player's cover), and whether the title (the album) and
+ * the artist line have a page to open there. A full player with nothing
+ * provided has neither — it is the only view of its source. `{ back, canOpenAlbum, canOpenArtist }`, the two flags
  * as refs.
  */
 export const PLAYER_NAVIGATION = Symbol('playerNavigation');

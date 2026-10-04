@@ -6,13 +6,17 @@
      bar's card. Only the surface changes: the plate's light ground, or the
      card's dark one.
      A relative skip (−15 / +30) is emitted, not sent: the progress bar beside
-     the transport owns the playhead that shows a burst's sum at once. -->
+     the transport owns the playhead that shows a burst's sum at once.
+     The `end` slot is what the source adds after the row that is not a command
+     (radio's favorite): it takes an end the way a toggle does, held by a spacer
+     at the other one, so the main button stays centred. -->
 <template>
   <!-- The plate carries its own scale; on the card the bar's compact one
        applies. In the template, where the icon-scale guardrail reads it. -->
   <div class="player-transport" :class="[`player-transport--${surface}`,
     surface === 'card' ? null : isMobile ? 'transport-scale--phone' : 'transport-scale',
-    { 'player-transport--toggles': hasToggles }]" @click.stop>
+    { 'player-transport--toggles': hasToggles || !!$slots.end }]" @click.stop>
+    <span v-if="$slots.end" class="player-button player-button--toggle player-extra" aria-hidden="true" />
     <template v-for="control in plate" :key="control.id">
       <span v-if="control.spacer" class="player-button player-button--toggle player-extra"
         aria-hidden="true" />
@@ -28,6 +32,9 @@
         :loading="control.id === 'main' && isBuffering" :disabled="!control.enabled"
         @click="press(control)" />
     </template>
+    <span v-if="$slots.end" class="player-button player-button--toggle player-extra player-transport-end">
+      <slot name="end" :ink="INKS[surface]" />
+    </span>
   </div>
 </template>
 
@@ -175,6 +182,13 @@ function press(control) {
   flex-shrink: 0;
   width: 56px;
   height: 56px;
+}
+
+/* The source's own button at the row's end, in the box a toggle takes. */
+.player-transport-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* A loading ghost dims the ink it inherits; on the plate the spinner keeps

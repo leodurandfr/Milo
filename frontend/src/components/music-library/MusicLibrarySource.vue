@@ -4,7 +4,7 @@
          swaps the two. -->
     <BrowserSourceViews source="music_library" :playback="playback"
       :can-open-album="!!nowPlaying?.albumId" :can-open-artist="!!nowPlaying?.artistId"
-      @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
+      @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
       <template #navigation="{ bar }">
         <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
           :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="detailsTitleView"
@@ -53,22 +53,9 @@
                and the artist it emits open here, in the navigation. -->
           <template #player>
             <AudioPlayer v-bind="bar" source="music_library"
-              @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
-              <!-- The star over the cover's corner, opposite the expand button. -->
-              <template #artwork-action>
-                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-image" size="small"
-                  @click="store.toggleCurrentStar()" />
-              </template>
-            </AudioPlayer>
+              @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist" />
           </template>
         </AudioSourceLayout>
-      </template>
-
-      <!-- The star is not a command, so it is this source's to add; the album and
-           the artist open in the navigation behind the player. -->
-      <template #top-end>
-        <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="control" size="medium"
-          @click="store.toggleCurrentStar()" />
       </template>
     </BrowserSourceViews>
 

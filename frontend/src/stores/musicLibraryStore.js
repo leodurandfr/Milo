@@ -318,17 +318,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return true;
   }
 
-  // Star state of the currently-playing track (for the docked player heart).
-  const currentStarred = computed(() => {
-    const id = currentTrackId.value;
-    if (!id) return false;
-    if (likedSongsLoaded.value) return isSongLiked(id);
-    return !!queue.value[queueIndex.value]?.starred;
-  });
-  function toggleCurrentStar() {
-    return setSongFavorite(currentTrackId.value, !currentStarred.value);
-  }
-
   // =========================================================================
   // TRANSPORT (thin wrappers over the generic control endpoint)
   // =========================================================================
@@ -1085,8 +1074,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     likedSongsLoading,
     loadLikedSongs,
     setSongFavorite,
-    currentStarred,
-    toggleCurrentStar,
 
     // Transport
     playContext,

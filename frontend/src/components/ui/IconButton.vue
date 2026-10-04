@@ -40,7 +40,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'control',
-    validator: (value) => ['control', 'on-contrast', 'on-image', 'glass', 'glass-on-contrast', 'brand', 'ghost'].includes(value)
+    validator: (value) => ['control', 'on-contrast', 'glass', 'glass-on-contrast', 'brand', 'ghost'].includes(value)
   },
   size: {
     type: String,
@@ -69,7 +69,6 @@ const GLASS = ['glass', 'glass-on-contrast'];
 const INKS = {
   control: 'var(--color-text)',
   'on-contrast': 'var(--color-text-on-contrast)',
-  'on-image': 'var(--color-text-on-contrast)',
   glass: 'var(--color-text)',
   'glass-on-contrast': 'var(--color-text-on-contrast)',
   brand: 'var(--color-text-on-brand)',
@@ -153,13 +152,6 @@ function handleClick(event) {
   color: var(--color-text-on-contrast);
 }
 
-/* Over artwork, which is the same in both themes: so is the plate. */
-.icon-button--on-image {
-  background: var(--color-image-plate);
-  color: var(--color-text-on-contrast);
-  backdrop-filter: blur(var(--blur-02));
-}
-
 .icon-button--brand {
   background: var(--color-brand);
   color: var(--color-text-on-brand);
@@ -217,11 +209,6 @@ function handleClick(event) {
 
 .icon-button--on-contrast.icon-button--loading {
   background: var(--color-glint);
-  color: var(--color-text-on-contrast);
-}
-
-.icon-button--on-image.icon-button--loading {
-  background: var(--color-image-plate);
   color: var(--color-text-on-contrast);
 }
 

@@ -10,8 +10,9 @@
      Above the title, in both: the SourceBar, where the music comes from (the
      source, or the station, the show, the sender, the account).
 
-     The artist line opens the artist where the navigation around the player
-     says there is one to open (PLAYER_NAVIGATION) — emitted, never followed. -->
+     The title opens the album and the artist line the artist, where the
+     navigation around the player says there is one to open (PLAYER_NAVIGATION)
+     — emitted, never followed. -->
 <template>
   <div class="player-body" :class="`player-body--${surface}`">
     <div class="player-body-info" :class="{ 'no-controls': !hasTransport }">
@@ -28,11 +29,13 @@
           <SourceBar v-if="surface === 'full' || sourceOnCard" class="body-source" :source="source"
             :label="sourceLabel" :image="sourceImage" />
           <template v-if="surface === 'full'">
-            <h1 class="body-title heading-1">{{ title }}</h1>
+            <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
+              @click="onTitleClick">{{ title }}</h1>
             <p v-if="secondaryLine" v-press="artistLink" class="body-secondary heading-2"
               :class="{ 'is-link': artistLink }" @click="onSecondaryClick">{{ secondaryLine }}</p>
           </template>
-          <PlayerInfoText v-else class="card-lines" :class="{ 'has-link': artistLink }"
+          <PlayerInfoText v-else class="card-lines"
+            :class="{ 'has-album-link': albumLink, 'has-artist-link': artistLink }"
             :title="title" :secondary="secondaryLine || null" @click="onCardLinesClick" />
         </div>
         <template v-if="surface === 'card'">
@@ -55,7 +58,11 @@
           :animateIn="surface === 'full'" @seek="seekTo" />
       </div>
       <div v-if="hasTransport" class="body-transport" :class="{ 'transport-scale--compact': surface === 'card' }">
-        <PlayerTransport :source="source" :surface="surface === 'card' ? 'card' : 'plate'" @skip="skip" />
+        <PlayerTransport :source="source" :surface="surface === 'card' ? 'card' : 'plate'" @skip="skip">
+          <template v-if="$slots['transport-end']" #end="slotProps">
+            <slot name="transport-end" v-bind="slotProps" />
+          </template>
+        </PlayerTransport>
       </div>
     </div>
   </div>
@@ -87,7 +94,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['secondary-click']);
+const emit = defineEmits(['title-click', 'secondary-click']);
 
 const { isMobile } = useIsMobile();
 // The player's one reading of its state, made by the shell drawing this body.
@@ -103,20 +110,26 @@ const hasTransport = computed(() => shownControls.value.some(control => control.
 const canSeek = computed(() => liveControls.value.some(control => control.id === 'seek'));
 const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
 
-// The artist behind the line, where the navigation says there is one. Not on
-// the phone's mini-bar, which is one target as a whole: the full player.
+// The album behind the title and the artist behind the line, where the
+// navigation says there is one. Not on the phone's mini-bar, which is one
+// target as a whole: the full player.
 const navigation = inject(PLAYER_NAVIGATION, null);
-const artistLink = computed(() =>
-  !!navigation?.canOpenArtist.value && !(props.surface === 'card' && isMobile.value)
-);
+const linksShown = computed(() => !(props.surface === 'card' && isMobile.value));
+const albumLink = computed(() => !!navigation?.canOpenAlbum.value && linksShown.value);
+const artistLink = computed(() => !!navigation?.canOpenArtist.value && linksShown.value);
+
+function onTitleClick() {
+  if (albumLink.value) emit('title-click');
+}
 
 function onSecondaryClick() {
   if (artistLink.value) emit('secondary-click');
 }
 
-// PlayerInfoText draws the card's secondary line; caught by its class.
+// PlayerInfoText draws the card's two lines; caught by their class.
 function onCardLinesClick(event) {
-  if (event.target.closest('.player-info-secondary')) onSecondaryClick();
+  if (event.target.closest('.player-info-title')) onTitleClick();
+  else if (event.target.closest('.player-info-secondary')) onSecondaryClick();
 }
 
 // The phone's swipe on the mini-bar, which the shell detects and this body
@@ -231,8 +244,17 @@ defineExpose({ swipe });
   white-space: nowrap;
 }
 
+.body-title.is-link,
 .body-secondary.is-link {
   cursor: pointer;
+}
+
+/* A link is as wide as its text, so a tap beside a short title does not open
+   the album; max-width keeps the ellipsis on a long one. */
+.player-body--full .body-title,
+.player-body--full .body-secondary {
+  align-self: center;
+  max-width: 100%;
 }
 
 /* === CARD (AudioPlayer): lines ranged left on the dark card === */
@@ -251,7 +273,8 @@ defineExpose({ swipe });
   padding: 0 var(--space-04);
 }
 
-.card-lines.has-link :deep(.player-info-secondary) {
+.card-lines.has-album-link :deep(.player-info-title),
+.card-lines.has-artist-link :deep(.player-info-secondary) {
   cursor: pointer;
 }
 

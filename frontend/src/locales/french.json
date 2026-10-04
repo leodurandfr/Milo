@@ -400,7 +400,6 @@
     "goToAlbum": "Voir l'album",
     "libraryOverline": "Bibliothèque",
     "libraryUnavailable": "La bibliothèque Spotify n'a pas pu être chargée",
-    "like": "Ajouter aux Titres likés",
     "likedSongs": "Titres likés",
     "listUnavailable": "Cette liste n'a pas pu être chargée",
     "loadingTracks": "Chargement des titres",
@@ -415,7 +414,6 @@
     "signingIn": "Connexion à Spotify…",
     "switchStopsPlayback": "Touchez à nouveau : la lecture s'arrêtera",
     "tracksCount": "{count} morceau | {count} morceaux",
-    "unlike": "Retirer des Titres likés",
     "untitledPlaylist": "Playlist sans titre",
     "whoIsListening": "Qui écoute ?",
     "yourPlaylists": "Vos playlists"

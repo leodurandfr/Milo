@@ -3,7 +3,7 @@
        swaps the two. -->
   <BrowserSourceViews source="spotify" :playback="playback"
     :can-open-album="!!nowPlaying?.albumUri" :can-open-artist="!!nowPlaying?.artistUri"
-    @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
+    @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
     <template #navigation="{ bar }">
       <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
         :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="currentView === 'context'"
@@ -36,24 +36,9 @@
              and the artist it emits open here, in the navigation. -->
         <template #player>
           <AudioPlayer v-bind="bar" source="spotify"
-            @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
-            <!-- The like over the cover's corner, opposite the expand button. -->
-            <template #artwork-action>
-              <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="on-image" size="small"
-                :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
-                @click="store.toggleCurrentLike()" />
-            </template>
-          </AudioPlayer>
+            @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist" />
         </template>
       </AudioSourceLayout>
-    </template>
-
-    <!-- The like is not a command, so it is this source's to add; the album and
-         the artist open in the navigation behind the player. -->
-    <template #top-end>
-      <IconButton :icon="store.currentLiked ? 'heart' : 'heartOff'" variant="control" size="medium"
-        :aria-label="store.currentLiked ? t('spotify.unlike') : t('spotify.like')"
-        @click="store.toggleCurrentLike()" />
     </template>
   </BrowserSourceViews>
 </template>
@@ -64,7 +49,6 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
 import { useI18n } from '@/services/i18n';
-import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';

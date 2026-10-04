@@ -188,18 +188,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     return true;
   }
 
-  const currentLiked = computed(() => isLiked(currentTrackUri.value));
-
-  function toggleCurrentLike() {
-    const uri = currentTrackUri.value;
-    if (uri) setLiked(uri, !currentLiked.value);
-  }
-
-  // The player's heart needs the playing track's state.
-  watch(currentTrackUri, (uri) => {
-    if (uri) fetchLiked([uri]);
-  }, { immediate: true });
-
   // =========================================================================
   // PROFILES — the accounts that cast to Milō
   // =========================================================================
@@ -256,7 +244,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     contextErrors.value = {};
     liked.value = {};
     if (now) loadProfiles();
-    if (currentTrackUri.value) fetchLiked([currentTrackUri.value]);
   });
 
   // Another interface language: the shelves are titled in the last one.
@@ -284,7 +271,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
     // contexts
     contexts, contextErrors, loadContext,
     // liked
-    liked, isLiked, fetchLiked, setLiked, currentLiked, toggleCurrentLike,
+    liked, isLiked, fetchLiked, setLiked,
     // profiles
     profiles, profilesLoaded, opensOnProfiles, loadProfiles, switchProfile, renameProfile, forgetProfile,
     // commands

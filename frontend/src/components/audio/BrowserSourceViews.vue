@@ -16,10 +16,10 @@
 
     <Transition name="audio-content">
       <AudioPlayerFull v-if="playerShown" class="browser-view" :source="source"
-        @artwork-click="openInNavigation('artwork-click')"
+        @title-click="openInNavigation('title-click')"
         @secondary-click="openInNavigation('secondary-click')">
-        <template v-if="$slots['top-end']" #top-end>
-          <slot name="top-end" />
+        <template v-if="$slots['transport-end']" #transport-end="slotProps">
+          <slot name="transport-end" v-bind="slotProps" />
         </template>
       </AudioPlayerFull>
     </Transition>
@@ -49,7 +49,7 @@ const props = defineProps({
     type: Object,
     default: null
   },
-  /** The playing track names an album to open (the cover's link). */
+  /** The playing track names an album to open (the title's link). */
   canOpenAlbum: {
     type: Boolean,
     default: false
@@ -62,7 +62,7 @@ const props = defineProps({
 });
 
 // Re-emitted once the navigation is drawn again: the source opens the page.
-const emit = defineEmits(['artwork-click', 'secondary-click']);
+const emit = defineEmits(['title-click', 'secondary-click']);
 
 const { expand, collapse } = usePlayerExpansion();
 const playerShown = useExpandedView(props.source);

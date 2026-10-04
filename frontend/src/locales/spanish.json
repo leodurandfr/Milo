@@ -400,7 +400,6 @@
     "goToAlbum": "Ir al álbum",
     "libraryOverline": "Biblioteca",
     "libraryUnavailable": "No se pudo cargar la biblioteca de Spotify",
-    "like": "Añadir a Canciones favoritas",
     "likedSongs": "Canciones favoritas",
     "listUnavailable": "No se pudo cargar esta lista",
     "loadingTracks": "Cargando las canciones",
@@ -415,7 +414,6 @@
     "signingIn": "Iniciando sesión en Spotify…",
     "switchStopsPlayback": "Toque de nuevo: la reproducción se detendrá",
     "tracksCount": "{count} pista | {count} pistas",
-    "unlike": "Quitar de Canciones favoritas",
     "untitledPlaylist": "Playlist sin título",
     "whoIsListening": "¿Quién escucha?",
     "yourPlaylists": "Sus playlists"

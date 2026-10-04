@@ -400,7 +400,6 @@
     "goToAlbum": "एल्बम पर जाएं",
     "libraryOverline": "लाइब्रेरी",
     "libraryUnavailable": "Spotify लाइब्रेरी लोड नहीं हो सकी",
-    "like": "पसंद किए गए गानों में जोड़ें",
     "likedSongs": "पसंद किए गए गाने",
     "listUnavailable": "यह सूची लोड नहीं हो सकी",
     "loadingTracks": "गाने लोड हो रहे हैं",
@@ -415,7 +414,6 @@
     "signingIn": "Spotify में साइन इन हो रहा है…",
     "switchStopsPlayback": "फिर से टैप करें: प्लेबैक रुक जाएगा",
     "tracksCount": "{count} ट्रैक",
-    "unlike": "पसंद किए गए गानों से हटाएं",
     "untitledPlaylist": "बिना शीर्षक की प्लेलिस्ट",
     "whoIsListening": "कौन सुन रहा है?",
     "yourPlaylists": "आपकी प्लेलिस्ट"

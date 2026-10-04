@@ -64,8 +64,6 @@ import repeatOnceIcon from '@/assets/icons/repeat-once.svg?raw'
 import lyricsIcon from '@/assets/icons/lyrics.svg?raw'
 import arrowExtendedIcon from '@/assets/icons/arrow-extended.svg?raw'
 import hardwareIcon from '@/assets/icons/hardware.svg?raw'
-import expandIcon from '@/assets/icons/expand.svg?raw'
-import minifiedIcon from '@/assets/icons/minified.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -122,9 +120,7 @@ const icons = {
   repeatOnce: repeatOnceIcon,
   lyrics: lyricsIcon,
   arrowExtended: arrowExtendedIcon,
-  hardware: hardwareIcon,
-  expand: expandIcon,
-  minified: minifiedIcon
+  hardware: hardwareIcon
 }
 
 /**

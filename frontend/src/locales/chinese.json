@@ -400,7 +400,6 @@
     "goToAlbum": "前往专辑",
     "libraryOverline": "资料库",
     "libraryUnavailable": "无法加载 Spotify 资料库",
-    "like": "添加到已点赞的歌曲",
     "likedSongs": "已点赞的歌曲",
     "listUnavailable": "无法加载此列表",
     "loadingTracks": "正在加载歌曲",
@@ -415,7 +414,6 @@
     "signingIn": "正在登录 Spotify…",
     "switchStopsPlayback": "请再次轻触：播放将停止",
     "tracksCount": "{count} 首曲目",
-    "unlike": "从已点赞的歌曲中移除",
     "untitledPlaylist": "未命名歌单",
     "whoIsListening": "谁在收听？",
     "yourPlaylists": "您的歌单"

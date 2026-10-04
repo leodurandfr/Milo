@@ -31,7 +31,7 @@
         <template #player="{ isMobile }">
           <!-- The bar reads what it draws from the state; the source adds
                what is its own: the station behind a track on the phone, and
-               the favorite. -->
+               the favorite at the end of the transport. -->
           <AudioPlayer v-if="station" v-bind="bar" source="radio">
             <!-- Mobile only: station icon sits behind (pinned left), the track artwork
                  rides on top offset to the right and reveals in from the station's position
@@ -42,10 +42,9 @@
               <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
             </template>
 
-            <!-- The station's favorite over the cover's corner, opposite the
-                 expand button. -->
-            <template #artwork-action>
-              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="on-image" size="small"
+            <template #transport-end="{ ink }">
+              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
+                class="transport-secondary-round" :color="stationIsFavorite ? ink.strong : ink.light"
                 :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </template>
           </AudioPlayer>
@@ -53,9 +52,11 @@
       </AudioSourceLayout>
     </template>
 
-    <!-- The station's favorite is not a command, so it is this source's to add. -->
-    <template #top-end>
-      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="control" size="medium"
+    <!-- The station's favorite is not a command, so it is this source's to add,
+         after the transport — in the full player as on the bar. -->
+    <template #transport-end="{ ink }">
+      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
+        class="transport-secondary-round" :color="stationIsFavorite ? ink.strong : ink.light"
         :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
     </template>
   </BrowserSourceViews>

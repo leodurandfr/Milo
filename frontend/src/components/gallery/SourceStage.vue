@@ -44,9 +44,8 @@
         <AudioSourceView v-if="!browser" />
 
         <!-- The navigation and the full player its bar expands into, swapped
-             by the same shell the four sources use. What is not a command — the
-             favorite, the star, the like — is the source's, read from the
-             scenario like the bar's own heart. -->
+             by the same shell the four sources use. What is not a command —
+             radio's favorite — is the source's, read from the scenario. -->
         <BrowserSourceViews v-else :source="page.source">
           <template #navigation="{ bar }">
             <AudioSourceLayout
@@ -79,7 +78,7 @@
                 <!-- The app's own bar, which reads what it draws — cover, lines,
                      bar, transport — from the state this page publishes, through
                      the body it shares with the full player. What the sources
-                     still add is transcribed: radio's badge, the heart. -->
+                     still add is transcribed: radio's badge and favorite. -->
                 <AudioPlayer :source="page.source" v-bind="bar">
                   <!-- Radio, mobile, track recognised: the station icon rides behind
                        the track cover. Only ever rendered in the docked mini-bar. -->
@@ -92,13 +91,9 @@
                     />
                   </template>
 
-                  <!-- The favorite, the star or the like over the cover's
-                       corner; podcasts have none. -->
-                  <template v-if="page.source !== 'podcast'" #artwork-action>
-                    <IconButton
-                      :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
-                      variant="on-image" size="small"
-                    />
+                  <template v-if="page.source === 'radio'" #transport-end="{ ink }">
+                    <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
+                      class="transport-secondary-round" :color="controls.favorite ? ink.strong : ink.light" />
                   </template>
 
                 </AudioPlayer>
@@ -106,11 +101,9 @@
             </AudioSourceLayout>
           </template>
 
-          <template v-if="page.source !== 'podcast'" #top-end>
-            <IconButton
-              :icon="(page.source === 'radio' ? controls.favorite : controls.starred) ? 'heart' : 'heartOff'"
-              variant="control" size="medium"
-            />
+          <template v-if="page.source === 'radio'" #transport-end="{ ink }">
+            <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
+              class="transport-secondary-round" :color="controls.favorite ? ink.strong : ink.light" />
           </template>
         </BrowserSourceViews>
       </div>
@@ -205,9 +198,9 @@ const browser = computed(() => current.value?.browser ?? null);
 const slotKey = computed(() => (browser.value ? `browser-${page.value?.source}` : 'dispatcher'));
 
 /**
- * What the source adds that the state does not carry — the favourite, the star:
- * a heart that is only ever hollow documents half the button — and radio's
- * station for the phone's badge.
+ * What the source adds that the state does not carry — radio's favourite: a
+ * heart that is only ever hollow documents half the button — and its station
+ * for the phone's badge.
  */
 const controls = computed(() => browser.value?.player?.controls ?? {});
 const player = computed(() => browser.value?.player ?? {});

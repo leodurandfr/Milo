@@ -1,8 +1,8 @@
-<!-- PlayerTopRow.vue - The full player's row of buttons: the way back to the
-     navigation and what the source adds at the start (CD's tracklist), what the
-     source adds at the end (the favorite, the star, the like — CD's eject,
-     Bluetooth's disconnect). AudioPlayerFull places it: heading the column on
-     the kiosk, under the cover on the phone. -->
+<!-- PlayerTopRow.vue - The full player's row of buttons, for what a source
+     adds that is not a command: at the start CD's tracklist, at the end CD's
+     eject and Bluetooth's disconnect. AudioPlayerFull draws it only when a
+     source fills one: heading the column on the kiosk, under the cover on the
+     phone. -->
 <template>
   <div class="player-top-row">
     <div class="player-top-row-zone">

@@ -3,9 +3,11 @@
      PlayerBody, the source bar, lines, bar and transport it shares with the
      playing bar, centred here. What it offers is read from the state, never
      from its caller. What is not a command is the source's to put in the top
-     row: `#top-start` (CD's tracklist) and `#top-end` (a favorite, a star, a
-     like, CD's eject, Bluetooth's disconnect). The album and artist links are
-     emitted, never followed. -->
+     row: `#top-start` (CD's tracklist) and `#top-end` (CD's eject, Bluetooth's
+     disconnect) — or at the end of the transport, `#transport-end` (radio's
+     favorite). The cover is the way back to the navigation this player was
+     expanded out of; the album (the title) and artist links are emitted, never
+     followed. -->
 <template>
   <div class="connect-player" :class="{ 'connect-player--backdrop': isDark }">
     <!-- The dark theme's ground: the cover again, blurred edge to edge and
@@ -36,9 +38,14 @@
                resolves it the same way, and a fallback chosen per view is how
                two views came to disagree in the first place. A station with no
                logo is the one exception to a fallback: the generated avatar
-               is its identity. -->
-          <div v-press="albumLink" class="artwork"
-            :class="{ 'artwork-pending': artworkPending, 'is-link': albumLink }" @click="onArtworkClick">
+               is its identity.
+               Where there is a navigation behind the player, the cover is the
+               way back to it. -->
+          <div v-press="!!navigation" class="artwork"
+            :class="{ 'artwork-pending': artworkPending, 'is-link': !!navigation }"
+            :role="navigation ? 'button' : undefined" :tabindex="navigation ? 0 : undefined"
+            :aria-label="navigation ? t('common.back') : undefined"
+            @click="navigation?.back()" @keydown.enter.space.prevent="navigation?.back()">
             <img v-if="shownArtwork" :src="shownArtwork"
               alt="" />
             <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
@@ -68,16 +75,11 @@
 
       <!-- Right side: Info and controls with CSS staggering. -->
       <div class="content-section stagger-2">
-        <!-- The row both players carry. Start: the way back to the navigation
-             this player was expanded out of — drawn only when one is provided
-             (BrowserSourceViews) — then what the source puts there (CD's
-             tracklist). End: what the source puts there — the favorite, the
-             star or the like of a browser source, CD's eject, Bluetooth's
-             disconnect. -->
-        <PlayerTopRow class="player-topbar">
+        <!-- What the source puts in the top row, drawn only when it puts
+             something there. Start: CD's tracklist. End: CD's eject,
+             Bluetooth's disconnect. -->
+        <PlayerTopRow v-if="$slots['top-start'] || $slots['top-end']" class="player-topbar">
           <template #start>
-            <IconButton v-if="navigation" icon="minified" variant="control" size="medium"
-              :aria-label="t('common.back')" @click="navigation.back" />
             <slot name="top-start" />
           </template>
           <template #end>
@@ -90,7 +92,11 @@
           <!-- The lines, the bar and the transport: the body both players
                share, centred here. -->
           <PlayerBody v-if="!hideContent" key="player-info" class="player-info" :source="source"
-            surface="full" @secondary-click="emit('secondary-click')" />
+            surface="full" @title-click="emit('title-click')" @secondary-click="emit('secondary-click')">
+            <template v-if="$slots['transport-end']" #transport-end="slotProps">
+              <slot name="transport-end" v-bind="slotProps" />
+            </template>
+          </PlayerBody>
           <div v-else key="content-replace" class="content-replace">
             <slot name="content-replace" />
           </div>
@@ -116,7 +122,6 @@ import { usePlayerState } from '@/composables/usePlayerState';
 import PlayerTopRow from './PlayerTopRow.vue';
 import PlayerBody from './PlayerBody.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import IconButton from '@/components/ui/IconButton.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
@@ -130,10 +135,10 @@ const props = defineProps({
   }
 });
 
-// The album and artist behind the cover and the artist line, emitted only when
+// The album and artist behind the title and the artist line, emitted only when
 // the navigation around the player says there is one. The player does not know
 // how to open either: its source does, in its own browser.
-const emit = defineEmits(['artwork-click', 'secondary-click']);
+const emit = defineEmits(['title-click', 'secondary-click']);
 
 const { t } = useI18n();
 const { isDark } = useTheme();
@@ -144,18 +149,12 @@ const {
   artwork, fallback, stationAvatarSvg, artworkAnnounced, trackKey
 } = usePlayerState(props.source).metadata;
 
-// === BACK AND LINKS ===
-// The navigation this player was expanded out of, when there is one: the way
-// back to it, and whether the cover has an album to open there (the artist
-// line's link is the body's). Injected rather than passed, so the props stay
-// the source's and hideContent's. Without it — the only view of a source with
-// nothing to browse — the player has neither, and the cover is inert.
+// === BACK ===
+// The navigation this player was expanded out of, when there is one: the cover
+// is the way back to it (the album and artist links are the body's). Injected
+// rather than passed, so the props stay the source's and hideContent's. Without
+// it — the only view of a source with nothing to browse — the cover is inert.
 const navigation = inject(PLAYER_NAVIGATION, null);
-const albumLink = computed(() => !!navigation?.canOpenAlbum.value);
-
-function onArtworkClick() {
-  if (albumLink.value) emit('artwork-click');
-}
 
 // === ARTWORK TRANSITION ===
 // The halo behind the cover. In the dark theme a station's avatar gets one too,
@@ -458,7 +457,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   pointer-events: none;
 }
 
-/* The album behind the cover (the artist behind the line is PlayerBody's). */
+/* The way back to the navigation. */
 .artwork.is-link {
   pointer-events: auto;
   cursor: pointer;

@@ -356,18 +356,12 @@ onUnmounted(() => {
   height: calc(100vh - 2 * var(--canvas-pad));
 }
 
-/* The two non-default stage tones, named by a descriptor's `surface`. A variant
+/* The non-default stage tone, named by a descriptor's `surface`. A variant
    is only legible over the backdrop it was drawn for, so the stage follows the
    args instead of staying light and reporting the variant as broken. */
 .canvas--contrast {
   color: var(--color-text-on-contrast);
   background: var(--color-contrast);
-}
-
-/* A stand-in for artwork: translucent, so it composites over the body's own
-   background into the mid tone a plate over a cover actually sits on. */
-.canvas--image {
-  background: var(--color-glass-strong);
 }
 
 .canvas__empty {

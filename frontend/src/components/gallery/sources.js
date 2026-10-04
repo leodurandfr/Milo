@@ -722,7 +722,7 @@ export const SOURCE_PAGES = [
         ...spotifySetup({ profiles: [] }),
         player: null
       }),
-      browsing('spotify', 'Playing a playlist', 'A context plays, started from Milō or handed over by a phone: the player shows shuffle, transport, repeat and the heart, each enabled iff `controls` lists its command.', {
+      browsing('spotify', 'Playing a playlist', 'A context plays, started from Milō or handed over by a phone: the player shows shuffle, transport and repeat, each drawn iff `controls` lists its command; the cover expands the player, the title opens the album and the artist line the artist.', {
         condition: ['repeat=context'],
         layout: SPOTIFY_HEADER,
         view: 'spotify-home',
@@ -742,7 +742,7 @@ export const SOURCE_PAGES = [
           artwork: musicPlaceholder,
           isPlaying: true,
           progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
-          controls: { shuffle: true, repeat: 'context', starred: true, hasNext: true }
+          controls: { shuffle: true, repeat: 'context', hasNext: true }
         }
       }),
       browsing('spotify', 'Profiles', 'Two accounts kept: the screen a visit opens on while nothing plays. Each tile is the name and picture Spotify\'s profile service gave, the signed-in one ringed; a tap on another restarts go-librespot as that account.', {
@@ -1381,7 +1381,7 @@ export const SOURCE_PAGES = [
             { title: 'Hammers', artist: 'Nils Frahm' }
           ],
           progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
-          controls: { shuffle: true, repeat: 'context', starred: true, hasNext: true }
+          controls: { shuffle: true, repeat: 'context', hasNext: true }
         }
       }),
       errored(

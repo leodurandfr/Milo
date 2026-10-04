@@ -30,7 +30,7 @@
  *             the current args — a translucent variant drawn for a dark backdrop
  *             is illegible on the light stage, which is how a variant gets read
  *             as broken. It returns a tone CanvasApp.vue declares a class for
- *             ('contrast', 'image'), or nothing for the default stage, and
+ *             ('contrast'), or nothing for the default stage, and
  *             it splits the same way the Variants tab's strips do, so a variant
  *             is judged against one surface on both tabs.
  *
@@ -105,6 +105,7 @@ import SectionHeader from '@/components/settings/SectionHeader.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
 import TriggerSample from './samples/TriggerSample.vue';
+import FavoriteSample from './samples/FavoriteSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
 import HeaderActionSample from './samples/HeaderActionSample.vue';
 import SourceStage from './SourceStage.vue';
@@ -123,6 +124,15 @@ const REQUIRED_ICON = { kind: 'enum', options: ICON_NAMES };
 const UNIT_OPTIONS = { kind: 'enum', options: ['', ...UNITS] };
 
 const PIXEL_SIZE = { kind: 'enum', options: [16, 24, 32, 48, 64] };
+
+/**
+ * What a source adds after the transport: radio's favorite, in a toggle's box,
+ * inked from the slot's own `ink` as RadioSource inks it.
+ */
+const TRANSPORT_END = {
+  none: null,
+  'IconButton — radio’s favorite': { component: FavoriteSample, scoped: true }
+};
 
 const SELECT_OPTIONS = [
   { label: 'Low', value: 'low' },
@@ -381,14 +391,8 @@ export const REGISTRY = {
     component: IconButton,
     args: { icon: 'play' },
     overrides: { icon: REQUIRED_ICON },
-    // `on-image` is the translucent dark plate the app puts over artwork, so its
-    // backdrop is the artwork stand-in rather than the contrast surface — the
-    // split ActionsDemo's strips make. A ghost inherits its ink, so it reads on
-    // the default stage.
-    surface: args => {
-      if (args.variant === 'on-image') return 'image';
-      return ['on-contrast', 'glass-on-contrast'].includes(args.variant) ? 'contrast' : null;
-    }
+    // A ghost inherits its ink, so it reads on the default stage.
+    surface: args => (['on-contrast', 'glass-on-contrast'].includes(args.variant) ? 'contrast' : null)
   },
 
   ButtonGroup: {
@@ -549,7 +553,7 @@ export const REGISTRY = {
     slots: {
       default: {
         none: null,
-        'IconButton — a play badge': { component: IconButton, props: { icon: 'play', variant: 'on-image' } }
+        'LoadingSpinner — a loading veil': { component: LoadingSpinner, props: { size: 48 } }
       }
     }
   },
@@ -704,10 +708,14 @@ export const REGISTRY = {
     component: PlayerTransport,
     args: { source: 'spotify' },
     notes: {
-      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.'
+      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
+      end: 'What the source adds after the row that is not a command — radio’s favorite — at the end a toggle takes, held by a spacer at the other so the main button stays centred.'
     },
     state: {
       nowPlaying: NOW_PLAYING_STATE
+    },
+    slots: {
+      end: TRANSPORT_END
     }
   },
 
@@ -716,13 +724,13 @@ export const REGISTRY = {
     args: { class: 'canvas-column' },
     slots: {
       start: {
-        'IconButton — back to the navigation': {
-          component: IconButton, props: { icon: 'minified', variant: 'control', size: 'medium' }
+        'IconButton — CD’s tracklist': {
+          component: IconButton, props: { icon: 'queue', variant: 'control', size: 'medium' }
         },
         none: null
       },
       end: {
-        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'control', size: 'medium' } },
+        'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'control', size: 'medium' } },
         none: null
       }
     }
@@ -742,7 +750,8 @@ export const REGISTRY = {
     slots: {
       info: {
         'default — the body’s own lines': null
-      }
+      },
+      'transport-end': TRANSPORT_END
     }
   },
 
@@ -822,18 +831,13 @@ export const REGISTRY = {
       }
     },
     // What a source still adds to its bar: radio's station behind a track on
-    // the phone, and the heart.
+    // the phone, and its favorite after the transport.
     slots: {
       'artwork-badge': {
         none: null,
         'AppIcon — radio': { component: AppIcon, props: { name: 'radio', size: 32 } }
       },
-      // The favorite, star or like over the cover's top-right corner, on the
-      // expand button's plate. The desktop card only.
-      'artwork-action': {
-        none: null,
-        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'on-image', size: 'small' } }
-      }
+      'transport-end': TRANSPORT_END
     }
   },
 
@@ -843,25 +847,26 @@ export const REGISTRY = {
     notes: {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
       'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.',
-      'top-end': 'What the source adds that is not a command — a station favorite, a star, a like — at the end of the top row.'
+      'top-end': 'What the source adds that is not a command — CD’s eject, Bluetooth’s disconnect — at the end of the top row, drawn only when a slot fills it.',
+      'transport-end': 'Radio’s favorite after the transport, in the box a toggle takes, so the main button stays centred.'
     },
     state: {
       nowPlaying: NOW_PLAYING_STATE
     },
     slots: {
-      // The two ends of the top row, around the source bar the player draws:
-      // CD's tracklist toggle at the start; at the end a browser source's
-      // favorite, star or like, CD's eject, Bluetooth's disconnect. The
-      // tracklist itself replaces the info column while hideContent is set.
+      // The two ends of the top row, drawn only when one is filled: CD's
+      // tracklist toggle at the start; CD's eject, Bluetooth's disconnect at
+      // the end. The tracklist itself replaces the info column while
+      // hideContent is set.
       'top-start': {
         none: null,
         'IconButton — CD’s tracklist': { component: IconButton, props: { icon: 'queue', variant: 'control', size: 'medium' } }
       },
       'top-end': {
         none: null,
-        'IconButton — a like': { component: IconButton, props: { icon: 'heart', variant: 'control', size: 'medium' } },
         'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'control', size: 'medium' } }
       },
+      'transport-end': TRANSPORT_END,
       'content-replace': {
         'FillerBlock — CD’s tracklist': {
           component: FillerBlock,

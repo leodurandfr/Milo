@@ -41,11 +41,6 @@
         <IconButton icon="play" variant="ghost" @click="clicks++" />
       </div>
     </GalleryVariant>
-    <GalleryVariant label="variant — over artwork, where on-image is used (a cover's like, mobile)">
-      <div class="image-strip">
-        <IconButton icon="play" variant="on-image" @click="clicks++" />
-      </div>
-    </GalleryVariant>
     <GalleryVariant label="size">
       <IconButton icon="next" size="small" @click="clicks++" />
       <IconButton icon="next" size="medium" @click="clicks++" />
@@ -134,8 +129,7 @@ const picked = ref('balanced');
 </script>
 
 <style scoped>
-.dark-strip,
-.image-strip {
+.dark-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -143,16 +137,8 @@ const picked = ref('balanced');
   width: 100%;
   padding: var(--space-03);
   border-radius: var(--radius-03);
-}
-
-.dark-strip {
   color: var(--color-text-on-contrast);
   background: var(--color-contrast);
-}
-
-/* A stand-in for artwork — what a plate over a cover sits on. */
-.image-strip {
-  background: var(--color-glass-strong);
 }
 
 .counter {

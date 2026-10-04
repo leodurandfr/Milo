@@ -140,7 +140,7 @@ These are shared by every source; they break for all of them at once.
 | Custom station, edited | Rename the added station, then **reload the page** — the list shows the new name, not the one it was created with (in-session the WS delta hides a stale record; only a reload re-reads it) | targeted |
 | Custom station, deleted | Delete an **edited** custom station → its card disappears from "Stations ajoutées" and from the grid, and neither comes back on reload | targeted |
 | Favorite released | Change a favorite's image, release its heart, favorite it again → the catalog logo is back; the card left "Stations modifiées" without a reload | targeted |
-| Automatic full-screen player | Playing, untouched for the configured delay → the full player opens with station + track info; the back button returns to the same page of the navigation | targeted |
+| Automatic full-screen player | Playing, untouched for the configured delay → the full player opens with station + track info; a tap on its cover returns to the same page of the navigation | targeted |
 
 ### Podcast (C) ⚠ API credentials
 
@@ -316,7 +316,7 @@ makes this silent.
 |---|---|---|
 | Brightness | The setting changes the panel intensity immediately | smoke |
 | Sleep | The screen turns off after the configured inactivity delay; touch wakes it to the same view | smoke |
-| Automatic full-screen player | With the setting on, a browser source (radio, podcast, music library, Spotify) **playing** and the screen untouched for its delay opens its full player; a touch before the delay counts it again from zero. Never while paused, never over open lyrics, and a track change does not restart the count (an album with a delay longer than one track still opens it); never on CD/TIDAL/AirPlay/Bluetooth/Qobuz/Mac. A pause leaves the player on screen; the back button returns to the same page and scroll of the navigation, and the player opens again after another delay if still playing | targeted |
+| Automatic full-screen player | With the setting on, a browser source (radio, podcast, music library, Spotify) **playing** and the screen untouched for its delay opens its full player; a touch before the delay counts it again from zero. Never while paused, never over open lyrics, and a track change does not restart the count (an album with a delay longer than one track still opens it); never on CD/TIDAL/AirPlay/Bluetooth/Qobuz/Mac. A pause leaves the player on screen; a tap on its cover returns to the same page and scroll of the navigation, and the player opens again after another delay if still playing | targeted |
 | Scale | Small / Normal / Large change the layout without clipping | targeted |
 | Kiosk memory | `systemctl status milo-kiosk` shows no recent restart loop after ~1 h of use (past OOM regression) | targeted |
 
