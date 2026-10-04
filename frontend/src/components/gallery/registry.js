@@ -110,6 +110,7 @@ import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 import { SOURCE_PAGES, audioState, session, anchor, replayedState } from './sources';
+import { setApiFixtures } from './canvasHttp';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 import { UNITS, formatDuration } from '@/utils/units';
@@ -152,8 +153,17 @@ const SELECT_OPTIONS = [
  * well, because the player reads its slice of the state only while the two
  * agree: left to disagree, the session and the controls belong to another
  * source and the player draws nothing it was handed.
+ *
+ * The browser sources' records each stand for a control the player draws from
+ * `controls` and `details` (utils/playerControls): the toggles and the links,
+ * the relative skip with the speed, the live stream's stop, a resume point in
+ * place of a session. Their `details` carry what the wire does, and `api`
+ * serves the reads the player makes for them (the speed list).
  */
 const NOW_PLAYING = {
+  // `skip` is listed as it is for a CD, and still draws nothing: the track steps
+  // take the places beside the main button, and only a source with no step
+  // offers −15 / +30 there.
   'Spotify — playing': {
     source: 'spotify',
     session: {
@@ -164,7 +174,87 @@ const NOW_PLAYING = {
       duration_ms: 511000,
       position: anchor(192000)
     },
-    controls: ['pause', 'seek', 'skip', 'next', 'prev']
+    controls: ['pause', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat'],
+    details: {
+      kind: 'spotify',
+      account: 'owner',
+      signing_in: false,
+      context_uri: 'spotify:playlist:chill',
+      context_name: 'Chill appart',
+      track_uri: 'spotify:track:says',
+      album_uri: 'spotify:album:spaces',
+      artist_uri: 'spotify:artist:nils',
+      shuffle: true,
+      repeat: 'context'
+    }
+  },
+  // Nothing in session: the resume point is what the player names, and the
+  // `stop` the source lists beside `resume` is not a second main button.
+  'Music Library — saved queue (resume point)': {
+    source: 'music_library',
+    resume: {
+      title: 'Ambre',
+      artist: 'Nils Frahm',
+      artwork: musicPlaceholder,
+      duration_ms: 264000,
+      position_ms: 64000
+    },
+    controls: ['resume', 'play_index', 'stop'],
+    details: {
+      kind: 'music_library',
+      queue: [],
+      queue_index: 0,
+      shuffle: false,
+      track_id: 's-2',
+      album_id: 'al-1',
+      artist_id: 'ar-3'
+    }
+  },
+  'Podcast — skip pair and speed': {
+    source: 'podcast',
+    session: {
+      phase: 'playing',
+      title: 'Les gens qui parlent à leurs plantes',
+      artist: 'Le Code a changé',
+      artwork: podcastPlaceholder,
+      duration_ms: 2940000,
+      position: anchor(812000)
+    },
+    controls: ['pause', 'seek', 'skip', 'set_speed'],
+    details: {
+      kind: 'podcast',
+      episode: {
+        uuid: 'e1',
+        name: 'Les gens qui parlent à leurs plantes',
+        image_url: podcastPlaceholder,
+        podcast: { uuid: 'a1', name: 'Le Code a changé', image_url: podcastPlaceholder }
+      },
+      speed: 1.2
+    },
+    api: { '/api/podcast/playback-speeds': { status: 'success', speeds: [0.8, 1.0, 1.2, 1.5, 1.8, 2.0] } }
+  },
+  'Radio — live stream, song recognized': {
+    source: 'radio',
+    session: {
+      phase: 'playing',
+      title: 'Ainsi parlait Zarathoustra',
+      artist: 'Alain Bashung',
+      artwork: musicPlaceholder
+    },
+    controls: ['stop', 'next', 'prev'],
+    details: {
+      kind: 'radio',
+      station: radioStation('st-nova', 'Radio Nova', stationImageTurntable),
+      track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder }
+    }
+  },
+  // No logo: the cover slot draws the station's generated avatar, which is its
+  // identity rather than a stand-in.
+  'Radio — stopped, no logo': {
+    source: 'radio',
+    resume: { title: 'FIP' },
+    controls: ['resume_playback', 'next', 'prev'],
+    details: { kind: 'radio', station: radioStation('st-fip', 'FIP', null), track: null }
   },
   'CD — paused': {
     source: 'cd',
@@ -217,6 +307,23 @@ const NOW_PLAYING = {
     controls: ['pause', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject']
   }
 };
+
+/** RadioDetails.station, every field present. */
+function radioStation(id, name, favicon) {
+  return {
+    id, name, favicon,
+    url: `https://streams.example/${id}.mp3`,
+    country: 'France', genre: 'eclectic', bitrate: 128, codec: 'MP3'
+  };
+}
+
+/** A complete ResumeView: every key present, nothing named. */
+function resumePoint(overrides) {
+  return {
+    title: null, artist: null, album: null, artwork: null, duration_ms: null, position_ms: null,
+    ...overrides
+  };
+}
 
 /** The files that read the session fields NOW_PLAYING sets. Checked by the guardrail. */
 const NOW_PLAYING_READERS = [
@@ -695,7 +802,8 @@ export const REGISTRY = {
     args: { source: 'spotify', class: 'canvas-fill' },
     notes: {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
-      'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.'
+      'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.',
+      actions: 'What the source adds that is not a command — a station favorite, a star, a like — at the end of the options row.'
     },
     state: {
       nowPlaying: {
@@ -704,10 +812,12 @@ export const REGISTRY = {
         default: 'Spotify — playing',
         apply: (value, stores) => {
           const record = NOW_PLAYING[value] ?? NOW_PLAYING['Spotify — playing'];
+          setApiFixtures(record.api);
           // Published through the app's own handler, whole — the schema is
           // strict, so a partial state would be refused and the last one kept.
           const state = audioState(record.source, {
-            session: session(record.session),
+            session: record.session ? session(record.session) : null,
+            resume: record.resume ? resumePoint(record.resume) : null,
             controls: record.controls,
             details: record.details ?? null
           });
@@ -722,7 +832,7 @@ export const REGISTRY = {
         },
         // What the writer above invents, and where it is read. Declared so the
         // guardrail can check the two still agree — see gallery.test.js.
-        records: Object.values(NOW_PLAYING).map(record => record.session),
+        records: Object.values(NOW_PLAYING).flatMap(record => [record.session, record.resume].filter(Boolean)),
         readBy: NOW_PLAYING_READERS
       }
     },
@@ -732,6 +842,19 @@ export const REGISTRY = {
       'action-buttons': {
         none: null,
         'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'on-grey' } }
+      },
+      // The one place a source puts what is not a command. A ghost button on
+      // the player's light ground needs its color said, as the toggles beside
+      // it do.
+      actions: {
+        none: null,
+        'IconButton — a like': {
+          component: IconButton,
+          props: {
+            icon: 'heart', variant: 'ghost', size: 'small', color: 'var(--color-text)',
+            class: 'transport-secondary-round'
+          }
+        }
       },
       'content-replace': {
         'FillerBlock — CD’s tracklist': {

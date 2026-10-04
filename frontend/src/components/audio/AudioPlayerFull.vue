@@ -1,7 +1,9 @@
-<!-- AudioPlayerFull.vue - Full-screen player for the sources with nothing to browse in Milō.
+<!-- AudioPlayerFull.vue - Full-screen player, for every source that has one.
      What it offers is read from the state, never from its caller: the buttons
-     from `controls`, the play/pause glyph from the session's phase, the bar
-     from the session's duration and position anchor. -->
+     from `controls` (utils/playerControls), the play/pause glyph from the
+     session's phase, the bar from the session's duration and position anchor.
+     What is not a command — a favorite, a star, a like — is the source's to put
+     in `#actions`; the album and artist links are emitted, never followed. -->
 <template>
   <div class="connect-player">
     <!-- source-motion: what the source swap rises, leaving .connect-player (the
@@ -22,10 +24,14 @@
                a blank square reading as a failed image. Which of the two it is
                comes from the shared helper, not from here — the screensaver
                resolves it the same way, and a fallback chosen per view is how
-               the two came to disagree in the first place. -->
-          <div class="artwork" :class="{ 'artwork-pending': artworkPending }">
+               the two came to disagree in the first place. A station with no
+               logo is the one exception to a fallback: the generated avatar
+               is its identity. -->
+          <div v-press="hasEntityLinks" class="artwork"
+            :class="{ 'artwork-pending': artworkPending, 'is-link': hasEntityLinks }" @click="onArtworkClick">
             <img v-if="shownArtwork" :src="shownArtwork"
               alt="" />
+            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
             <img v-else-if="fallback.kind === 'image'" :src="fallback.src"
               alt="" class="artwork-placeholder" />
             <div v-else class="artwork-fallback">
@@ -62,10 +68,38 @@
         <Transition name="player-swap" mode="out-in">
           <div v-if="!hideContent" key="player-info" class="player-info">
             <div class="track-info" :class="{ 'no-controls': !hasTransport }">
+              <!-- What the title belongs to: the station a recognized song
+                   plays on (its cover has replaced the station's), the show an
+                   episode is part of. -->
+              <div v-if="persistentMetadata.kicker" class="track-kicker">
+                <LazyImage v-if="persistentMetadata.kickerIcon !== null" class="track-kicker-icon"
+                  :src="persistentMetadata.kickerIcon" :fallback-name="persistentMetadata.kicker" alt="" />
+                <span class="track-kicker-label text-mono-medium">{{ persistentMetadata.kicker }}</span>
+              </div>
               <h1 class="track-title heading-1">{{ persistentMetadata.title || t('status.unknownTitle') }}</h1>
-              <p class="track-artist heading-2">{{ persistentMetadata.artist || t('status.unknownArtist') }}</p>
+              <p v-if="secondaryLine" v-press="hasEntityLinks" class="track-artist heading-2"
+                :class="{ 'is-link': hasEntityLinks }" @click="onSecondaryClick">{{ secondaryLine }}</p>
             </div>
             <div class="controls-section">
+              <!-- The toggles the source lists, then what the source adds that
+                   is not a command (a favorite, a like). The sources with
+                   nothing to browse have neither, so the row is drawn only when
+                   filled. -->
+              <div v-if="optionControls.length || $slots.actions" class="options-row"
+                :class="isMobile ? 'transport-scale--phone' : 'transport-scale'">
+                <template v-for="control in optionControls" :key="control.id">
+                  <div v-if="control.id === 'speed'" class="speed-selector">
+                    <Dropdown :model-value="speedValue(control)" :options="speedOptions" size="small"
+                      variant="background-neutral" :disabled="!control.enabled" @change="setSpeed" />
+                  </div>
+                  <IconButton v-else :icon="control.icon" variant="ghost" size="small"
+                    class="option-button transport-secondary-round"
+                    :color="control.active ? 'var(--color-text)' : 'var(--color-text-light)'"
+                    :aria-label="optionLabel(control)" :aria-pressed="control.active"
+                    :disabled="!control.enabled" @click="sendSourceCommand(control.command, control.params)" />
+                </template>
+                <slot name="actions" />
+              </div>
               <!-- With a transport the row is always reserved, so the centered
                    track-info does not shift when the bar mounts on play; a
                    receiver without one only takes it while it has a bar. The
@@ -77,9 +111,14 @@
                   :interactive="canSeek" :loading="phase === 'loading'" animateIn @seek="seekTo" />
               </div>
               <div v-if="hasTransport" class="controls-wrapper">
-                <PlaybackControls :isPlaying="pausesOnPress(phase)" :isBuffering="isBuffering"
-                  :hasPrev="hasPrev" :hasNext="hasNext"
-                  @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
+                <div class="controls" :class="isMobile ? 'transport-scale--phone' : 'transport-scale'">
+                  <IconButton v-for="control in transportControls" :key="control.id" :icon="control.icon"
+                    variant="ghost" :size="control.id === 'main' ? 'medium' : 'small'"
+                    :color="control.id === 'main' ? 'var(--color-text)' : 'var(--color-text-light)'"
+                    class="control-button" :class="transportClass(control)"
+                    :loading="control.id === 'main' && isBuffering" :disabled="!control.enabled"
+                    @click="pressTransport(control)" />
+                </div>
               </div>
               <div v-else class="source-bar">
                 <AppIcon :name="source" :size="40" />
@@ -104,21 +143,27 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { usePodcastStore } from '@/stores/podcastStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
+import { useIsMobile } from '@/composables/useIsMobile';
 import { useI18n } from '@/services/i18n';
-import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import { AUDIO_SOURCE_LABEL_KEYS, TRACK_LAYOUT_SOURCES } from '@/constants/audioSources';
 import { formatDeviceNames } from '@/utils/deviceName';
+import { getFaviconUrl } from '@/utils/faviconUrl';
+import { generateStationAvatarSvg } from '@/utils/stationAvatar';
+import { playerControls } from '@/utils/playerControls';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
-import { pausesOnPress } from '@/utils/transport';
 import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
 import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
-import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
+import LazyImage from '@/components/ui/LazyImage.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
@@ -132,9 +177,17 @@ const props = defineProps({
   }
 });
 
+// The album and artist behind the cover and the artist line. The player does
+// not know how to open either: its source does, in its own browser.
+const emit = defineEmits(['artwork-click', 'secondary-click']);
+
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
-const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } = useSourceProgress(props.source);
+const podcastStore = usePodcastStore();
+const { isMobile } = useIsMobile();
+const {
+  currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized
+} = useSourceProgress(props.source);
 
 // Remount the right column (title/controls) to replay its entrance when the
 // screensaver is dismissed — the artwork column is left untouched on purpose.
@@ -145,70 +198,169 @@ const revealNonce = useScreensaverRevealNonce();
 const isSelected = computed(() => unifiedStore.systemState.source === props.source);
 const session = computed(() => (isSelected.value ? unifiedStore.systemState.session : null));
 const controls = computed(() => (isSelected.value ? unifiedStore.systemState.controls : []));
+const details = computed(() => (isSelected.value ? unifiedStore.systemState.details : null));
 const phase = computed(() => session.value?.phase ?? null);
 
-// === TRANSPORT ===
-// A source drives its transport from here when it takes pause or resume; the
-// receivers (AirPlay, Qobuz) take neither and draw a source bar instead.
-// Latched on a settled state: while switching away `controls` is empty, and
-// the player leaving must not trade its transport for a source bar mid-fade.
-const hasTransport = ref(false);
+// === CONTROLS ===
+// Which buttons are drawn is read from a settled state: while switching away
+// `controls` is empty, and the player leaving must not trade its transport for
+// a source bar mid-fade. Whether each one is enabled, and a toggle's state, is
+// the live list's — a button the source would refuse now shows disabled.
+const settled = ref({ controls: [], details: null });
 watch(
   () => {
     const { switching, service } = unifiedStore.systemState;
-    return isSelected.value && !switching && service === 'running' ? controls.value : null;
+    return isSelected.value && !switching && service === 'running'
+      ? { controls: controls.value, details: details.value }
+      : null;
   },
-  (settled) => {
-    if (settled) hasTransport.value = settled.includes('pause') || settled.includes('resume');
+  (state) => {
+    if (state) settled.value = state;
   },
   { immediate: true }
 );
-const canSeek = computed(() => controls.value.includes('seek'));
-// `next` is absent on the last track of a disc or a queue.
-const hasPrev = computed(() => controls.value.includes('prev'));
-const hasNext = computed(() => controls.value.includes('next'));
+
+const liveControls = computed(() => playerControls({ controls: controls.value, details: details.value, phase: phase.value }));
+const shownControls = computed(() => {
+  const live = new Map(liveControls.value.map(control => [control.id, control]));
+  return playerControls({ ...settled.value, phase: phase.value })
+    .map(control => live.get(control.id) ?? { ...control, enabled: false });
+});
+const transportControls = computed(() => shownControls.value.filter(control => control.row === 'transport'));
+const optionControls = computed(() => shownControls.value.filter(control => control.row === 'options'));
+// The receivers (AirPlay, Qobuz) list no main command and draw a source bar instead.
+const hasTransport = computed(() => transportControls.value.length > 0);
+const canSeek = computed(() => liveControls.value.some(control => control.id === 'seek'));
 const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
 
 const isBuffering = useDelayedFlag(() => phase.value === 'loading');
 
 // sendCommand swallows + logs errors via the store. A command the source does
 // not list now would be refused, so it is not sent.
-function sendSourceCommand(command) {
+function sendSourceCommand(command, data) {
   if (!controls.value.includes(command)) return;
-  unifiedStore.sendCommand(props.source, command);
+  unifiedStore.sendCommand(props.source, command, data);
 }
 
-function togglePlayPause() {
-  sendSourceCommand(pausesOnPress(phase.value) ? 'pause' : 'resume');
+function pressTransport(control) {
+  // A relative move goes through the playhead, which shows a burst's sum at once.
+  if (control.command === 'skip') {
+    if (controls.value.includes('skip')) skip(control.seconds);
+    return;
+  }
+  sendSourceCommand(control.command);
 }
 
-function previousTrack() {
-  sendSourceCommand('prev');
+// The flanking glyphs fill their box in both axes or not, which sets their
+// rung (design-system.css § transport roles).
+function transportClass(control) {
+  if (control.id === 'main') return 'control-button--primary transport-primary';
+  return control.command === 'skip' ? 'transport-secondary-round' : 'transport-secondary';
 }
 
-function nextTrack() {
-  sendSourceCommand('next');
+const REPEAT_LABEL_KEYS = {
+  off: 'spotify.repeatOff',
+  context: 'spotify.repeatContext',
+  track: 'spotify.repeatTrack',
+};
+
+function optionLabel(control) {
+  if (control.id === 'repeat') return t(REPEAT_LABEL_KEYS[control.mode]);
+  return t('spotify.shuffle');
+}
+
+// The speeds are the backend's list, fetched whenever a source starts offering
+// the control; the speed in force is the one its details publish.
+const speedOptions = computed(() =>
+  podcastStore.playbackSpeeds.map(speed => ({ label: `${speed}x`, value: String(speed) }))
+);
+watch(
+  () => optionControls.value.some(control => control.id === 'speed'),
+  (offered) => {
+    if (offered) podcastStore.loadPlaybackSpeeds();
+  },
+  { immediate: true }
+);
+
+function speedValue(control) {
+  return control.value === null ? null : String(control.value);
+}
+
+function setSpeed(value) {
+  sendSourceCommand('set_speed', { speed: parseFloat(value) });
+}
+
+// === LINKS ===
+// Only a track has an album and an artist to open — the same rule AudioPlayer
+// applies; a station or an episode draws the same cover and line, inert.
+const hasEntityLinks = computed(() => TRACK_LAYOUT_SOURCES.includes(props.source));
+
+function onArtworkClick() {
+  if (hasEntityLinks.value) emit('artwork-click');
+}
+
+function onSecondaryClick() {
+  if (hasEntityLinks.value) emit('secondary-click');
 }
 
 // === METADATA PERSISTENCE ===
 // The last record worth naming, so the title and cover do not blank out while
 // the player leaves (a source switch clears the record under it) — see the util.
+// The lines around the title come from the details and are kept with it.
 const lastValidMetadata = ref({
   title: '',
   artist: '',
-  artwork: ''
+  artwork: '',
+  kicker: null,
+  kickerIcon: null,
+  avatarName: '',
+  secondary: true
 });
 
+/**
+ * What surrounds the title, by what the details say the record is.
+ *
+ * A radio's record names a recognized song or, without one, the station
+ * itself; the station moves to the kicker only once the song's own cover has
+ * replaced the station's, and a station has no artist line to fall back on.
+ * An episode's `artist` is its show, which the kicker already says. Anything
+ * else is a track, and a track always has an artist line.
+ */
+function linesOf(current) {
+  const kind = current?.kind;
+  if (kind === 'radio') {
+    const station = current.station;
+    const coverIsTrack = !!current.track?.artwork;
+    return {
+      kicker: coverIsTrack ? station.name : null,
+      kickerIcon: coverIsTrack ? getFaviconUrl(station.favicon) : null,
+      avatarName: station.name || '',
+      secondary: false
+    };
+  }
+  if (kind === 'podcast') {
+    return { kicker: current.episode?.podcast?.name || null, kickerIcon: null, avatarName: '', secondary: false };
+  }
+  return { kicker: null, kickerIcon: null, avatarName: '', secondary: true };
+}
+
 watch(
-  () => nowPlayingOf(unifiedStore.systemState, props.source),
-  (record) => {
+  () => [nowPlayingOf(unifiedStore.systemState, props.source), details.value],
+  ([record, current]) => {
     const snapshot = nowPlayingSnapshot(record);
-    if (snapshot) lastValidMetadata.value = snapshot;
+    if (snapshot) lastValidMetadata.value = { ...snapshot, ...linesOf(current) };
   },
   { immediate: true }
 );
 
 const persistentMetadata = computed(() => lastValidMetadata.value);
+
+// A track with no artist says so; a station or an episode has no such line.
+const secondaryLine = computed(() => {
+  const { artist, secondary } = persistentMetadata.value;
+  if (secondary) return artist || t('status.unknownArtist');
+  return artist && artist !== persistentMetadata.value.kicker ? artist : '';
+});
 
 // Who is sending, when the channel says so: AirPlay's and Bluetooth's sender.
 // Nothing identifies the sender on the other receiver channels — the Qobuz
@@ -227,6 +379,13 @@ const targetArtwork = computed(() => nowPlayingArtwork(persistentMetadata.value)
 // What the slot shows with no cover at all — a bundled placeholder for the
 // sources that ship one, this source's own glyph otherwise.
 const fallback = computed(() => artworkFallback(props.source));
+// The generated station avatar, and only where the helper says so (radio):
+// inline markup rather than an image, so it renders in the app's own font.
+const stationAvatarSvg = computed(() => {
+  if (fallback.value.kind !== 'avatar') return '';
+  const name = persistentMetadata.value.avatarName || persistentMetadata.value.title;
+  return name ? generateStationAvatarSvg(name) : '';
+});
 
 // Holding the outgoing cover under a veil while the next one decodes is shared
 // with the screensaver — the two are superimposed during its leave crossfade,
@@ -407,6 +566,14 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   object-fit: cover;
 }
 
+/* Inline-SVG station avatar fills its wrapper like the real artwork. */
+.artwork-avatar,
+.artwork-avatar :deep(svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .artwork-fallback {
   width: 100%;
   height: 100%;
@@ -428,6 +595,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
    samples past the element's edge, and without it the rounded corners show a
    translucent halo against the player background. */
 .artwork > img,
+.artwork > .artwork-avatar,
 .artwork > .artwork-fallback {
   transition:
     filter var(--transition-medium),
@@ -435,6 +603,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 }
 
 .artwork-pending > img,
+.artwork-pending > .artwork-avatar,
 .artwork-pending > .artwork-fallback {
   filter: blur(var(--blur-02));
   transform: scale(1.06);
@@ -518,6 +687,90 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The transport plate. space-evenly splits what the plate's padding leaves, so
+   the side padding is the one knob that sets the whole rhythm — the reasoning
+   and the measurements behind --space-06 are PlaybackControls.vue's, whose
+   plate this one draws. */
+.controls {
+  background: var(--color-background);
+  border-radius: var(--radius-06);
+  display: flex;
+  justify-content: space-evenly;
+  align-items: center;
+  padding: var(--space-01) var(--space-06);
+}
+
+/* The tap target, which is NOT the icon and does not follow it: 80/90px circles
+   sized for a finger on the kiosk. IconButton sizes itself from its padding, so
+   without these the buttons would collapse to the icon plus 8px. */
+.controls .control-button {
+  width: 80px;
+  height: 80px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--color-text-light);
+}
+
+.controls .control-button--primary {
+  width: 90px;
+  height: 90px;
+  color: var(--color-text);
+}
+
+/* The ghost variant assumes a dark ground and dims its own color while
+   loading; this row sits on --color-background, so the spinner keeps the icon's
+   tone instead. */
+.controls .control-button--primary.icon-button--loading {
+  color: var(--color-text);
+}
+
+/* Toggles and the source's own actions, one centred row above the bar. */
+.options-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-04);
+  min-width: 0;
+}
+
+.speed-selector {
+  flex-shrink: 0;
+}
+
+/* The station or the show above the title. */
+.track-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-02);
+  min-width: 0;
+}
+
+.track-kicker-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-01);
+  overflow: hidden;
+}
+
+.track-kicker-label {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The album behind the cover, the artist behind the line. */
+.artwork.is-link {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.track-artist.is-link {
+  cursor: pointer;
 }
 
 /* Source bar (AirPlay device info) */

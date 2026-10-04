@@ -24,10 +24,14 @@
       {{ id ? `No playground descriptor for "${id}".` : 'Waiting for the gallery…' }}
     </p>
 
+    <!-- Keyed on the `source` arg too: a player resolves its source once, at
+         setup — in the app each source mounts its own — so a record moving the
+         prop to another source has to mount a new one, or the bar keeps
+         following the first source's playhead. -->
     <component
       :is="entry.component"
       v-else-if="!entry.alwaysMounted"
-      :key="id"
+      :key="`${id}:${args.source ?? ''}`"
       v-bind="bound"
       v-on="listeners"
     >
