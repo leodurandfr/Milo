@@ -793,6 +793,13 @@ onUnmounted(() => {
 }
 
 @media (max-aspect-ratio: 4/3) {
+  .additional-app-content,
+  .volume-btn,
+  .dock-separator,
+  .toggle-btn {
+    background: var(--color-panel);
+  }
+
   .desktop-only {
     display: none;
   }
