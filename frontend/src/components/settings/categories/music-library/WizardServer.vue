@@ -15,7 +15,9 @@
         </div>
       </template>
 
-      <div v-if="discovering" class="wiz-center"><LoadingSpinner :size="40" /></div>
+      <div v-if="discovering" class="wiz-list">
+        <SkeletonListItem v-for="i in 2" :key="i" subtitle="body" />
+      </div>
 
       <div v-else-if="servers.length" class="wiz-list">
         <!-- Servers already added as a share are shown greyed + "already connected"
@@ -56,7 +58,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 
 defineEmits(['select', 'manual']);
 
@@ -101,16 +103,6 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
-.wiz-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Reserve the height of two server rows (title + subtitle list items) + the
-     list gap, so the panel doesn't resize when discovery finishes. Measured row
-     height: 62px desktop / 58px mobile; list gap = space-01. */
-  min-height: calc(2 * 62px + var(--space-01));
-}
-
 .wiz-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -135,10 +127,6 @@ onMounted(() => {
 
 /* Mobile rows are a touch shorter (58px) — keep the loading block at 2 rows. */
 @media (max-aspect-ratio: 4/3) {
-  .wiz-center {
-    min-height: calc(2 * 58px + var(--space-01));
-  }
-
   .wiz-actions {
     grid-template-columns: 1fr;
   }

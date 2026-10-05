@@ -10,7 +10,7 @@
 
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="store.searchLoading" key="loading" loading :loading-delay="0" :title="t('musicLibrary.loading')" />
+        <MessageContent v-if="store.searchLoading" key="loading" loading :loading-delay="0" />
 
         <div v-else-if="store.hasSearched && !store.searchEmpty" key="results" class="content-stack">
           <!-- Artists -->

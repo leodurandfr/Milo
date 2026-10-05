@@ -2,7 +2,7 @@
   <div class="queue-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="loading" key="loading" loading :title="t('podcasts.loading')" />
+        <MessageContent v-if="loading" key="loading" loading />
 
         <MessageContent
           v-else-if="episodes.length === 0"

@@ -7,7 +7,7 @@
     <SvgIcon v-else-if="icon" :name="icon" :size="48" :color="iconColor" />
 
     <!-- Content always visible (even while loading) -->
-    <p v-if="title" class="heading-2 mc-title">{{ title }}</p>
+    <p v-if="displayTitle" class="heading-2 mc-title">{{ displayTitle }}</p>
     <p v-if="subtitle" class="text-body mc-subtitle" v-html="subtitle"></p>
     <p v-if="details" class="text-body mc-details">{{ details }}</p>
     <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
@@ -24,6 +24,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useTimer } from '@/composables/useTimer'
+import { useI18n } from '@/services/i18n'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
@@ -90,6 +91,12 @@ const props = defineProps({
     default: null
   }
 })
+
+const { t } = useI18n()
+
+// A loading card always says so: a caller with nothing more specific to name
+// gets the generic line, rather than a spinner alone.
+const displayTitle = computed(() => props.title || (props.loading ? t('common.loading') : null))
 
 const iconColor = computed(() =>
   props.variant === 'on-contrast' ? 'var(--color-text-on-contrast-secondary)' : 'var(--color-text-faint)'

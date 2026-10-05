@@ -57,6 +57,7 @@ import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Radio from '@/components/ui/Radio.vue';
@@ -431,6 +432,11 @@ export const REGISTRY = {
         'text override': { text: 'Slotted subtitle' }
       }
     }
+  },
+
+  SkeletonListItem: {
+    component: SkeletonListItem,
+    args: { subtitle: 'body', class: 'canvas-column' }
   },
 
   Toggle: {

@@ -8,7 +8,7 @@
     <div class="swap-stack">
       <Transition name="fade-slide">
         <!-- Loading state -->
-        <MessageContent v-if="loading" key="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
+        <MessageContent v-if="loading" key="loading" loading :loading-delay="0" />
 
         <!-- Apple did not answer — subscriptions and playback are unaffected -->
         <MessageContent

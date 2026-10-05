@@ -94,6 +94,19 @@
       <ListItemButton title="Disabled" action="toggle" :model-value="false" disabled />
     </GalleryVariant>
   </GalleryItem>
+
+  <GalleryItem id="SkeletonListItem">
+    <GalleryVariant label="each placeholder above the row it replaces" stacked>
+      <SkeletonListItem :icon="false" />
+      <ListItemButton title="Plain row" @click="clicks++" />
+      <SkeletonListItem subtitle="body" />
+      <ListItemButton title="Radio" subtitle="With an icon in the leading slot" action="caret" @click="clicks++">
+        <template #icon>
+          <AppIcon name="radio" :size="32" />
+        </template>
+      </ListItemButton>
+    </GalleryVariant>
+  </GalleryItem>
 </template>
 
 <script setup>
@@ -104,6 +117,7 @@ import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 
 // Split by backdrop, not alphabetically. Six of Button's seven variants are

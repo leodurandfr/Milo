@@ -2,7 +2,7 @@
   <div class="artist-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="loading && !artist" key="loading" loading :title="t('musicLibrary.loading')" />
+        <MessageContent v-if="loading && !artist" key="loading" loading />
         <MessageContent v-else-if="!artist" key="notfound" :title="t('musicLibrary.notFound')" />
         <div v-else key="loaded" class="content-stack">
           <DetailHeader

@@ -15,7 +15,7 @@
         <template v-if="viewMode === 'tracks'">
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <MessageContent v-if="loading && !songs.length" key="loading" loading :title="t('musicLibrary.loading')" />
+              <MessageContent v-if="loading && !songs.length" key="loading" loading />
               <MessageContent v-else-if="!songs.length" key="notfound" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="content-stack">
                 <div class="genre-actions">
@@ -51,7 +51,7 @@
         <template v-else>
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <MessageContent v-if="loading && !albums.length" key="loading" loading :title="t('musicLibrary.loading')" />
+              <MessageContent v-if="loading && !albums.length" key="loading" loading />
               <MessageContent v-else-if="!albums.length" key="notfound" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="albums-grid">
                 <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />

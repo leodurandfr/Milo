@@ -148,6 +148,12 @@ export const ENTRIES = [
     file: 'components/ui/ListItemButton.vue',
     summary: 'The settings row. action swaps the trailing affordance (caret / Toggle / Radio); interactive: false renders a plain div for a read-only row.',
   },
+  {
+    id: 'SkeletonListItem',
+    group: 'actions',
+    file: 'components/ui/SkeletonListItem.vue',
+    summary: 'ListItemButton\'s placeholder while a settings list is fetched (multiroom systems, the share wizard\'s servers and folders). `icon` and `subtitle` mirror the row it stands for, each bar sitting in a line of that row\'s typography, so the list keeps its height when the rows arrive.',
+  },
 
   // --- Input & controls ---
   {

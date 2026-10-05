@@ -215,7 +215,7 @@ async function loadAvailableCountries() {
 
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
-    return [{ label: t('radio.manageStation.loading'), value: '' }];
+    return [{ label: t('audioSources.radioSource.loadingCountries'), value: '' }];
   }
   const translatedOptions = createCountryOptions(getCurrentLanguage(), availableCountries.value, '');
   // Bind to ISO so the country name and the translation stay in sync regardless

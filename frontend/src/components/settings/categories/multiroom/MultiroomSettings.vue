@@ -38,8 +38,8 @@
               </SectionHeader>
             </template>
 
-            <div v-if="snapcastStore.isLoading" class="loading-state">
-              <p class="text-mono-medium">{{ t('multiroom.loadingSystems') }}</p>
+            <div v-if="snapcastStore.isLoading" class="ungrouped-clients">
+              <SkeletonListItem v-for="i in 2" :key="i" subtitle="mono" />
             </div>
 
             <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
@@ -206,6 +206,7 @@ import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
+import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
@@ -506,7 +507,6 @@ onBeforeUnmount(() => {
   background: var(--color-border);
 }
 
-.loading-state,
 .no-clients-state {
   text-align: center;
   padding: var(--space-04);

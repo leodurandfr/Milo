@@ -2,8 +2,7 @@
   <div class="liked-songs-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading"
-          loading :title="t('musicLibrary.loading')" />
+        <MessageContent v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" loading />
         <MessageContent v-else-if="!store.likedSongs.length" key="empty" :title="t('musicLibrary.noTracks')" />
 
         <div v-else key="loaded" class="content-stack">

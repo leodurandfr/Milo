@@ -62,7 +62,9 @@
       </template>
 
       <!-- Loading a level -->
-      <div v-else-if="phase === 'loading'" class="wb-center"><LoadingSpinner :size="40" /></div>
+      <div v-else-if="phase === 'loading'" class="wb-list">
+        <SkeletonListItem v-for="i in 3" :key="i" :icon="false" />
+      </div>
 
       <!-- Unreachable / error -->
       <template v-else-if="phase === 'error'">
@@ -130,7 +132,7 @@ import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
@@ -339,12 +341,6 @@ load('');
 
 .wb-sep {
   color: var(--color-text-tertiary);
-}
-
-.wb-center {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-05);
 }
 
 .wb-list {
