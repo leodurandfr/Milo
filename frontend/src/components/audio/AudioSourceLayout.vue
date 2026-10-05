@@ -335,6 +335,10 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   height: 100%;
   padding: 0 var(--space-07);
   overflow-y: auto;
+  /* A row bleeds to the screen's edge, and while the player opens its bleed
+     is already the final one but the column is not yet narrowed: for that
+     moment it runs past the edge, which must clip rather than scroll. */
+  overflow-x: hidden;
   /* Hide the scrollbar (Firefox) so a scrollbar appearing/disappearing never
      reflows the content-box width — otherwise .content-container's percentage
      width resolves differently and its width transition animates the shift. */
@@ -382,6 +386,9 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
      against the column's width, of which 8% of the frame is 8/84. */
   --content-bleed-start: calc(var(--space-07) + 100% * 8 / 84);
   --content-bleed-end: var(--content-bleed-start);
+  /* How long a row takes, past the column, to recede to what it shows out
+     there. */
+  --content-bleed-fade: var(--space-08);
   position: relative;
   z-index: 1;
   width: 84%;
@@ -412,9 +419,10 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 }
 
 .content-container.has-player {
-  /* The column starts at the frame's padding and ends at the player's gap. */
+  /* The column starts at the frame's padding; a row runs on to the screen's
+     edge, under the player, which paints over it. */
   --content-bleed-start: var(--space-07);
-  --content-bleed-end: var(--space-06);
+  --content-bleed-end: calc(var(--audio-player-wrapper-width) + var(--space-07));
   width: calc(100% - var(--audio-player-wrapper-width));
   transition:
     width var(--transition-spring),
