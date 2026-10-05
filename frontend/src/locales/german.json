@@ -523,8 +523,8 @@
     "repeatOff": "Wiederholung aus",
     "repeatTrack": "Titel wiederholen",
     "takeOver": "Auf Milō hören",
-    "stopPlayback": "Wiedergabe beenden",
-    "resumePlayback": "Wiedergabe fortsetzen",
+    "stop": "Stoppen",
+    "play": "Wiedergeben",
     "shuffle": "Zufallswiedergabe"
   },
   "radio": {

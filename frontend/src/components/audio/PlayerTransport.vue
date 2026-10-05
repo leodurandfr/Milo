@@ -151,8 +151,8 @@ const REPEAT_LABEL_KEYS = {
 // A button that says what it does in words, by its command.
 const LABEL_KEYS = {
   take_over: 'player.takeOver',
-  stop: 'player.stopPlayback',
-  resume_playback: 'player.resumePlayback',
+  stop: 'player.stop',
+  resume_playback: 'player.play',
 };
 
 function toggleLabel(control) {

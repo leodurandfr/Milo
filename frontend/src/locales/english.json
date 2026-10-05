@@ -523,8 +523,8 @@
     "repeatOff": "Repeat off",
     "repeatTrack": "Repeat the track",
     "takeOver": "Listen on Milō",
-    "stopPlayback": "Stop playback",
-    "resumePlayback": "Resume playback",
+    "stop": "Stop",
+    "play": "Play",
     "shuffle": "Shuffle"
   },
   "radio": {

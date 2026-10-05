@@ -133,7 +133,7 @@ These are shared by every source; they break for all of them at once.
 | Favourites | The favourites grid renders with logos | smoke |
 | Playback | Tapping a station plays within a few seconds; play/pause works | smoke |
 | Station info | Name, genre, codec and bitrate shown under the player | smoke |
-| Transport | The full player and the kiosk's playing bar show one labelled button, "Stop playback" ("Resume playback" once stopped), with the heart across from it; the phone's mini-bar shows the stop glyph alone. Rotary double/triple-click and the IR remote's next/prev keys do nothing | targeted |
+| Transport | The full player and the kiosk's playing bar show one labelled button, "Stop" ("Play" once stopped), with the heart across from it; the phone's mini-bar shows the stop glyph alone. Rotary double/triple-click and the IR remote's next/prev keys do nothing | targeted |
 | Track recognition | With recognition on, a recognised track's title + artist appear within ~30 s and update on track change | targeted |
 | Custom station | An added/customised station keeps its name, image and stream URL after a backend restart | targeted |
 | Custom station, added | Réglages → Webradio: add a station → it appears in the favorites grid at once, its heart filled and disabled; the catalog search does not list it | targeted |
