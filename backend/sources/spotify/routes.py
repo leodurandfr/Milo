@@ -1,7 +1,8 @@
 # backend/sources/spotify/routes.py
 """
-FastAPI routes for the Spotify browser: the signed-in account's library, its
-Liked Songs, and the profiles Milō keeps.
+FastAPI routes for the Spotify browser: the signed-in account's home and
+library, the listings it opens (a track's radio among them), and the profiles
+Milō keeps.
 
 Playback is not here: `play_context`, shuffle and repeat are commands, through
 `POST /api/audio/control/spotify`. These routes answer only while the source
@@ -11,9 +12,9 @@ the browser reads as "signing in" or "cast from your phone", never as a fault.
 import asyncio
 import contextlib
 import logging
-from typing import Annotated, List
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
@@ -27,10 +28,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/spotify", tags=["spotify"])
 
 set_source_provider, get_source = make_source_dependency("Spotify")
-
-# go-librespot's /library/liked takes 1 to 50 uris per call.
-MAX_LIKED_URIS = 50
-
 
 def setup_spotify_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
@@ -141,31 +138,22 @@ async def get_context_cover(uri: str, source: SpotifySource = Depends(get_source
     return RedirectResponse(cover, status_code=302)
 
 
-@router.get("/liked-tracks")
-async def get_liked_tracks(
-    uris: str = Query(..., description="Comma-separated track uris, 1 to 50"),
+@router.get("/tracks/{uri}/radio")
+async def get_track_radio(
+    uri: Annotated[str, Path(pattern=r"^spotify:track:[A-Za-z0-9]{22}$")],
     source: SpotifySource = Depends(get_source),
 ):
-    """Which of these tracks are in the account's Liked Songs."""
-    wanted: List[str] = [uri for uri in uris.split(",") if uri]
-    if not wanted or len(wanted) > MAX_LIKED_URIS:
-        raise HTTPException(status_code=422, detail=f"1 to {MAX_LIKED_URIS} uris")
-    async with _library_errors("Spotify liked tracks"):
-        return {"status": "success", "items": await source.library.liked(wanted)}
-
-
-@router.put("/liked-tracks/{uri}")
-async def like_track(uri: str, source: SpotifySource = Depends(get_source)):
-    async with _library_errors("Spotify like"):
-        await source.library.set_liked([uri], True)
-        return {"status": "success"}
-
-
-@router.delete("/liked-tracks/{uri}")
-async def unlike_track(uri: str, source: SpotifySource = Depends(get_source)):
-    async with _library_errors("Spotify unlike"):
-        await source.library.set_liked([uri], False)
-        return {"status": "success"}
+    """The playlist Spotify makes as this track's radio, which the browser
+    opens like any other. A local file has none, and is refused (422)."""
+    if source.account is None:
+        logger.warning("Spotify track radio: nobody is signed in")
+        raise HTTPException(status_code=409, detail="Spotify is not signed in")
+    async with _library_errors("Spotify track radio"):
+        radio = await source.library.track_radio(uri)
+    if radio is None:
+        logger.debug("Spotify track radio: Spotify answered none for this track")
+        raise HTTPException(status_code=404, detail="No radio for this track")
+    return {"status": "success", "uri": radio}
 
 
 # === Profiles ===

@@ -36,8 +36,13 @@
     </div>
     <template v-else>
       <span class="track-duration text-mono-medium">{{ formatDuration(song.duration) }}</span>
-      <button v-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
-        :aria-label="menuLabel || t('musicLibrary.playlists.addToPlaylist')"
+      <!-- A caller's own menu in place of the button. Its click reaches the
+           document, so a menu left open on another row hears it and closes. -->
+      <div v-if="$slots.menu" class="track-menu-slot" @pointerdown.stop>
+        <slot name="menu" />
+      </div>
+      <button v-else-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
+        :aria-label="t('musicLibrary.playlists.addToPlaylist')"
         @pointerdown.stop @click.stop="$emit('menu')">
         <SvgIcon name="threeDots" :size="20" />
       </button>
@@ -105,11 +110,6 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  // What the ⋯ button does, for its accessible name.
-  menuLabel: {
-    type: String,
-    default: '',
-  },
 });
 
 const emit = defineEmits(['play', 'menu', 'remove', 'grip-down', 'artist']);
@@ -118,7 +118,8 @@ const { t } = useI18n();
 
 const displayTitle = computed(() => props.song.title || props.song.name || props.fallbackTitle);
 
-function onRowClick() {
+function onRowClick(event) {
+  if (event.target.closest('.track-menu-slot')) return;
   if (!props.editing) emit('play', props.number);
 }
 
@@ -250,6 +251,11 @@ function formatDuration(totalSeconds) {
 
 .track-remove {
   color: var(--color-error);
+}
+
+.track-menu-slot {
+  flex-shrink: 0;
+  display: flex;
 }
 
 .track-artist-link {

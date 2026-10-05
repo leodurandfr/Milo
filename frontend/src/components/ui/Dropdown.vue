@@ -37,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
@@ -243,16 +243,19 @@ function handleScroll(event) {
   isOpen.value = false;
 }
 
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
-  window.addEventListener('resize', handleResize);
-  window.addEventListener('scroll', handleScroll, true); // Use capture phase for all scroll events
-});
+// Listened to only while open: a tracklist mounts one menu per row, and a
+// thousand rows each hearing every scroll event is felt on the Pi.
+function listen(on) {
+  const method = on ? 'addEventListener' : 'removeEventListener';
+  document[method]('click', handleClickOutside);
+  window[method]('resize', handleResize);
+  window[method]('scroll', handleScroll, true); // Use capture phase for all scroll events
+}
+
+watch(isOpen, listen);
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside);
-  window.removeEventListener('resize', handleResize);
-  window.removeEventListener('scroll', handleScroll, true);
+  if (isOpen.value) listen(false);
 });
 </script>
 

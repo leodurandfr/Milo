@@ -6,8 +6,6 @@ import { i18n } from '@/services/i18n';
 import { bcp47For } from '@/constants/countries';
 
 const BASE = '/api/spotify';
-// go-librespot's /library/liked answers for 1 to 50 tracks per call.
-const LIKED_BATCH = 50;
 // A listing request answers as soon as more tracks are described, else after
 // about 6 s: 20 answers in a row bringing nothing is two minutes of a listing
 // that stopped moving, which no measured one came near (1159 tracks took 12 s
@@ -19,10 +17,9 @@ const MAX_IDLE_ROUNDS = 20;
 const NOT_SIGNED_IN = 409;
 
 /**
- * The Spotify browser: what the signed-in account's library holds, which of
- * its tracks are liked, and the profiles Milō keeps. What plays — and whose
- * library it is — is derived from the audio state (`details.spotify`), never
- * fetched.
+ * The Spotify browser: what the signed-in account's library holds, and the
+ * profiles Milō keeps. What plays — and whose library it is — is derived from
+ * the audio state (`details.spotify`), never fetched.
  */
 export const useSpotifyStore = defineStore('spotify', () => {
   const unifiedStore = useUnifiedAudioStore();
@@ -132,7 +129,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
       if (contexts.value[uri] !== entry) continue;
       const { complete, cached, length, tracks } = result.data;
       contexts.value = { ...contexts.value, [uri]: { complete, cached, length, tracks: known.concat(tracks) } };
-      if (uri === home.value?.liked_songs_uri) markLiked(tracks);
       if (complete) return;
       idle = tracks.length ? 0 : idle + 1;
     }
@@ -140,52 +136,47 @@ export const useSpotifyStore = defineStore('spotify', () => {
   }
 
   // =========================================================================
-  // LIKED — which tracks are in Liked Songs
+  // TRACK MENU — what a row's ⋯ menu needs to know before it opens
   // =========================================================================
-  // uri → boolean; absent: not known yet (TrackRow draws no heart)
-  const liked = ref({});
+  // Each asked once per uri and account, the request itself kept so a second
+  // press waits on the first; a failure is forgotten, to be asked again.
+  let radios = new Map();
+  let contextLengths = new Map();
 
-  const isLiked = (uri) => (uri in liked.value ? liked.value[uri] : null);
-
-  function markLiked(tracks) {
-    const next = { ...liked.value };
-    for (const track of tracks) next[track.uri] = true;
-    liked.value = next;
+  function askOnce(cache, uri, ask) {
+    if (!cache.has(uri)) {
+      const asked = ask().then((answer) => {
+        if (answer === null) cache.delete(uri);
+        return answer;
+      });
+      cache.set(uri, asked);
+    }
+    return cache.get(uri);
   }
 
-  async function fetchLiked(uris) {
-    const unknown = [...new Set(uris)].filter((uri) => uri && !(uri in liked.value));
-    for (let start = 0; start < unknown.length; start += LIKED_BATCH) {
-      const batch = unknown.slice(start, start + LIKED_BATCH);
-      const result = await apiCall.get(`${BASE}/liked-tracks`, {
-        params: { uris: batch.join(',') },
+  // The playlist Spotify makes as a track's radio; null when it gave none.
+  function trackRadio(uri) {
+    return askOnce(radios, uri, async () => {
+      const result = await apiCall.get(`${BASE}/tracks/${encodeURIComponent(uri)}/radio`, {
         category: 'spotify',
-        message: 'Error reading Spotify liked tracks',
+        message: 'No Spotify radio for a track',
         logLevel: 'warn',
       });
-      if (!result.ok) return;
-      const next = { ...liked.value };
-      for (const item of result.data.items) next[item.uri] = item.liked;
-      liked.value = next;
-    }
+      return result.ok ? result.data.uri : null;
+    });
   }
 
-  // Optimistic: the heart turns at once and turns back if Spotify refused.
-  async function setLiked(uri, on) {
-    if (!uri) return false;
-    const before = isLiked(uri);
-    liked.value = { ...liked.value, [uri]: on };
-    const path = `${BASE}/liked-tracks/${encodeURIComponent(uri)}`;
-    const options = { category: 'spotify', message: `Error ${on ? 'liking' : 'unliking'} a Spotify track` };
-    const result = on ? await apiCall.put(path, {}, options) : await apiCall.delete(path, options);
-    if (!result.ok) {
-      const reverted = { ...liked.value };
-      if (before === null) delete reverted[uri];
-      else reverted[uri] = before;
-      liked.value = reverted;
-      return false;
-    }
-    return true;
+  // How many tracks a context holds — the first answer of its listing says,
+  // well before the listing is complete (an album: ~0.5 s, measured).
+  function contextLength(uri) {
+    return askOnce(contextLengths, uri, async () => {
+      const result = await apiCall.get(`${BASE}/contexts/${encodeURIComponent(uri)}`, {
+        category: 'spotify',
+        message: 'Error reading the length of a Spotify list',
+        logLevel: 'warn',
+      });
+      return result.ok ? result.data.length : null;
+    });
   }
 
   // =========================================================================
@@ -242,7 +233,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
     homeError.value = null;
     contexts.value = {};
     contextErrors.value = {};
-    liked.value = {};
+    radios = new Map();
+    contextLengths = new Map();
     if (now) loadProfiles();
   });
 
@@ -270,8 +262,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
     home, homeLoading, homeError, loadHome,
     // contexts
     contexts, contextErrors, loadContext,
-    // liked
-    liked, isLiked, fetchLiked, setLiked,
+    // track menu
+    trackRadio, contextLength,
     // profiles
     profiles, profilesLoaded, opensOnProfiles, loadProfiles, switchProfile, renameProfile, forgetProfile,
     // commands

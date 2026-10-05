@@ -36,12 +36,16 @@
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
               :artist-link="kind !== 'artist' && !!track.artists[0]?.uri"
-              :show-menu="kind !== 'album' && !!track.album.uri"
-              :menu-label="t('spotify.goToAlbum')"
               @play="play({ skipToUri: track.uri })"
               @artist="$emit('select-artist', track.artists[0])"
-              @menu="$emit('select-album', track.album)"
-            />
+            >
+              <template #menu>
+                <SpotifyTrackMenu :track="track" :kind="kind"
+                  @artist="$emit('select-artist', track.artists[0])"
+                  @album="$emit('select-album', track.album)"
+                  @radio="$emit('select-radio', $event)" />
+              </template>
+            </TrackRow>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
           </div>
         </div>
@@ -57,6 +61,7 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import SpotifyTrackMenu from '@/components/spotify/SpotifyTrackMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 
@@ -85,7 +90,7 @@ const props = defineProps({
   },
 });
 
-defineEmits(['select-artist', 'select-album']);
+defineEmits(['select-artist', 'select-album', 'select-radio']);
 
 const { t } = useI18n();
 const store = useSpotifyStore();

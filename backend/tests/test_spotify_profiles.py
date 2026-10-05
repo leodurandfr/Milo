@@ -283,6 +283,42 @@ async def test_the_home_route_answers_spotifys_home_then_the_library(world):
     assert [p["name"] for p in answer["playlists"]["mine"]] == ["Chill appart"]
 
 
+TRACK_URI = "spotify:track:0yNttAVwMr39qyODHNIkrY"
+
+
+async def test_a_track_radio_is_the_playlist_spotify_makes_for_that_track(world):
+    """The browser opens the uri answered as a playlist page: it must be the
+    one Spotify made from this track, not a guess."""
+    answer = await routes.get_track_radio(uri=TRACK_URI, source=world.source)
+
+    assert answer == {"status": "success", "uri": "spotify:playlist:37i9dQZF1E8UJ1xRHXd2z2"}
+    assert [url.rsplit("/", 1)[1] for url in world.daemon.radio_asked] == [TRACK_URI]
+
+
+async def test_a_track_spotify_makes_no_radio_for_answers_404(world):
+    world.daemon.radio_answer = {"total": 0, "mediaItems": []}
+    with pytest.raises(HTTPException) as answer:
+        await routes.get_track_radio(uri=TRACK_URI, source=world.source)
+    assert answer.value.status_code == 404
+
+
+async def test_a_radio_answer_of_another_shape_is_no_radio_not_a_crash(world):
+    """An unhandled exception would answer 500; the browser leaves out an entry
+    for a 404 and shows nothing broken."""
+    for shape in ({"mediaItems": {"uri": "spotify:playlist:x"}}, {"mediaItems": ["spotify:playlist:x"]}, []):
+        world.daemon.radio_answer = shape
+        with pytest.raises(HTTPException) as answer:
+            await routes.get_track_radio(uri=TRACK_URI, source=world.source)
+        assert answer.value.status_code == 404
+
+
+async def test_a_radio_service_that_fails_answers_503(world):
+    world.daemon.radio_answer = None
+    with pytest.raises(HTTPException) as answer:
+        await routes.get_track_radio(uri=TRACK_URI, source=world.source)
+    assert answer.value.status_code == 503
+
+
 async def test_a_home_spotify_will_not_serve_still_answers_the_library(world, caplog):
     """Spotify's home is a service on the internet, not the daemon: its
     failure costs the shelves, never the account's own playlists."""
@@ -468,12 +504,6 @@ async def test_the_library_answers_409_when_spotify_is_not_running(world):
     with pytest.raises(HTTPException) as answer:
         await routes.get_context(PLAYLIST, source=world.source)
     assert answer.value.status_code == 409
-
-
-async def test_liked_tracks_takes_one_to_fifty_uris(world):
-    with pytest.raises(HTTPException) as answer:
-        await routes.get_liked_tracks(uris=",".join(f"spotify:track:{i}" for i in range(51)), source=world.source)
-    assert answer.value.status_code == 422
 
 
 async def test_no_route_answers_a_credential(world):

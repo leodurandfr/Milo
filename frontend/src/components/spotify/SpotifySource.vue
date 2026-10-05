@@ -28,7 +28,7 @@
           <SpotifyContextView v-else-if="currentView === 'context'" :key="currentParams.uri"
             :uri="currentParams.uri" :kind="currentParams.kind" :name="currentParams.name"
             :image="currentParams.image" :owner="currentParams.owner"
-            @select-artist="openArtist" @select-album="openAlbum" />
+            @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
         </template>
 
         <!-- Docked player: it reads what it draws from the state (no queue
@@ -106,6 +106,12 @@ function openAlbum(album) {
 }
 function openArtist(artist) {
   if (artist?.uri) openContext({ uri: artist.uri, kind: 'artist', name: artist.name || '', image: artist.image || '' });
+}
+// A track's radio: the playlist Spotify made for it, named after the track
+// (a nameless track leaves the page its untitled heading).
+function openRadio({ uri, track }) {
+  const name = track.title ? t('spotify.trackRadio', { title: track.title }) : '';
+  openContext({ uri, kind: 'playlist', name, image: track.artwork || '', owner: 'spotify' });
 }
 // A home card or tile, by the kind of page it opens.
 function openItem(item) {

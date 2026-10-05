@@ -2,8 +2,7 @@
 /**
  * spotifyStore is the browser's memory of one account's library. What can
  * break, silently: a list cached for the last account shown under the next one
- * (a guest's cast replaces the signed-in account mid-browse), a heart that
- * stays turned after Spotify refused it, a listing that stops at its first
+ * (a guest's cast replaces the signed-in account mid-browse), a listing that stops at its first
  * partial answer and shows a playlist cut short (or one that asks for its
  * tracks from the start again and draws them twice), and the profile screen
  * opening over music someone is listening to, and Spotify's shelves left titled
@@ -74,7 +73,6 @@ describe('spotifyStore', () => {
     publish({ details: details() });
     apiCall.get.mockResolvedValueOnce(ok(HOME));
     await store.loadHome();
-    store.liked[TRACK] = true;
     expect(store.home).not.toBeNull();
 
     publish({ details: details({ account: 'guest' }) });
@@ -82,7 +80,6 @@ describe('spotifyStore', () => {
 
     expect(store.home).toBeNull();
     expect(store.contexts).toEqual({});
-    expect(store.isLiked(TRACK)).toBeNull();
   });
 
   it("asks for Spotify's home in the interface language, and again when it changes", async () => {
@@ -98,13 +95,18 @@ describe('spotifyStore', () => {
     i18n.currentLanguage.value = 'english';
   });
 
-  it('turns a heart back when Spotify refuses it', async () => {
-    apiCall.put.mockResolvedValueOnce(fail('refused', 503));
+  it("asks a track's radio once for two presses, and again after a failure", async () => {
+    // Every ⋯ press asks before its menu opens: a second press must wait on the
+    // first request, and a failed one must not leave the radio out for good.
+    const RADIO = 'spotify:playlist:radio';
+    apiCall.get.mockResolvedValueOnce(fail('unavailable', 503));
+    expect(await store.trackRadio(TRACK)).toBeNull();
 
-    const accepted = await store.setLiked(TRACK, true);
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', uri: RADIO }));
+    const [first, second] = await Promise.all([store.trackRadio(TRACK), store.trackRadio(TRACK)]);
 
-    expect(accepted).toBe(false);
-    expect(store.isLiked(TRACK)).toBeNull();
+    expect([first, second]).toEqual([RADIO, RADIO]);
+    expect(apiCall.get).toHaveBeenCalledTimes(2);
   });
 
   it('adds a listing\'s tracks as they are described, asking from what it has', async () => {

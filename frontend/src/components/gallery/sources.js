@@ -525,8 +525,7 @@ function spotifySetup({ profiles = SPOTIFY_PROFILES } = {}) {
   return {
     api: {
       '/api/spotify/home': { status: 'success', ...SPOTIFY_HOME },
-      '/api/spotify/profiles': { status: 'success', profiles },
-      '/api/spotify/liked-tracks': { status: 'success', items: [{ uri: 'spotify:track:says', liked: true }] }
+      '/api/spotify/profiles': { status: 'success', profiles }
     },
     // The loaders are guarded on what is already loaded, and that survives a
     // scenario change: forced, so each scenario shows its own fixtures.

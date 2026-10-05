@@ -790,6 +790,16 @@ export const REGISTRY = {
         },
         'No artist (showArtist has nothing to show)': { title: 'Untitled', duration: 128 }
       }
+    },
+    // Filled, the slot replaces the ⋯ button: Spotify puts its own menu there.
+    slots: {
+      menu: {
+        'none — the showMenu button': null,
+        'IconButton — a caller\'s own menu trigger': {
+          component: IconButton,
+          props: { icon: 'threeDots', variant: 'ghost', size: 'small' }
+        }
+      }
     }
   },
 

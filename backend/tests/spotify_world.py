@@ -160,7 +160,6 @@ class Librespot:
         # describes n more tracks on each call after it is ready.
         self.described_per_call: Optional[int] = None
         self.listing_calls: Dict[str, int] = {}
-        self.liked: set = set()
         # Spotify's profile service (spclient user-profile-view): the answer
         # per account, as measured ({name, image_url, ...}); None
         # answers 503.
@@ -169,6 +168,12 @@ class Librespot:
         # answers 503.
         self.home_answer: Optional[Dict[str, Any]] = {"body": []}
         self.home_locales: List[str] = []
+        # Spotify's track radio (spclient inspiredby-mix), as measured: one
+        # playlist; None answers 503. The urls asked are kept.
+        self.radio_answer: Optional[Dict[str, Any]] = {
+            "total": 1, "mediaItems": [{"uri": "spotify:playlist:37i9dQZF1E8UJ1xRHXd2z2"}],
+        }
+        self.radio_asked: List[str] = []
         self.closed = False
 
     # -- aiohttp.ClientSession surface --------------------------------------
@@ -180,6 +185,10 @@ class Librespot:
         if "homeview" in url:
             self.home_locales.append(k["params"]["locale"])
             answer = self.home_answer
+            return _Exchange(_Response(503) if answer is None else _Response(200, answer))
+        if "inspiredby-mix" in url:
+            self.radio_asked.append(url)
+            answer = self.radio_answer
             return _Exchange(_Response(503) if answer is None else _Response(200, answer))
         if "user-profile-view" in url:
             answer = self.profile_answers.get(url.rsplit("/", 1)[1])
@@ -273,13 +282,6 @@ class Librespot:
                 "cached": sum(1 for t in tracks if t.get("track")) if ready else 0,
                 "tracks": tracks if ready else [],
             }))
-        if path == "/library/liked" and method == "GET":
-            return _Exchange(_Response(200, {"items": [
-                {"uri": uri, "liked": uri in self.liked} for uri in params["uris"].split(",")
-            ]}))
-        if path == "/library/liked":
-            (self.liked.update if json["liked"] else self.liked.difference_update)(json["uris"])
-            return _Exchange(_Response(200, None))
         if path == "/token":
             return _Exchange(_Response(200, {"token": "access-token"}))
         return _Exchange(_Response(404))

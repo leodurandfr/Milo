@@ -23,6 +23,8 @@ logger = logging.getLogger("source.spotify.library")
 PROFILE_URL = "https://spclient.wg.spotify.com/user-profile-view/v3/profile/{username}"
 # Spotify's home, as its apps draw it, for the account whose token asks.
 HOME_URL = "https://spclient.wg.spotify.com/homeview/v1/home"
+# The playlist Spotify's apps open as a track's radio ("Go to song radio").
+TRACK_RADIO_URL = "https://spclient.wg.spotify.com/inspiredby-mix/v2/seed_to_playlist/{uri}"
 PAGE = 100
 
 
@@ -148,13 +150,6 @@ class SpotifyLibrary:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
         return playlist_cover(covers)
 
-    async def liked(self, uris: List[str]) -> List[Dict[str, Any]]:
-        answer = await self._request("GET", "/library/liked", params={"uris": ",".join(uris)})
-        return answer.get("items") or []
-
-    async def set_liked(self, uris: List[str], liked: bool) -> None:
-        await self._request("POST", "/library/liked", json={"uris": uris, "liked": liked})
-
     async def _spotify_service(self, url: str, params: Dict[str, Any], what: str) -> Any:
         """One of Spotify's own services, with the signed-in session's token:
         only the account signed in now can be asked about."""
@@ -179,6 +174,19 @@ class SpotifyLibrary:
         if not isinstance(view, dict):
             raise SpotifyLibraryError("Spotify's home answered no view")
         return view
+
+    async def track_radio(self, uri: str) -> Optional[str]:
+        """The uri of the playlist Spotify makes as a track's radio, or None
+        when it answers none. Measured 2026-10-05: one playlist
+        (`spotify:playlist:37i9dQZF1E…`, 50 tracks) in ~0.1 s, which
+        /context/tracks lists like any other, ready within a second."""
+        answer = await self._spotify_service(
+            TRACK_RADIO_URL.format(uri=uri), {"response-format": "json"}, "radio",
+        )
+        items = answer.get("mediaItems") if isinstance(answer, dict) else None
+        first = items[0] if isinstance(items, list) and items else None
+        radio = first.get("uri") if isinstance(first, dict) else None
+        return radio if isinstance(radio, str) and radio.startswith("spotify:playlist:") else None
 
     async def fetch_profile(self, username: str) -> Optional[Dict[str, Optional[str]]]:
         """What Spotify's profile service says of the account, with the
