@@ -18,16 +18,15 @@
     <div class="player-body-info" :class="{ 'no-controls': !hasTransport }">
       <!-- A shell can draw this block itself: the phone's swipe carousel. -->
       <slot name="info">
-        <!-- The title and its line, centred in the block whether or not the
-             source bar rides above them: the bar hangs off the group's top edge
-             rather than sitting in the flow, so it never pushes them down. -->
+        <!-- Where the music comes from, at the top of the block: always on the
+             full player, centred; on the card, ranged left, only where nothing
+             else on it says so (usePlayerMetadata's linesOf). Never on the
+             phone's mini-bar, which has room for one line each of title and
+             secondary. -->
+        <SourceBar v-if="surface === 'full' || sourceOnCard" class="body-source" :source="source"
+          :label="sourceLabel" :image="sourceImage" />
+        <!-- The title and its line, centred in what the source bar leaves. -->
         <div class="body-lines">
-          <!-- Where the music comes from: always on the full player, centred;
-               on the card, ranged left, only where nothing else on it says so
-               (usePlayerMetadata's linesOf). Never on the phone's mini-bar,
-               which has room for one line each of title and secondary. -->
-          <SourceBar v-if="surface === 'full' || sourceOnCard" class="body-source" :source="source"
-            :label="sourceLabel" :image="sourceImage" />
           <template v-if="surface === 'full'">
             <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
               @click="onTitleClick">{{ title }}</h1>
@@ -177,12 +176,17 @@ defineExpose({ swipe });
   padding-top: var(--space-06);
 }
 
-/* The title and its line, the group the block centres. The source bar is
-   positioned against it (below), out of the flow. */
+/* The source bar on top, at the block's padding; the title and its line
+   centred in the rest, never closer to the bar than the block's gap. */
+.player-body--full .player-body-info {
+  gap: var(--space-06);
+}
+
 .body-lines {
-  position: relative;
+  flex: 1;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   min-width: 0;
 }
 
@@ -265,6 +269,7 @@ defineExpose({ swipe });
 
 .player-body--card .player-body-info {
   flex: 1;
+  gap: var(--space-04);
   padding: 0 var(--space-04);
 }
 
@@ -278,26 +283,10 @@ defineExpose({ swipe });
   cursor: pointer;
 }
 
-/* The source bar hangs above the title, --space-06 clear of it — 32px on the
-   kiosk, 24px below 4:3, the token's own phone step — out of the flow, so the
-   title and its line stay centred in the block whether it is there or not, and
-   take no height from the card. It grows upward: a title on more lines moves
-   the group's top, and the bar with it, never onto the title. */
-.body-source {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  margin-bottom: var(--space-06);
-}
-
-/* On the card the bar hangs closer, --space-04 (16px), and the title keeps to
-   two lines: the gap above the block is all there is between it and the cover,
-   and at the kiosk's 115% interface scale a two-line title with a 32px gap put
-   the bar 6px onto the cover (measured). */
+/* On the card the bar is ranged left, and the title keeps to two lines: the
+   card's height is shared with the cover above it. */
 .player-body--card .body-source {
   justify-content: flex-start;
-  margin-bottom: var(--space-04);
 }
 
 .player-body--card .card-lines :deep(.player-info-title) {
@@ -355,7 +344,8 @@ defineExpose({ swipe });
     gap: var(--space-01);
   }
 
-  .player-body--card .body-lines {
+  .player-body--card .body-lines,
+  .player-body--card .body-source {
     display: none;
   }
 
