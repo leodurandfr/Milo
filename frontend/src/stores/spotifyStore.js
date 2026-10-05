@@ -249,15 +249,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     return result.ok;
   }
 
-  async function renameProfile(username, name) {
-    const result = await apiCall.patch(`${BASE}/profiles/${encodeURIComponent(username)}`, { name }, {
-      category: 'spotify',
-      message: 'Error renaming a Spotify profile',
-    });
-    if (result.ok) await loadProfiles();
-    return result.ok;
-  }
-
   async function forgetProfile(username) {
     const result = await apiCall.delete(`${BASE}/profiles/${encodeURIComponent(username)}`, {
       category: 'spotify',
@@ -315,7 +306,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
     // track menu
     trackRadio, contextLength,
     // profiles
-    profiles, profilesLoaded, opensOnProfiles, loadProfiles, switchProfile, renameProfile, forgetProfile,
+    profiles, profilesLoaded, opensOnProfiles, loadProfiles, switchProfile, forgetProfile,
     // commands
     playContext,
   };

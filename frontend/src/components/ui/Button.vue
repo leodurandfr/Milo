@@ -205,11 +205,10 @@ function handleClick(event) {
     box-shadow: none;
 }
 
-/* === IMPORTANT variant === */
+/* === IMPORTANT variant (a destructive action: a red fill, no border) === */
 .btn--important.btn--normal {
-    background-color: var(--color-surface);
-    color: var(--color-error);
-    box-shadow: inset 0 0 0 2px var(--color-error);
+    background-color: var(--color-error);
+    color: var(--color-text-on-error);
 }
 
 .btn--important.btn--disabled {
@@ -256,9 +255,8 @@ function handleClick(event) {
 }
 
 .btn--important.btn--loading {
-    background-color: var(--color-surface);
-    color: var(--color-error);
-    box-shadow: inset 0 0 0 2px var(--color-error);
+    background-color: var(--color-error);
+    color: var(--color-text-on-error);
 }
 
 /* === RESPONSIVE (Mobile) === */

@@ -38,7 +38,7 @@ const THEMABLE = /^--(?:color|gradient|stroke)-/;
  */
 const NEUTRAL = [
   '--color-brand', '--color-text-on-brand',
-  '--color-success', '--color-warning', '--color-error',
+  '--color-success', '--color-warning', '--color-error', '--color-text-on-error',
   '--color-success-subtle', '--color-warning-subtle', '--color-error-subtle',
   '--color-glass', '--color-glass-strong',
   '--color-glint', '--color-text-on-contrast', '--color-text-on-contrast-secondary',

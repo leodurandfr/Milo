@@ -7,7 +7,7 @@ with whoever casts next. Milō keeps every one it saw here, so the browser can
 sign the daemon back in as any of them. The credentials are go-librespot's own
 stored blob, verbatim: reusable from any device, so the file is 0600 and never
 leaves the backend — no route, no log line and no diagnostic collector reads
-it. A user may rename a profile or forget it; a new cast brings it back.
+it. A user may forget a profile; a new cast brings it back.
 """
 import asyncio
 import time
@@ -36,7 +36,7 @@ class SpotifyProfiles:
         return [
             {
                 "username": username,
-                "name": profile["name"] or profile["spotify_name"] or username,
+                "name": profile["spotify_name"] or username,
                 "spotify_name": profile["spotify_name"],
                 "avatar_url": profile["avatar_url"],
                 "stale": profile["stale"],
@@ -65,7 +65,7 @@ class SpotifyProfiles:
             new = profile is None
             if new:
                 profile = self._profiles[username] = {
-                    "name": None, "spotify_name": None, "avatar_url": None,
+                    "spotify_name": None, "avatar_url": None,
                     "added_at": time.time(),
                 }
             profile.update(credentials=credentials, stale=False)
@@ -83,16 +83,6 @@ class SpotifyProfiles:
                 return
             profile.update(identity)
             await self._save()
-
-    async def rename(self, username: str, name: Optional[str]) -> bool:
-        """`name` None goes back to the Spotify name."""
-        async with self._lock:
-            profile = self._profiles.get(username)
-            if profile is None:
-                return False
-            profile["name"] = name
-            await self._save()
-            return True
 
     async def forget(self, username: str) -> bool:
         async with self._lock:

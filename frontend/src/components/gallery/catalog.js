@@ -424,7 +424,7 @@ export const ENTRIES = [
     id: 'SettingsSection',
     group: 'settings',
     file: 'components/settings/SettingsSection.vue',
-    summary: 'The settings card, and the most-imported component in the frontend (32). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+    summary: 'The settings card, and the most-imported component in the frontend (31). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
     id: 'ProgressStrip',

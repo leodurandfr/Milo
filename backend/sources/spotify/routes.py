@@ -20,7 +20,7 @@ from fastapi.responses import RedirectResponse
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.spotify.catalog import artist_page, home_shelves, library_sections, liked_songs_uri
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
-from backend.sources.spotify.models import ActiveProfileRequest, RenameProfileRequest
+from backend.sources.spotify.models import ActiveProfileRequest
 from backend.sources.spotify.source import SpotifySource
 
 logger = logging.getLogger(__name__)
@@ -192,16 +192,6 @@ async def get_profiles(source: SpotifySource = Depends(get_source)):
             for profile in profiles.list()
         ],
     }
-
-
-@router.patch("/profiles/{username}")
-async def rename_profile(
-    username: str, payload: RenameProfileRequest, source: SpotifySource = Depends(get_source),
-):
-    if not await _require_profiles(source).rename(username, payload.name):
-        logger.debug("Rename of an unknown Spotify profile")
-        raise HTTPException(status_code=404, detail="Unknown Spotify profile")
-    return {"status": "success"}
 
 
 @router.delete("/profiles/{username}")

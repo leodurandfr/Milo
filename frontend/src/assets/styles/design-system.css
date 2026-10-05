@@ -207,6 +207,8 @@
     --color-success: #11aa3a;
     --color-warning: #ff9800;
     --color-error: #f44336;
+    /* The ink on a red fill (the important button), white in both themes. */
+    --color-text-on-error: var(--gray-0);
 
     /* Subtle variants — ~12% alpha for badges, banners, status blocks */
     --color-warning-subtle: rgba(255, 152, 0, 0.12);

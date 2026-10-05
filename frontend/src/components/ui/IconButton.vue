@@ -136,10 +136,6 @@ function handleClick(event) {
     padding: 12px;
     border-radius: var(--radius-04);
   }
-
-  .icon-button--glass-plate {
-    padding: 12px;
-  }
 }
 
 /* === VARIANTS === */

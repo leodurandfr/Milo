@@ -1,49 +1,34 @@
 <template>
   <div class="spotify-profiles">
-    <header class="profiles-header">
-      <h2 class="heading-2">{{ t('spotify.whoIsListening') }}</h2>
-    </header>
-
-    <div class="profiles-grid">
+    <div class="profiles-grid" :style="{ '--profile-avatar': `${AVATAR_SIZE}px` }">
       <div v-for="profile in store.profiles" :key="profile.username" class="profile-tile">
-        <button v-press type="button" class="profile-pick" :disabled="!!switching"
+        <button v-press type="button" class="profile-pick" :disabled="!!switching || !!forgetting"
           @click="pick(profile)">
           <div class="avatar-frame" :class="{ active: profile.active }">
-            <ProfileAvatar :profile="profile" :size="96" />
+            <ProfileAvatar :profile="profile" :size="AVATAR_SIZE" />
             <div v-if="switching === profile.username" class="avatar-loading">
               <LoadingSpinner :size="32" />
             </div>
           </div>
-          <span class="profile-name heading-4">{{ profile.name }}</span>
+          <span class="profile-name heading-2">{{ profile.name }}</span>
           <span class="profile-state text-mono-small" :class="{ warn: profile.stale || pending === profile.username }">
             {{ stateLine(profile) }}
           </span>
         </button>
-        <IconButton icon="threeDots" variant="ghost" size="small" class="profile-menu"
-          :aria-label="t('spotify.manageProfile')" @click="manage(profile)" />
-      </div>
-    </div>
-
-    <Modal :is-open="!!managed" @close="closeManage">
-      <div v-if="managed" class="manage-profile">
-        <NavigationHeader :title="managed.name" />
-        <SettingsSection>
-          <div class="manage-field">
-            <InputText v-model="newName" :placeholder="managed.spotify_name || managed.username"
-              :maxlength="64" @submit="rename" />
-            <Button variant="brand" :disabled="busy" @click="rename">{{ t('spotify.save') }}</Button>
-          </div>
-        </SettingsSection>
-        <SettingsSection>
-          <div class="manage-forget">
-            <p class="text-body forget-hint">{{ t('spotify.forgetHint') }}</p>
-            <Button variant="important" :disabled="busy" @click="forget">
-              {{ confirmForget ? t('spotify.forgetConfirm') : t('spotify.forget') }}
+        <div class="forget-anchor">
+          <IconButton icon="close" variant="glass" size="small" :disabled="!!switching || !!forgetting"
+            :aria-label="t('spotify.forgetProfile')" @click="toggleArm(profile)" />
+        </div>
+        <Transition name="forget-confirm">
+          <div v-if="armed === profile.username || forgetting === profile.username" class="forget-confirm">
+            <Button variant="important" size="small"
+              :loading="forgetting === profile.username" @click="forget(profile)">
+              {{ t('spotify.confirmForget') }}
             </Button>
           </div>
-        </SettingsSection>
+        </Transition>
       </div>
-    </Modal>
+    </div>
   </div>
 </template>
 
@@ -53,12 +38,8 @@ import { useI18n } from '@/services/i18n';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useTimer } from '@/composables/useTimer';
 import IconButton from '@/components/ui/IconButton.vue';
-import Button from '@/components/ui/Button.vue';
-import InputText from '@/components/ui/InputText.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
-import Modal from '@/components/ui/Modal.vue';
-import NavigationHeader from '@/components/ui/NavigationHeader.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import Button from '@/components/ui/Button.vue';
 import ProfileAvatar from '../ProfileAvatar.vue';
 
 const emit = defineEmits(['picked']);
@@ -66,6 +47,8 @@ const emit = defineEmits(['picked']);
 const { t } = useI18n();
 const store = useSpotifyStore();
 const timer = useTimer();
+
+const AVATAR_SIZE = 120;
 
 // A switch restarts the daemon: about a second, measured. Past this the tile
 // gives up waiting and the profile screen stays.
@@ -84,6 +67,7 @@ function stateLine(profile) {
 }
 
 async function pick(profile) {
+  armed.value = null;
   if (profile.active) {
     emit('picked');
     return;
@@ -109,41 +93,23 @@ watch(() => store.account === switching.value && !store.signingIn, (landed) => {
   }
 });
 
-// === Rename / forget ===
-const managed = ref(null);
-const newName = ref('');
-const confirmForget = ref(false);
-const busy = ref(false);
+// === Forget ===
+// The X shows a confirm button under the profile, and takes it back on a
+// second press: forgetting drops the stored credentials.
+const armed = ref(null);
+const forgetting = ref(null);
 
-function manage(profile) {
-  managed.value = profile;
-  // Only a name the user gave: Spotify's own stays live, never pinned.
-  newName.value = profile.name === (profile.spotify_name || profile.username) ? '' : profile.name;
-  confirmForget.value = false;
+function toggleArm(profile) {
+  pending.value = null;
+  armed.value = armed.value === profile.username ? null : profile.username;
 }
 
-function closeManage() {
-  managed.value = null;
-}
-
-async function rename() {
-  if (!managed.value || busy.value) return;
-  busy.value = true;
-  await store.renameProfile(managed.value.username, newName.value.trim() || null);
-  busy.value = false;
-  closeManage();
-}
-
-async function forget() {
-  if (!managed.value || busy.value) return;
-  if (!confirmForget.value) {
-    confirmForget.value = true;
-    return;
-  }
-  busy.value = true;
-  await store.forgetProfile(managed.value.username);
-  busy.value = false;
-  closeManage();
+async function forget(profile) {
+  if (forgetting.value) return;
+  armed.value = null;
+  forgetting.value = profile.username;
+  await store.forgetProfile(profile.username);
+  forgetting.value = null;
 }
 
 store.loadProfiles();
@@ -156,20 +122,23 @@ store.loadProfiles();
   gap: var(--space-06);
 }
 
-.profiles-header h2 {
-  margin: 0;
-  color: var(--color-text);
-}
-
 .profiles-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-05);
 }
 
+/* A grid cell's width, so a short row centers instead of stretching — never
+   narrower than the avatar's frame, which a phone's three columns are: the
+   row then holds fewer tiles. */
 .profile-tile {
   position: relative;
   min-width: 0;
+  width: max(
+    calc((100% - (var(--card-grid-columns) - 1) * var(--space-05)) / var(--card-grid-columns)),
+    calc(var(--profile-avatar) + 2 * var(--space-01))
+  );
 }
 
 .profile-pick {
@@ -205,7 +174,9 @@ store.loadProfiles();
   background: var(--color-image-veil);
 }
 
+/* Set apart from the avatar, so the name and the state line read as one. */
 .profile-name {
+  margin-top: var(--space-02);
   max-width: 100%;
   color: var(--color-text);
   overflow: hidden;
@@ -223,37 +194,40 @@ store.loadProfiles();
   color: var(--color-warning);
 }
 
-.profile-menu {
+/* Under the profile's text, centered in the tile. Comes down into place and
+   leaves back up. */
+.forget-confirm {
+  display: flex;
+  justify-content: center;
+}
+
+.forget-confirm-enter-active {
+  transition: transform var(--transition-medium), opacity var(--transition-medium);
+}
+
+.forget-confirm-leave-active {
+  transition: transform var(--transition-fast-leave), opacity var(--transition-fast-leave);
+}
+
+.forget-confirm-enter-from,
+.forget-confirm-leave-to {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--space-03)));
+}
+
+/* A zero-size point on the avatar frame's rim, upper right at 45° (0.7071):
+   the plate centers on it and overlaps the picture, above it. Centered by
+   flex, not a transform, which the press scale would overwrite. */
+.forget-anchor {
+  --rim: calc(var(--profile-avatar) / 2 + var(--space-01));
   position: absolute;
-  top: 0;
-  right: 0;
-}
-
-.manage-profile {
+  z-index: 1;
+  top: calc(var(--space-03) + var(--rim) * (1 - 0.7071));
+  left: calc(50% + var(--rim) * 0.7071);
+  width: 0;
+  height: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.manage-field {
-  display: flex;
-  gap: var(--space-03);
   align-items: center;
-}
-
-.manage-field > :first-child {
-  flex: 1;
-}
-
-.manage-forget {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-  align-items: flex-start;
-}
-
-.forget-hint {
-  margin: 0;
-  color: var(--color-text-secondary);
+  justify-content: center;
 }
 </style>

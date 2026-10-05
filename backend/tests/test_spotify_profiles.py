@@ -103,7 +103,7 @@ async def test_a_guest_who_casts_is_kept_beside_the_owner(world):
 
 async def test_a_profile_spotify_will_not_describe_shows_its_username(world):
     """The profile service failing must not cost the profile: it is kept, and
-    named by its username until someone renames it."""
+    named by its username until Spotify describes it."""
     await world.cast_from(GUEST)
     await world.idle()
 
@@ -241,11 +241,11 @@ async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
     profiles = SpotifyProfiles(file)
     await profiles.initialize()
     await profiles.harvest(ACCOUNT, "blob")
-    await profiles.rename(ACCOUNT, "Salon")
+    await profiles.set_identity(ACCOUNT, {"spotify_name": "Léo", "avatar_url": None})
 
     reloaded = SpotifyProfiles(file)
     await reloaded.initialize()
-    assert reloaded.list()[0]["name"] == "Salon"
+    assert reloaded.list()[0]["name"] == "Léo"
     assert reloaded.credentials(ACCOUNT) == "blob"
 
     file.write_text(json.dumps({"schema_version": 0, "profiles": {}}))

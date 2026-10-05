@@ -32,11 +32,6 @@ class PlayContextParams(BaseModel):
 
 # === Browser route bodies ===
 
-class RenameProfileRequest(BaseModel):
-    """`PATCH /api/spotify/profiles/{username}`: null goes back to the Spotify name."""
-    name: Optional[str] = Field(default=None, min_length=1, max_length=64)
-
-
 class ActiveProfileRequest(BaseModel):
     """`PUT /api/spotify/active-profile`: the profile to sign go-librespot in as."""
     username: str = Field(min_length=1)
