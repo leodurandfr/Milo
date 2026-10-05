@@ -7,7 +7,7 @@
       `icon-button--${variant}`,
       `icon-button--${size}`,
       { 'icon-button--loading': loading },
-      GLASS.includes(variant) ? 'icon-button--glass-plate glass-surface glass-border' : ''
+      GLASS.includes(variant) ? 'icon-button--glass-plate glass-shell' : ''
     ]"
     :disabled="disabled"
     @click="handleClick"
@@ -33,7 +33,8 @@ const props = defineProps({
     required: true
   },
   // `glass` is a round glass plate; `glass-on-contrast` the same plate on a
-  // contrast surface (Lyrics), where it takes the quiet rim and a white glyph.
+  // contrast surface (Lyrics), where it takes the glass's dark tone and a
+  // white glyph.
   // Chosen by the caller rather than read from useDarkSurface(): that counter
   // stays raised for a modal opened over Lyrics, which would flip that modal's
   // own close button.
@@ -167,7 +168,6 @@ function handleClick(event) {
 }
 
 .icon-button--glass-plate {
-  --glass-radius: 50%;
   border-radius: 50% !important;
   width: fit-content;
   aspect-ratio: 1 / 1;
@@ -176,12 +176,10 @@ function handleClick(event) {
   backface-visibility: hidden;
 }
 
-/* The glass plate on a contrast surface: the mid gray Dock and VolumeBar
-   share, which lifts off a dark backdrop exactly as it settles into a light
-   one, and the quiet rim (design-system.css carries the measurement). */
+/* The glass plate on a contrast surface: the glass's dark tone in both
+   themes. */
 .icon-button--glass-on-contrast {
-  --glass-bg: var(--color-glass);
-  --glass-stroke: var(--stroke-glass-on-contrast);
+  --glass-tone: var(--color-shell-on-contrast);
   color: var(--color-text-on-contrast);
 }
 
@@ -213,12 +211,10 @@ function handleClick(event) {
 }
 
 .icon-button--glass.icon-button--loading {
-  background: var(--color-surface-glass);
   color: var(--color-text);
 }
 
 .icon-button--glass-on-contrast.icon-button--loading {
-  background: var(--color-glass);
   color: var(--color-text-on-contrast);
 }
 

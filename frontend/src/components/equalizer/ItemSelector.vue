@@ -195,7 +195,7 @@ defineExpose({ selectedZoneName, selectedClientIds });
   white-space: nowrap;
   transition: background-color var(--transition-fast), color var(--transition-fast);
   /* Inactive state - outline */
-  background-color: var(--color-surface);
+  background-color: var(--color-panel);
   color: var(--color-brand);
   box-shadow: inset 0 0 0 2px var(--color-brand);
 }

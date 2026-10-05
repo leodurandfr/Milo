@@ -38,11 +38,12 @@ function toggle() {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-full);
-  background: var(--color-fill-off);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--color-fill-off);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color var(--transition-fast), var(--transition-press);
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast), var(--transition-press);
   cursor: pointer;
   flex-shrink: 0;
   border: none;
@@ -51,17 +52,18 @@ function toggle() {
 
 .radio--active {
   background: var(--color-brand);
+  box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .radio__dot {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-full);
-  background: var(--color-panel);
   transition: width var(--transition-fast), height var(--transition-fast);
 }
 
-/* Off, the dot is a hole in the ring; on, it is the thumb on the brand. */
+/* Off, the ring is drawn and its middle left empty, so it reads on any panel,
+   translucent ones included; on, the dot is the thumb on the brand. */
 .radio--active .radio__dot {
   width: 16px;
   height: 16px;

@@ -185,7 +185,6 @@ const KINDS = {
   SKELETON: 'swatch',
   KEYBOARD: 'swatch',
   STATUS: 'swatch',
-  STROKES: 'swatch',
   'SOURCE GRADIENTS': 'swatch',
   SPACING: 'space',
   'CARD GRIDS': 'tokens',
@@ -210,10 +209,9 @@ export const EXCLUDED_SECTIONS = {
 /** Prose a section deserves beyond its own token list. */
 const NOTES = {
   PALETTE: 'The only neutrals written as values, and private to design-system.css: a component reads a role below, never a step. Every chip on this page is drawn twice, light then dark, each half on that theme\'s --color-surface and half on its --color-contrast, so an alpha reads as what it is.',
-  SURFACES: 'From the ground up. In light a panel is white and what it holds sinks below it; in dark each layer is a step lighter than the one under it. --color-panel is --color-surface on a screen and --color-section inside a modal.',
+  SURFACES: 'From the ground up. In light a panel is white and what it holds sinks below it; in dark each layer is a step lighter than the one under it. --color-panel is --color-surface on a screen and --color-section inside a modal, where --color-inset and --color-tile also become --color-section-inset and --color-section-tile.',
   CONTRAST: 'Dark in both themes, so what is drawn on it — the glint, the fill, the white text — is the same in both.',
   'ON IMAGE': 'Drawn over artwork, which does not change with the theme, so neither do these. The backdrop pair is what AudioPlayerFull draws under its blurred cover, in the dark theme only.',
-  STROKES: 'A whole gradient rather than a color, because it belongs to no ramp: applied by .glass-border, the loud sweep in light and the quiet one in dark and on a contrast surface.',
   'SOURCE GRADIENTS': 'The tint AudioSourceLayout washes behind a browsing source. Three one-off brand colours, which is why they are gradients here and not tokens in a ramp.',
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
@@ -244,7 +242,7 @@ const PAGES = [
     id: 'colors',
     title: 'Colours',
     summary: 'Every color the app is allowed to be, in both themes: the gray palette the neutrals are picked from, then the roles a component reads — surfaces, tracks, glass, contrast, what is drawn on an image, text — and the brand, status and gradient colors that belong to no ramp.',
-    sections: ['PALETTE', 'BRAND', 'SURFACES', 'TRACKS AND FILLS', 'GLASS', 'CONTRAST', 'ON IMAGE', 'TEXT', 'BORDERS', 'SKELETON', 'KEYBOARD', 'STATUS', 'STROKES', 'SOURCE GRADIENTS'],
+    sections: ['PALETTE', 'BRAND', 'SURFACES', 'TRACKS AND FILLS', 'GLASS', 'CONTRAST', 'ON IMAGE', 'TEXT', 'BORDERS', 'SKELETON', 'KEYBOARD', 'STATUS', 'SOURCE GRADIENTS'],
     extras: []
   },
   {
@@ -271,16 +269,15 @@ const PAGES = [
   {
     id: 'elevation',
     title: 'Elevation & blur',
-    summary: 'What lifts a surface off the one below it: the shadow casts across their four intents (ambient, raised, the artwork halo, hairline), the blur radii, and the two glass utilities that combine a blur with a stroke.',
+    summary: 'What lifts a surface off the one below it: the shadow casts across their intents (ambient, raised, the artwork halo, hairline, the glass edge), the blur radii, and the glass material that combines a tint, a blur and a rim.',
     sections: ['SHADOWS', 'BLUR'],
     extras: [
       {
         title: 'GLASSMORPHISM',
         kind: 'glass',
-        note: 'Applied as classes, tuned through four local custom properties (--glass-bg, --glass-blur, --glass-radius, --glass-stroke). Both are drawn here over the same backdrop as the blur steps.',
+        note: 'Applied as a class: the theme\'s glass tone over a blur, a ring outside and a lit rim drawn above the content. --glass-tone: var(--color-shell-on-contrast) takes the dark tone on a contrast surface. Drawn here over the same backdrop as the blur steps.',
         variants: [
-          { label: '.glass-surface', classes: 'glass-surface' },
-          { label: '.glass-surface .glass-border', classes: 'glass-surface glass-border' }
+          { label: '.glass-shell', classes: 'glass-shell' }
         ]
       }
     ]

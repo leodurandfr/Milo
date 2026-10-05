@@ -8,7 +8,7 @@
           :aria-label="t('common.close')" @click="close" />
       </div>
 
-      <div ref="modalShell" class="modal-shell">
+      <div ref="modalShell" class="modal-shell glass-shell">
         <!-- Clip carries the animated (spring) height; masks the scroller. -->
         <div ref="modalClip" class="modal-clip">
           <!-- Scroller has an explicit px height (= final target, never animated). -->
@@ -411,14 +411,18 @@ onUnmounted(() => {
    and header read become the modal's for everything inside it. */
 .modal-shell {
   --color-panel: var(--color-section);
+  --color-inset: var(--color-section-inset);
+  --color-tile: var(--color-section-tile);
+  /* The overlay under the shell already blurs the screen, and a
+     backdrop-filter stops at the nearest ancestor that has one: the shell's
+     own would only see the overlay's veil. Measured: 2/255 at most. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   --color-header: var(--color-modal-header);
   --color-header-control: var(--color-modal-header-control);
   --color-header-text: var(--color-modal-header-text);
   --color-header-text-secondary: var(--color-modal-header-text-secondary);
   position: relative;
-  background: var(--color-modal);
-  backdrop-filter: blur(var(--blur-03));
-  -webkit-backdrop-filter: blur(var(--blur-03));
   border-radius: var(--radius-08);
   width: 100%;
   max-height: 100%;
@@ -426,23 +430,6 @@ onUnmounted(() => {
   flex-direction: column;
   opacity: 0;
   overflow: hidden;
-}
-
-.modal-shell::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-08);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
 }
 
 /* Clip: carries the animated (spring) height and masks the scroller beneath it.
@@ -513,8 +500,7 @@ onUnmounted(() => {
   }
 
   .modal-shell,
-  .modal-scroller,
-  .modal-shell::before {
+  .modal-scroller {
     border-radius: var(--radius-07);
   }
 

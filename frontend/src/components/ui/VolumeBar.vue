@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/VolumeBar.vue -->
 <template>
   <div
-    class="volume-bar glass-surface glass-border"
+    class="volume-bar glass-shell"
     :class="[`volume-bar--${variant}`, { visible: unifiedStore.showVolumeBar }]"
     @click="unifiedStore.hideVolumeBar()"
   >
@@ -47,10 +47,6 @@ const volumeFillStyle = computed(() => ({
 <style scoped>
 .volume-bar {
   top: calc(env(safe-area-inset-top,0px) + var(--space-05));
-  /* The plate is the one layer both variants share: a mid grey wash lifts it off
-     a dark backdrop exactly as it settles it into a light one. */
-  --glass-bg: var(--color-glass);
-  --glass-radius: var(--radius-full);
   position: fixed;
   left: 50%;
   transform: translate(-50%, -80px);
@@ -112,7 +108,8 @@ const volumeFillStyle = computed(() => ({
 }
 
 /* === Variants ===
-   Four layers flip; the plate above is shared. The fill takes the far end of
+   Three layers flip, and on a contrast surface the plate takes the glass's
+   dark tone. The fill takes the far end of
    the ramp — near-black on light, light on dark — and carries the contrast on
    its own, so the track only has to hint at how far the value has travelled: on
    dark that is a second coat of the plate's own wash, about half the step the
@@ -133,10 +130,7 @@ const volumeFillStyle = computed(() => ({
   --volume-track: var(--color-glass);
   --volume-fill: var(--color-fill-on-contrast);
   --volume-text: var(--color-text-secondary);
-  /* The fourth layer: the glass rim. White at .48 sits 13/255 off this plate on
-     a light ground and 100 on a dark one, so the shared stroke that reads as a
-     highlight there draws an outline here — see --stroke-glass-on-contrast. */
-  --glass-stroke: var(--stroke-glass-on-contrast);
+  --glass-tone: var(--color-shell-on-contrast);
 }
 
 @media (max-aspect-ratio: 4/3) {

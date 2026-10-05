@@ -2,7 +2,7 @@
 <template>
   <div>
     <Transition name="keyboard">
-      <div v-if="isKeyboardVisible && shouldShowKeyboard" ref="keyboardRef" class="virtual-keyboard">
+      <div v-if="isKeyboardVisible && shouldShowKeyboard" ref="keyboardRef" class="virtual-keyboard glass-shell">
 
         <!-- Header: Input display + Backspace -->
         <div class="keyboard-header">
@@ -445,9 +445,6 @@ onUnmounted(() => {
   transform: translateX(-50%);
   z-index: 6000;
   width: 100%;
-  background: var(--color-glass-strong);
-  backdrop-filter: blur(var(--blur-04));
-  -webkit-backdrop-filter: blur(var(--blur-04));
   border-radius: var(--radius-07) var(--radius-07) 0 0;
   padding: var(--space-05);
   display: flex;
@@ -455,22 +452,6 @@ onUnmounted(() => {
   gap: var(--space-01);
   overflow: hidden;
   touch-action: none;
-}
-
-.virtual-keyboard::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07) var(--radius-07) 0 0;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
 }
 
 /* Header: Input + Backspace — same 10-column grid as rows */

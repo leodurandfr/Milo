@@ -181,7 +181,7 @@ function handleClick(event) {
 
 /* === OUTLINE variant === */
 .btn--outline.btn--normal {
-    background-color: var(--color-surface);
+    background-color: var(--color-panel);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
 }
@@ -194,7 +194,7 @@ function handleClick(event) {
 
 /* === OUTLINE-NEUTRAL variant (neutral border, e.g. unselected ButtonGroup item) === */
 .btn--outline-neutral.btn--normal {
-    background-color: var(--color-surface);
+    background-color: var(--color-panel);
     color: var(--color-text-secondary);
     box-shadow: inset 0 0 0 2px var(--color-border);
 }
@@ -244,13 +244,13 @@ function handleClick(event) {
 }
 
 .btn--outline.btn--loading {
-    background-color: var(--color-surface);
+    background-color: var(--color-panel);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .btn--outline-neutral.btn--loading {
-    background-color: var(--color-surface);
+    background-color: var(--color-panel);
     color: var(--color-text-secondary);
     box-shadow: inset 0 0 0 2px var(--color-border);
 }

@@ -29,6 +29,8 @@ const ROLE = /--(?:color|stroke|gradient)-[\w-]+/;
 /** The contextual roles, and the one file allowed to redeclare each (see design-system.css). */
 const CONTEXTUAL = {
   '--color-panel': ['components/ui/Modal.vue'],
+  '--color-inset': ['components/ui/Modal.vue'],
+  '--color-tile': ['components/ui/Modal.vue'],
   '--color-header': ['components/ui/Modal.vue'],
   '--color-header-control': ['components/ui/Modal.vue'],
   '--color-header-text': ['components/ui/Modal.vue'],

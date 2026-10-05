@@ -16,20 +16,20 @@
     :style="{ '--dock-fit-scale': fitScale, '--dock-height': dockHeight + 'px' }">
     <!-- Additional Apps - Mobile only -->
     <div v-if="additionalAppsInDOM && additionalDockApps.length > 0"
-      class="additional-apps-panel glass-surface glass-border mobile-only" :class="{ visible: showAdditionalApps }">
+      class="additional-apps-panel glass-shell mobile-only" :class="{ visible: showAdditionalApps }">
       <div ref="additionalAppsContainer" class="additional-apps-container">
         <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
           @click="() => handleAdditionalAppClick(app.id)"
           @pointerdown="(e) => appHold.onAppHoldStart(app.id, e)" v-press
           :style="{ '--stagger': `${0.05 + (additionalDockApps.length - 1 - index) * 0.02}s` }"
-          class="additional-app-content glass-border button-interactive-subtle">
+          class="additional-app-content button-interactive-subtle">
           <AppIcon :name="app.icon" :size="32" />
           <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
         </button>
       </div>
     </div>
 
-    <div ref="dock" class="dock glass-surface glass-border">
+    <div ref="dock" class="dock glass-shell">
       <!-- Volume Controls - Mobile only (hidden when no device manages volume) -->
       <div v-if="unifiedStore.volumeState.any_volume_control" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
@@ -526,9 +526,6 @@ onUnmounted(() => {
 
 <style scoped>
 .additional-apps-panel {
-  --glass-bg: var(--color-glass);
-  --glass-blur: var(--blur-03);
-  --glass-radius: var(--radius-07);
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -561,8 +558,8 @@ onUnmounted(() => {
   pointer-events: auto;
 }
 
-/* The scroller is a box of its own because .glass-border draws its stroke as an
-   absolutely positioned ::before, and such a child scrolls with the content of
+/* The scroller is a box of its own because .glass-shell draws its rim as an
+   absolutely positioned ::after, and such a child scrolls with the content of
    the box it sits in — measured leaving the panel by the full scroll distance.
    The glass stays on the parent, which never scrolls. */
 .additional-apps-container {
@@ -587,7 +584,7 @@ onUnmounted(() => {
   padding: var(--space-02);
   width: 100%;
   flex-shrink: 0;
-  background: var(--color-surface-glass);
+  background: var(--color-shell-control);
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
@@ -628,9 +625,6 @@ onUnmounted(() => {
 }
 
 .dock {
-  --glass-bg: var(--color-glass);
-  --glass-blur: var(--blur-03);
-  --glass-radius: var(--radius-07);
   position: relative;
   border-radius: var(--radius-07);
   padding: var(--space-04);
@@ -641,10 +635,6 @@ onUnmounted(() => {
   z-index: 0;
   overflow: hidden;
   transform: scale(var(--dock-fit-scale, 1));
-}
-
-.additional-app-content {
-  --glass-radius: var(--radius-04);
 }
 
 .volume-controls {
@@ -662,7 +652,7 @@ onUnmounted(() => {
   align-content: center;
   justify-content: center;
   flex: 1;
-  background: var(--color-surface-glass);
+  background: var(--color-shell-control);
   border-radius: var(--radius-04);
   cursor: pointer;
   color: var(--color-text-secondary);
@@ -683,7 +673,7 @@ onUnmounted(() => {
 .dock-separator {
   width: 2px;
   height: var(--space-07);
-  background: var(--color-surface-glass);
+  background: var(--color-shell-control);
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8) translateZ(0);
@@ -726,7 +716,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-surface-glass);
+  background: var(--color-shell-control);
   border-radius: var(--radius-04);
   padding: 0;
   color: var(--color-text-secondary);

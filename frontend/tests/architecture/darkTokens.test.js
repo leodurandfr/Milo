@@ -42,7 +42,7 @@ const NEUTRAL = [
   '--color-success-subtle', '--color-warning-subtle', '--color-error-subtle',
   '--color-glass', '--color-glass-strong',
   '--color-glint', '--color-text-on-contrast', '--color-text-on-contrast-secondary',
-  '--stroke-glass-on-contrast',
+  '--color-shell-on-contrast',
   '--color-image-plate', '--color-image-veil', '--color-image-scrim',
   '--color-backdrop', '--color-backdrop-veil',
 ];

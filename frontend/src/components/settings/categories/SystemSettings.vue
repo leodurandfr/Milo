@@ -53,10 +53,10 @@
              the user cannot open, and from a phone the page is served over
              plain http, where the clipboard API does not exist. -->
         <div class="diagnostic-actions">
-          <Button variant="surface" @click="downloadReport">
+          <Button variant="control" @click="downloadReport">
             {{ t('system.diagnostic.download') }}
           </Button>
-          <Button variant="surface" @click="copyReport">
+          <Button variant="control" @click="copyReport">
             {{ copied ? t('system.diagnostic.copied') : t('system.diagnostic.copy') }}
           </Button>
         </div>

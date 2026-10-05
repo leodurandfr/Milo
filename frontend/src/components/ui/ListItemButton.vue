@@ -163,9 +163,10 @@ function handleClick(event) {
 }
 
 /* Glass variant: a row laid straight on a modal's glass (the power menu, a
-   station's actions), not in a section. */
+   station's actions), not in a section — what the glass holds, like the
+   dock's keys. */
 .list-item-button--glass {
-  background: var(--color-surface-glass);
+  background: var(--color-shell-control);
 }
 
 /* Left icon - base */

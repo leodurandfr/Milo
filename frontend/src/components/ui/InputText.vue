@@ -135,7 +135,7 @@ onUnmounted(() => {
   width: 100%;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-surface);
+  background: var(--color-panel);
   gap: var(--space-01);
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);

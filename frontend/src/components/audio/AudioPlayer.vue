@@ -3,7 +3,7 @@
     <Transition name="audio-player" @after-leave="$emit('after-hide')">
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
-      <div v-if="visible" class="audio-player"
+      <div v-if="visible" class="audio-player glass-shell"
         :class="playerClasses"
         @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
@@ -324,33 +324,12 @@ function onTouchEnd(e) {
   flex-direction: column;
   gap: var(--space-04);
   padding: 0 var(--space-02);
-  background: var(--color-glass-strong);
   border-radius: var(--radius-06);
-  backdrop-filter: blur(var(--blur-02));
-  -webkit-backdrop-filter: blur(var(--blur-02));
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   position: relative;
   overflow: hidden;
   z-index: 50;
-}
-
-/* Glass stroke border effect (matching both radio and podcast players exactly) */
-.audio-player::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-06);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: 1;
-  pointer-events: none;
 }
 
 /* Background artwork - heavily blurred and saturated */
@@ -514,11 +493,7 @@ img.player-artwork.loaded {
     align-items: center;
     padding: var(--space-02) var(--space-03) var(--space-02) var(--space-02);
     border-radius: var(--radius-05);
-    box-shadow: var(--shadow-raised-03);
-  }
-
-  .audio-player::before {
-    border-radius: var(--radius-05);
+    box-shadow: var(--shadow-glass-shell), var(--shadow-raised-03);
   }
 
   .audio-player.swipeable {

@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-surface);
+  background: var(--color-panel);
   cursor: pointer;
   outline: none;
   gap: var(--space-01);

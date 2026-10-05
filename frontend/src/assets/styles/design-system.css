@@ -1,8 +1,11 @@
 /* Colors are chosen in two tiers.
 
    The palette (--gray-*) is the only place a neutral is written as a value:
-   fourteen true grays, no hue, the same in both themes. It is private to this
-   file — a component never reads a step, it reads a role.
+   true grays, no hue, the same in both themes, and the tints — a step at an
+   alpha (--gray-200-a55), for a layer meant to let what is behind it through.
+   A tint is a
+   value like a step, not a role, so any role may pick it. The palette is
+   private to this file — a component never reads a step, it reads a role.
 
    Every other color token is a role: what the color is for (the ground of a
    screen, a panel on it, an inset in the panel, a track, a fill, a text). Each
@@ -13,13 +16,19 @@
    Elevation is the rule the roles follow. In light a panel is white above a
    pale ground and what it holds sinks below it; in dark elevation reads as
    lightness, so the ground is the darkest tone and each layer above it is a
-   step lighter. A modal is a shell (a pale gray at 90% in light, near black
-   at 82% in dark, over a blur) its sections are laid on as cards (white, a near-black gray),
-   under a header that is a contrast surface in light and pure black in dark.
+   step lighter. A modal is a shell of glass — Apple's dock material, the
+   one the dock wears too, light or dark (.glass-shell) — its sections are
+   laid on as opaque cards (white in light, a dark gray under the glass's
+   tone in dark, with rows and tiles a step from them as in an iOS grouped
+   list), so what is written on them never depends on what shows through the
+   glass, under a header that is a contrast surface in light and the
+   section's own gray in dark.
 
    Some tokens are contextual, so a component drawn both on a screen and in a
    modal takes the right color without a variant. --color-panel is
-   --color-surface on a screen and --color-section inside a modal; the
+   --color-surface on a screen and --color-section inside a modal, and
+   --color-inset and --color-tile become --color-section-inset and
+   --color-section-tile there; the
    --color-header-* four (a header's fill, the fill of its buttons, its text
    and secondary text) are the panel's, the control's and the text's on a
    screen and the modal header's inside a modal. Modal.vue sets them on its
@@ -31,6 +40,7 @@
     --gray-25: #f7f7f7;
     --gray-50: #f2f2f2;
     --gray-100: #ebebeb;
+    --gray-200: #c8c8c8;
     --gray-300: #a8a8a8;
     --gray-400: #8e8e8e;
     --gray-500: #777777;
@@ -43,7 +53,13 @@
     --gray-950: #161616;
     --gray-975: #121212;
     --gray-1000: #0b0b0b;
-    --black: #000000;
+    /* Tints. */
+    --gray-0-a80: color-mix(in srgb, var(--gray-0) 80%, transparent);
+    --gray-100-a72: color-mix(in srgb, var(--gray-100) 72%, transparent);
+    --gray-200-a55: color-mix(in srgb, var(--gray-200) 55%, transparent);
+    --gray-800-a55: color-mix(in srgb, var(--gray-800) 55%, transparent);
+    --gray-800-a80: color-mix(in srgb, var(--gray-800) 80%, transparent);
+    --gray-950-a72: color-mix(in srgb, var(--gray-950) 72%, transparent);
 
     /* === BRAND === */
     --color-brand: #ff6428;
@@ -55,7 +71,9 @@
        gallery. */
     --color-ground: var(--gray-25);
     /* A panel raised from the ground: a card, the status card, a source's
-       header, a popover, a key, a field or an outlined button. */
+       header, a popover, a key. A field or an outlined button is not one:
+       it is the fill of the panel it sits on plus a stroke, so it reads
+       --color-panel. */
     --color-surface: var(--gray-0);
     /* The same panel at half opacity, letting what is behind it through. */
     --color-surface-glass: color-mix(in srgb, var(--gray-0) 50%, transparent);
@@ -83,6 +101,10 @@
        box — one step above it, and a settings tile's glyph. */
     --color-tile: var(--gray-0);
     --color-tile-glyph: var(--gray-700);
+    /* The inset and the tile of a modal's section, which Modal.vue hands its
+       content as --color-inset and --color-tile. */
+    --color-section-inset: var(--color-inset);
+    --color-section-tile: var(--color-tile);
     /* The fill of a button or an icon button. */
     --color-control: var(--gray-50);
 
@@ -103,15 +125,30 @@
     --color-thumb: var(--gray-0);
 
     /* === GLASS === */
-    /* The translucent coat of the floating chrome — the dock, the volume bar,
-       a glass button — and its stronger twin (the keyboard, the playing bar's
-       card, the dock handle). The same gray in both themes: glass is tinted by
-       what is behind it. */
+    /* A translucent gray, the same in both themes since it is tinted by
+       what is behind it: the volume bar's track on a contrast surface, and
+       its stronger twin (the volume bar's track, the dock handle). The
+       floating chrome itself is .glass-shell. */
     --color-glass: color-mix(in srgb, var(--gray-500) 16%, transparent);
     --color-glass-strong: color-mix(in srgb, var(--gray-500) 32%, transparent);
-    /* A modal: the veil over the screen behind it, and its glass shell. */
-    --color-overlay: color-mix(in srgb, var(--gray-500) 32%, transparent);
-    --color-modal: color-mix(in srgb, var(--gray-50) 90%, transparent);
+    /* The veil over the screen behind a modal: a step off the ground toward
+       the glass, so the modal's .glass-shell lands on about the tone the
+       dock has on the bare ground. A mid gray here darkened the shell well
+       below the dock. */
+    --color-overlay: var(--gray-100-a72);
+    /* The tone of the .glass-shell material (a modal, the dock): Apple's
+       dock, a light gray in light and a dark one in dark at the same alpha.
+       The light gray is lighter than Apple's #999 because the alpha is
+       higher (55% against 33%): over the light ground it lands where
+       Apple's does (#ddd), and only a busy backdrop shows the difference.
+       And what the dock lays on it (a volume key, the overflow toggle, an
+       overflow app, the separator), covering enough that the icon or text
+       on it stays legible whatever shows through the glass. */
+    --color-shell: var(--gray-200-a55);
+    --color-shell-control: var(--gray-0-a80);
+    /* The same glass on a contrast surface (the lyrics, a dark ground): the
+       dark tone in both themes. */
+    --color-shell-on-contrast: var(--gray-800-a55);
 
     /* === CONTRAST === */
     /* A surface dark in both themes, which carries white text: a detail
@@ -176,21 +213,11 @@
     --color-error-subtle: rgba(244, 67, 54, 0.12);
     --color-success-subtle: rgba(17, 170, 58, 0.12);
 
-    /* === STROKES === */
-    /* The specular rim of a glass plate. Dark draws the quiet sweep: on a
-       light surface the .48 peak lands 2/255 off the plate it rims, on a dark
-       ground it lands 80 — the white is 40x louder for the same number. The
-       quiet ramp is the faintest rim that still reads as one, keeping the 8:1
-       peak/trough ratio, and a plate on a contrast surface takes it in both
-       themes. */
-    --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
-    --stroke-glass-on-contrast: linear-gradient(190deg, rgba(255, 255, 255, .14) 0.43%, rgba(255, 255, 255, .02) 21.15%, rgba(255, 255, 255, .14) 47.85%, rgba(255, 255, 255, .02) 78.57%);
-
     /* === SOURCE GRADIENTS === */
     /* The tint AudioSourceLayout washes behind the top of a browsing source.
        Three one-off brand colors that belong to no ramp, which is why they
-       live as whole gradients here rather than as color tokens — like
-       --stroke-glass above. Podcast fades between two purples on purpose. */
+       live as whole gradients here rather than as color tokens. Podcast
+       fades between two purples on purpose. */
     --gradient-source-radio: linear-gradient(180deg, #f6edcd 0%, rgba(246, 237, 205, 0) 100%);
     --gradient-source-podcast: linear-gradient(180deg, rgba(66, 24, 112, 0.08) 0%, rgba(126, 46, 214, 0) 100%);
     --gradient-source-music-library: linear-gradient(180deg, rgba(212, 72, 100, 0.1) 0%, rgba(212, 72, 100, 0) 100%);
@@ -287,6 +314,19 @@
     /* Hairline under a key at rest — a bottom edge that takes no layout space. */
     --shadow-key: 0 1px 0 rgba(0, 0, 0, 0.12);
 
+    /* The edge of the .glass-shell material, Apple's dock in both themes: a
+       half-pixel ring a shade darker than what is around it and a faint drop
+       outside, and a lit rim along the top and bottom inner edges, which
+       .glass-shell::after draws over what the glass holds. */
+    --shadow-glass-shell:
+        0 0 0 0.5px rgba(0, 0, 0, 0.2),
+        0 8px 15px rgba(0, 0, 0, 0.02);
+    --shadow-glass-rim:
+        inset 0 1.25px 0.25px rgba(255, 255, 255, 0.16),
+        inset 0 -1.25px 0.25px rgba(255, 255, 255, 0.16),
+        inset 0 10px 10px -10px rgba(255, 255, 255, 0.16),
+        inset 0 -10px 10px -10px rgba(255, 255, 255, 0.16);
+
     /* === BLUR === */
     --blur-01: 4px;
     --blur-02: 16px;
@@ -351,20 +391,22 @@
    Elevation reads as lightness: the ground is the darkest tone, a panel a
    step above it, what the panel holds a step above that, a control a step
    above again. Texts are light, each as far from its ground as its light
-   twin. A modal's sections take the ground's color under a lighter glass. */
+   twin. A modal's section sits a shade under the glass, opaque, and its
+   rows and their tiles step up from it, as an iOS grouped list does. */
 :root[data-theme="dark"] {
     --color-ground: var(--gray-1000);
     --color-surface: var(--gray-950);
     --color-surface-glass: color-mix(in srgb, var(--gray-950) 50%, transparent);
-    --color-section: var(--gray-975);
+    --color-section: var(--gray-950);
     --color-panel: var(--color-surface);
-    /* A header is a translucent gray in dark, on a screen and in a modal
-       alike, so it reads the same over the ground and over the modal's black. */
+    /* A screen's header is a translucent gray in dark, so it reads the same
+       over the ground and over a source's wash; a modal's header is its
+       section's gray. */
     --color-header: color-mix(in srgb, var(--gray-500) 9%, transparent);
     --color-header-control: var(--color-control);
     --color-header-text: var(--color-text);
     --color-header-text-secondary: var(--color-text-secondary);
-    --color-modal-header: var(--black);
+    --color-modal-header: var(--color-section);
     --color-modal-header-control: var(--color-control);
     --color-modal-header-text: var(--color-text);
     --color-modal-header-text-secondary: var(--color-text-secondary);
@@ -374,6 +416,11 @@
     --color-inset: var(--gray-925);
     --color-tile: var(--gray-900);
     --color-tile-glyph: var(--gray-300);
+    /* The light theme's steps (ΔL* 2.8 section→row, row→tile) scaled by
+       ~1.6, the ratio iOS keeps between its light and dark grouped lists:
+       an equal step between dark tones reads weaker. */
+    --color-section-inset: var(--gray-900);
+    --color-section-tile: var(--gray-850);
     --color-control: var(--gray-800);
 
     --color-track: color-mix(in srgb, var(--gray-100) 10%, transparent);
@@ -382,11 +429,12 @@
     --color-fill-off: var(--gray-600);
     --color-thumb: var(--gray-100);
 
-    --color-overlay: color-mix(in srgb, var(--gray-1000) 40%, transparent);
-    --color-modal: color-mix(in srgb, var(--gray-1000) 82%, transparent);
+    --color-overlay: var(--gray-950-a72);
+    --color-shell: var(--gray-800-a55);
+    --color-shell-control: var(--gray-800-a80);
 
     --color-contrast: var(--gray-800);
-    --color-contrast-80: color-mix(in srgb, var(--gray-800) 80%, transparent);
+    --color-contrast-80: var(--gray-800-a80);
     --color-fill-on-contrast: var(--gray-100);
 
     --color-text: var(--gray-100);
@@ -405,7 +453,6 @@
     --color-key-active-ink: var(--color-ground);
     --color-key-function: var(--color-glint);
 
-    --stroke-glass: var(--stroke-glass-on-contrast);
 
     /* Each wash tints the dark ground by what it tints the light one (the same
        CIELAB distance between the ground and the top of the wash, ~7-17), in
@@ -725,37 +772,38 @@
 
 
 /* === GLASSMORPHISM === */
-/* Usage: apply .glass-surface for backdrop blur, .glass-border for stroke.
-   Customize via local CSS custom properties:
-   --glass-bg (default: --color-surface-glass)
-   --glass-blur (default: --blur-02)
-   --glass-radius (default: --radius-05)
-   --glass-stroke (default: --stroke-glass; --stroke-glass-on-contrast on a contrast surface) */
-
-.glass-surface {
-    background: var(--glass-bg, var(--color-surface-glass));
-    backdrop-filter: blur(var(--glass-blur, var(--blur-02)));
-    -webkit-backdrop-filter: blur(var(--glass-blur, var(--blur-02)));
-}
-
-.glass-border {
+/* .glass-shell: the material of all floating chrome — a modal, the dock,
+   the volume bar, the keyboard, the playing bar's card, a glass button. It
+   is Apple's dock (its Figma kit: a gray blended in luminosity mode over a
+   frost), denser than Apple's 33% and light frost so what is laid on it
+   reads over any cover.
+   Luminosity keeps the hue and saturation of what is behind and moves only
+   its lightness toward the gray. A plain gray veil at 55% would also drain
+   55% of the saturation, so the backdrop is saturated by 1/(1 - 0.55) first
+   and the two cancel — for the muted colors a blur leaves; a vivid one clips
+   at the gamut edge and stays a little louder than Apple's. mix-blend-mode
+   would be exact but cannot reach the backdrop of an element that blurs it. On a contrast surface,
+   --glass-tone: var(--color-shell-on-contrast). */
+.glass-shell {
     position: relative;
+    background: var(--glass-tone, var(--color-shell));
+    backdrop-filter: blur(var(--blur-03)) saturate(220%);
+    -webkit-backdrop-filter: blur(var(--blur-03)) saturate(220%);
+    box-shadow: var(--shadow-glass-shell);
 }
 
-.glass-border::before {
+/* An inset shadow paints under the element's children, so content scrolling
+   inside the glass would cover its rim: the rim is a layer above them. A
+   backdrop-filter makes the element a stacking context, so this z-index
+   never reaches past it. */
+.glass-shell::after {
     content: '';
     position: absolute;
     inset: 0;
-    /* One width for every glass rim, 1px: drawn in raw pixels, it reads the
-       same at any element size, so another value anywhere is drift. */
-    padding: 1px;
-    background: var(--glass-stroke, var(--stroke-glass));
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    border-radius: var(--glass-radius, var(--radius-05));
-    z-index: 1;
+    border-radius: inherit;
+    box-shadow: var(--shadow-glass-rim);
     pointer-events: none;
+    z-index: 1000;
 }
 
 /* === ANIMATIONS === */

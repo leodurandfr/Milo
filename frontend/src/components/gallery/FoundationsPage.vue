@@ -298,13 +298,11 @@ defineProps({
   border-radius: var(--radius-02);
 }
 
-/* No background of its own, deliberately: .glass-surface brings one, and a
+/* No background of its own, deliberately: .glass-shell brings one, and a
    scoped rule would outrank it (an attribute selector on top of the class).
-   Only the size is ours — and the radius, which has to match the one
-   .glass-border draws its stroke at. */
+   Only the size and the radius are ours; the rim inherits the radius. */
 .glass-tile {
-  --glass-radius: var(--radius-05);
-
+  position: relative;
   display: block;
   height: var(--space-08);
   border-radius: var(--radius-05);
