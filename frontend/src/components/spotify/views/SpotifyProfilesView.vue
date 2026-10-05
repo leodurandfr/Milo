@@ -1,5 +1,5 @@
 <template>
-  <div class="spotify-profiles">
+  <div class="spotify-profiles swap-fades-leaves">
     <div class="profiles-grid" :style="{ '--profile-avatar': `${AVATAR_SIZE}px` }">
       <div v-for="profile in store.profiles" :key="profile.username" class="profile-tile">
         <button v-press type="button" class="profile-pick" :disabled="!!switching || !!forgetting"
@@ -139,6 +139,14 @@ store.loadProfiles();
     calc((100% - (var(--card-grid-columns) - 1) * var(--space-05)) / var(--card-grid-columns)),
     calc(var(--profile-avatar) + 2 * var(--space-01))
   );
+}
+
+/* The leaves the view swap fades (.swap-fades-leaves): the plate fades
+   itself, so its blur keeps the page behind it. */
+.profile-pick,
+.forget-anchor > *,
+.forget-confirm {
+  opacity: var(--swap-fade);
 }
 
 .profile-pick {

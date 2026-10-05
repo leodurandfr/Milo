@@ -966,6 +966,40 @@
     transition-delay: 100ms;
 }
 
+/* A view with glass in it (.swap-fades-leaves) is not faded as a whole: an
+   ancestor at opacity < 1 is a Backdrop Root, so the glass would blur only
+   what that ancestor paints and lose the page behind it until the fade ends.
+   The swap moves --swap-fade instead, and the view sets each leaf's opacity
+   from it — the glass's own opacity leaves its blur alone. Named in the
+   transition: Chromium's `all` does not carry a custom property. */
+@property --swap-fade {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 1;
+}
+
+.swap-stack > .fade-slide-enter-active:has(.swap-fades-leaves) {
+    transition: all var(--transition-in-out), --swap-fade var(--transition-in-out);
+    transition-delay: 100ms;
+}
+
+.swap-stack > .fade-slide-leave-active:has(.swap-fades-leaves) {
+    transition: all var(--transition-fast-leave), --swap-fade var(--transition-fast-leave);
+}
+
+.swap-stack > .fade-slide-enter-from:has(.swap-fades-leaves),
+.swap-stack > .fade-slide-leave-to:has(.swap-fades-leaves) {
+    opacity: 1;
+    --swap-fade: 0;
+}
+
+/* A leaf's own opacity transition (a press) would chase every step of the
+   swap's and trail it: the view's transitions hold while it swaps. */
+.swap-stack > .fade-slide-enter-active .swap-fades-leaves *,
+.swap-stack > .fade-slide-leave-active .swap-fades-leaves * {
+    transition: none;
+}
+
 /* Loading fade (for card loading overlays) */
 .loading-fade-enter-active {
     transition: opacity var(--transition-fast);
