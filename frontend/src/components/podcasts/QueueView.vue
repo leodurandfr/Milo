@@ -1,25 +1,30 @@
 <template>
   <div class="queue-view">
-    <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
+    <div class="swap-stack">
+      <Transition name="fade-slide">
+        <MessageContent v-if="loading" key="loading" loading :title="t('podcasts.loading')" />
 
-    <MessageContent
-      v-else-if="episodes.length === 0"
-      icon="podcast"
-      :title="t('podcasts.noEpisodesInQueue')"
-      :subtitle="t('podcasts.noEpisodesInQueueHint')"
-    />
-
-    <div v-else class="episodes-list">
-      <div v-for="episode in episodes" :key="episode.episode_uuid" class="queue-item">
-        <EpisodeCard
-          :episode="formatQueueEpisode(episode)"
-          :show-complete-button="true"
-          @select="$emit('select-episode', episode.episode_uuid)"
-          @play="$emit('play-episode', formatQueueEpisode(episode))"
-          @complete="markComplete(episode.episode_uuid)"
-          @select-podcast="(podcast) => $emit('select-podcast', podcast)"
+        <MessageContent
+          v-else-if="episodes.length === 0"
+          key="empty"
+          icon="podcast"
+          :title="t('podcasts.noEpisodesInQueue')"
+          :subtitle="t('podcasts.noEpisodesInQueueHint')"
         />
-      </div>
+
+        <div v-else key="loaded" class="episodes-list">
+          <div v-for="episode in episodes" :key="episode.episode_uuid" class="queue-item">
+            <EpisodeCard
+              :episode="formatQueueEpisode(episode)"
+              :show-complete-button="true"
+              @select="$emit('select-episode', episode.episode_uuid)"
+              @play="$emit('play-episode', formatQueueEpisode(episode))"
+              @complete="markComplete(episode.episode_uuid)"
+              @select-podcast="(podcast) => $emit('select-podcast', podcast)"
+            />
+          </div>
+        </div>
+      </Transition>
     </div>
   </div>
 </template>

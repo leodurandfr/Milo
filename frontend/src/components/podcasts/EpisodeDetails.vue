@@ -1,14 +1,10 @@
 <template>
   <div class="episode-details">
-    <div class="transition-container">
-      <!-- Skeleton state -->
-      <transition name="content-fade">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <SkeletonEpisodeDetails v-if="loading" key="loading" />
-      </transition>
 
-      <!-- Real content -->
-      <transition name="content-fade">
-        <div v-if="!loading && episode" key="loaded" class="details-content">
+        <div v-else-if="episode" key="loaded" class="details-content">
           <DetailHeader
             :image-src="episode.image_url || episode.podcast?.image_url"
             :fallback="podcastPlaceholder"
@@ -31,7 +27,7 @@
             <p class="text-body">{{ episode.description }}</p>
           </div>
         </div>
-      </transition>
+      </Transition>
     </div>
   </div>
 </template>
@@ -106,29 +102,6 @@ onMounted(loadEpisode)
 .episode-details {
   display: flex;
   flex-direction: column;
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: 1fr;
-}
-
-.transition-container > * {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.content-fade-enter-active {
-  transition: opacity var(--transition-normal);
-}
-
-.content-fade-leave-active {
-  transition: opacity var(--transition-normal-leave);
-}
-
-.content-fade-enter-from,
-.content-fade-leave-to {
-  opacity: 0;
 }
 
 .details-content {

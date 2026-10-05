@@ -23,7 +23,7 @@
     </NavigationHeader>
 
     <!-- Content area (wrapper provides positioning context for cross-fade overlay) -->
-    <div class="transition-wrapper">
+    <div class="swap-stack">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <div v-if="currentView === 'home'" key="home" class="view-content home-view">
         <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
@@ -704,28 +704,6 @@ onMounted(async () => {
   position: relative;
   z-index: 1;
   transition: padding var(--transition-fast), opacity var(--transition-in-out);
-}
-
-/* View stack: leaving + entering views share one grid cell, so the box reserves
-   max(leaving, entering) height intrinsically — no manual min-height pin, no
-   position:absolute overlay. */
-.transition-wrapper {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-/* Both views occupy the single stack cell during the cross-fade. align-self:start
-   keeps each at its natural height so the height delta stays measurable. */
-:deep(.fade-slide-enter-active),
-:deep(.fade-slide-leave-active) {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-}
-
-/* Enter starts after leave begins (sequential fade-out → fade-in) */
-:deep(.fade-slide-enter-active) {
-  transition-delay: 100ms;
 }
 
 .view-content {

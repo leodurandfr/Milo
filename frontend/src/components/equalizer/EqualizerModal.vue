@@ -8,7 +8,7 @@
       </template>
     </NavigationHeader>
 
-    <div class="transition-wrapper">
+    <div class="swap-stack">
       <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
         <!-- State 1: Equalizer disabled -->
         <MessageContent v-if="!equalizerStore.isEqualizerEffectsEnabled" key="disabled" icon="equalizer"
@@ -309,27 +309,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-}
-
-/* View stack: leaving + entering views share one grid cell, so the box reserves
-   max(leaving, entering) height intrinsically (cf. .settings-modal). */
-.transition-wrapper {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-/* Both views occupy the single stack cell during the cross-fade. align-self:start
-   keeps each at its natural height so the height delta stays measurable. */
-:deep(.fade-slide-enter-active),
-:deep(.fade-slide-leave-active) {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-}
-
-/* Cross-fade: entering content appears after leaving starts fading */
-:deep(.fade-slide-enter-active) {
-  transition-delay: 100ms;
 }
 
 .controls-content {

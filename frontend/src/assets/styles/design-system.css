@@ -760,22 +760,6 @@
 
 /* === ANIMATIONS === */
 
-.fade-in {
-    animation: fadeIn var(--transition-normal);
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
 /* Shimmer skeleton loading animation, in the skeleton colors on any panel;
    .shimmer--on-contrast for one drawn on a contrast surface. */
 @keyframes shimmer {
@@ -872,7 +856,9 @@
 
 /* === VUE TRANSITIONS === */
 
-/* Fade + slide (for MessageContent, grids, etc.) */
+/* Fade + slide: what leaves rises away, what arrives comes up from below. The
+   one swap of every view and every state inside one (loading → content), in a
+   .swap-stack. */
 .fade-slide-enter-active {
     transition: all var(--transition-in-out);
 }
@@ -891,6 +877,25 @@
     transform: translateY(calc(-1 * var(--space-03)));
 }
 
+/* One cell for a fade-slide swap: the leaving and entering states overlap, so
+   the box keeps max(leaving, entering) height and there is no out-in blank beat. */
+.swap-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+}
+
+.swap-stack > * {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: start;
+}
+
+/* The entering state starts once the leaving one is on its way up. */
+.swap-stack > .fade-slide-enter-active {
+    transition-delay: 100ms;
+}
+
 /* Loading fade (for card loading overlays) */
 .loading-fade-enter-active {
     transition: opacity var(--transition-fast);
@@ -902,22 +907,6 @@
 
 .loading-fade-enter-from,
 .loading-fade-leave-to {
-    opacity: 0;
-}
-
-/* Content crossfade: skeleton → loaded-content swap inside a view. Pair with a
-   grid-overlay parent (both states share one cell) so there's no layout jump.
-   Distinct from the faster, card-level .loading-fade. */
-.content-swap-enter-active {
-    transition: opacity var(--transition-normal);
-}
-
-.content-swap-leave-active {
-    transition: opacity var(--transition-normal-leave);
-}
-
-.content-swap-enter-from,
-.content-swap-leave-to {
     opacity: 0;
 }
 

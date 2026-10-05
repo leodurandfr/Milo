@@ -1,7 +1,7 @@
 <template>
   <div class="artist-view">
-    <div class="transition-container">
-      <Transition name="content-swap">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <MessageContent v-if="loading && !artist" key="loading" loading :title="t('musicLibrary.loading')" />
         <MessageContent v-else-if="!artist" key="notfound" :title="t('musicLibrary.notFound')" />
         <div v-else key="loaded" class="content-stack">
@@ -119,17 +119,6 @@ watch(() => props.artistId, async (id) => {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .content-stack {

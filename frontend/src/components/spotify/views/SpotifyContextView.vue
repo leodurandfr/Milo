@@ -1,7 +1,7 @@
 <template>
   <div class="spotify-context">
-    <div class="transition-container">
-      <Transition name="content-swap">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <!-- Rows already listed stay over an error: reopening asks for the rest. -->
         <MessageContent v-if="error && !tracks.length" key="error" icon="network"
           :title="error === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable')"
@@ -182,17 +182,6 @@ if (!listing.value?.complete) load();
 .spotify-context {
   display: flex;
   flex-direction: column;
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .content-stack {

@@ -10,11 +10,11 @@
       inactive-variant="surface"
     />
 
-    <div class="tab-transition"><Transition name="fade-slide">
+    <div class="swap-stack"><Transition name="fade-slide">
       <div :key="viewMode" class="tab-content">
         <template v-if="viewMode === 'tracks'">
-          <div class="transition-container">
-            <Transition name="content-swap">
+          <div class="swap-stack">
+            <Transition name="fade-slide">
               <MessageContent v-if="loading && !songs.length" key="loading" loading :title="t('musicLibrary.loading')" />
               <MessageContent v-else-if="!songs.length" key="notfound" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="content-stack">
@@ -49,8 +49,8 @@
         </template>
 
         <template v-else>
-          <div class="transition-container">
-            <Transition name="content-swap">
+          <div class="swap-stack">
+            <Transition name="fade-slide">
               <MessageContent v-if="loading && !albums.length" key="loading" loading :title="t('musicLibrary.loading')" />
               <MessageContent v-else-if="!albums.length" key="notfound" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="albums-grid">
@@ -121,39 +121,11 @@ watch(() => props.genre, async (genre) => {
   gap: var(--space-05);
 }
 
-.tab-transition {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  min-height: 0;
-}
-
 .tab-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
   width: 100%;
-}
-
-:deep(.fade-slide-enter-active),
-:deep(.fade-slide-leave-active) {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-}
-
-:deep(.fade-slide-enter-active) {
-  transition-delay: 100ms;
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .content-stack {

@@ -17,15 +17,14 @@
     <MessageContent v-if="store.disconnectedStorage" :title="disconnectedTitle"
       :subtitle="t('musicLibrary.storage.disconnectedHint')" />
 
-    <!-- Tab switch: same overlapping fade-slide crossfade as AudioSourceLayout's view
-         transition — leaving + entering tab-content share one grid cell (.tab-transition),
-         no out-in gap — so switching tabs feels as fast as switching views. -->
-    <div v-else class="tab-transition"><Transition name="fade-slide">
+    <!-- Tab switch: the same swap as AudioSourceLayout's view transition, so
+         switching tabs feels as fast as switching views. -->
+    <div v-else class="swap-stack"><Transition name="fade-slide">
       <div :key="store.activeTab" class="tab-content">
         <!-- ALBUMS -->
         <template v-if="store.activeTab === 'albums'">
-          <div class="transition-container">
-            <Transition name="content-swap">
+          <div class="swap-stack">
+            <Transition name="fade-slide">
               <div v-if="!store.albums.length && (store.albumsLoading || !store.albumsLoaded)" key="loading"
                 class="albums-grid">
                 <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
@@ -45,8 +44,8 @@
 
         <!-- ARTISTS -->
         <template v-else-if="store.activeTab === 'artists'">
-          <div class="transition-container">
-            <Transition name="content-swap">
+          <div class="swap-stack">
+            <Transition name="fade-slide">
               <div v-if="!store.displayedArtistIndex.length && (store.artistsLoading || !store.artistsLoaded)"
                 key="loading" class="rows-list">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
@@ -75,8 +74,8 @@
 
         <!-- GENRES -->
         <template v-else-if="store.activeTab === 'genres'">
-          <div class="transition-container">
-            <Transition name="content-swap">
+          <div class="swap-stack">
+            <Transition name="fade-slide">
               <div v-if="!store.genres.length && (store.genresLoading || !store.genresLoaded)" key="loading"
                 class="rows-list">
                 <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
@@ -107,8 +106,8 @@
             :subtitle="t('musicLibrary.tracksCount', { count: store.likedSongsCount })"
             @click="$emit('select-liked')" />
 
-          <div class="transition-container">
-            <Transition name="content-swap">
+          <div class="swap-stack">
+            <Transition name="fade-slide">
               <div v-if="!store.playlists.length && (store.playlistsLoading || !store.playlistsLoaded)" key="loading"
                 class="rows-list">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
@@ -354,38 +353,6 @@ onMounted(async () => {
   flex-direction: column;
   gap: var(--space-05);
   width: 100%;
-}
-
-/* Stacks each tab's skeleton / empty / loaded states in one cell so content-swap
-   crossfades them (no layout jump) when a tab's data lands. */
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-}
-
-/* Overlapping tab-switch crossfade (matches AudioSourceLayout's view transition):
-   both tab-contents occupy one grid cell so there's no out-in blank beat. */
-.tab-transition {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  min-height: 0;
-}
-
-:deep(.fade-slide-enter-active),
-:deep(.fade-slide-leave-active) {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-}
-
-:deep(.fade-slide-enter-active) {
-  transition-delay: 100ms;
 }
 
 /* Same column count and column gap as the radio favorites grid, so an album

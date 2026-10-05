@@ -2,18 +2,23 @@
     <div class="subscriptions-view">
       <!-- My podcasts -->
       <section class="section">
-        <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
+        <div class="swap-stack">
+          <Transition name="fade-slide">
+            <MessageContent v-if="loading" key="loading" loading :title="t('podcasts.loading')" />
 
-        <MessageContent
-          v-else-if="subscriptions.length === 0"
-          icon="heartOff"
-          :title="t('podcasts.noSubscriptions')"
-          :subtitle="t('podcasts.noSubscriptionsHint')"
-        />
+            <MessageContent
+              v-else-if="subscriptions.length === 0"
+              key="empty"
+              icon="heartOff"
+              :title="t('podcasts.noSubscriptions')"
+              :subtitle="t('podcasts.noSubscriptionsHint')"
+            />
 
-        <div v-else class="podcasts-grid">
-          <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)"
-            :showActions="true" @select="$emit('select-podcast', sub.uuid)" @unsubscribe="handleUnsubscribe" />
+            <div v-else key="loaded" class="podcasts-grid">
+              <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)"
+                :showActions="true" @select="$emit('select-podcast', sub.uuid)" @unsubscribe="handleUnsubscribe" />
+            </div>
+          </Transition>
         </div>
       </section>
 

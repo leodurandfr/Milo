@@ -1,7 +1,7 @@
 <template>
   <div class="liked-songs-view">
-    <div class="transition-container">
-      <Transition name="content-swap">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <MessageContent v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading"
           loading :title="t('musicLibrary.loading')" />
         <MessageContent v-else-if="!store.likedSongs.length" key="empty" :title="t('musicLibrary.noTracks')" />
@@ -74,17 +74,6 @@ store.loadLikedSongs({ force: true });
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .content-stack {

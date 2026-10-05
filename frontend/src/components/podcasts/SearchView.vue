@@ -5,50 +5,54 @@
       icon="search" @update:modelValue="onSearchInput" />
 
     <!-- Results -->
-    <div class="results">
-      <!-- Loading state -->
-      <MessageContent v-if="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
+    <div class="swap-stack">
+      <Transition name="fade-slide">
+        <!-- Loading state -->
+        <MessageContent v-if="loading" key="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
 
-      <!-- Apple did not answer — subscriptions and playback are unaffected -->
-      <MessageContent
-        v-else-if="podcastStore.apiError"
-        icon="network"
-        :title="t('podcasts.catalogUnavailable')"
-        :subtitle="t('podcasts.catalogUnavailableHint')"
-        :cta-label="t('podcasts.retry')"
-        cta-variant="control"
-        :cta-click="() => podcastStore.search()"
-      />
+        <!-- Apple did not answer — subscriptions and playback are unaffected -->
+        <MessageContent
+          v-else-if="podcastStore.apiError"
+          key="error"
+          icon="network"
+          :title="t('podcasts.catalogUnavailable')"
+          :subtitle="t('podcasts.catalogUnavailableHint')"
+          :cta-label="t('podcasts.retry')"
+          cta-variant="control"
+          :cta-click="() => podcastStore.search()"
+        />
 
-      <!-- Search results -->
-      <div v-else-if="hasSearched && searchResults.podcasts.length > 0" class="results-content fade-in">
-        <!-- Podcasts results -->
-        <section class="section">
-          <h2 class="heading-2">
-            {{ t('podcasts.podcastsTitle') }}
-          </h2>
-          <div class="podcasts-grid">
-            <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.itunes_id || podcast.uuid"
-              :podcast="podcast"
-              @select="$emit('select-podcast', podcast)" />
-          </div>
-          <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
-            <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="podcastStore.loadMoreSearchResults">
-              {{ t('podcasts.loadMorePodcasts') }}
-            </Button>
-          </div>
-        </section>
-      </div>
+        <!-- Search results -->
+        <div v-else-if="hasSearched && searchResults.podcasts.length > 0" key="results" class="results-content">
+          <!-- Podcasts results -->
+          <section class="section">
+            <h2 class="heading-2">
+              {{ t('podcasts.podcastsTitle') }}
+            </h2>
+            <div class="podcasts-grid">
+              <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.itunes_id || podcast.uuid"
+                :podcast="podcast"
+                @select="$emit('select-podcast', podcast)" />
+            </div>
+            <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
+              <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="podcastStore.loadMoreSearchResults">
+                {{ t('podcasts.loadMorePodcasts') }}
+              </Button>
+            </div>
+          </section>
+        </div>
 
-      <!-- No results -->
-      <MessageContent
-        v-else-if="hasSearched"
-        icon="search"
-        :title="lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults')"
-      />
+        <!-- No results -->
+        <MessageContent
+          v-else-if="hasSearched"
+          key="no-results"
+          icon="search"
+          :title="lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults')"
+        />
 
-      <!-- Initial state -->
-      <MessageContent v-else icon="search" :title="t('podcasts.searchPrompt')" />
+        <!-- Initial state -->
+        <MessageContent v-else key="prompt" icon="search" :title="t('podcasts.searchPrompt')" />
+      </Transition>
     </div>
   </div>
 </template>
@@ -106,12 +110,6 @@ function onSearchInput() {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-}
-
-.results {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-06);
 }
 
 .results-content {

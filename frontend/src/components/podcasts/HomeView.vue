@@ -6,15 +6,13 @@
         <span class="section-overline text-mono-small">{{ t('podcasts.subscriptions') }}</span>
         <h2 class="section-title heading-2">{{ t('podcasts.newEpisodes') }}</h2>
       </header>
-      <div class="transition-container">
-        <transition name="content-fade">
+      <div class="swap-stack">
+        <Transition name="fade-slide">
           <div v-if="loadingSubscriptions" key="loading-sub" class="episodes-list">
             <SkeletonEpisodeCard v-for="i in 4" :key="`skeleton-sub-${i}`" />
           </div>
-        </transition>
 
-        <transition name="content-fade">
-          <div v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length > 0" key="loaded-sub" class="episodes-list">
+          <div v-else-if="latestSubscriptionEpisodes.length > 0" key="loaded-sub" class="episodes-list">
             <EpisodeCard
               v-for="episode in latestSubscriptionEpisodes.slice(0, 4)"
               :key="episode.uuid"
@@ -25,12 +23,9 @@
               @select-podcast="(podcast) => $emit('select-podcast', podcast)"
             />
           </div>
-        </transition>
 
-        <!-- Empty state with MessageContent when subscribed but no new episodes -->
-        <transition name="content-fade">
-          <MessageContent v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length === 0" key="empty-sub" icon="heartOff" :title="t('podcasts.noNewEpisodes')" />
-        </transition>
+          <MessageContent v-else key="empty-sub" icon="heartOff" :title="t('podcasts.noNewEpisodes')" />
+        </Transition>
       </div>
     </section>
 
@@ -40,18 +35,16 @@
         <span class="section-overline text-mono-small">{{ t('podcasts.ranking') }}</span>
         <h2 class="section-title heading-2">{{ t('podcasts.topPodcasts') }}</h2>
       </header>
-      <div class="transition-container">
-        <transition name="content-fade">
+      <div class="swap-stack">
+        <Transition name="fade-slide">
           <div v-if="loadingTopCharts" key="loading-podcasts" class="podcasts-grid">
             <SkeletonPodcastCard v-for="i in columns * 2" :key="`skeleton-podcast-${i}`" />
           </div>
-        </transition>
 
-        <!-- The catalog could not be loaded, whether Apple did not answer or the
-             request itself failed — the subscriptions block above is unaffected -->
-        <transition name="content-fade">
+          <!-- The catalog could not be loaded, whether Apple did not answer or the
+               request itself failed — the subscriptions block above is unaffected -->
           <MessageContent
-            v-if="!loadingTopCharts && topChartsApiError"
+            v-else-if="topChartsApiError"
             key="api-error-podcasts"
             icon="network"
             :title="t('podcasts.catalogUnavailable')"
@@ -60,10 +53,8 @@
             cta-variant="control"
             :cta-click="loadData"
           />
-        </transition>
 
-        <transition name="content-fade">
-          <div v-if="!loadingTopCharts && !topChartsApiError" key="loaded-podcasts" class="podcasts-grid">
+          <div v-else key="loaded-podcasts" class="podcasts-grid">
             <PodcastCard
               v-for="(podcast, index) in topPodcasts"
               :key="podcast.itunes_id || podcast.uuid"
@@ -72,7 +63,7 @@
               @select="$emit('select-podcast', podcast)"
             />
           </div>
-        </transition>
+        </Transition>
       </div>
     </section>
 
@@ -216,17 +207,6 @@ onMounted(() => {
   margin: 0;
 }
 
-/* Transition container for overlay effect */
-.transition-container {
-  display: grid;
-  grid-template-columns: 1fr;
-}
-
-.transition-container > * {
-  grid-column: 1;
-  grid-row: 1;
-}
-
 .podcasts-grid {
   display: grid;
   grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
@@ -243,20 +223,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-02);
-}
-
-/* Content fade transition (skeleton to real content) */
-.content-fade-enter-active {
-  transition: opacity var(--transition-normal);
-}
-
-.content-fade-leave-active {
-  transition: opacity var(--transition-normal-leave);
-}
-
-.content-fade-enter-from,
-.content-fade-leave-to {
-  opacity: 0;
 }
 
 /* Mobile: Responsive adaptations */

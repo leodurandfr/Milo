@@ -1,7 +1,7 @@
 <template>
   <div class="spotify-home">
-    <div class="transition-container">
-      <Transition name="content-swap">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <!-- Nobody signed in, nobody kept: only a cast can bring an account. -->
         <MessageContent v-if="castFirst" key="cast"
           :title="t('spotify.castFirstTitle')" :subtitle="t('spotify.castFirstSubtitle')" />
@@ -110,17 +110,6 @@ watch(() => store.account && !store.signingIn, (signedIn) => {
 .spotify-home {
   display: flex;
   flex-direction: column;
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .sections {

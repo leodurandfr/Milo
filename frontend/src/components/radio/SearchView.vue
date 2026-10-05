@@ -26,61 +26,65 @@
     </div>
 
     <!-- Results -->
-    <div class="results">
-      <!-- Loading state -->
-      <MessageContent v-if="isLoading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
+    <div class="swap-stack">
+      <Transition name="fade-slide">
+        <!-- Loading state -->
+        <MessageContent v-if="isLoading" key="loading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
 
-      <!-- The directory did not answer — favourites and playback are unaffected -->
-      <MessageContent
-        v-else-if="searchUnavailable && searchResults.length === 0"
-        icon="network"
-        :title="t('audioSources.radioSource.searchUnavailable')"
-        :subtitle="t('audioSources.radioSource.searchUnavailableHint')"
-        :cta-label="t('audioSources.radioSource.retry')"
-        cta-variant="control"
-        :cta-click="() => $emit('retry')"
-      />
-
-      <!-- Generic error state -->
-      <MessageContent
-        v-else-if="hasError && searchResults.length === 0"
-        icon="stop"
-        :title="t('audioSources.radioSource.connectionError')"
-        :subtitle="t('audioSources.radioSource.cannotLoadStations')"
-        :cta-label="t('audioSources.radioSource.retry')"
-        cta-variant="control"
-        :cta-click="() => $emit('retry')"
-      />
-
-      <!-- Minimum characters message -->
-      <MessageContent v-else-if="showMinCharMessage" icon="search" :title="t('audioSources.radioSource.minCharactersRequired')" />
-
-      <!-- Empty state -->
-      <MessageContent v-else-if="searchResults.length === 0" icon="radio" :title="t('audioSources.radioSource.noStationsFound')" />
-
-      <!-- Search results -->
-      <div v-else class="results-content fade-in">
-        <StationCard
-          v-for="station in searchResults"
-          :key="`search-${station.id}`"
-          :station="station"
-          variant="card"
-          :is-playing="currentStation?.id === station.id && isPlaying"
-          :is-loading="bufferingStationId === station.id"
-          @click="$emit('play-station', station.id)"
+        <!-- The directory did not answer — favourites and playback are unaffected -->
+        <MessageContent
+          v-else-if="searchUnavailable && searchResults.length === 0"
+          key="unavailable"
+          icon="network"
+          :title="t('audioSources.radioSource.searchUnavailable')"
+          :subtitle="t('audioSources.radioSource.searchUnavailableHint')"
+          :cta-label="t('audioSources.radioSource.retry')"
+          cta-variant="control"
+          :cta-click="() => $emit('retry')"
         />
 
-        <!-- Sentinel for infinite scroll -->
-        <div
-          v-if="hasMoreStations"
-          ref="scrollSentinel"
-          class="scroll-sentinel"
-        >
-          <Button variant="control" disabled loading>
-            {{ t('audioSources.radioSource.loadingStations') }}
-          </Button>
+        <!-- Generic error state -->
+        <MessageContent
+          v-else-if="hasError && searchResults.length === 0"
+          key="error"
+          icon="stop"
+          :title="t('audioSources.radioSource.connectionError')"
+          :subtitle="t('audioSources.radioSource.cannotLoadStations')"
+          :cta-label="t('audioSources.radioSource.retry')"
+          cta-variant="control"
+          :cta-click="() => $emit('retry')"
+        />
+
+        <!-- Minimum characters message -->
+        <MessageContent v-else-if="showMinCharMessage" key="min-chars" icon="search" :title="t('audioSources.radioSource.minCharactersRequired')" />
+
+        <!-- Empty state -->
+        <MessageContent v-else-if="searchResults.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noStationsFound')" />
+
+        <!-- Search results -->
+        <div v-else key="results" class="results-content">
+          <StationCard
+            v-for="station in searchResults"
+            :key="`search-${station.id}`"
+            :station="station"
+            variant="card"
+            :is-playing="currentStation?.id === station.id && isPlaying"
+            :is-loading="bufferingStationId === station.id"
+            @click="$emit('play-station', station.id)"
+          />
+
+          <!-- Sentinel for infinite scroll -->
+          <div
+            v-if="hasMoreStations"
+            ref="scrollSentinel"
+            class="scroll-sentinel"
+          >
+            <Button variant="control" disabled loading>
+              {{ t('audioSources.radioSource.loadingStations') }}
+            </Button>
+          </div>
         </div>
-      </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -264,12 +268,6 @@ const { sentinelRef: scrollSentinel } = useInfiniteScroll({
 .filters-bar > :deep(*) {
   flex: 1;
   min-width: 180px;
-}
-
-/* Results container */
-.results {
-  display: flex;
-  flex-direction: column;
 }
 
 /* Results content (grid) */

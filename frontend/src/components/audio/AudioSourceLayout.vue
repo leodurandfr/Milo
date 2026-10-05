@@ -25,7 +25,7 @@
       >
         <!-- Back-to-top threshold marker. Absolute so it takes no row in the flex
              column (a zero-height item would still claim the container's gap), and
-             outside .transition-wrapper so a view swap never re-creates it. -->
+             outside .swap-stack so a view swap never re-creates it. -->
         <div ref="scrollSentinel" class="scroll-top-sentinel"></div>
 
         <NavigationHeader
@@ -43,8 +43,7 @@
           </template>
         </NavigationHeader>
 
-        <!-- Content with crossfade animation (wrapper isolates position: absolute during leave) -->
-        <div class="transition-wrapper">
+        <div class="swap-stack">
           <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
             <div :key="contentKey" class="content-inner">
               <slot name="content" :is-mobile="isMobile" />
@@ -422,34 +421,12 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
     transform var(--source-motion-duration, 0s);
 }
 
-/* View stack: leaving + entering views share one grid cell, so the box reserves
-   max(leaving, entering) height intrinsically (no position:absolute overlay). */
-.transition-wrapper {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  min-height: 0;
-}
-
 /* Inner wrapper for content transition */
 .content-inner {
   display: flex;
   flex-direction: column;
   min-height: 0;
   width: 100%;
-}
-
-/* Both views occupy the single stack cell during the cross-fade. align-self:start
-   keeps each at its natural height. */
-:deep(.fade-slide-enter-active),
-:deep(.fade-slide-leave-active) {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-}
-
-/* Enter starts after leave begins (sequential fade-out → fade-in) */
-:deep(.fade-slide-enter-active) {
-  transition-delay: 100ms;
 }
 
 /* Player wrapper: animates width to create space for player */

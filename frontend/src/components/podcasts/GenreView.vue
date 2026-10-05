@@ -1,20 +1,25 @@
 <template>
   <div class="genre-view">
     <section class="section">
-      <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
-      <MessageContent
-        v-else-if="apiError"
-        icon="network"
-        :title="t('podcasts.catalogUnavailable')"
-        :subtitle="t('podcasts.catalogUnavailableHint')"
-        :cta-label="t('podcasts.retry')"
-        cta-variant="control"
-        :cta-click="loadData"
-      />
-      <MessageContent v-else-if="topPodcasts.length === 0" icon="podcast" :title="t('podcasts.noPodcastsInGenre')" />
-      <div v-else class="podcasts-grid">
-        <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
-          @select="$emit('select-podcast', podcast)" />
+      <div class="swap-stack">
+        <Transition name="fade-slide">
+          <MessageContent v-if="loading" key="loading" loading :title="t('podcasts.loading')" />
+          <MessageContent
+            v-else-if="apiError"
+            key="error"
+            icon="network"
+            :title="t('podcasts.catalogUnavailable')"
+            :subtitle="t('podcasts.catalogUnavailableHint')"
+            :cta-label="t('podcasts.retry')"
+            cta-variant="control"
+            :cta-click="loadData"
+          />
+          <MessageContent v-else-if="topPodcasts.length === 0" key="empty" icon="podcast" :title="t('podcasts.noPodcastsInGenre')" />
+          <div v-else key="loaded" class="podcasts-grid">
+            <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
+              @select="$emit('select-podcast', podcast)" />
+          </div>
+        </Transition>
       </div>
     </section>
   </div>

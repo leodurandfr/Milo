@@ -8,8 +8,8 @@
       @update:modelValue="onInput"
     />
 
-    <div class="transition-container">
-      <Transition name="content-swap">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <MessageContent v-if="store.searchLoading" key="loading" loading :loading-delay="0" :title="t('musicLibrary.loading')" />
 
         <div v-else-if="store.hasSearched && !store.searchEmpty" key="results" class="content-stack">
@@ -115,17 +115,6 @@ function playSong(index) {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .content-stack {

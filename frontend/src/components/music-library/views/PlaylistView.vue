@@ -1,7 +1,7 @@
 <template>
   <div class="playlist-view">
-    <div class="transition-container">
-      <Transition name="content-swap">
+    <div class="swap-stack">
+      <Transition name="fade-slide">
         <MessageContent v-if="loading && !playlist" key="loading" loading :title="t('musicLibrary.loading')" />
         <MessageContent v-else-if="!playlist" key="notfound" :title="t('musicLibrary.notFound')" />
 
@@ -279,17 +279,6 @@ onUnmounted(removeDragListeners);
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.transition-container {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.transition-container > * {
-  grid-row: 1;
-  grid-column: 1;
-  align-self: start;
 }
 
 .content-stack {
