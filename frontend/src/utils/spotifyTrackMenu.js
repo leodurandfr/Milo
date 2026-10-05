@@ -17,24 +17,24 @@ export function canHaveRadio(track) {
 }
 
 /**
- * The pages a row's menu opens, in order: the artist's, the album's, and the
- * song radio. A page is left out where the row already is, or when nothing
- * leads to it: the track names no uri for it, the album is not known to hold
- * more than this track (`albumLength`, null when not known), or Spotify gave
- * no radio (`radioUri`).
+ * The pages a row's menu opens, in Spotify's own order: the song radio, the
+ * artist's, and the album's. A page is left out where the row already is, or
+ * when nothing leads to it: the track names no uri for it, the album is not
+ * known to hold more than this track (`albumLength`, null when not known), or
+ * Spotify gave no radio (`radioUri`).
  *
  * @param {{ uri: string, artists: Array<{uri?: string}>, album?: {uri?: string},
  *   track_number?: number, disc_number?: number }} track
  * @param {'playlist'|'liked'|'album'|'artist'} kind The page the row is on.
  * @param {{ albumLength?: number|null, radioUri?: string|null }} answers
- * @returns {Array<'artist'|'album'|'radio'>}
+ * @returns {Array<'radio'|'artist'|'album'>}
  */
 export function trackMenuActions(track, kind, { albumLength = null, radioUri = null } = {}) {
   const actions = [];
+  if (radioUri) actions.push('radio');
   if (kind !== 'artist' && track.artists[0]?.uri) actions.push('artist');
   if (kind !== 'album' && track.album?.uri && (albumKnownToHoldMore(track) || albumLength > 1)) {
     actions.push('album');
   }
-  if (radioUri) actions.push('radio');
   return actions;
 }

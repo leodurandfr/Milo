@@ -18,18 +18,18 @@ const TRACK = {
 const RADIO = 'spotify:playlist:37i9dQZF1E8M6tDY4CZ7kr';
 
 describe('trackMenuActions', () => {
-  it('offers the artist, the album and the radio from a playlist', () => {
-    expect(trackMenuActions(TRACK, 'playlist', { albumLength: 36, radioUri: RADIO })).toEqual(['artist', 'album', 'radio']);
+  it('offers the radio, the artist and the album from a playlist, in that order', () => {
+    expect(trackMenuActions(TRACK, 'playlist', { albumLength: 36, radioUri: RADIO })).toEqual(['radio', 'artist', 'album']);
   });
 
   it('leaves out the page the row is already on', () => {
-    expect(trackMenuActions(TRACK, 'album', { albumLength: 36, radioUri: RADIO })).toEqual(['artist', 'radio']);
-    expect(trackMenuActions(TRACK, 'artist', { albumLength: 36, radioUri: RADIO })).toEqual(['album', 'radio']);
+    expect(trackMenuActions(TRACK, 'album', { albumLength: 36, radioUri: RADIO })).toEqual(['radio', 'artist']);
+    expect(trackMenuActions(TRACK, 'artist', { albumLength: 36, radioUri: RADIO })).toEqual(['radio', 'album']);
   });
 
   it("leaves out a single's album, and an album whose length is not known", () => {
-    expect(trackMenuActions(TRACK, 'playlist', { albumLength: 1, radioUri: RADIO })).toEqual(['artist', 'radio']);
-    expect(trackMenuActions(TRACK, 'playlist', { radioUri: RADIO })).toEqual(['artist', 'radio']);
+    expect(trackMenuActions(TRACK, 'playlist', { albumLength: 1, radioUri: RADIO })).toEqual(['radio', 'artist']);
+    expect(trackMenuActions(TRACK, 'playlist', { radioUri: RADIO })).toEqual(['radio', 'artist']);
   });
 
   it('offers the album of a track past the first without its length', () => {

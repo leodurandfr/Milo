@@ -64,6 +64,9 @@ import repeatOnceIcon from '@/assets/icons/repeat-once.svg?raw'
 import lyricsIcon from '@/assets/icons/lyrics.svg?raw'
 import arrowExtendedIcon from '@/assets/icons/arrow-extended.svg?raw'
 import hardwareIcon from '@/assets/icons/hardware.svg?raw'
+import broadcastIcon from '@/assets/icons/broadcast.svg?raw'
+import userSoundIcon from '@/assets/icons/user-sound.svg?raw'
+import vinylRecordIcon from '@/assets/icons/vinyl-record.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -120,7 +123,10 @@ const icons = {
   repeatOnce: repeatOnceIcon,
   lyrics: lyricsIcon,
   arrowExtended: arrowExtendedIcon,
-  hardware: hardwareIcon
+  hardware: hardwareIcon,
+  broadcast: broadcastIcon,
+  userSound: userSoundIcon,
+  vinylRecord: vinylRecordIcon
 }
 
 /**

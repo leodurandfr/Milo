@@ -18,7 +18,7 @@
     <Teleport to="body">
       <Transition name="dropdown-menu">
         <div v-if="isOpen" ref="menuRef" class="dropdown-menu"
-          :class="[`dropdown-menu--${size}`, { 'open-upward': openUpward, 'open-leftward': openLeftward }]"
+          :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'open-upward': openUpward, 'open-leftward': openLeftward }]"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
           @scroll.stop>
           <div v-if="title" class="dropdown-title text-mono-small">{{ title }}</div>
@@ -26,7 +26,8 @@
             :class="[size === 'small' ? 'heading-4' : 'heading-3', { 'is-selected': option.value === modelValue }]"
             @click="selectOption(option.value)">
             <span class="dropdown-item-label">{{ option.label }}</span>
-            <span v-if="option.icon" class="dropdown-item-icon" role="img" :aria-label="option.iconLabel">
+            <span v-if="option.icon" class="dropdown-item-icon" :role="option.iconLabel ? 'img' : null"
+              :aria-label="option.iconLabel" :aria-hidden="option.iconLabel ? null : 'true'">
               <SvgIcon :name="option.icon" :size="20" />
             </span>
           </div>
@@ -49,7 +50,8 @@ const props = defineProps({
     type: Array,
     required: true,
     // Expected format: [{ label: 'Label', value: 'value' }, ...], plus an
-    // optional `icon` after the label and the `iconLabel` a screen reader says.
+    // optional `icon` beside the label (`iconPlacement`) and the `iconLabel` a
+    // screen reader says — without one, the icon is decorative and hidden.
   },
   placeholder: {
     type: String,
@@ -85,6 +87,13 @@ const props = defineProps({
     type: String,
     default: 'bottom-start',
     validator: (value) => ['bottom-start', 'top-end'].includes(value)
+  },
+  // Where an option's icon sits: after its label (a mark on a choice), or
+  // before it (the icon of an action, as in a ⋯ menu).
+  iconPlacement: {
+    type: String,
+    default: 'end',
+    validator: (value) => ['end', 'start'].includes(value)
   }
 });
 
@@ -374,6 +383,18 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.dropdown-menu.icons-start .dropdown-item {
+  gap: var(--space-03);
+}
+
+.dropdown-menu.icons-start .dropdown-item-icon {
+  order: -1;
+}
+
+.dropdown-menu.icons-start .dropdown-item:not(.is-selected) .dropdown-item-icon {
+  color: var(--color-text-secondary);
+}
+
 .dropdown-title {
   padding: var(--space-03) var(--space-04) 0;
   color: var(--color-text-secondary);
@@ -392,7 +413,7 @@ onBeforeUnmount(() => {
   gap: var(--space-01);
 }
 
-/* The ellipsis lives on the label, so an icon after it keeps its place. */
+/* The ellipsis lives on the label, so an icon beside it keeps its place. */
 .dropdown-item-label {
   min-width: 0;
   overflow: hidden;

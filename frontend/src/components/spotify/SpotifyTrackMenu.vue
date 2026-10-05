@@ -3,7 +3,7 @@
      to. It opens them by emitting; the source's navigation does the rest. -->
 <template>
   <Dropdown v-if="mayLead" model-value="" :options="options" size="small" placement="top-end"
-    @change="choose">
+    icon-placement="start" @change="choose">
     <template #trigger="{ toggle, isOpen }">
       <button v-press type="button" class="track-menu-trigger" :aria-label="t('spotify.moreOptions')"
         :aria-busy="asking" @click="press(toggle, isOpen)">
@@ -24,7 +24,11 @@ import { albumKnownToHoldMore, canHaveRadio, trackMenuActions } from '@/utils/sp
 
 // How long a press waits for Spotify before the menu opens with what is known.
 const ANSWER_WAIT_MS = 1500;
-const LABELS = { artist: 'spotify.artist', album: 'spotify.album', radio: 'spotify.songRadio' };
+const ENTRIES = {
+  radio: { label: 'spotify.goToSongRadio', icon: 'broadcast' },
+  artist: { label: 'spotify.goToArtist', icon: 'userSound' },
+  album: { label: 'spotify.goToAlbum', icon: 'vinylRecord' },
+};
 
 const props = defineProps({
   // A described track, as /contexts lists it.
@@ -59,7 +63,11 @@ const asking = ref(false);
 let alive = true;
 onBeforeUnmount(() => { alive = false; });
 
-const options = computed(() => shown.value.map((action) => ({ value: action, label: t(LABELS[action]) })));
+const options = computed(() => shown.value.map((action) => ({
+  value: action,
+  label: t(ENTRIES[action].label),
+  icon: ENTRIES[action].icon,
+})));
 
 async function press(toggle, isOpen) {
   if (isOpen) {
