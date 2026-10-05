@@ -136,6 +136,51 @@ export const useSpotifyStore = defineStore('spotify', () => {
   }
 
   // =========================================================================
+  // ARTISTS — an artist's page as Spotify's apps draw it, but its popular tracks
+  // =========================================================================
+  // uri → { name, image, listeners, popular_title, sections }
+  const artists = ref({});
+  // uri → 'not_signed_in' | 'unavailable'
+  const artistErrors = ref({});
+  let artistsLoading = new Set();
+  // Moved by a change of account or language: an answer asked before it is
+  // the last one's, and dropped.
+  let artistsGeneration = 0;
+
+  async function loadArtist(uri, { force = false } = {}) {
+    if (artistsLoading.has(uri) || (artists.value[uri] && !force)) return;
+    const generation = artistsGeneration;
+    artistsLoading.add(uri);
+    const result = await apiCall.get(`${BASE}/artists/${encodeURIComponent(uri)}`, {
+      // Spotify titles the page's sections in the language asked for.
+      params: { locale: bcp47For(i18n.currentLanguage.value) },
+      category: 'spotify',
+      message: 'Error loading a Spotify artist',
+      logLevel: 'warn',
+    });
+    if (generation !== artistsGeneration) return;
+    artistsLoading.delete(uri);
+    if (!result.ok) {
+      artistErrors.value = {
+        ...artistErrors.value,
+        [uri]: result.error?.status === NOT_SIGNED_IN ? 'not_signed_in' : 'unavailable',
+      };
+      return;
+    }
+    const { [uri]: _dropped, ...otherErrors } = artistErrors.value;
+    artistErrors.value = otherErrors;
+    artists.value = { ...artists.value, [uri]: result.data };
+  }
+
+  // Every artist page asked so far is forgotten; the one on screen asks again.
+  function forgetArtists() {
+    artistsGeneration += 1;
+    artistsLoading = new Set();
+    artists.value = {};
+    artistErrors.value = {};
+  }
+
+  // =========================================================================
   // TRACK MENU — what a row's ⋯ menu needs to know before it opens
   // =========================================================================
   // Each asked once per uri and account, the request itself kept so a second
@@ -233,14 +278,17 @@ export const useSpotifyStore = defineStore('spotify', () => {
     homeError.value = null;
     contexts.value = {};
     contextErrors.value = {};
+    forgetArtists();
     radios = new Map();
     contextLengths = new Map();
     if (now) loadProfiles();
   });
 
-  // Another interface language: the shelves are titled in the last one.
+  // Another interface language: the shelves and the artist pages are titled
+  // in the last one.
   watch(i18n.currentLanguage, () => {
     if (home.value) loadHome({ force: true });
+    forgetArtists();
   });
 
   // =========================================================================
@@ -262,6 +310,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
     home, homeLoading, homeError, loadHome,
     // contexts
     contexts, contextErrors, loadContext,
+    // artists
+    artists, artistErrors, loadArtist,
     // track menu
     trackRadio, contextLength,
     // profiles

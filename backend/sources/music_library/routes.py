@@ -104,6 +104,15 @@ def _keep_playable(item: Dict[str, Any], key: str, album_ids: set) -> None:
     item["duration"] = sum(int(entry.get("duration") or 0) for entry in kept)
 
 
+def newest_first(albums: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """An artist's albums from the latest year to the earliest, as Spotify
+    lists a discography. getArtist answers them oldest first, mostly — not
+    always (an album placed after a later one was measured) — so the order is
+    set here. Within a year the catalog's order is kept; an album with no year
+    goes last."""
+    return sorted(albums, key=lambda album: -(album.get("year") or 0))
+
+
 def setup_music_library_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
     set_source_provider(source_provider)
@@ -163,7 +172,7 @@ async def get_artist(
     artist_id: str,
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """A single artist with its albums (Subsonic getArtist).
+    """A single artist with its albums (Subsonic getArtist), newest first.
 
     The album list is collapsed for multi-disc sets (see disc_merge) — the artist
     page shows a split "… CD 1/CD 2" release as one album — and holds only the
@@ -195,9 +204,9 @@ async def get_artist(
             logger.debug("Not a browsable artist: %s", artist.get("name"))
             raise HTTPException(status_code=404, detail="Artist not found")
         album_ids = await source.mounted_album_ids()
-        artist["album"] = merge_albums(
+        artist["album"] = newest_first(merge_albums(
             [album for album in artist.get("album") or [] if album.get("id") in album_ids]
-        )
+        ))
         return {"artist": artist}
 
 

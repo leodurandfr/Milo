@@ -3,7 +3,7 @@
 <template>
   <div
     class="button-group"
-    :class="[`button-group--${size}`, `button-group--mobile-${mobileLayout}`]"
+    :class="[`button-group--${size}`, `button-group--${width}`, `button-group--mobile-${mobileLayout}`]"
   >
     <Button
       v-for="option in options"
@@ -44,6 +44,13 @@ const props = defineProps({
     default: 'outline-neutral',
     validator: (value) => ['outline-neutral', 'surface'].includes(value)
   },
+  // 'fill': the buttons share the row's width (tabs); 'hug': each is as wide
+  // as its label, the group as wide as its buttons (filters beside a title).
+  width: {
+    type: String,
+    default: 'fill',
+    validator: (value) => ['fill', 'hug'].includes(value)
+  },
   mobileLayout: {
     type: String,
     default: 'wrap',
@@ -76,6 +83,10 @@ function selectOption(value) {
 .button-group :deep(.btn) {
   flex: 1;
   white-space: nowrap;
+}
+
+.button-group--hug :deep(.btn) {
+  flex: 0 0 auto;
 }
 
 /* Mobile layouts */

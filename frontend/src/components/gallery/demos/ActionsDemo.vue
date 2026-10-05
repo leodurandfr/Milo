@@ -60,6 +60,9 @@
     <GalleryVariant label='size="small" + inactiveVariant="surface"' stacked>
       <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" inactive-variant="surface" />
     </GalleryVariant>
+    <GalleryVariant label='width="hug" — filters beside a title' stacked>
+      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" inactive-variant="surface" width="hug" />
+    </GalleryVariant>
     <GalleryVariant label="a disabled option, then the whole group disabled" stacked>
       <ButtonGroup v-model="preset" :options="PRESET_OPTIONS" />
       <ButtonGroup v-model="preset" :options="PRESET_OPTIONS" disabled />

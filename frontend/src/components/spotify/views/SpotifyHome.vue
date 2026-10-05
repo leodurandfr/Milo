@@ -40,7 +40,8 @@
 
           <!-- Spotify's own shelves, in its order and under its titles. -->
           <section v-for="shelf in home.shelves" :key="shelf.id" class="section">
-            <h2 class="section-title heading-2">{{ shelf.title }}</h2>
+            <SpotifySectionTitle :title="shelf.title || ''" :linked="shelf.items.length >= columns"
+              @open="$emit('show-section', shelf)" />
             <SpotifyShelfRow :items="shelf.items" @select="$emit('select', $event)" />
           </section>
 
@@ -65,12 +66,14 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useCardGridColumns } from '@/composables/useCardGridColumns';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SpotifyShelfRow from '../SpotifyShelfRow.vue';
+import SpotifySectionTitle from '../SpotifySectionTitle.vue';
 import SpotifyPlaylistGrid from '../SpotifyPlaylistGrid.vue';
 import SpotifyShortcutTile from '../cards/SpotifyShortcutTile.vue';
 import SkeletonSpotifyCard from '../cards/SkeletonSpotifyCard.vue';
 
-// A card or a tile, with the kind of page it opens: playlist, album, artist or liked.
-defineEmits(['select']);
+// A card or a tile, with the kind of page it opens: playlist, album, artist or
+// liked; `show-section`: a shelf whose row shows less than it holds, to open whole.
+defineEmits(['select', 'show-section']);
 
 const { t } = useI18n();
 const store = useSpotifyStore();

@@ -6,7 +6,7 @@
     @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
     <template #navigation="{ bar }">
       <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
-        :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="currentView === 'context'"
+        :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView)"
         header-icon="spotify" gradient="spotify"
         :header-actions-key="currentView" :content-key="contentKey"
         :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
@@ -21,7 +21,7 @@
         </template>
 
         <template #content>
-          <SpotifyHome v-if="currentView === 'home'" key="home" @select="openItem" />
+          <SpotifyHome v-if="currentView === 'home'" key="home" @select="openItem" @show-section="openSection" />
 
           <SpotifyProfilesView v-else-if="currentView === 'profiles'" key="profiles" @picked="reset" />
 
@@ -29,6 +29,17 @@
             :uri="currentParams.uri" :kind="currentParams.kind" :name="currentParams.name"
             :image="currentParams.image" :owner="currentParams.owner"
             @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
+
+          <SpotifyArtistView v-else-if="currentView === 'artist'" :key="currentParams.uri"
+            :uri="currentParams.uri" :name="currentParams.name" :image="currentParams.image"
+            @select="openItem" @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio"
+            @show-discography="push('discography', $event)" @show-section="openSection" />
+
+          <SpotifyDiscographyView v-else-if="currentView === 'discography'" :key="`discography:${currentParams.uri}`"
+            :uri="currentParams.uri" :group="currentParams.group" @select="openItem" />
+
+          <SpotifySectionView v-else-if="currentView === 'section'" :key="`section:${currentParams.id}`"
+            :items="currentParams.items" @select="openItem" />
         </template>
 
         <!-- Docked player: it reads what it draws from the state (no queue
@@ -55,6 +66,9 @@ import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import ProfileAvatar from './ProfileAvatar.vue';
 import SpotifyHome from './views/SpotifyHome.vue';
 import SpotifyContextView from './views/SpotifyContextView.vue';
+import SpotifyArtistView from './views/SpotifyArtistView.vue';
+import SpotifyDiscographyView from './views/SpotifyDiscographyView.vue';
+import SpotifySectionView from './views/SpotifySectionView.vue';
 import SpotifyProfilesView from './views/SpotifyProfilesView.vue';
 
 const store = useSpotifyStore();
@@ -66,9 +80,13 @@ const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? nu
 const { currentView, currentParams, canGoBack, push, back, reset, goTo, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
-// Two context pages in a row (an album, then its artist) are two contents.
+// The views that are one page of something (a list, an artist, its
+// discography): two of the same view in a row are two contents.
+const PAGES = ['context', 'artist', 'discography', 'section'];
 const contentKey = computed(() =>
-  currentView.value === 'context' ? `context:${currentParams.value.uri}` : currentView.value
+  PAGES.includes(currentView.value)
+    ? `${currentView.value}:${currentParams.value.uri ?? currentParams.value.id}`
+    : currentView.value
 );
 
 const playback = useSourcePlaybackVisibility('spotify', {
@@ -80,11 +98,13 @@ const activeProfile = computed(() => store.profiles.find((p) => p.active) ?? nul
 
 const currentTitle = computed(() => {
   if (currentView.value === 'profiles') return t('spotify.profiles');
+  if (currentView.value === 'artist') return t('spotify.artist');
+  if (currentView.value === 'discography') return t('spotify.discography');
+  if (currentView.value === 'section') return currentParams.value.title || t('audioSources.spotify');
   if (currentView.value === 'context') {
     return {
       liked: t('spotify.likedSongs'),
       album: t('spotify.album'),
-      artist: t('spotify.artist'),
     }[currentParams.value.kind] ?? t('spotify.playlist');
   }
   return t('audioSources.spotify');
@@ -105,7 +125,7 @@ function openAlbum(album) {
   if (album?.uri) openContext({ uri: album.uri, kind: 'album', name: album.name || '', image: album.image || '' });
 }
 function openArtist(artist) {
-  if (artist?.uri) openContext({ uri: artist.uri, kind: 'artist', name: artist.name || '', image: artist.image || '' });
+  if (artist?.uri) push('artist', { uri: artist.uri, name: artist.name || '', image: artist.image || '' });
 }
 // A track's radio: the playlist Spotify made for it, named after the track
 // (a nameless track leaves the page its untitled heading).
@@ -128,6 +148,10 @@ function openPlayerArtist() {
   const uri = nowPlaying.value?.artistUri;
   if (uri) openArtist({ uri, name: '' });
 }
+// One of Spotify's sections whole (its "Show all"), under its own title.
+function openSection(section) {
+  push('section', { id: section.id, title: section.title || '', items: section.items });
+}
 function onScrollRestored() {
   pendingScrollRestore.value = null;
 }
@@ -145,7 +169,7 @@ watch(() => store.profilesLoaded, (loaded) => {
 
 // Another account's library: whatever page was open belonged to the last one.
 watch(() => store.account, (now, before) => {
-  if (now !== before && currentView.value === 'context') reset();
+  if (now !== before && PAGES.includes(currentView.value)) reset();
 });
 
 store.loadProfiles();

@@ -1,10 +1,12 @@
 """The Spotify browser's pure shaping (sources/spotify/catalog.py).
 
 The fixtures have the shapes measured on the owner's account: its library
-(2026-10-03) and Spotify's home for it (spclient homeview, 2026-10-04).
+(2026-10-03), Spotify's home for it (spclient homeview, 2026-10-04) and an
+artist's page with its discography (spclient artistview, 2026-10-05).
 """
 from backend.sources.spotify.catalog import (
-    SHORTCUTS_SECTION, described_tracks, home_shelves, leading_covers, library_sections, normalize_playlist,
+    ARTIST_POPULAR_RELEASES_SECTION, ARTIST_TOP_TRACKS_SECTION, SHORTCUTS_SECTION, artist_page, described_tracks,
+    release_type, home_shelves, leading_covers, library_sections, normalize_playlist,
     normalize_track, playlist_cover, thumbnail_url,
 )
 
@@ -204,3 +206,169 @@ def test_a_track_not_described_yet_ends_the_listing_until_it_is_complete():
 
     assert [t["title"] for t in described_tracks(listing, complete=False)] == ["a"]
     assert [t["title"] for t in described_tracks(listing, complete=True)] == ["a", "c"]
+
+
+# === Artist page ===
+
+def view_header(section, title, category="header"):
+    # The discography files its headers as rows (glue2:sectionHeader).
+    return {"id": section, "component": {"id": "glue:sectionHeader", "category": category},
+            "text": {"title": title}}
+
+
+def view_row(section, uri, title, subtitle=None):
+    """A row as artistview draws one: its target is the click, which is the
+    only place an Artist Pick names it."""
+    return {"id": f"{section}_row", "component": {"id": "glue2:imageRow", "category": "row"},
+            "text": {"title": title, **({"subtitle": subtitle} if subtitle else {})},
+            "images": {"main": {"uri": f"https://i.scdn.co/image/{title}"}},
+            "events": {"click": {"name": "navigate", "data": {"uri": uri}}}}
+
+
+def view_carousel(section, title, cards):
+    return {"id": section, "component": {"id": "glue:carousel", "category": "carousel"},
+            "text": {"title": title}, "children": [view_row(section, uri, name) for uri, name in cards]}
+
+
+ARTIST_VIEW = {
+    "header": {"text": {"title": "FKA twigs", "accessory": "3 M auditeurs et auditrices par mois"},
+               "images": {"main": {"uri": "https://i.scdn.co/image/ab67616100005174photo"}}},
+    "body": [
+        view_header(ARTIST_TOP_TRACKS_SECTION, "Populaires"),
+        {"id": "top_row0", "component": {"id": "glue:entityRow", "category": "row"}, "text": {"title": "HARD"},
+         "events": {"click": {"name": "playFromContext", "data": {"uri": "spotify:track:5AzO8bswSqsYtJIfVA2BqX"}}}},
+        view_header("pinned_item_header", "Artist Pick"),
+        view_row("pinned_item", "spotify:playlist:0aIwfSIOwb0fK5FtAay7SE", "On Your Mind", "Playlist"),
+        view_header(ARTIST_POPULAR_RELEASES_SECTION, "Sorties populaires"),
+        view_row(ARTIST_POPULAR_RELEASES_SECTION, "spotify:album:3G77BQuJy3jahjdkKQNNNM", "CAPRISONGS", "2022"),
+        view_row(ARTIST_POPULAR_RELEASES_SECTION, "spotify:artist:6nB0iY1cjSY1KyhYyuIIKH:releases",
+                 "Voir la discographie"),
+        view_carousel("artist-entity-view-you-might-also-like", "Avec FKA twigs", [
+            ("spotify:user:spotify:playlist:37i9dQZF1DZ06evO3LyCc0", "This Is FKA twigs"),
+            ("spotify:user:spotify:playlist:37i9dQZF1E4AT7kuvrVxp6", "Radio FKA twigs"),
+        ]),
+        view_header("concerts_header", "Live Events"),
+        view_row("concerts", "spotify:concert:5R2FBDPp2vtPnlVUNKDOL8", "Paris"),
+        view_header("merchandise_header", "Merch"),
+        view_row("merchandise", "https://shop.spotify.com/en/artist/6nB0iY1cjSY1KyhYyuIIKH/product/lp", "LP1"),
+        view_carousel("artist-entity-view-related", "Les fans aiment aussi", [
+            ("spotify:artist:4Ge8xMJNwt6EEXOzVXju9a", "Caroline Polachek"),
+        ]),
+    ],
+}
+
+RELEASES = {"body": [
+    view_header("artist-entity-view-latest-release", "Dernière sortie", category="row"),
+    view_row("latest", "spotify:album:2TZNyzwG89VKnROkBaK7w3", "On Your Mind", "2026"),
+    view_header("artist-entity-view-albums-source", "Albums", category="row"),
+    view_row("albums", "spotify:album:0v1sQbOCM2xDdIYA0XYapM", "EUSEXUA Afterglow", "2025"),
+    view_row("albums", "spotify:album:25PQxi9SR1OODB5XG6m48J", "LP1", "2014"),
+    view_header("artist-entity-view-artist-singles-source", "Singles", category="row"),
+    view_row("singles", "spotify:album:44keDDETPLFK48WCykPKit", "EP1", "2012"),
+]}
+
+
+def sections_of(page):
+    return [(s["title"], [c["name"] for c in s["items"]]) if "items" in s
+            else ("discography", [(g["title"], [c["name"] for c in g["items"]]) for g in s["groups"]])
+            for s in page["sections"]]
+
+
+def test_the_artist_page_is_spotifys_sections_with_the_discography_in_place_of_its_popular_releases():
+    """The discography stands where Spotify draws its four popular releases:
+    those four first, then one list per kind, each in Spotify's newest-first
+    order. The popular tracks are left to the artist's listing, and what no
+    listing opens (concerts, merch, the "see discography" link) leaves with
+    its section."""
+    page = artist_page(ARTIST_VIEW, RELEASES)
+
+    assert sections_of(page) == [
+        ("Artist Pick", ["On Your Mind"]),
+        ("discography", [
+            ("Sorties populaires", ["On Your Mind", "CAPRISONGS"]),
+            ("Albums", ["EUSEXUA Afterglow", "LP1"]),
+            ("Singles", ["EP1"]),
+        ]),
+        ("Avec FKA twigs", ["This Is FKA twigs", "Radio FKA twigs"]),
+        ("Les fans aiment aussi", ["Caroline Polachek"]),
+    ]
+    assert page["popular_title"] == "Populaires"
+
+
+def discography(page):
+    return {g["id"]: g["items"] for g in next(s for s in page["sections"] if "groups" in s)["groups"]}
+
+
+def test_each_release_says_its_year_and_what_it_is():
+    """Spotify's rows give the year only; what a release is comes from the
+    list Spotify files it in — a popular release included, found in its own."""
+    groups = discography(artist_page(ARTIST_VIEW, RELEASES))
+
+    assert [(r["year"], r["release_type"]) for r in groups["albums"]] == [("2025", "album"), ("2014", "album")]
+    assert groups["singles"][0]["release_type"] == "single"
+    assert groups["popular"][0]["release_type"] is None   # CAPRISONGS is in no list here
+
+
+def test_the_latest_release_goes_back_at_the_head_of_its_own_list_once_its_kind_is_known():
+    """Spotify takes the latest release out of its list into a section of its
+    own: a new album would be missing from the albums. Until its kind is
+    known it goes in no kind's list — a wrong one would mislabel it — but
+    leads the popular releases rather than vanish from the discography."""
+    known = discography(artist_page(ARTIST_VIEW, RELEASES, latest_type="album"))
+    unknown = discography(artist_page(ARTIST_VIEW, RELEASES))
+
+    assert [(r["name"], r["latest"]) for r in known["albums"]] == [
+        ("On Your Mind", True), ("EUSEXUA Afterglow", False), ("LP1", False),
+    ]
+    assert [r["name"] for r in known["singles"]] == ["EP1"]
+    assert [(r["name"], r["release_type"]) for r in unknown["popular"]] == [
+        ("On Your Mind", None), ("CAPRISONGS", None),
+    ]
+    assert "On Your Mind" not in {r["name"] for r in unknown["albums"] + unknown["singles"]}
+
+
+def test_spotify_calls_a_release_an_album_from_seven_tracks_or_thirty_minutes():
+    """Spotify's rule, which files an EP with the singles: under seven tracks
+    only the whole running time decides, so a release not wholly described
+    is not decided yet."""
+    minute = 60_000
+    assert release_type(7, None) == "album"
+    assert release_type(5, [6 * minute] * 5) == "album"
+    assert release_type(5, [3 * minute] * 5) == "single"
+    assert release_type(1, [3 * minute]) == "single"
+    assert release_type(5, [3 * minute] * 4) is None
+    assert release_type(0, []) is None
+
+
+def test_without_its_discography_the_artist_page_keeps_its_popular_releases():
+    """The discography is a second request: its failure costs the full
+    lists, not the releases the page already names."""
+    page = artist_page(ARTIST_VIEW, None)
+    assert ("discography", [("Sorties populaires", ["CAPRISONGS"])]) in sections_of(page)
+
+
+def test_an_artist_page_card_opens_what_its_click_navigates_to():
+    """Spotify still names its own playlists spotify:user:spotify:playlist:…
+    here: the browser compares uris with the one playing, which go-librespot
+    names spotify:playlist:…"""
+    page = artist_page(ARTIST_VIEW, RELEASES)
+    sections = {s["title"]: s["items"] for s in page["sections"] if "items" in s}
+
+    assert [(c["uri"], c["kind"]) for c in sections["Avec FKA twigs"]] == [
+        ("spotify:playlist:37i9dQZF1DZ06evO3LyCc0", "playlist"),
+        ("spotify:playlist:37i9dQZF1E4AT7kuvrVxp6", "playlist"),
+    ]
+    assert sections["Artist Pick"][0]["uri"] == "spotify:playlist:0aIwfSIOwb0fK5FtAay7SE"
+    assert discography(page)["albums"][0]["uri"] == "spotify:album:0v1sQbOCM2xDdIYA0XYapM"
+    assert sections["Les fans aiment aussi"][0]["kind"] == "artist"
+
+
+def test_the_artist_header_is_the_artists_photo_not_a_cover():
+    """Opened from the player's artist line, the page had only its first
+    track's album cover to show; the header is the artist's own photo, at the
+    640 px size i.scdn.co serves for every one."""
+    page = artist_page(ARTIST_VIEW, RELEASES)
+
+    assert page["name"] == "FKA twigs"
+    assert page["image"] == "https://i.scdn.co/image/ab6761610000e5ebphoto"
+    assert page["listeners"] == "3 M auditeurs et auditrices par mois"

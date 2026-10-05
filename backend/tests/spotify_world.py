@@ -168,6 +168,11 @@ class Librespot:
         # answers 503.
         self.home_answer: Optional[Dict[str, Any]] = {"body": []}
         self.home_locales: List[str] = []
+        # An artist's page and its discography (spclient artistview); None
+        # answers 503. The urls asked are kept, with their locale.
+        self.artist_answer: Optional[Dict[str, Any]] = {"body": []}
+        self.releases_answer: Optional[Dict[str, Any]] = {"body": []}
+        self.artist_asked: List[Tuple[str, str]] = []
         # Spotify's track radio (spclient inspiredby-mix), as measured: one
         # playlist; None answers 503. The urls asked are kept.
         self.radio_answer: Optional[Dict[str, Any]] = {
@@ -185,6 +190,10 @@ class Librespot:
         if "homeview" in url:
             self.home_locales.append(k["params"]["locale"])
             answer = self.home_answer
+            return _Exchange(_Response(503) if answer is None else _Response(200, answer))
+        if "artistview" in url:
+            self.artist_asked.append((url, k["params"]["locale"]))
+            answer = self.releases_answer if url.endswith("/releases") else self.artist_answer
             return _Exchange(_Response(503) if answer is None else _Response(200, answer))
         if "inspiredby-mix" in url:
             self.radio_asked.append(url)

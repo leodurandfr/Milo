@@ -14,7 +14,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-from backend.sources.spotify.catalog import MOSAIC_TILES, described_tracks, leading_covers, playlist_cover
+from backend.sources.spotify.catalog import (
+    MOSAIC_TILES, described_tracks, latest_release_uri, leading_covers, playlist_cover, release_type,
+)
 
 logger = logging.getLogger("source.spotify.library")
 
@@ -23,6 +25,11 @@ logger = logging.getLogger("source.spotify.library")
 PROFILE_URL = "https://spclient.wg.spotify.com/user-profile-view/v3/profile/{username}"
 # Spotify's home, as its apps draw it, for the account whose token asks.
 HOME_URL = "https://spclient.wg.spotify.com/homeview/v1/home"
+# An artist's page as Spotify's apps draw it, and its discography ("See
+# discography"): every section titled in the language asked for, each release
+# list newest first (measured 2026-10-05).
+ARTIST_URL = "https://spclient.wg.spotify.com/artistview/v1/artist/{id}"
+ARTIST_RELEASES_URL = "https://spclient.wg.spotify.com/artistview/v1/artist/{id}/releases"
 # The playlist Spotify's apps open as a track's radio ("Go to song radio").
 TRACK_RADIO_URL = "https://spclient.wg.spotify.com/inspiredby-mix/v2/seed_to_playlist/{uri}"
 PAGE = 100
@@ -43,6 +50,10 @@ class SpotifyLibrary:
     CONTEXT_WAIT_S = 6.0
     CONTEXT_POLL_S = 0.4
     STALLED_POLLS = 3
+    # How long an artist page waits on its latest release's tracks to tell an
+    # album from a single: a short release is listed and described within a
+    # second (measured).
+    RELEASE_WAIT_S = 2.4
 
     def __init__(self) -> None:
         self._http: Optional[aiohttp.ClientSession] = None
@@ -174,6 +185,52 @@ class SpotifyLibrary:
         if not isinstance(view, dict):
             raise SpotifyLibraryError("Spotify's home answered no view")
         return view
+
+    async def artist(
+        self, uri: str, locale: str,
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], Optional[str]]:
+        """An artist's page, its discography, and what its latest release is.
+        The page and the discography are read at once (~0.13 s each,
+        measured); the page is the one that matters: a discography that failed
+        leaves it with its own popular releases (None here)."""
+        artist_id = uri.rsplit(":", 1)[1]
+        params = {"platform": "android", "locale": locale}
+        view, releases = await asyncio.gather(
+            self._spotify_service(ARTIST_URL.format(id=artist_id), params, "artist"),
+            self._spotify_service(ARTIST_RELEASES_URL.format(id=artist_id), params, "discography"),
+            return_exceptions=True,
+        )
+        if isinstance(view, BaseException):
+            raise view
+        if not isinstance(view, dict):
+            raise SpotifyLibraryError("Spotify's artist service answered no view")
+        if isinstance(releases, BaseException) or not isinstance(releases, dict):
+            logger.warning(f"Spotify discography unavailable: {releases}; the page keeps its popular releases")
+            return view, None, None
+        latest = latest_release_uri(releases)
+        return view, releases, (await self.read_release_type(latest) if latest else None)
+
+    async def read_release_type(self, uri: str) -> Optional[str]:
+        """What Spotify files a release as ("album" or "single"), from its
+        tracks as go-librespot lists them; None when it cannot tell in time.
+        The discography says it for every release but its latest one."""
+        polls = round(self.RELEASE_WAIT_S / self.CONTEXT_POLL_S)
+        for poll in range(polls):
+            try:
+                listing = await self._request("GET", "/context/tracks", params={"uri": uri})
+            except (SpotifyUnavailable, SpotifyLibraryError) as e:
+                logger.warning(f"Spotify latest release unread: {e}")
+                return None
+            if listing.get("ready"):
+                entries = listing.get("tracks") or []
+                durations = [e["track"].get("duration") or 0 for e in entries if e.get("track")]
+                kind = release_type(listing.get("length") or 0, durations)
+                if kind is not None:
+                    return kind
+            if poll < polls - 1:
+                await asyncio.sleep(self.CONTEXT_POLL_S)
+        logger.warning(f"Spotify latest release {uri}: not described in time, its kind is unknown")
+        return None
 
     async def track_radio(self, uri: str) -> Optional[str]:
         """The uri of the playlist Spotify makes as a track's radio, or None

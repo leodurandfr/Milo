@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
-from backend.sources.spotify.catalog import home_shelves, library_sections, liked_songs_uri
+from backend.sources.spotify.catalog import artist_page, home_shelves, library_sections, liked_songs_uri
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
 from backend.sources.spotify.models import ActiveProfileRequest, RenameProfileRequest
 from backend.sources.spotify.source import SpotifySource
@@ -70,10 +70,14 @@ async def _spotify_home(source: SpotifySource, locale: str):
         return None
 
 
+# The language Spotify titles its home and an artist's page in.
+Locale = Annotated[str, Query(pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?$",
+                              description="The language Spotify titles its sections in")]
+
+
 @router.get("/home")
 async def get_home(
-    locale: Annotated[str, Query(pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?$",
-                                 description="The language Spotify titles its shelves in")] = "en",
+    locale: Locale = "en",
     source: SpotifySource = Depends(get_source),
 ):
     """Spotify's home for the signed-in account — its shortcuts and its
@@ -123,6 +127,25 @@ async def get_context(
             "length": listing.get("length") or 0,
             "tracks": tracks[after:],
         }
+
+
+@router.get("/artists/{uri}")
+async def get_artist(
+    uri: Annotated[str, Path(pattern=r"^spotify:artist:[A-Za-z0-9]{22}$")],
+    locale: Locale = "en",
+    source: SpotifySource = Depends(get_source),
+):
+    """An artist's page as Spotify's apps draw it: the header, the discography
+    (popular releases, then albums, singles and compilations, each newest
+    first), This Is, the artist's radio and the rest. Its popular tracks
+    are the first ten of the artist's listing (`/contexts/{uri}`), which the
+    browser reads for them."""
+    if source.account is None:
+        logger.warning("Spotify artist: nobody is signed in")
+        raise HTTPException(status_code=409, detail="Spotify is not signed in")
+    async with _library_errors("Spotify artist"):
+        view, releases, latest_type = await source.library.artist(uri, locale)
+    return {"status": "success", "uri": uri, **artist_page(view, releases, latest_type)}
 
 
 @router.get("/contexts/{uri}/cover")

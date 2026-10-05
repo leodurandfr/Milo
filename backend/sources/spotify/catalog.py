@@ -197,3 +197,183 @@ def home_shelves(view: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[
             shelves[section]["items"].append(card)
     shortcuts = shelves.pop(SHORTCUTS_SECTION, None)
     return (shortcuts["items"] if shortcuts else []), [shelf for shelf in shelves.values() if shelf["items"]]
+
+
+# The artist page (spclient artistview, measured 2026-10-05 on four artists):
+# a header, then sections in the order Spotify's apps draw them. The section
+# ids are the same for every artist and in every language.
+ARTIST_TOP_TRACKS_SECTION = "artist-entity-view-top-tracks-combined"
+ARTIST_POPULAR_RELEASES_SECTION = "artist-entity-view-releases"
+DISCOGRAPHY_SECTION = "discography"
+# The discography's lists, by what each release in it is. Its latest release
+# is pulled out of its own list into a section of its own (measured on every
+# artist that had one), which says nothing of what it is.
+LATEST_RELEASE_SECTION = "artist-entity-view-latest-release"
+_RELEASE_GROUPS = {
+    "artist-entity-view-albums-source": ("albums", "album"),
+    "artist-entity-view-artist-singles-source": ("singles", "single"),
+    "artist-entity-view-compilations-source": ("compilations", "compilation"),
+}
+# What Spotify calls an album rather than a single or an EP (which it files
+# with the singles): seven tracks or more, or thirty minutes or more.
+ALBUM_MIN_TRACKS = 7
+ALBUM_MIN_MS = 30 * 60 * 1000
+# A card's target: Spotify still names its own playlists the old way
+# (spotify:user:spotify:playlist:…) on this page, and links its discography and
+# concerts with uris no listing opens (…:releases, spotify:concert:…).
+_CARD_TARGET = re.compile(r"^spotify:(?:user:[^:]+:)?(playlist|album|artist):([A-Za-z0-9]{22})$")
+# An artist photo on i.scdn.co, 320 px as the page names it; 640 px for the header.
+_ARTIST_IMAGE = re.compile(r"^(https://i\.scdn\.co/image/ab676161000)0(?:5174|e5eb|f178)(\w+)$")
+
+
+def _artist_photo(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    match = _ARTIST_IMAGE.match(url)
+    return f"{match.group(1)}0e5eb{match.group(2)}" if match else url
+
+
+def _view_card(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """An artist page row or card, shaped as a home card; None for anything no
+    listing opens (a concert, the merch, a "see all" link)."""
+    click = (entry.get("events") or {}).get("click") or {}
+    if click.get("name") != "navigate":
+        return None
+    match = _CARD_TARGET.match((click.get("data") or {}).get("uri") or "")
+    if match is None:
+        return None
+    kind, item_id = match.groups()
+    text = entry.get("text") or {}
+    image = ((entry.get("images") or {}).get("main") or {}).get("uri")
+    return {
+        "uri": f"spotify:{kind}:{item_id}",
+        "kind": _CARD_KINDS[kind],
+        "name": text.get("title") or None,
+        "subtitle": text.get("subtitle") or None,
+        "image": image or None,
+    }
+
+
+def _is_section_header(entry: Dict[str, Any]) -> bool:
+    # The discography's headers are filed as rows (glue2:sectionHeader).
+    component = entry.get("component") or {}
+    return component.get("category") == "header" or "sectionHead" in (component.get("id") or "")
+
+
+def _view_sections(view: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """An artistview body as its sections, in order: a header and the rows
+    after it, or a carousel and its cards. Sections are kept even when empty."""
+    sections: List[Dict[str, Any]] = []
+    for entry in view.get("body") or []:
+        title = (entry.get("text") or {}).get("title") or None
+        if _is_section_header(entry):
+            sections.append({"id": entry.get("id"), "title": title, "items": []})
+        elif (entry.get("component") or {}).get("category") == "carousel":
+            cards = [_view_card(child) for child in entry.get("children") or []]
+            sections.append({"id": entry.get("id"), "title": title, "items": [c for c in cards if c]})
+        elif sections:
+            card = _view_card(entry)
+            if card is not None:
+                sections[-1]["items"].append(card)
+    return sections
+
+
+def latest_release_uri(releases: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The release the discography sets apart as the latest, if it does."""
+    for section in _view_sections(releases or {}):
+        if section["id"] == LATEST_RELEASE_SECTION and section["items"]:
+            return section["items"][0]["uri"]
+    return None
+
+
+def release_type(length: int, durations_ms: Optional[List[int]]) -> Optional[str]:
+    """What Spotify files a release as, from its tracks: "album", or "single"
+    (an EP included). None while it cannot tell: under seven tracks, only the
+    whole running time decides, so every track must be known."""
+    if length >= ALBUM_MIN_TRACKS:
+        return "album"
+    if durations_ms is None or not length or len(durations_ms) < length:
+        return None
+    return "album" if sum(durations_ms) >= ALBUM_MIN_MS else "single"
+
+
+def _release(card: Dict[str, Any], kind: Optional[str], latest: Optional[str]) -> Dict[str, Any]:
+    # The row's subtitle is the release's year.
+    return {
+        "uri": card["uri"], "kind": card["kind"], "name": card["name"], "image": card["image"],
+        "year": card["subtitle"], "release_type": kind, "latest": card["uri"] == latest,
+    }
+
+
+def _discography(popular: Dict[str, Any], releases: Optional[Dict[str, Any]],
+                 latest_type: Optional[str]) -> Dict[str, Any]:
+    """The artist's releases as Spotify's desktop app files them under its
+    discography: the popular ones, then one list per kind, each newest first
+    as Spotify orders it. The latest release goes back at the head of its own
+    list once `latest_type` says which (Spotify leaves it out of it), else at
+    the head of the popular ones, and every release is marked with its kind
+    for the card to say."""
+    groups: List[Dict[str, Any]] = []
+    kinds: Dict[str, str] = {}
+    latest_card = None
+    for section in _view_sections(releases or {}):
+        if section["id"] == LATEST_RELEASE_SECTION:
+            latest_card = section["items"][0] if section["items"] else None
+            continue
+        group_id, kind = _RELEASE_GROUPS.get(section["id"], (section["id"], None))
+        groups.append({"id": group_id, "title": section["title"], "kind": kind, "items": section["items"]})
+        for card in section["items"]:
+            if kind:
+                kinds.setdefault(card["uri"], kind)
+    latest = latest_card["uri"] if latest_card else None
+    if latest and latest_type:
+        kinds[latest] = latest_type
+    shaped = [{
+        "id": "popular", "title": popular["title"],
+        "items": [_release(card, kinds.get(card["uri"]), latest) for card in popular["items"]],
+    }]
+    for group in groups:
+        cards = group["items"]
+        if latest_card and latest_type and group["kind"] == latest_type:
+            cards = [latest_card, *cards]
+        shaped.append({
+            "id": group["id"], "title": group["title"],
+            "items": [_release(card, group["kind"] or kinds.get(card["uri"]), latest) for card in cards],
+        })
+    # Spotify took it out of its own list: placed in none (its kind unknown,
+    # or no list of that kind), it leads the popular ones rather than vanish.
+    if latest_card and not any(r["uri"] == latest for group in shaped for r in group["items"]):
+        shaped[0]["items"].insert(0, _release(latest_card, latest_type, latest))
+    return {"id": DISCOGRAPHY_SECTION, "title": None,
+            "groups": [group for group in shaped if group["items"]]}
+
+
+def artist_page(view: Dict[str, Any], releases: Optional[Dict[str, Any]],
+                latest_type: Optional[str] = None) -> Dict[str, Any]:
+    """The artist page as Spotify's apps draw it, minus its popular tracks —
+    the browser lists those from the artist's own listing, whose first ten they
+    are (measured) — and with its four popular releases turned, in place, into
+    the discography: those four, then the albums, the singles and EPs and the
+    compilations (see _discography). Without the discography (`releases`
+    None) the four popular releases are all of it. A section with nothing a
+    listing opens (concerts, merch) is left out."""
+    header = view.get("header") or {}
+    text = header.get("text") or {}
+    sections: List[Dict[str, Any]] = []
+    popular_title = None
+    for section in _view_sections(view):
+        if section["id"] == ARTIST_TOP_TRACKS_SECTION:
+            popular_title = section["title"]
+        elif section["id"] == ARTIST_POPULAR_RELEASES_SECTION:
+            discography = _discography(section, releases, latest_type)
+            if discography["groups"]:
+                sections.append(discography)
+        elif section["items"]:
+            sections.append(section)
+    return {
+        "name": text.get("title") or view.get("title") or None,
+        "image": _artist_photo(((header.get("images") or {}).get("main") or {}).get("uri")),
+        "listeners": text.get("accessory") or None,
+        "popular_title": popular_title,
+        "sections": sections,
+    }

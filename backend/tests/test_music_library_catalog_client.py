@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 from backend.sources.music_library import source as source_mod
 from backend.sources.music_library.disc_merge import build_merged_id
 from backend.sources.music_library.navidrome_client import NavidromeAuthError
-from backend.sources.music_library.routes import router, setup_music_library_routes
+from backend.sources.music_library.routes import newest_first, router, setup_music_library_routes
 from backend.sources.music_library.source import MusicLibrarySource
 
 
@@ -327,3 +327,17 @@ class TestPlaylistPlacement:
 
         assert response.status_code == 502
         source.shares.record_playlist_storage.assert_not_awaited()
+
+
+class TestArtistAlbumsNewestFirst:
+    """The artist page lists albums as Spotify lists a discography: getArtist
+    answers them oldest first, mostly — MC Solaar's 1997 album came after
+    his 2017 one (measured 2026-10-05) — and Milo-Mac shows the same list."""
+
+    def test_the_latest_year_leads_whatever_order_the_catalog_answered(self):
+        albums = [{"id": "qui", "year": 1991}, {"id": "geo", "year": 2017}, {"id": "para", "year": 1997}]
+        assert [a["id"] for a in newest_first(albums)] == ["geo", "para", "qui"]
+
+    def test_a_year_keeps_the_catalogs_order_and_no_year_goes_last(self):
+        albums = [{"id": "undated"}, {"id": "deluxe", "year": 2025}, {"id": "lp", "year": 2025}]
+        assert [a["id"] for a in newest_first(albums)] == ["deluxe", "lp", "undated"]

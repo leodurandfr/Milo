@@ -35,7 +35,7 @@
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
-              :artist-link="kind !== 'artist' && !!track.artists[0]?.uri"
+              :artist-link="!!track.artists[0]?.uri"
               @play="play({ skipToUri: track.uri })"
               @artist="$emit('select-artist', track.artists[0])"
             >
@@ -64,13 +64,14 @@ import TrackRow from '@/components/audio/TrackRow.vue';
 import SpotifyTrackMenu from '@/components/spotify/SpotifyTrackMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
+import { useSpotifyListingPlayback } from '@/composables/useSpotifyListingPlayback';
 
 const props = defineProps({
   uri: {
     type: String,
     required: true,
   },
-  // 'playlist' | 'liked' | 'album' | 'artist'
+  // 'playlist' | 'liked' | 'album' (an artist has its own page)
   kind: {
     type: String,
     required: true,
@@ -100,6 +101,7 @@ const error = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
 // The rows mounted, out of the tracks described so far.
 const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
+const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
 // While the rest is described, the listing's own length.
 const trackCount = computed(() => (listing.value?.complete ? tracks.value.length : listing.value?.length ?? 0));
 
@@ -109,21 +111,17 @@ const progress = computed(() => {
   return t('spotify.loadingTracksProgress', { loaded: l.cached, total: l.length });
 });
 
-// An album and an artist are named by their tracks once listed: they are
-// reached from a track, which only knows the name it carries.
+// An album is named by its tracks once listed: it is reached from a track,
+// which only knows the name it carries.
 const first = computed(() => tracks.value[0] ?? null);
 const headerTitle = computed(() => {
   if (props.kind === 'liked') return t('spotify.likedSongs');
   if (props.name) return props.name;
   if (props.kind === 'album') return first.value?.album.name || '';
-  if (props.kind === 'artist') {
-    return first.value?.artists.find((a) => a.uri === props.uri)?.name || '';
-  }
   return t('spotify.untitledPlaylist');
 });
 const headerSubtitle = computed(() => {
   if (props.kind === 'album') return first.value?.artists.map((a) => a.name).join(', ') || '';
-  if (props.kind === 'artist') return t('spotify.artist');
   if (props.kind === 'playlist' && props.owner === 'spotify') return 'Spotify';
   return '';
 });
@@ -135,36 +133,6 @@ const headerImage = computed(() => {
   if (props.kind === 'liked') return '';
   return props.image || first.value?.artwork || '';
 });
-
-function rowSong(track) {
-  return {
-    title: track.title,
-    artist: track.artists.map((a) => a.name).join(', '),
-    duration: (track.duration_ms || 0) / 1000,
-  };
-}
-
-// The row playing now: this track, played from this list — the same track in
-// another playlist is not this row.
-function isCurrent(track) {
-  return track.uri === store.currentTrackUri && store.currentContextUri === props.uri;
-}
-
-function play({ skipToUri = null, shuffle = false } = {}) {
-  store.playContext(props.uri, { skipToUri, shuffle });
-}
-
-// The first track of a shuffled play is picked here, from the tracks described
-// so far (the whole listing once complete; the order after it is the daemon's,
-// over all of it): go-librespot starts a context from a signed-in idle state
-// with its shuffle off, so it cannot be left to pick (measured).
-function shufflePlay() {
-  // A local file in a playlist lists here but cannot be played from Milō.
-  const list = tracks.value.filter((track) => !track.uri.startsWith('spotify:local:'));
-  if (!list.length) return;
-  const start = list[Math.floor(Math.random() * list.length)];
-  play({ skipToUri: start.uri, shuffle: true });
-}
 
 let controller = null;
 function load() {

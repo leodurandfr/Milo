@@ -319,6 +319,98 @@ async def test_a_radio_service_that_fails_answers_503(world):
     assert answer.value.status_code == 503
 
 
+ARTIST_URI = "spotify:artist:6nB0iY1cjSY1KyhYyuIIKH"
+LATEST = "spotify:album:2TZNyzwG89VKnROkBaK7w3"
+
+
+def artist_section(section, title, uri, name):
+    return [
+        {"id": section, "component": {"id": "glue2:sectionHeader", "category": "row"}, "text": {"title": title}},
+        {"id": f"{section}_row0", "component": {"id": "freetier:largerRow", "category": "row"},
+         "text": {"title": name, "subtitle": "2026"}, "events": {"click": {"name": "navigate", "data": {"uri": uri}}}},
+    ]
+
+
+ARTIST_PAGE = {"header": {"text": {"title": "FKA twigs"}}, "body": [
+    *artist_section("artist-entity-view-releases", "Sorties populaires", LATEST, "On Your Mind"),
+]}
+DISCOGRAPHY = {"body": [
+    *artist_section("artist-entity-view-latest-release", "Dernière sortie", LATEST, "On Your Mind"),
+    *artist_section("artist-entity-view-albums-source", "Albums", "spotify:album:25PQxi9SR1OODB5XG6m48J", "LP1"),
+    *artist_section("artist-entity-view-artist-singles-source", "Singles",
+                    "spotify:album:44keDDETPLFK48WCykPKit", "EP1"),
+]}
+
+
+def release(tracks, minutes):
+    return [{"uri": f"spotify:track:{n}", "track": {"uri": f"spotify:track:{n}", "name": str(n),
+                                                     "duration": minutes * 60_000}} for n in range(tracks)]
+
+
+def groups_of(answer):
+    section = next(s for s in answer["sections"] if "groups" in s)
+    return {g["id"]: [(r["name"], r["release_type"]) for r in g["items"]] for g in section["groups"]}
+
+
+async def test_the_artist_route_reads_the_page_and_its_discography_in_the_language_asked_for(world):
+    world.daemon.artist_answer = ARTIST_PAGE
+    world.daemon.releases_answer = DISCOGRAPHY
+    world.daemon.listings[LATEST] = release(1, 4)
+    answer = await routes.get_artist(uri=ARTIST_URI, locale="fr-FR", source=world.source)
+
+    assert sorted(world.daemon.artist_asked) == [
+        ("https://spclient.wg.spotify.com/artistview/v1/artist/6nB0iY1cjSY1KyhYyuIIKH", "fr-FR"),
+        ("https://spclient.wg.spotify.com/artistview/v1/artist/6nB0iY1cjSY1KyhYyuIIKH/releases", "fr-FR"),
+    ]
+    assert answer["name"] == "FKA twigs"
+
+
+async def test_a_latest_release_is_filed_by_its_tracks_as_spotify_files_it(world):
+    """Spotify leaves its latest release out of its own list: read from the
+    daemon, nine tracks are an album, one track a single."""
+    world.daemon.artist_answer = ARTIST_PAGE
+    world.daemon.releases_answer = DISCOGRAPHY
+
+    world.daemon.listings[LATEST] = release(9, 4)
+    album = groups_of(await routes.get_artist(uri=ARTIST_URI, locale="fr", source=world.source))
+    world.daemon.listings[LATEST] = release(1, 4)
+    single = groups_of(await routes.get_artist(uri=ARTIST_URI, locale="fr", source=world.source))
+
+    assert album["albums"] == [("On Your Mind", "album"), ("LP1", "album")]
+    assert album["popular"] == [("On Your Mind", "album")]
+    assert single["singles"] == [("On Your Mind", "single"), ("EP1", "single")]
+
+
+async def test_a_latest_release_not_read_in_time_leaves_its_kind_unsaid_and_the_page_whole(world, caplog):
+    world.daemon.artist_answer = ARTIST_PAGE
+    world.daemon.releases_answer = DISCOGRAPHY
+    world.daemon.listings[LATEST] = release(1, 4)
+    world.daemon.listing_calls_until_ready = 1000
+    caplog.set_level(logging.WARNING)
+    groups = groups_of(await routes.get_artist(uri=ARTIST_URI, locale="fr", source=world.source))
+
+    assert groups["popular"] == [("On Your Mind", None)]
+    assert groups["albums"] == [("LP1", "album")] and groups["singles"] == [("EP1", "single")]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_a_discography_spotify_will_not_serve_leaves_the_artist_page_its_popular_releases(world, caplog):
+    world.daemon.artist_answer = ARTIST_PAGE
+    world.daemon.releases_answer = None
+    caplog.set_level(logging.WARNING)
+    groups = groups_of(await routes.get_artist(uri=ARTIST_URI, locale="fr-FR", source=world.source))
+
+    assert groups == {"popular": [("On Your Mind", None)]}
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_an_artist_page_spotify_will_not_serve_answers_503(world):
+    world.daemon.artist_answer = None
+    with pytest.raises(HTTPException) as answer:
+        await routes.get_artist(uri=ARTIST_URI, locale="fr-FR", source=world.source)
+    assert answer.value.status_code == 503
+
+
 async def test_a_home_spotify_will_not_serve_still_answers_the_library(world, caplog):
     """Spotify's home is a service on the internet, not the daemon: its
     failure costs the shelves, never the account's own playlists."""

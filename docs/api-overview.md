@@ -53,7 +53,9 @@ So Bluetooth, Mac and Tidal have no router at all; Qobuz's only surface is the
 `/api/qobuz/account/*` one-time-login relay; `/api/airplay` serves proxied
 artwork; `/api/cd` serves disc covers. `/api/spotify` is the browser's: the signed-in account's
 home sections, a context's tracks (`/contexts/{uri}?after=N`, the tracks past the N the
-browser has as go-librespot describes them, until `complete`), Liked Songs membership, and the profiles Milō keeps (rename, forget,
+browser has as go-librespot describes them, until `complete`), an artist's page (`/artists/{uri}`:
+Spotify's own sections, the discography in place of its popular releases), a track's radio
+(`/tracks/{uri}/radio`), and the profiles Milō keeps (forget,
 `PUT /active-profile` to sign the daemon in as one) — playback itself is the `play_context`
 command. Music Library is the richest (Subsonic-backed browsing,
 cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the
