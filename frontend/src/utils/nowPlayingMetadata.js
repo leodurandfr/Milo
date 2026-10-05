@@ -3,17 +3,41 @@
 // snapshot it holds on to while that record moves.
 
 /**
+ * What another device of the account plays (Spotify's `details.remote`), as a
+ * record shaped like a session: nothing of it plays here, and the play button
+ * its source lists (`take_over`) brings it here. Null without one — the
+ * backend publishes none while a session runs here.
+ *
+ * @param {object|null} details - the source's details
+ * @returns {object|null} title/artist/album/artwork, duration_ms, position and phase
+ */
+export function remoteRecordOf(details) {
+  const remote = details?.remote;
+  if (!remote) return null;
+  return {
+    title: remote.title,
+    artist: remote.artist,
+    album: remote.album,
+    artwork: remote.artwork,
+    duration_ms: remote.duration_ms,
+    position: remote.position,
+    phase: remote.paused ? 'paused' : 'playing',
+  };
+}
+
+/**
  * The record the view of `source` draws: the session, or — with none — what
- * play would bring back (a CD's track, a library resume). Null when the state
- * belongs to another source: its session is not ours to draw.
+ * play would bring back (a CD's track, a library resume, what another device
+ * of the account plays). Null when the state belongs to another source: its
+ * session is not ours to draw.
  *
  * @param {object|null} state - unifiedAudioStore.systemState
  * @param {string} source - the source whose view asks
- * @returns {object|null} a session or a resume record (same title/artist/artwork fields)
+ * @returns {object|null} a session, a resume or a remote record (same title/artist/artwork fields)
  */
 export function nowPlayingOf(state, source) {
   if (!state || state.source !== source) return null;
-  return state.session ?? state.resume ?? null;
+  return state.session ?? state.resume ?? remoteRecordOf(state.details);
 }
 
 /**

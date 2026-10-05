@@ -162,6 +162,41 @@ describe('useSourceProgress', () => {
     });
   });
 
+  describe('what another device plays', () => {
+    // Spotify's details.remote: no session here, and the bar still follows the
+    // phone's playhead — moving while it plays there, still while it is paused.
+    function publishRemote(paused) {
+      publishState(store, {
+        source: 'spotify', service: 'running', controls: ['take_over'],
+        details: {
+          kind: 'spotify',
+          remote: { title: 'Says', duration_ms: 200000, paused, position: anchor(1000) },
+        },
+      });
+    }
+
+    it('advances with the clock while it plays there', async () => {
+      publishRemote(false);
+      const { progress } = mountProgress('spotify');
+
+      vi.advanceTimersByTime(2000);
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(3000);
+      expect(progress.duration.value).toBe(200000);
+    });
+
+    it('holds still while it is paused there', async () => {
+      publishRemote(true);
+      const { progress } = mountProgress('spotify');
+
+      vi.advanceTimersByTime(5000);
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(1000);
+    });
+  });
+
   describe('moving the bar', () => {
     it('advances with the clock while playing', async () => {
       publish({ session: playing(anchor(1000)) });

@@ -47,11 +47,12 @@ export function usePlayerControls(source) {
 
   const isBuffering = useDelayedFlag(() => phase.value === 'loading');
 
-  // sendCommand swallows + logs errors via the store. A command the source does
-  // not list now would be refused, so it is not sent.
-  function sendSourceCommand(command, data) {
-    if (!controls.value.includes(command)) return;
-    unifiedStore.sendCommand(source, command, data);
+  // sendCommand swallows + logs errors via the store, and answers whether the
+  // source took the command. One the source does not list now would be
+  // refused, so it is not sent (false).
+  async function sendSourceCommand(command, data) {
+    if (!controls.value.includes(command)) return false;
+    return unifiedStore.sendCommand(source, command, data);
   }
 
   return {

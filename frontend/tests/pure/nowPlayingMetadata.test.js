@@ -13,7 +13,7 @@
  * never stores the title the tracklist lists.
  */
 import { describe, it, expect } from 'vitest';
-import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
+import { nowPlayingOf, nowPlayingSnapshot, remoteRecordOf } from '@/utils/nowPlayingMetadata';
 import { makeAudioState, makeSession } from '../helpers/audioState';
 
 const RESUME = {
@@ -39,6 +39,30 @@ describe('nowPlayingOf', () => {
     const state = makeAudioState({ source: 'spotify', session: makeSession({ title: 'Hyperballad' }) });
 
     expect(nowPlayingOf(state, 'cd')).toBeNull();
+  });
+});
+
+describe('what another device of the account plays', () => {
+  const REMOTE = {
+    device_name: 'iPhone', device_type: 'smartphone', title: 'Says', artist: 'Nils Frahm',
+    album: null, artwork: null, track_uri: 'spotify:track:says', duration_ms: 511000,
+    paused: true, position: { ms: 1000, at: 0, rate: 1 },
+  };
+
+  it('is the record with neither a session nor a resume point, playing or paused as it is there', () => {
+    const state = makeAudioState({ source: 'spotify', details: { kind: 'spotify', remote: REMOTE } });
+
+    const record = nowPlayingOf(state, 'spotify');
+    expect(record.title).toBe('Says');
+    expect(record.phase).toBe('paused');
+    expect(remoteRecordOf({ remote: { ...REMOTE, paused: false } }).phase).toBe('playing');
+  });
+
+  it('gives way to a session here', () => {
+    const session = makeSession({ title: 'Hyperballad' });
+    const state = makeAudioState({ source: 'spotify', session, details: { kind: 'spotify', remote: REMOTE } });
+
+    expect(nowPlayingOf(state, 'spotify')).toBe(session);
   });
 });
 

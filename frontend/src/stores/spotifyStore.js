@@ -4,6 +4,7 @@ import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { i18n } from '@/services/i18n';
 import { bcp47For } from '@/constants/countries';
+import { remoteRecordOf } from '@/utils/nowPlayingMetadata';
 
 const BASE = '/api/spotify';
 // A listing request answers as soon as more tracks are described, else after
@@ -60,6 +61,11 @@ export const useSpotifyStore = defineStore('spotify', () => {
       contextName: d.context_name,
     };
   });
+
+  // What another device of the account plays while nothing plays here, as the
+  // record the players draw (utils/nowPlayingMetadata): the bar shows it, and
+  // its play button (`take_over`) brings it here.
+  const remote = computed(() => remoteRecordOf(details.value));
 
   // =========================================================================
   // HOME — Spotify's home for the signed-in account, then its playlists
@@ -296,7 +302,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
   return {
     // now playing
     account, signingIn, session, phase, isPlaying,
-    currentTrackUri, currentContextUri, nowPlaying,
+    currentTrackUri, currentContextUri, nowPlaying, remote,
     // home
     home, homeLoading, homeError, loadHome,
     // contexts

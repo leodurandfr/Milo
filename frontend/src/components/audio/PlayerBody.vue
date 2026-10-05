@@ -23,8 +23,17 @@
              else on it says so (usePlayerMetadata's linesOf). Never on the
              phone's mini-bar, which has room for one line each of title and
              secondary. -->
-        <SourceBar v-if="surface === 'full' || sourceOnCard" class="body-source" :source="source"
-          :label="sourceLabel" :image="sourceImage" />
+        <!-- On the card it comes and goes with what plays (a detected song,
+             another device), so it opens and closes rather than popping: the
+             lines below move with it. The leaving one keeps its last label. -->
+        <Transition name="source-reveal">
+          <div v-if="surface === 'full' || sourceOnCard" class="body-source-slot">
+            <div class="body-source-row">
+              <SourceBar class="body-source" :source="source" :size="surface === 'card' ? 'small' : 'medium'"
+                :label="sourceLabel" :image="sourceImage" />
+            </div>
+          </div>
+        </Transition>
         <!-- The title and its line, centred in what the source bar leaves. -->
         <div class="body-lines">
           <template v-if="surface === 'full'">
@@ -37,11 +46,9 @@
             :class="{ 'has-album-link': albumLink, 'has-artist-link': artistLink }"
             :title="title" :secondary="secondaryLine || null" @click="onCardLinesClick" />
         </div>
-        <template v-if="surface === 'card'">
-          <!-- The phone's mini-bar: one line each. -->
-          <p class="body-line body-line--title text-body">{{ title }}</p>
-          <p v-if="secondaryLine" class="body-line body-line--secondary text-body">{{ secondaryLine }}</p>
-        </template>
+        <!-- The phone's mini-bar: one line each, as the swipe carousel's cells. -->
+        <PlayerInfoText v-if="surface === 'card'" variant="line" class="body-mini-lines"
+          :title="title" :secondary="secondaryLine || null" />
       </slot>
     </div>
 
@@ -179,7 +186,8 @@ defineExpose({ swipe });
 /* The source bar on top, at the block's padding; the title and its line
    centred in the rest, never closer to the bar than the block's gap. */
 .player-body--full .player-body-info {
-  gap: var(--space-06);
+  --body-info-gap: var(--space-06);
+  gap: var(--body-info-gap);
 }
 
 .body-lines {
@@ -268,9 +276,54 @@ defineExpose({ swipe });
 }
 
 .player-body--card .player-body-info {
+  --body-info-gap: var(--space-04);
   flex: 1;
-  gap: var(--space-04);
+  gap: var(--body-info-gap);
   padding: 0 var(--space-04);
+}
+
+/* The source bar's slot opens from nothing: its row from 0 to its height,
+   and the block's gap with it, so the lines glide instead of jumping. The
+   bar itself keeps its own height and overflows the row while it opens —
+   nothing of it is squeezed or cut — and comes in whole, icon and label
+   together, by a short drop and a fade. */
+.body-source-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+/* The row's box follows the track down to 0; the bar inside keeps its height
+   and overflows it, visible. */
+.body-source-row {
+  min-height: 0;
+}
+
+/* In and out on the same springs, as the player's other moves: the bar's
+   drop on the full one, the room it makes on the light one so the lines
+   settle without a bounce. An ease-in on the way out read as the entrance
+   played backwards. */
+.source-reveal-enter-active,
+.source-reveal-leave-active {
+  transition:
+    grid-template-rows var(--transition-spring-light),
+    margin-bottom var(--transition-spring-light);
+}
+
+.source-reveal-enter-active .body-source,
+.source-reveal-leave-active .body-source {
+  transition: transform var(--transition-spring), opacity var(--transition-in-out);
+}
+
+.source-reveal-enter-from,
+.source-reveal-leave-to {
+  grid-template-rows: 0fr;
+  margin-bottom: calc(-1 * var(--body-info-gap));
+}
+
+.source-reveal-enter-from .body-source,
+.source-reveal-leave-to .body-source {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--space-03)));
 }
 
 .player-body--card .player-body-bottom {
@@ -299,9 +352,8 @@ defineExpose({ swipe });
 }
 
 /* The mini-bar's one-line pair, hidden on the kiosk's card. */
-.body-line {
+.body-mini-lines {
   display: none;
-  margin: 0;
 }
 
 /* The card centres its row; the full player's plate spans the column, edge to
@@ -341,31 +393,20 @@ defineExpose({ swipe });
 
   .player-body--card .player-body-info {
     padding: 0;
-    gap: var(--space-01);
+    gap: 0;
   }
 
   .player-body--card .body-lines,
-  .player-body--card .body-source {
+  .player-body--card .body-source-slot {
     display: none;
   }
 
-  /* Every line exactly one line, cut by a right-edge fade rather than an
-     ellipsis. */
-  .player-body--card .body-line {
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: clip;
+  /* Cut by a right-edge fade rather than an ellipsis. */
+  .player-body--card .body-mini-lines {
+    display: flex;
+    min-width: 0;
     -webkit-mask-image: linear-gradient(to right, black calc(100% - var(--space-05)), transparent 100%);
     mask-image: linear-gradient(to right, black calc(100% - var(--space-05)), transparent 100%);
-  }
-
-  .body-line--title {
-    color: var(--color-text-on-contrast);
-  }
-
-  .body-line--secondary {
-    color: var(--color-text-on-contrast-secondary);
   }
 
   .player-body--card .player-body-bottom {

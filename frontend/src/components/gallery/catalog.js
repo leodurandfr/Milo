@@ -287,7 +287,7 @@ export const ENTRIES = [
     id: 'PlayerInfoText',
     group: 'player',
     file: 'components/audio/PlayerInfoText.vue',
-    summary: 'The playing bar\'s two stacked lines on its dark card: the title, kept to two lines there by PlayerBody, and an optional secondary line. Text only, no layout of its own — PlayerBody positions it, under the source bar when the card draws one.',
+    summary: 'The playing bar\'s two stacked lines on its dark card: the title, kept to two lines there by PlayerBody, and an optional secondary line. Text only, no layout of its own — PlayerBody positions it, under the source bar when the card draws one. `variant="line"` is the phone\'s mini-bar: one line each, no gap — drawn by the body and by each cell of the swipe carousel, so the two read alike.',
   },
   {
     id: 'TrackRow',

@@ -47,8 +47,7 @@
               <div class="player-info-carousel">
                 <div ref="trackEl" class="player-info-track" :style="trackStyle" @transitionend.self="onSettleEnd">
                   <div v-for="cell in cells" :key="cell.pos" class="player-info-cell">
-                    <p class="carousel-title text-body">{{ cell.title }}</p>
-                    <p v-if="cell.artist" class="carousel-subtitle text-body">{{ cell.artist }}</p>
+                    <PlayerInfoText variant="line" :title="cell.title" :secondary="cell.artist || null" />
                   </div>
                 </div>
               </div>
@@ -70,6 +69,7 @@ import { swipeable, swipeTarget } from '@/utils/playerControls'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { useI18n } from '@/services/i18n'
 import PlayerBody from './PlayerBody.vue'
+import PlayerInfoText from './PlayerInfoText.vue'
 
 const { isMobile } = useIsMobile()
 const { t } = useI18n()
@@ -434,24 +434,6 @@ img.player-artwork.loaded {
 
 .player-artwork.placeholder {
   object-fit: cover;
-}
-
-/* The swipe carousel's lines (the phone's mini-bar over a queue), one line
-   each, cut by the carousel's own edge mask. */
-.carousel-title,
-.carousel-subtitle {
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
-}
-
-.carousel-title {
-  color: var(--color-text-on-contrast);
-}
-
-.carousel-subtitle {
-  color: var(--color-text-on-contrast-secondary);
 }
 
 /* Mobile: Horizontal bottom panel layout */

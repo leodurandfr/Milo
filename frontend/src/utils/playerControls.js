@@ -23,6 +23,11 @@ function mainControl(listed, phase) {
     const command = pauses ? 'pause' : 'resume';
     return { id: 'main', row: 'transport', command, icon: pauses ? 'pause' : 'play', enabled: listed(command) };
   }
+  // Another device of the account plays: the one button brings it here, and
+  // says so in words — a bare play glyph would read as playing it there.
+  if (listed('take_over')) {
+    return { id: 'main', row: 'transport', command: 'take_over', icon: 'play', labelled: true, enabled: true };
+  }
   if (listed('stop') || listed('resume_playback')) {
     const stops = listed('stop');
     return {

@@ -270,6 +270,10 @@ export function anchor(ms, rate = 1) {
  * playing bar would run from 1970 and sit at its end.
  */
 export function replayedState(state, nowSeconds) {
+  const remote = state.details?.remote;
+  if (remote?.position) {
+    state = { ...state, details: { ...state.details, remote: { ...remote, position: { ...remote.position, at: nowSeconds } } } };
+  }
   if (!state.session?.position) return state;
   return {
     ...state,
@@ -457,6 +461,7 @@ function spotifyDetails(overrides = {}) {
     artist_uri: null,
     shuffle: false,
     repeat: 'off',
+    remote: null,
     ...overrides
   };
 }
@@ -742,6 +747,31 @@ export const SOURCE_PAGES = [
           isPlaying: true,
           progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
           controls: { shuffle: true, repeat: 'context', hasNext: true }
+        }
+      }),
+      browsing('spotify', 'Playing on another device', 'Nothing plays here and the account plays on a phone: go-librespot hears it from Spotify and the bar draws it, saying where it plays; its one button is `take_over`, which brings it here at the same second, the session then arriving like any phone\'s transfer. It goes when no other device is active.', {
+        condition: ['isPlaying=false'],
+        layout: SPOTIFY_HEADER,
+        view: 'spotify-home',
+        state: {
+          controls: ['take_over'],
+          details: spotifyDetails({
+            remote: {
+              device_name: 'iPhone', device_type: 'smartphone',
+              title: SAYS.title, artist: SAYS.artist, album: null, artwork: SAYS.artwork,
+              track_uri: 'spotify:track:says', duration_ms: SAYS.duration_ms,
+              paused: false, position: anchor(192000)
+            }
+          })
+        },
+        ...spotifySetup(),
+        player: {
+          title: 'Says',
+          artist: 'Nils Frahm',
+          artwork: musicPlaceholder,
+          isPlaying: false,
+          progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
+          controls: {}
         }
       }),
       browsing('spotify', 'Profiles', 'Two accounts kept: the screen a visit opens on while nothing plays. Each tile is the name and picture Spotify\'s profile service gave, the signed-in one ringed; a tap on another restarts go-librespot as that account.', {

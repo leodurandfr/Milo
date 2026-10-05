@@ -387,6 +387,8 @@
   },
   "spotify": {
     "accountSpotify": "Spotify de {name}",
+    "playingOn": "Reproduciendo en {device}",
+    "pausedOn": "En pausa en {device}",
     "album": "Álbum",
     "artist": "Artista",
     "castAgain": "Vuelva a transmitir desde su teléfono",
@@ -520,6 +522,7 @@
     "repeatContext": "Repetir la lista",
     "repeatOff": "Repetición desactivada",
     "repeatTrack": "Repetir la canción",
+    "takeOver": "Escuchar en Milō",
     "shuffle": "Aleatorio"
   },
   "radio": {

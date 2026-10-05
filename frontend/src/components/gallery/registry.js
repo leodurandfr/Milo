@@ -195,7 +195,8 @@ const NOW_PLAYING = {
       album_uri: 'spotify:album:spaces',
       artist_uri: 'spotify:artist:nils',
       shuffle: true,
-      repeat: 'context'
+      repeat: 'context',
+      remote: null
     }
   },
   // Nothing in session: the resume point is what the player names, and the

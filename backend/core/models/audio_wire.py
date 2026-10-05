@@ -183,6 +183,25 @@ class AirPlayDetails(BaseModel):
     artwork_width: Optional[int]
 
 
+class SpotifyRemote(BaseModel):
+    """What the signed-in account plays on another Spotify Connect device (a
+    phone, a computer) while Milō holds no session: nothing of it plays here,
+    so it is never a session. `take_over` brings it here."""
+    # As the device's own app names it ("iPhone"), and Spotify's type for it,
+    # lowercased: smartphone, computer, tablet, speaker…
+    device_name: str
+    device_type: str
+    title: Optional[str]
+    artist: Optional[str]
+    album: Optional[str]
+    artwork: Optional[str]
+    track_uri: Optional[str]
+    duration_ms: Optional[int]
+    paused: bool
+    # Moves by the session's formula while not paused.
+    position: PositionAnchor
+
+
 class SpotifyDetails(BaseModel):
     kind: Literal["spotify"] = "spotify"
     # The account go-librespot is signed in as, or about to be: its stored
@@ -199,6 +218,8 @@ class SpotifyDetails(BaseModel):
     artist_uri: Optional[str]       # the first artist: the player's artist line opens it
     shuffle: bool
     repeat: RepeatMode
+    # Null while Milō holds a session, or when no other device is active.
+    remote: Optional[SpotifyRemote]
 
 
 Details = Annotated[

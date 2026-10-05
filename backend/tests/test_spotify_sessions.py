@@ -7,8 +7,10 @@ the code before phase 3b for the reason its docstring gives.
 """
 import pytest
 
+from backend.tests.golden.harness import settle
+
 from backend.core.models.ws_events import SourceErrorReason
-from backend.tests.spotify_world import LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld
+from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 
@@ -356,3 +358,238 @@ async def test_a_refused_login_banner_leaves_with_the_source(world):
     await world.leave()
 
     assert world.envelopes("source", "error_cleared")
+
+
+# === Another device of the account ===
+
+@pytest.fixture
+async def signed_in(monkeypatch, tmp_path):
+    """A daemon signed in with stored credentials and no session here: the
+    one state in which go-librespot can see another device play."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    await w.select()
+    yield w
+    await w.source.shutdown()
+
+
+def remote(world):
+    return world.state()["details"]["remote"]
+
+
+async def test_another_device_playing_is_shown_without_a_session(signed_in):
+    """What plays on the phone is drawn by the Spotify bar, never as a session:
+    nothing plays here, and the widget and the Mac read `session` as Milō's."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
+
+    assert not signed_in.active()
+    assert remote(signed_in)["device_name"] == "iPhone"
+    assert remote(signed_in)["device_type"] == "smartphone"
+    assert remote(signed_in)["title"] == "Parapluie"
+    assert remote(signed_in)["position"]["ms"] == 12_000
+    assert signed_in.state()["controls"] == ["take_over"]
+
+
+async def test_a_remote_track_not_yet_named_is_not_shown(signed_in):
+    """go-librespot names the remote track once its metadata is resolved: a
+    bar with no title has nothing to draw, and nothing to take over yet."""
+    await signed_in.plays_elsewhere(None)
+
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+
+
+async def test_take_over_asks_once_and_the_session_arrives_like_a_transfer(signed_in):
+    """take_over is one POST /player/transfer; the session is the daemon's,
+    reconciled from what it says, at the position the phone was at."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
+
+    result = await signed_in.command("take_over")
+    await signed_in.transfer_lands()
+
+    assert result["success"] is True
+    assert signed_in.transfers_sent() == 1
+    assert signed_in.playing()
+    assert signed_in.session()["title"] == "Parapluie"
+    assert signed_in.position_ms() == 81_264
+    assert remote(signed_in) is None
+
+
+async def test_the_bar_stays_up_while_the_session_it_takes_over_arrives(signed_in):
+    """Between the transfer and its session the daemon is active with no track
+    and names no remote: published as such, the bar would leave and come back.
+    The remote is held until the session takes its place."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
+    sent = len(signed_in.published())
+
+    await signed_in.command("take_over")
+    await signed_in.transfer_lands()
+
+    shown = [(s["session"] is not None, s["details"]["remote"] is not None) for s in signed_in.published()[sent:]]
+    assert (False, False) not in shown
+    assert shown[-1] == (True, False)
+
+
+async def test_the_bar_moves_to_the_phone_that_takes_the_session_back(signed_in):
+    """go-librespot hands a session taken by a phone back to Spotify and signs
+    in again, answering 204 meanwhile: the bar goes straight to the phone, on
+    what the daemon announced, rather than leaving and coming back."""
+    await signed_in.phone_plays(PARAPLUIE)
+    sent = len(signed_in.published())
+
+    await signed_in.phone_takes_it_back()
+
+    shown = [(s["session"] is not None, s["details"]["remote"] is not None) for s in signed_in.published()[sent:]]
+    assert (False, False) not in shown
+    assert remote(signed_in)["device_name"] == "iPhone"
+    assert remote(signed_in)["position"]["ms"] == 90_000
+
+
+async def test_an_announced_phone_that_never_shows_up_is_dropped(signed_in):
+    """The announcement only bridges until /status names the phone: if it
+    never does, the bar follows /status once the announcement has aged."""
+    await signed_in.phone_plays(PARAPLUIE)
+    d = signed_in.daemon
+    d.session, d.track, d.signed_in = False, None, True
+    await signed_in._says({"type": "inactive"}, {"type": "remote", "data": {
+        "device_id": "x", "device_name": "iPhone", "device_type": "SMARTPHONE", "paused": False,
+        "track": dict(PARAPLUIE)}})
+    assert remote(signed_in)["device_name"] == "iPhone"
+
+    await signed_in.advance(signed_in.source.HANDOVER_HOLD + 1)
+
+    assert remote(signed_in) is None
+
+
+async def test_an_old_announcement_does_not_come_back_on_a_later_end(signed_in):
+    """Only an announcement newer than /status's last answer stands in for
+    it: a phone announced long ago is not shown when Milō's own session ends."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.command("take_over")
+    await signed_in.transfer_lands()
+    signed_in.daemon.signed_in = False   # the 204 of the sign-in after the end
+    signed_in.daemon._ends()
+    await signed_in.advance(0.1)
+
+    assert remote(signed_in) is None
+
+
+async def test_the_bar_stays_up_when_the_phone_picks_milo(signed_in):
+    """The same arrival started from the phone's Spotify app: no take-over
+    was asked, and the daemon is still active with no track for a moment."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
+    sent = len(signed_in.published())
+
+    signed_in.daemon._transfer_starts()
+    await signed_in.transfer_lands()
+
+    shown = [(s["session"] is not None, s["details"]["remote"] is not None) for s in signed_in.published()[sent:]]
+    assert (False, False) not in shown
+    assert signed_in.playing()
+    assert remote(signed_in) is None
+
+
+async def test_a_take_over_that_never_lands_lets_the_bar_follow_status(signed_in):
+    """A transfer Spotify accepted and never delivered: past the hold, the
+    wire says what /status says — here, nothing plays anywhere."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.command("take_over")
+    signed_in.daemon.session = False
+
+    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD + 1)
+
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+
+
+async def test_the_phone_moving_on_during_a_take_over_is_shown(signed_in):
+    """A hold keeps the bar up while /status names nothing; what /status does
+    name is taken at once — here the phone skipped while Milō waited for a
+    transfer that never came, and the bar shows the new track, not a frozen copy."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    signed_in.daemon.session = True   # the transfer is "in flight": nothing lands
+    await signed_in.command("take_over")
+    signed_in.daemon.session = False
+
+    await signed_in.plays_elsewhere(TROIS_NEUF_TROIS)
+
+    assert remote(signed_in)["title"] == "Trois Neuf Trois"
+
+
+async def test_an_arrival_that_never_loads_does_not_hold_the_bar_for_ever(signed_in):
+    """A session arriving holds the remote while its track loads — for a
+    bounded time: a daemon left buffering with no track shows nothing after."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    signed_in.daemon._transfer_starts()
+    await settle()
+    assert remote(signed_in) is not None
+
+    await signed_in.advance(signed_in.source.ARRIVAL_HOLD + 1)
+
+    assert remote(signed_in) is None
+
+
+async def test_a_refused_take_over_does_not_hold_the_bar(signed_in):
+    """Spotify refused the transfer: nothing is coming, so nothing is held —
+    the next read that names no phone takes the bar down at once."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    signed_in.daemon.transfer_refused = True
+
+    result = await signed_in.command("take_over")
+    await signed_in.nothing_plays_elsewhere()
+
+    assert result["success"] is False
+    assert remote(signed_in) is None
+
+
+async def test_what_played_elsewhere_does_not_outlive_the_daemon_run(monkeypatch, tmp_path):
+    """Leaving Spotify stops go-librespot: coming back, the bar shows nothing
+    of a phone until the new daemon names one — no stale take_over to press."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    await w.select()
+    await w.plays_elsewhere(PARAPLUIE)
+    await w.leave()
+    w.daemon.remote = None
+    sent = len(w.published())
+
+    await w.select()
+
+    assert all(s["details"] is None or s["details"].get("remote") is None for s in w.published()[sent:])
+    assert all("take_over" not in s["controls"] for s in w.published()[sent:])
+    await w.source.shutdown()
+
+
+async def test_take_over_with_nothing_elsewhere_asks_nothing(signed_in):
+    result = await signed_in.command("take_over")
+
+    assert result["success"] is False
+    assert signed_in.transfers_sent() == 0
+
+
+async def test_a_state_request_rereading_the_same_remote_publishes_nothing(signed_in):
+    """Milo-iOS polls the state: a read of the same remote playback, its
+    playhead where the anchor says, must not re-stamp the anchor."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
+    sent = len(signed_in.published())
+    await signed_in.advance(30)
+    signed_in.daemon.remote["track"]["position"] = 42_000
+
+    await signed_in.get_state()
+
+    assert len(signed_in.published()) == sent
+
+
+async def test_the_other_device_leaving_takes_the_remote_away(signed_in):
+    """A phone gone to the background leaves the cluster within seconds: the
+    bar goes, and with it the button."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.nothing_plays_elsewhere()
+
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+
+
+async def test_a_paused_remote_is_still_shown(signed_in):
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=5_000, paused=True)
+
+    assert remote(signed_in)["paused"] is True
+    assert signed_in.state()["controls"] == ["take_over"]

@@ -12,6 +12,7 @@
 import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
+import { remoteRecordOf } from '@/utils/nowPlayingMetadata';
 
 // How often the bar is redrawn while the playhead moves.
 const TICK_MS = 100;
@@ -50,6 +51,14 @@ export function useSourceProgress(source) {
   const resume = computed(() =>
     unifiedStore.systemState.source === source && !session.value ? unifiedStore.systemState.resume : null,
   );
+  // Without either, what another device of the account plays: its playhead
+  // moves there, by the same formula.
+  const remote = computed(() =>
+    unifiedStore.systemState.source === source && !session.value && !resume.value
+      ? remoteRecordOf(unifiedStore.systemState.details)
+      : null,
+  );
+  const live = computed(() => session.value ?? remote.value);
 
   const now = ref(Date.now());
   let intervalId = null;
@@ -60,11 +69,11 @@ export function useSourceProgress(source) {
   let seekTimer = null;
   let presses = 0;
 
-  const duration = computed(() => session.value?.duration_ms ?? resume.value?.duration_ms ?? 0);
+  const duration = computed(() => live.value?.duration_ms ?? resume.value?.duration_ms ?? 0);
 
   function anchoredAt(nowMs) {
-    if (session.value) {
-      return positionAt(session.value.position, session.value.phase, session.value.duration_ms, nowMs);
+    if (live.value) {
+      return positionAt(live.value.position, live.value.phase, live.value.duration_ms, nowMs);
     }
     return resume.value?.position_ms ?? null;
   }
@@ -85,7 +94,7 @@ export function useSourceProgress(source) {
 
   // Redraw while the playhead moves, and only then.
   watch(
-    () => session.value?.phase === 'playing' && !!session.value?.position,
+    () => live.value?.phase === 'playing' && !!live.value?.position,
     (moving) => {
       stopTicking();
       now.value = Date.now();

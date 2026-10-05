@@ -31,6 +31,12 @@ describe('the source bar on the playing bar’s card', () => {
     expect(lines.barImage).toBe('');
   });
 
+  it('shows where another device plays, since nothing else on the card says it is not here', () => {
+    const lines = linesOf({ kind: 'spotify', account: 'owner', remote: { device_name: 'iPhone', paused: true } });
+    expect(lines.barOnCard).toBe(true);
+    expect(lines.barRemote).toEqual({ device: 'iPhone', paused: true });
+  });
+
   it.each([
     ['a station with no song detected', { kind: 'radio', station: STATION, track: null }],
     ['an episode with the show’s picture', {

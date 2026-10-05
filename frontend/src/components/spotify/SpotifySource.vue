@@ -90,7 +90,8 @@ const contentKey = computed(() =>
 );
 
 const playback = useSourcePlaybackVisibility('spotify', {
-  content: () => store.nowPlaying,
+  // What plays here, else what another device of the account plays.
+  content: () => store.nowPlaying ?? store.remote,
 });
 const { shouldShowPlayer, displayed: nowPlaying } = playback;
 

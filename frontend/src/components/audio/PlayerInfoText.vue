@@ -1,6 +1,6 @@
 <template>
-  <div class="player-info-text">
-    <p class="player-info-title heading-2">{{ title }}</p>
+  <div class="player-info-text" :class="`player-info-text--${variant}`">
+    <p class="player-info-title" :class="variant === 'line' ? 'text-body' : 'heading-2'">{{ title }}</p>
     <p v-if="secondary" class="player-info-secondary text-body">{{ secondary }}</p>
   </div>
 </template>
@@ -20,6 +20,16 @@ defineProps({
   secondary: {
     type: String,
     default: null
+  },
+  /**
+   * `card`: the kiosk card's lines, the title on up to three. `line`: the
+   * phone's mini-bar, one line each and no gap — what the body draws there and
+   * each cell of the swipe carousel, so the two cannot differ.
+   */
+  variant: {
+    type: String,
+    default: 'card',
+    validator: (value) => ['card', 'line'].includes(value)
   }
 })
 </script>
@@ -49,5 +59,18 @@ defineProps({
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+}
+
+/* One line each, cut where the caller's edge fade cuts it rather than by an
+   ellipsis. */
+.player-info-text--line {
+  gap: 0;
+}
+
+.player-info-text--line .player-info-title,
+.player-info-text--line .player-info-secondary {
+  display: block;
+  white-space: nowrap;
+  text-overflow: clip;
 }
 </style>

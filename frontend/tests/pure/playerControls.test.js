@@ -91,6 +91,13 @@ describe('the browser sources', () => {
     expect(items.find(item => item.id === 'shuffle').params).toEqual({ shuffle: true });
   });
 
+  it('spotify: what another device plays has one button, play, which brings it here', () => {
+    const items = controlsOf(['take_over'], null, { kind: 'spotify', shuffle: false, repeat: 'off' });
+    expect(summary(items)).toEqual(['main:take_over']);
+    // Said in words: a bare play glyph would read as playing it over there.
+    expect(items[0].labelled).toBe(true);
+  });
+
   it('music library: repeat joins the plate once the source lists it', () => {
     const items = controlsOf(
       ['pause', 'seek', 'next', 'prev', 'set_shuffle', 'set_repeat'],

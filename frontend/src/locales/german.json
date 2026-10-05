@@ -387,6 +387,8 @@
   },
   "spotify": {
     "accountSpotify": "Spotify von {name}",
+    "playingOn": "Wiedergabe auf {device}",
+    "pausedOn": "Pausiert auf {device}",
     "album": "Album",
     "artist": "Künstler",
     "castAgain": "Streamen Sie erneut von Ihrem Telefon",
@@ -520,6 +522,7 @@
     "repeatContext": "Liste wiederholen",
     "repeatOff": "Wiederholung aus",
     "repeatTrack": "Titel wiederholen",
+    "takeOver": "Auf Milō hören",
     "shuffle": "Zufallswiedergabe"
   },
   "radio": {

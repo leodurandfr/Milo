@@ -387,6 +387,8 @@
   },
   "spotify": {
     "accountSpotify": "{name} का Spotify",
+    "playingOn": "{device} पर चल रहा है",
+    "pausedOn": "{device} पर रुका हुआ",
     "album": "एल्बम",
     "artist": "कलाकार",
     "castAgain": "कृपया अपने फ़ोन से फिर से कास्ट करें",
@@ -520,6 +522,7 @@
     "repeatContext": "सूची दोहराएं",
     "repeatOff": "दोहराना बंद",
     "repeatTrack": "गाना दोहराएं",
+    "takeOver": "Milō पर सुनें",
     "shuffle": "शफ़ल"
   },
   "radio": {

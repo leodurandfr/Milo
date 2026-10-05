@@ -31,6 +31,12 @@ With stored credentials (0.10.3, `persist_credentials`; measured 2026-10-03):
   signed-in daemon and announced by an event carrying `value`.
 - With nobody signed in, every /player command answers 204.
 
+Another device of the account (go-librespot with `remote`, measured on the
+owner's iPhone 2026-10-05): /status names the active device when it is not this
+one, with its track once resolved and the playhead read when /status was; each
+change raises `remote`. POST /player/transfer answers 200 at once, and the
+session arrives as a phone's transfer does, at the same position.
+
 Time is a VirtualClock the scenario advances; the daemon's death is heard
 through the same pidfd watch the source opens (patched here, as for AirPlay).
 """
@@ -141,6 +147,11 @@ class Librespot:
         self.repeat_context = False
         self.repeat_track = False
         self.track: Optional[Dict[str, Any]] = None
+        # What the account plays on another device, as /status's `remote`.
+        self.remote: Optional[Dict[str, Any]] = None
+        self.taken_over: Optional[Dict[str, Any]] = None
+        self.transfer_pending = False
+        self.transfer_refused = False   # Spotify refused the transfer (a 500 from go-librespot)
         self.paused = True
         self.buffering = False
         self.status_answers = True      # False: /status answers 503 (learned nothing)
@@ -213,13 +224,14 @@ class Librespot:
                 return _Exchange(_Response(200, {
                     "username": self.stored, "stopped": False, "paused": False,
                     "buffering": False, "track": None, **self._player_flags(),
+                    "remote": copy.deepcopy(self.remote),
                 }))
             context_uri, context_name = self.context or (None, None)
             return _Exchange(_Response(200, {
                 "username": self.account, "stopped": False, "paused": self.paused,
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
                 "context_uri": context_uri, "context_name": context_name,
-                **self._player_flags(),
+                **self._player_flags(), "remote": None,
             }))
         return _Exchange(_Response(200, {"playback_ready": self.session}))
 
@@ -242,6 +254,14 @@ class Librespot:
             return _Exchange(_Response(200))
         if command == "play":
             self._plays(body)
+            return _Exchange(_Response(200))
+        if command == "transfer":
+            if self.transfer_refused:
+                return _Exchange(_Response(500))
+            if self.session:
+                return _Exchange(_Response(200))
+            self.transfer_pending = True
+            asyncio.get_running_loop().call_soon(self._transfer_starts)
             return _Exchange(_Response(200))
         if not self.session:
             return _Exchange(_Response(204))
@@ -337,6 +357,20 @@ class Librespot:
     def _later(self, event: Dict[str, Any]) -> None:
         """The event a command produces, pushed after the command's answer."""
         asyncio.get_running_loop().call_soon(self.says, event)
+
+    def _transfer_starts(self) -> None:
+        """The transfer arrives: the daemon is active at once, with no track
+        yet, and /status names no remote any more (it is the active device)."""
+        self.taken_over, self.remote = self.remote, None
+        self.session, self.account = True, self.stored
+        self.track, self.paused, self.buffering = None, True, True
+        self.says({"type": "active"}, {"type": "will_play", "uri": self.taken_over["track"]["uri"]})
+
+    def transfer_lands(self) -> None:
+        """~0.25 s later: the track it brought, where it stood, playing."""
+        self.transfer_pending = False
+        self.track, self.paused, self.buffering = copy.deepcopy(self.taken_over["track"]), False, False
+        self.says({"type": "metadata", "uri": self.track["uri"]}, {"type": "playing"})
 
     def _resumed(self) -> None:
         self.paused = False
@@ -593,6 +627,48 @@ class SpotifyWorld(WireReader):
         await self._says({"type": "seek", "position": position_ms,
                           "duration": self.daemon.track["duration"]})
 
+    async def plays_elsewhere(self, song: Optional[Dict[str, Any]] = PARAPLUIE, *, at_ms: int = 0,
+                              paused: bool = False, device: str = "iPhone") -> None:
+        """Another device of the account plays `song` (None: its track is not
+        resolved yet); go-librespot says `remote`."""
+        self.daemon.remote = {
+            "device_id": "1d0183bba7f631d45ffa2be4e1208f37682b5126", "device_name": device,
+            "device_type": "SMARTPHONE", "paused": paused,
+            "track": {**copy.deepcopy(song), "position": at_ms} if song else None,
+        }
+        await self._says({"type": "remote", "data": copy.deepcopy(self.daemon.remote)})
+
+    async def transfer_lands(self) -> None:
+        await self.advance(0.25)
+        self.daemon.transfer_lands()
+        await settle()
+
+    async def nothing_plays_elsewhere(self) -> None:
+        """The other device left the cluster (gone to the background, offline)."""
+        self.daemon.remote = None
+        await self._says({"type": "remote", "data": None})
+
+    async def phone_takes_it_back(self, at_ms: int = 90_000) -> None:
+        """The phone takes the session over from Milō, as measured (2026-10-05):
+        go-librespot drops it (`inactive`), announces the phone (`remote`),
+        hands the session back and signs in again — 204 for ~0.3 s — then
+        names nothing for ~0.15 s (Spotify's cluster not back yet), and only
+        then does /status name the phone."""
+        d = self.daemon
+        remote = {
+            "device_id": "1d0183bba7f631d45ffa2be4e1208f37682b5126", "device_name": "iPhone",
+            "device_type": "SMARTPHONE", "paused": False,
+            "track": {**copy.deepcopy(d.track), "position": at_ms},
+        }
+        d.session, d.track, d.paused, d.buffering, d.signed_in = False, None, True, False, False
+        await self._says({"type": "inactive"}, {"type": "stopped"}, {"type": "remote", "data": remote})
+        await self.advance(0.3)
+        d.signed_in = True
+        await self._says({"type": "playback_ready"})
+        await self.advance(0.15)
+        d.remote = remote
+        await self._says({"type": "remote", "data": remote})
+
     async def phone_leaves(self) -> None:
         """The phone picks another output: the daemon drops the session."""
         d = self.daemon
@@ -635,6 +711,9 @@ class SpotifyWorld(WireReader):
         return self.state()
 
     # === what the wire says ===
+
+    def transfers_sent(self) -> int:
+        return sum(1 for command, _ in self.daemon.posted if command == "transfer")
 
     def stops_sent(self) -> int:
         return sum(1 for command, _ in self.daemon.posted if command == "stop")

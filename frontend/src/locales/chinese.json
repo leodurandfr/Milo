@@ -387,6 +387,8 @@
   },
   "spotify": {
     "accountSpotify": "{name} 的 Spotify",
+    "playingOn": "正在 {device} 上播放",
+    "pausedOn": "已在 {device} 上暂停",
     "album": "专辑",
     "artist": "艺人",
     "castAgain": "请从您的手机重新投放",
@@ -520,6 +522,7 @@
     "repeatContext": "列表循环",
     "repeatOff": "关闭循环",
     "repeatTrack": "单曲循环",
+    "takeOver": "在 Milō 上收听",
     "shuffle": "随机播放"
   },
   "radio": {

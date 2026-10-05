@@ -45,7 +45,7 @@ import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
  */
 export function linesOf(current) {
   const kind = current?.kind;
-  const none = { barLabel: null, barImage: null, barAccount: null, avatarName: '', barOnCard: false };
+  const none = { barLabel: null, barImage: null, barAccount: null, barRemote: null, avatarName: '', barOnCard: false };
   if (kind === 'radio') {
     const station = current.station;
     const detected = !!current.track && !!station?.name;
@@ -68,7 +68,18 @@ export function linesOf(current) {
       secondary: false
     };
   }
-  if (kind === 'spotify') return { ...none, barAccount: current.account ?? null, secondary: true };
+  if (kind === 'spotify') {
+    // What another device plays says where it plays, on the card too: nothing
+    // else on it tells that the music is not here.
+    const remote = current.remote;
+    return {
+      ...none,
+      barAccount: current.account ?? null,
+      barRemote: remote ? { device: remote.device_name, paused: remote.paused } : null,
+      barOnCard: !!remote,
+      secondary: true
+    };
+  }
   return { ...none, secondary: true };
 }
 
@@ -124,9 +135,15 @@ export function usePlayerMetadata(source) {
   // one language. Nothing identifies the sender on the other receiver channels —
   // the Qobuz proxy only knows the speaker.
   const senderNames = computed(() => formatDeviceNames(session.value?.senders));
+  const remoteLabel = computed(() => {
+    const remote = metadata.value.barRemote;
+    if (!remote) return null;
+    return t(remote.paused ? 'spotify.pausedOn' : 'spotify.playingOn', { device: remote.device });
+  });
   const sourceLabel = computed(
     () => senderNames.value
       || metadata.value.barLabel
+      || remoteLabel.value
       || (accountName.value && t('spotify.accountSpotify', { name: accountName.value }))
       || t(AUDIO_SOURCE_LABEL_KEYS[source])
   );

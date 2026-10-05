@@ -1510,7 +1510,11 @@ describe('component gallery source pages', () => {
 
     // Both shells draw the body; the body is the one place the parts are drawn.
     for (const shell of ['components/audio/AudioPlayer.vue', 'components/audio/AudioPlayerFull.vue']) {
-      const template = templateOf(read(shell));
+      // One allowance: the phone's swipe carousel (AudioPlayer's #info) draws
+      // each cell with the body's own mini-bar lines, PlayerInfoText's `line`
+      // variant — the same component the body draws there, so the two cannot
+      // read differently. Any other PlayerInfoText beside the body is a copy.
+      const template = templateOf(read(shell)).replaceAll('<PlayerInfoText variant="line"', '');
       checked += 1;
       if (!template.includes('<PlayerBody')) broken.push(`${shell} (draws no PlayerBody)`);
       for (const part of ['<PlayerTransport', '<ProgressBar', '<PlayerInfoText']) {
