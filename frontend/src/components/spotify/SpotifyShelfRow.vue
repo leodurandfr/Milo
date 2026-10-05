@@ -94,16 +94,19 @@ onBeforeUnmount(() => {
     --shelf-peek: 0.5;
     --shelf-fade: var(--content-bleed-fade, 0px);
     --shelf-receded: color-mix(in srgb, black 16%, transparent);
+    /* (1 - t)², an ease-out: it starts falling at the column's edge itself
+       and lands flat on the receded level. An S-curve held the first fifth
+       near solid, so the fade seemed to begin past the edge. */
     --shelf-fade-curve: black,
-      color-mix(in srgb, black 97%, transparent) 10%,
-      color-mix(in srgb, black 90%, transparent) 20%,
-      color-mix(in srgb, black 78%, transparent) 30%,
-      color-mix(in srgb, black 65%, transparent) 40%,
-      color-mix(in srgb, black 50%, transparent) 50%,
-      color-mix(in srgb, black 35%, transparent) 60%,
-      color-mix(in srgb, black 22%, transparent) 70%,
-      color-mix(in srgb, black 10%, transparent) 80%,
-      color-mix(in srgb, black 3%, transparent) 90%,
+      color-mix(in srgb, black 81%, transparent) 10%,
+      color-mix(in srgb, black 64%, transparent) 20%,
+      color-mix(in srgb, black 49%, transparent) 30%,
+      color-mix(in srgb, black 36%, transparent) 40%,
+      color-mix(in srgb, black 25%, transparent) 50%,
+      color-mix(in srgb, black 16%, transparent) 60%,
+      color-mix(in srgb, black 9%, transparent) 70%,
+      color-mix(in srgb, black 4%, transparent) 80%,
+      color-mix(in srgb, black 1%, transparent) 90%,
       transparent;
     --shelf-mask: linear-gradient(var(--shelf-receded), var(--shelf-receded)),
       linear-gradient(black, black),

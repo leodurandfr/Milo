@@ -388,7 +388,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   --content-bleed-end: var(--content-bleed-start);
   /* How long a row takes, past the column, to recede to what it shows out
      there. */
-  --content-bleed-fade: var(--space-08);
+  --content-bleed-fade: var(--space-09);
   position: relative;
   z-index: 1;
   width: 84%;
@@ -396,7 +396,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  padding: var(--space-07) 0;
+  padding: var(--space-07) 0 var(--space-09) 0;
   gap: var(--space-06);
   flex-shrink: 0;
   touch-action: pan-y;
@@ -473,6 +473,20 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
     opacity 0.4s ease-out,
     transform var(--source-motion-duration, 0s);
   pointer-events: all;
+}
+
+/* A row bleeds on past the player to the screen's edge, through the frame's
+   padding the player leaves bare: this strip takes the clicks there, so a
+   card showing beside the player cannot be opened. */
+@media not (max-aspect-ratio: 4/3) {
+  .player-wrapper.has-player::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    width: var(--space-07);
+  }
 }
 
 /* Back-to-top threshold marker — geometry only, never painted. */
