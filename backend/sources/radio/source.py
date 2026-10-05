@@ -170,15 +170,11 @@ class RadioSource(MpvAudioSource):
         "play_station": PlayStationParams,
         "stop": None,
         "resume_playback": None,
-        "next": None,
-        "prev": None,
     }
     COMMAND_SCOPES = {
         "play_station": CommandScope.CONTENT,
         "stop": CommandScope.RESUME,
         "resume_playback": CommandScope.RESUME,
-        "next": CommandScope.RESUME,
-        "prev": CommandScope.RESUME,
     }
 
     def __init__(
@@ -197,12 +193,8 @@ class RadioSource(MpvAudioSource):
             config=config
         )
 
-        # Station data service (initialized immediately for API access). Its
-        # favorites decide whether next/prev are offered (`controls`).
-        self._station_data = StationDataService(
-            state_machine=state_machine,
-            on_favorites_changed=self._favorites_changed,
-        )
+        # Station data service (initialized immediately for API access)
+        self._station_data = StationDataService(state_machine=state_machine)
 
         # RadioBrowser API (initialized immediately for API access)
         self._radio_api = RadioBrowserAPI(
@@ -294,9 +286,6 @@ class RadioSource(MpvAudioSource):
 
         if cmd == "resume_playback":
             return await self._handle_resume_playback()
-
-        if cmd in ("next", "prev"):
-            return await self._handle_step_favorite(1 if cmd == "next" else -1)
 
         return self.error_response(f"Unhandled command: {cmd}")
 
@@ -398,41 +387,6 @@ class RadioSource(MpvAudioSource):
         if not station.get('id'):
             return self.error_response("Last station has no id, cannot resume")
         return await self._tune(station)
-
-    async def _handle_step_favorite(self, offset: int) -> Dict[str, Any]:
-        """Play the favorite station `offset` places from the current one.
-
-        A live stream has no track to skip, so next/prev step the favorites
-        list instead — that is what the rotary, the IR remote and the iOS lock
-        screen send. The list wraps. A station played from a search is not in
-        it and has no neighbor, so stepping enters the list at its first
-        entry (next) or its last (prev); when nothing is tuned the kept
-        station stands in, so a press after `stop` resumes the walk where it
-        left off.
-        """
-        favorites = self._station_data.favorite_ids
-        if not favorites:
-            return self.error_response("No favorite station to step to")
-
-        station = self._displayed_station
-        current_id = station.get('id') if station else None
-
-        if current_id in favorites:
-            index = (favorites.index(current_id) + offset) % len(favorites)
-        else:
-            index = 0 if offset > 0 else len(favorites) - 1
-
-        station_id = favorites[index]
-        if (
-            station_id == current_id
-            and self._session is not None
-            and self._session.phase is Phase.PLAYING
-        ):
-            # Single favorite: re-tuning the station already playing would
-            # only cost a re-buffer.
-            return self.success_response("Already on the only favorite station")
-
-        return await self._handle_play_station(PlayStationParams(station_id=station_id))
 
     # === Helpers ===
 
@@ -542,22 +496,14 @@ class RadioSource(MpvAudioSource):
         )
 
     def _controls(self) -> List[str]:
-        """A live stream has no pause: stop, or re-tune what was stopped.
-        next/prev step the favorites, so they need one."""
-        steps = ["next", "prev"] if self._station_data.favorite_ids else []
+        """A live stream has no pause and no track to skip: stop, or re-tune
+        what was stopped."""
         if self._session is not None:
-            return ["stop", *steps]
+            return ["stop"]
         station = self._displayed_station
         if station and station.get("id"):
-            return ["resume_playback", *steps]
-        return steps
-
-    def _favorites_changed(self) -> None:
-        """The favorites moved (StationDataService): next/prev may have
-        appeared or gone. Posted; the net after it publishes what moved."""
-        async def nothing() -> None:
-            return None
-        self._post_result(nothing)
+            return ["resume_playback"]
+        return []
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:
         """React to global Shazam toggle change."""

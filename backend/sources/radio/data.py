@@ -17,7 +17,7 @@ import unicodedata
 import uuid
 import io
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiofiles
 from PIL import Image
@@ -300,11 +300,9 @@ class StationDataService:
 
     SCHEMA_VERSION: int = 1
 
-    def __init__(self, state_machine=None, on_favorites_changed: Optional[Callable[[], None]] = None):
+    def __init__(self, state_machine=None):
         self.logger = logging.getLogger("source.radio.data")
         self._state_machine = state_machine
-        # The radio source's: its next/prev step these favorites.
-        self._on_favorites_changed = on_favorites_changed
         self.image_manager = ImageManager()
 
         self._data_file = Path('/var/lib/milo/radio_data.json')
@@ -342,10 +340,6 @@ class StationDataService:
             f"{len(self._manual_stations)} custom stations"
         )
         self._loaded = True
-
-    def _favorites_moved(self) -> None:
-        if self._on_favorites_changed is not None:
-            self._on_favorites_changed()
 
     async def _broadcast(self, event: WsEvent) -> None:
         """Broadcast a typed radio event via state machine (WebSocket)."""
@@ -436,10 +430,9 @@ class StationDataService:
         """Favorite station ids, in the one order every consumer shows them.
 
         Sorted here rather than stored sorted: `_favorites` keeps the order the
-        stations were added in, and the grid used to re-sort it client-side. Two
-        orders is one too many the moment a physical button means "the next
-        station" — so the sort moved here, and both the favorites endpoint and
-        RadioSource's next/prev read it from this one place.
+        stations were added in. The favorites endpoint serves this order to
+        every client — the grid, Milo-Mac's menu, Milo-iOS — so none of them
+        sorts on its own and they cannot disagree.
         """
         return sorted(self._favorites, key=self._display_sort_key)
 
@@ -451,10 +444,8 @@ class StationDataService:
         Measured against Node's `localeCompare` on a real 22-station list: same
         order, position for position.
 
-        A station whose metadata is not local yet sorts under the empty string.
-        That is the same key `get_favorites_with_metadata` walks, so the grid
-        and the next/prev walk agree on where it sits even then — which is the
-        property that matters, more than the placement itself.
+        A station whose metadata is not local yet sorts under the empty string,
+        so its place is still decided here rather than left to each client.
         """
         name = (self._lookup_local(station_id) or {}).get('name', '')
         folded = unicodedata.normalize('NFKD', name)
@@ -537,7 +528,6 @@ class StationDataService:
 
         if success:
             await self._broadcast(RadioFavoriteAdded(station_id=station_id))
-            self._favorites_moved()
 
         return success
 
@@ -576,7 +566,6 @@ class StationDataService:
             if override and override.get('image_filename'):
                 await self.image_manager.delete_image(override['image_filename'])
             await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
-            self._favorites_moved()
 
         return success
 
@@ -683,7 +672,6 @@ class StationDataService:
 
             if success:
                 await self._broadcast(RadioFavoriteAdded(station_id=station_id))
-                self._favorites_moved()
 
             return {"success": success, "station": station}
 
@@ -717,7 +705,6 @@ class StationDataService:
                 await self.image_manager.delete_image(station['image_filename'])
             if position is not None:
                 await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
-                self._favorites_moved()
 
         return success
 

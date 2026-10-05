@@ -1,17 +1,17 @@
 <!-- frontend/src/components/gallery/samples/FavoriteSample.vue -->
 <!--
-  Radio's favorite at the end of the transport, inked the way RadioSource inks
-  it: from the `ink` the transport's end slot hands over, so it takes the
-  plate's tone on the full player and the card's on the bar.
+  Radio's favorite at the end of the transport, drawn the way RadioSource draws
+  it: in the `variant` the transport's end slot hands over — the fill of the
+  labelled button beside it, on the plate as on the bar's card.
 -->
 <template>
-  <IconButton icon="heart" variant="ghost" size="small" class="transport-secondary-round" :color="ink.strong" />
+  <IconButton icon="heart" :variant="variant" size="medium" />
 </template>
 
 <script setup>
 import IconButton from '@/components/ui/IconButton.vue';
 
 defineProps({
-  ink: { type: Object, required: true }
+  variant: { type: String, required: true }
 });
 </script>

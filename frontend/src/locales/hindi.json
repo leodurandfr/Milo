@@ -523,6 +523,8 @@
     "repeatOff": "दोहराना बंद",
     "repeatTrack": "गाना दोहराएं",
     "takeOver": "Milō पर सुनें",
+    "stopPlayback": "प्लेबैक रोकें",
+    "resumePlayback": "प्लेबैक फिर से शुरू करें",
     "shuffle": "शफ़ल"
   },
   "radio": {

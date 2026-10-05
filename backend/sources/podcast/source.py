@@ -12,14 +12,14 @@ Features:
 - PodcastCatalog for discovery and feed reading
 """
 from backend.core.models.ws_events import SourceErrorReason
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Any, List, Optional
 
 from pydantic import BaseModel
 
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.audio_wire import PodcastDetails, ResumeView
-from backend.core.models.commands import SkipParams
+from backend.core.models.commands import SkipParams, skip_target
 from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, ReroutePolicy, ResumePolicy,
 )
@@ -82,8 +82,8 @@ class PodcastSource(MpvAudioSource):
         "play_episode": CommandScope.CONTENT,
         "pause": CommandScope.SESSION,
         "resume": CommandScope.RESUME,
-        "seek": CommandScope.SESSION,
-        "skip": CommandScope.SESSION,
+        "seek": CommandScope.RESUME,
+        "skip": CommandScope.RESUME,
     }
 
     def __init__(
@@ -293,24 +293,30 @@ class PodcastSource(MpvAudioSource):
         The second branch is what an auto-stop or a switch leaves behind: the
         episode the source published as its resume identity is exactly what a
         play press means — the rotary and the IR remote send `resume` and know
-        no other name. It goes through the play path so the position comes
-        from the progress file, like any play.
+        no other name. It goes through the play path, at the second the
+        resume point publishes — the one on screen, moved there by a skip or a
+        seek while stopped, which the progress file's ten-second floor would
+        send back to the start.
         """
         if self._session is None:
             point = self._resume_point
             if point is None:
                 return self.error_response("No episode to resume")
             return await self._handle_play_episode(
-                PlayEpisodeParams(episode_uuid=point.identity)
+                PlayEpisodeParams(episode_uuid=point.identity, position=point.position_ms // 1000)
             )
         if not await self._mpv.resume():
             return self.mpv_refused("resume")
         return self.success_response("Resumed")
 
     async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
-        """Seek to position (params normalize `position`/`position_ms` to seconds)."""
+        """Seek to position (params normalize `position`/`position_ms` to seconds).
+        With no session the episode kept to resume moves instead, and nothing
+        plays: a press on resume is what plays it, from there."""
         session = self._session
         position = int(params.seconds)
+        if session is None:
+            return await self._move_resume_point(position)
         if not await self._mpv.seek(position):
             return self.mpv_refused(f"seek to {position}s")
         session.position = position
@@ -323,13 +329,37 @@ class PodcastSource(MpvAudioSource):
 
     async def _handle_skip(self, params: SkipParams) -> Dict[str, Any]:
         """Move the playhead by `params.seconds` from where mpv has it
-        (MpvAudioSource._skip_by); published before the progress is saved."""
+        (MpvAudioSource._skip_by); published before the progress is saved.
+        With no session, from the second the episode kept to resume stands at."""
         session = self._session
+        if session is None:
+            point = self._resume_point
+            if point is None:
+                return self.error_response("No episode to skip in")
+            target = skip_target(
+                point.position_ms, params.seconds, point.content["duration"] * 1000 or None,
+            )
+            return await self._move_resume_point(target // 1000)
         if await self._skip_by(session, params.seconds) is None:
             return self.mpv_refused(f"skip {params.seconds:+g}s")
         self._publish_changes()
         await self._save_progress(session)
         return self.success_response(f"Skipped {params.seconds:+g}s")
+
+    async def _move_resume_point(self, position: int) -> Dict[str, Any]:
+        """Move the episode kept to resume to `position` seconds, within its
+        length: in the resume point, which a resume plays from, and in the
+        progress file, which the episode lists read."""
+        point = self._resume_point
+        if point is None:
+            return self.error_response("No episode to seek in")
+        duration = point.content["duration"]
+        if duration:
+            position = min(position, duration)
+        self._set_resume_point(replace(point, position_ms=position * 1000))
+        self._publish()
+        await self._write_progress(point.content["episode"], position, point.content["duration"])
+        return self.success_response(f"Resume point moved to {position}s")
 
     # === Helpers ===
 
@@ -373,7 +403,8 @@ class PodcastSource(MpvAudioSource):
     def _controls(self) -> List[str]:
         session = self._session
         if session is None:
-            return ["resume"] if self._resume_point is not None else []
+            # The episode kept to resume moves without playing, as a disc's does.
+            return ["resume", "seek", "skip"] if self._resume_point is not None else []
         if session.phase is Phase.LOADING:
             return ["pause"]
         if session.phase is Phase.PAUSED:
@@ -389,17 +420,20 @@ class PodcastSource(MpvAudioSource):
         """Save the session's position to the progress file."""
         if not isinstance(session, PodcastSession) or session.position <= 0:
             return
-        podcast_info = session.episode.get('podcast', {})
+        await self._write_progress(session.episode, session.position, session.duration)
+
+    async def _write_progress(self, episode: Dict[str, Any], position: int, duration: int) -> None:
+        podcast_info = episode.get('podcast', {})
         await self._podcast_data.update_playback_progress(
-            episode_uuid=session.episode['uuid'],
-            position=session.position,
-            duration=session.duration,
+            episode_uuid=episode['uuid'],
+            position=position,
+            duration=duration,
             podcast_uuid=podcast_info.get('uuid', ''),
-            episode_name=session.episode.get('name', ''),
+            episode_name=episode.get('name', ''),
             podcast_name=podcast_info.get('name', ''),
-            image_url=session.episode.get('image_url', '')
+            image_url=episode.get('image_url', '')
         )
-        self._logger.debug(f"Saved progress: {session.position}/{session.duration}s")
+        self._logger.debug(f"Saved progress: {position}/{duration}s")
 
     async def _cleanup(self) -> None:
         """Close mpv. The catalogue and the progress file stay: the routes read

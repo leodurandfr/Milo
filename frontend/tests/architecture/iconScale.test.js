@@ -34,7 +34,7 @@ const VAR_OWNERS = [
   'components/ui/Button.vue'
 ];
 
-const ROLES = ['primary', 'secondary', 'secondary-round'];
+const ROLES = ['primary', 'secondary', 'toggle'];
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -123,56 +123,20 @@ describe('transport icon scale', () => {
     };
 
     for (const [name, tier] of Object.entries(tiers)) {
-      const { primary, secondary } = tier;
-      const round = tier['secondary-round'];
+      const { primary, secondary, toggle } = tier;
       expect(ROLES.map((r) => tier[r]).every((v) => v % 4 === 0), `${name} off the 4px grid`).toBe(true);
       expect(primary, `${name}: primary must lead`).toBeGreaterThan(secondary);
-      // secondary-round is the same flanking role for a glyph that fills its
-      // box, so it stays under `secondary`: level with it, it is the oversized
-      // pair the role exists to fix. Its floor is the readability of the two
-      // digits `rewind15`/`forward30` carry, which is a judgement made by eye —
-      // stated in the design system's comment, not assertable without restating
-      // the value the tier already declares.
-      expect(round, `${name}: secondary-round must sit under secondary`).toBeLessThan(secondary);
-    }
-
-    // `secondary-round` answers to a ceiling, not to a proportion: a glyph that
-    // fills its box may not outgrow the `pause` it flanks, or the flanking
-    // control reads as the main one — which is the inversion this role was
-    // added to end. The ring's extent is read from the clipPath its own file
-    // declares, so a redrawn glyph moves the ceiling with it; the pause's 16.0
-    // units are stated, its path being too involved to parse for one number.
-    const ringHeight = (() => {
-      const svg = readFileSync(join(SRC, 'assets/icons/rewind-15.svg'), 'utf8');
-      const clip = svg.match(/<clipPath[^>]*>\s*<path[^>]*\sd="([^"]+)"/);
-      expect(clip, 'rewind-15 no longer declares the clipPath its extent is read from').not.toBeNull();
-      // `M2.625.938h18.677V21.39H2.625z` — SVG drops the separator between a
-      // number and a following decimal, so split on the number grammar rather
-      // than on whitespace: [x0, y0, width, yBottom, ...].
-      const n = clip[1].match(/\d+\.\d+|\.\d+|\d+/g).map(Number);
-      return n[3] - n[1];
-    })();
-    // A parse that silently yields nothing must fail here, not pass on an empty
-    // surface: every other glyph in the set stands between 12 and 21 units.
-    expect(ringHeight, 'the ring extent parsed to something implausible').toBeGreaterThan(19);
-    expect(ringHeight, 'the ring extent parsed to something implausible').toBeLessThan(22);
-    const PAUSE_HEIGHT = 16.0;
-
-    for (const [name, tier] of Object.entries(tiers)) {
-      const ceiling = (tier.primary * PAUSE_HEIGHT) / ringHeight;
-      expect(
-        tier['secondary-round'],
-        `${name}: secondary-round outgrows the pause it flanks (ceiling ${ceiling.toFixed(1)}px)`
-      ).toBeLessThanOrEqual(ceiling);
+      // A toggle reads as slightly smaller than the steps it sits beside:
+      // level with them, it reads as one more step.
+      expect(toggle, `${name}: toggle must sit under secondary`).toBeLessThan(secondary);
     }
 
     // Both proportions are checked, not just the first: a tier retuned on its
-    // own is drift whichever pair of roles it breaks. The round pair gets a
-    // wider band because the ceiling above is what sets it and the 4px grid
-    // then rounds it down — one grid step is already 12% on values near 32.
+    // own is drift whichever pair of roles it breaks. The toggle pair gets a
+    // wider band: on values near 28 one 4px grid step is already 14%.
     for (const [lead, follow, tolerance] of [
       ['primary', 'secondary', TIER_TOLERANCE],
-      ['secondary', 'secondary-round', 0.1]
+      ['secondary', 'toggle', 0.1]
     ]) {
       const ratios = Object.values(tiers).map((t) => t[lead] / t[follow]);
       expect(
@@ -194,7 +158,7 @@ describe('transport icon scale', () => {
     // Three ways this goes wrong, all silent in a browser: a button wearing a
     // class the design system never declared (drawn at IconButton's native size
     // while its neighbours follow the scale), a declaration nobody wears (a tier
-    // that stopped being applied), and the role trio itself losing a member.
+    // that stopped being applied), and a role losing its class.
     const css = readFileSync(DESIGN_SYSTEM, 'utf8');
     const declared = new Set(
       [...css.matchAll(/\.(transport-[a-z-]+)\s*\{/g)].map((m) => m[1])
@@ -219,7 +183,7 @@ describe('transport icon scale', () => {
     expect([...worn.keys()].sort(), 'a class no tier declares').toEqual([...declared].sort());
     expect(
       ROLES.map((role) => `transport-${role}`).filter((cls) => !declared.has(cls)),
-      'the role trio lost a member'
+      'a role lost its class'
     ).toEqual([]);
 
     // Every transport row in the app wears a primary — the players' shared
@@ -254,7 +218,7 @@ describe('transport icon scale', () => {
     for (const file of STYLE_FILES) {
       if (rel(file) === 'assets/styles/design-system.css') continue;
       const text = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-      for (const decl of text.matchAll(/--transport-(primary|secondary-round|secondary)\s*:\s*([^;}]+)/g)) {
+      for (const decl of text.matchAll(/--transport-(primary|secondary|toggle)\s*:\s*([^;}]+)/g)) {
         (bends[rel(file)] ??= []).push(decl[1]);
         const px = decl[2].trim().match(/^(\d+)px$/);
         if (!px || Number(px[1]) % 4 !== 0 || Number(px[1]) >= floor[decl[1]]) {

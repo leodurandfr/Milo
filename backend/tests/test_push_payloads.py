@@ -139,15 +139,15 @@ class TestNowPlayingAttributes:
         assert build_attributes("sess", state, [], now=NOW)["controls"] == ["pause", "next", "prev"]
 
     def test_an_idle_card_offers_only_to_resume(self):
-        """Radio keeps `next`/`prev` while stopped, to step its favorites; the
-        Lock Screen card with nothing playing offers only the play press that
-        brings back what it names (owner's call, 2026-09-25)."""
-        state = {"source": "radio", "session": None,
-                 "resume": {"title": "FIP", "artist": None, "album": "FIP", "artwork": None,
-                            "duration_ms": None, "position_ms": None},
-                 "controls": ["resume_playback", "next", "prev"]}
+        """A stopped CD keeps its steps, its seek and its eject; the Lock Screen
+        card with nothing playing offers only the play press that brings back
+        what it names (owner's call, 2026-09-25)."""
+        state = {"source": "cd", "session": None,
+                 "resume": {"title": "Track 3", "artist": None, "album": "Album", "artwork": None,
+                            "duration_ms": 200000, "position_ms": 12000},
+                 "controls": ["resume", "seek", "skip", "next", "prev", "play_track", "eject"]}
 
-        assert build_attributes("sess", state, [], now=NOW)["controls"] == ["resume_playback"]
+        assert build_attributes("sess", state, [], now=NOW)["controls"] == ["resume"]
 
     def test_a_source_card_offers_nothing(self):
         state = {"source": "cd", "session": None, "resume": None,

@@ -2151,7 +2151,9 @@
      },
      "session": null,
      "controls": [
-      "resume"
+      "resume",
+      "seek",
+      "skip"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -2419,7 +2421,9 @@
     },
     "session": null,
     "controls": [
-     "resume"
+     "resume",
+     "seek",
+     "skip"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -2772,7 +2776,9 @@
      },
      "session": null,
      "controls": [
-      "resume"
+      "resume",
+      "seek",
+      "skip"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -2930,7 +2936,9 @@
      },
      "session": null,
      "controls": [
-      "resume"
+      "resume",
+      "seek",
+      "skip"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -3048,7 +3056,9 @@
     },
     "session": null,
     "controls": [
-     "resume"
+     "resume",
+     "seek",
+     "skip"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -3105,7 +3115,9 @@
     },
     "session": null,
     "controls": [
-     "resume"
+     "resume",
+     "seek",
+     "skip"
     ],
     "resume": {
      "title": "The Sunday Read",
@@ -3479,7 +3491,9 @@
      },
      "session": null,
      "controls": [
-      "resume"
+      "resume",
+      "seek",
+      "skip"
      ],
      "resume": {
       "title": "The Sunday Read",
@@ -3897,7 +3911,9 @@
     },
     "session": null,
     "controls": [
-     "resume"
+     "resume",
+     "seek",
+     "skip"
     ],
     "resume": {
      "title": "The Sunday Read",

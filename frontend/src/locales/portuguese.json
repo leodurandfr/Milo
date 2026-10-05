@@ -523,6 +523,8 @@
     "repeatOff": "Repetição desativada",
     "repeatTrack": "Repetir a faixa",
     "takeOver": "Ouvir no Milō",
+    "stopPlayback": "Parar a reprodução",
+    "resumePlayback": "Retomar a reprodução",
     "shuffle": "Aleatório"
   },
   "radio": {

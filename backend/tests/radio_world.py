@@ -2,7 +2,7 @@
 
 RadioRig (tests/test_mpv_sessions.py) is the source on a real state machine
 with mpv simulated. A radio scenario also needs to see the recognition service
-it drives and to shape the favorites list its knob walks, and some need the
+it drives and to shape the favorites list, and some need the
 source's own timers (the loading watchdog, the idle timeout) to run on a clock
 the scenario advances instead of the wall clock.
 """
@@ -104,8 +104,7 @@ class RadioWorld(RadioRig):
         self.mpv.metadata = {"icy-title": title} if title else {}
 
     def favorites(self, *stations: Dict[str, Any]) -> None:
-        """The favorites list, in display order, with a local record each."""
+        """The favorites, with a local record each."""
         records = {s["id"]: s for s in stations}
-        self.data.favorite_ids = [s["id"] for s in stations]
         self.data.is_favorite = Mock(side_effect=lambda sid: sid in records)
         self.data.get_favorite_metadata_local = Mock(side_effect=records.get)

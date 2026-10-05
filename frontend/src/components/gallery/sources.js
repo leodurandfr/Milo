@@ -1080,7 +1080,7 @@ export const SOURCE_PAGES = [
         seed: { radio: { favoritesInitialized: false } },
         player: null
       }),
-      browsing('radio', 'No favourites yet', 'Initialised and empty, which is a different thing from loading and is why favoritesInitialized exists: MessageContent says there is nothing rather than shimmering for ever at a unit that simply has no favourites. `next` and `prev` step through the favourites, so with none they are not listed.', {
+      browsing('radio', 'No favourites yet', 'Initialised and empty, which is a different thing from loading and is why favoritesInitialized exists: MessageContent says there is nothing rather than shimmering for ever at a unit that simply has no favourites.', {
         condition: ['stations=0'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
@@ -1092,7 +1092,6 @@ export const SOURCE_PAGES = [
         condition: ['stations=6'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
-        state: { controls: ['next', 'prev'] },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
         player: null
@@ -1108,7 +1107,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_WITH_IMAGE.name,
             artwork: RADIO_STATION_WITH_IMAGE.favicon
           }),
-          controls: ['stop', 'next', 'prev'],
+          controls: ['stop'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
         },
         // The marked card in the grid, and only that: it comes from
@@ -1140,7 +1139,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_WITH_IMAGE.name,
             artwork: RADIO_STATION_WITH_IMAGE.favicon
           }),
-          controls: ['stop', 'next', 'prev'],
+          controls: ['stop'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
@@ -1169,7 +1168,7 @@ export const SOURCE_PAGES = [
             duration_ms: null,
             position_ms: null
           },
-          controls: ['resume_playback', 'next', 'prev'],
+          controls: ['resume_playback'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
         },
         props: { isPlaying: false, currentStation: RADIO_STATION_WITH_IMAGE },
@@ -1192,7 +1191,7 @@ export const SOURCE_PAGES = [
             title: RADIO_STATION_NO_IMAGE.name,
             album: RADIO_STATION_NO_IMAGE.name
           }),
-          controls: ['stop', 'next', 'prev'],
+          controls: ['stop'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_NO_IMAGE), track: null }
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_NO_IMAGE },
@@ -1217,7 +1216,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_WITH_IMAGE.name,
             artwork: musicPlaceholder
           }),
-          controls: ['stop', 'next', 'prev'],
+          controls: ['stop'],
           details: {
             kind: 'radio',
             station: radioStation(RADIO_STATION_WITH_IMAGE),

@@ -29,21 +29,23 @@ function controlsOf(controls, phase = null, details = null) {
 }
 
 describe('the browser sources', () => {
-  it('radio: a live stream stops, steps through the favorites, and has no seek', () => {
-    const items = controlsOf(['stop', 'next', 'prev'], 'playing', { kind: 'radio' });
-    expect(summary(items)).toEqual(['prev', 'main:stop', 'next']);
-    expect(items.find(item => item.id === 'main').icon).toBe('stop');
+  it('radio: a live stream only stops, in words beside a stop glyph', () => {
+    const items = controlsOf(['stop'], 'playing', { kind: 'radio' });
+    expect(summary(items)).toEqual(['main:stop']);
+    const main = items[0];
+    expect(main.icon).toBe('stop');
+    // Labelled, but its glyph says it alone where there is no room for words —
+    // unlike a take-over, whose bare play would read as playing elsewhere.
+    expect(main.labelled).toBe(true);
+    expect(main.glyphSuffices).toBe(true);
   });
 
   it('radio: a stopped station re-tunes with resume_playback, drawn as play', () => {
-    const items = controlsOf(['resume_playback', 'next', 'prev'], null, { kind: 'radio' });
+    const items = controlsOf(['resume_playback'], null, { kind: 'radio' });
     const main = items.find(item => item.id === 'main');
     expect(main.command).toBe('resume_playback');
     expect(main.icon).toBe('play');
-  });
-
-  it('radio: with no favorites there is nothing to step to, only the main button', () => {
-    expect(summary(controlsOf(['stop'], 'playing', { kind: 'radio' }))).toEqual(['main:stop']);
+    expect(main.labelled).toBe(true);
   });
 
   it('podcast: −15 / +30 flank the pause', () => {
@@ -55,8 +57,19 @@ describe('the browser sources', () => {
   });
 
   it('podcast: a loading episode can be paused but not yet moved', () => {
+    // Its −15 / +30 are drawn from the first frame, disabled until the file
+    // opens and the source lists `skip`.
     expect(summary(controlsOf(['pause'], 'loading', { kind: 'podcast' })))
-      .toEqual(['main:pause']);
+      .toEqual(['skip-back(disabled)', 'main:pause', 'skip-forward(disabled)']);
+  });
+
+  it('a loading session that steps keeps its steps, not a relative pair', () => {
+    expect(summary(controlsOf(['pause', 'next', 'prev'], 'loading', { kind: 'tidal' })))
+      .toEqual(['prev', 'main:pause', 'next']);
+  });
+
+  it('a live stream that loads has no pair to hold', () => {
+    expect(summary(controlsOf(['stop'], 'loading', { kind: 'radio' }))).toEqual(['main:stop']);
   });
 
   it('music library: steps win over skip, and shuffle reads details.music_library', () => {
@@ -96,6 +109,7 @@ describe('the browser sources', () => {
     expect(summary(items)).toEqual(['main:take_over']);
     // Said in words: a bare play glyph would read as playing it over there.
     expect(items[0].labelled).toBe(true);
+    expect(items[0].glyphSuffices).toBeFalsy();
   });
 
   it('music library: repeat joins the plate once the source lists it', () => {
@@ -224,8 +238,8 @@ describe('the mini-bar swipe', () => {
     expect(swipeTarget(repeating, 'prev', 2, 3)).toBe(1);
   });
 
-  it('a live stream is never swiped, though it steps through the favorites', () => {
-    expect(swipeable(['stop', 'next', 'prev'])).toBe(false);
-    expect(swipeable(['resume_playback', 'next', 'prev'])).toBe(false);
+  it('a live stream is never swiped', () => {
+    expect(swipeable(['stop'])).toBe(false);
+    expect(swipeable(['resume_playback'])).toBe(false);
   });
 });

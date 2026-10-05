@@ -28,12 +28,15 @@ function mainControl(listed, phase) {
   if (listed('take_over')) {
     return { id: 'main', row: 'transport', command: 'take_over', icon: 'play', labelled: true, enabled: true };
   }
+  // A live stream has no pause to stand beside: the button says what it does,
+  // in words where there is room for them and by its glyph alone elsewhere.
   if (listed('stop') || listed('resume_playback')) {
     const stops = listed('stop');
     return {
       id: 'main', row: 'transport',
       command: stops ? 'stop' : 'resume_playback',
       icon: stops ? 'stop' : 'play',
+      labelled: true, glyphSuffices: true,
       enabled: true
     };
   }
@@ -43,21 +46,28 @@ function mainControl(listed, phase) {
 /**
  * The two buttons around the main one. Track steps win over the relative skip:
  * a source that has a previous or a next item steps through them (a disc, a
- * queue, the radio favorites), and only one with neither (an episode) offers
+ * queue), and only one with neither (an episode) offers
  * −15 / +30 in their place. The pair is drawn whole once either step is listed,
  * the missing half disabled — `next` is absent on the last track.
+ *
+ * `opening`: a player's session that loads before it can move — an episode
+ * opening its file lists neither steps nor `skip` until it plays. Its relative
+ * pair is drawn disabled meanwhile, so the row has its shape from the first
+ * frame rather than growing two buttons when the file opens. A source that can
+ * step while it loads lists its steps, which win as above.
  */
-function flankControls(listed) {
+function flankControls(listed, opening) {
   if (listed('prev') || listed('next')) {
     return [
       { id: 'prev', row: 'transport', command: 'prev', icon: 'previous', enabled: listed('prev') },
       { id: 'next', row: 'transport', command: 'next', icon: 'next', enabled: listed('next') }
     ];
   }
-  if (listed('skip')) {
+  if (listed('skip') || opening) {
+    const enabled = listed('skip');
     return [
-      { id: 'skip-back', row: 'transport', command: 'skip', icon: 'rewind15', seconds: SKIP_BACK_SECONDS, enabled: true },
-      { id: 'skip-forward', row: 'transport', command: 'skip', icon: 'forward30', seconds: SKIP_FORWARD_SECONDS, enabled: true }
+      { id: 'skip-back', row: 'transport', command: 'skip', icon: 'rewind15', seconds: SKIP_BACK_SECONDS, enabled },
+      { id: 'skip-forward', row: 'transport', command: 'skip', icon: 'forward30', seconds: SKIP_FORWARD_SECONDS, enabled }
     ];
   }
   return [];
@@ -111,7 +121,8 @@ export function playerControls({ controls, details, phase }) {
 
   const main = mainControl(listed, phase);
   if (main) {
-    const [before, after] = flankControls(listed);
+    const pauses = listed('pause') || listed('resume');
+    const [before, after] = flankControls(listed, pauses && phase === 'loading');
     const [shuffle, repeat] = toggleControls(listed, details);
     items.push(...[shuffle, before, main, after, repeat].filter(Boolean));
   }
@@ -174,14 +185,11 @@ export function swipeTarget({ controls, details }, direction, shownIndex, length
 }
 
 /**
- * Whether the mini-bar takes a swipe at all: a source that pauses (the pause
- * pair is listed), with a move in either direction. A live stream — its main
- * button stops and re-tunes — is not swiped: its steps change the station, not
- * a track, and the bar's station→track reveal would animate as if it were one.
+ * Whether the mini-bar takes a swipe at all: a move in either direction. A
+ * live stream lists none, so it is never swiped.
  *
  * @param {string[]} controls - the commands the source takes now
  */
 export function swipeable(controls) {
-  const pauses = controls.includes('pause') || controls.includes('resume');
-  return pauses && !!(swipeMove(controls, 'next') || swipeMove(controls, 'prev'));
+  return !!(swipeMove(controls, 'next') || swipeMove(controls, 'prev'));
 }

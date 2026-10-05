@@ -206,8 +206,14 @@ defineExpose({ swipe });
   padding-top: 0;
 }
 
+/* The bar and the transport stop widening past a phone-to-kiosk column: on a
+   wide desktop window a row that fills a button (radio's stop) would run the
+   width of the screen. The kiosk's 448px column sits under the cap. */
 .player-body--full .player-body-bottom {
   gap: var(--space-05);
+  align-self: center;
+  width: 100%;
+  max-width: 480px;
 }
 
 /* Stagger on mount (first load, and back from CD's tracklist). */
@@ -368,6 +374,14 @@ defineExpose({ swipe });
   display: block;
 }
 
+/* Five ghost buttons fill the card's row nearly edge to edge, so the row takes
+   back the ghost padding from the block's sides: the toggles' glyphs then line
+   up with the progress bar's ends, and the room it frees separates them from
+   the trio. */
+.player-body--card .body-transport {
+  margin-inline: calc(-1 * var(--space-02));
+}
+
 @media (max-aspect-ratio: 4/3) {
   .player-body--full .player-body-info {
     padding: var(--space-06) 0 var(--space-03) 0;
@@ -442,6 +456,7 @@ defineExpose({ swipe });
      than picked. */
   .player-body--card .body-transport {
     --transport-primary: 28px;
+    margin-inline: 0;
   }
 }
 </style>

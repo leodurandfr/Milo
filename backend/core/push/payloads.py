@@ -160,10 +160,10 @@ def lock_screen_controls(state: Dict[str, Any]) -> List[str]:
     """The commands the Lock Screen may offer for this state.
 
     With a session, what the source takes now. Without one, only resuming
-    what the card names: a source's idle `controls` can list more — radio
-    keeps `next`/`prev` to step its favorites while stopped — but the owner
-    asked on 2026-09-25 that a card with nothing playing offer nothing else,
-    so an idle card reads as idle. Milo-iOS filters the same way
+    what the card names: a source's idle `controls` can list more — a CD
+    keeps its steps and its eject — but the owner asked on 2026-09-25 that a
+    card with nothing playing offer nothing else, so an idle card reads as
+    idle. Milo-iOS filters the same way
     (`MiloSourceCard.lockScreenControls`).
     """
     controls = list(state.get("controls") or [])

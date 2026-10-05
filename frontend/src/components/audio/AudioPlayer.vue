@@ -140,8 +140,8 @@ function handleArtworkLoad(e) {
 }
 
 // Mobile swipe gesture — only on the fixed docked player, and only where the
-// source takes one now (utils/playerControls' swipeable: a source that pauses,
-// with a step or a −15/+30 to send; never a live stream). A queue source keeps
+// source takes one now (utils/playerControls' swipeable: a step or a −15/+30
+// to send; never a live stream). A queue source keeps
 // its steps listed while the track it stepped to loads, so the gesture — and
 // the carousel under it — outlive a track change rather than unmount
 // mid-slide. The animated 3-cell text carousel is the richer case and

@@ -208,9 +208,8 @@ describe('radioStore', () => {
       STATION('a', { name: 'Alpha' }),
     ]);
 
-    // Deliberately un-alphabetical. The grid and RadioSource's next/prev walk
-    // one list, ordered by the backend; a sort here would fork it, and the
-    // physical buttons would step through a list nobody is looking at.
+    // Deliberately un-alphabetical. The grid, Milo-Mac and Milo-iOS show one
+    // list, ordered by the backend; a sort here would fork it.
     expect(store.favoriteStations.map(s => s.name)).toEqual(['Zeta', 'Alpha']);
     expect(store.favoriteStations.every(s => s.is_favorite)).toBe(true);
   });
@@ -531,7 +530,7 @@ describe('radioStore', () => {
 
     it('refetches the favorites after a rename, because the name is the sort key', async () => {
       // The rename lands in the grid immediately, but it also moves the station
-      // in the backend's order — the order RadioSource's next/prev steps. Only
+      // in the backend's order, which is the grid's. Only
       // the backend can say where it went now, so the list is re-read rather
       // than re-sorted here.
       await seedFavorites(store, [STATION('s1', { name: 'Alpha' }), STATION('s2', { name: 'Beta' })]);

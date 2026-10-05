@@ -134,10 +134,9 @@ class TestStationDataService:
     @pytest.mark.asyncio
     async def test_favorite_ids_are_ordered_by_display_name(self, tmp_path):
         """The stored order is the order stations were added; the order every
-        consumer shows — the favorites grid and RadioSource's next/prev — is by
-        name, folded for case and accents. It is produced here, once: the grid
-        used to re-sort client-side, which is how a physical Next could land on
-        a station that was not the one shown next to the current one."""
+        client shows — the favorites grid, Milo-Mac's menu, Milo-iOS — is by
+        name, folded for case and accents. It is produced here, once, so no
+        client sorts on its own and two of them cannot disagree."""
         service = StationDataService()
         service._data_file = tmp_path / "radio_data.json"
         await service.initialize()
@@ -157,8 +156,8 @@ class TestStationDataService:
     @pytest.mark.asyncio
     async def test_favorites_with_metadata_follow_the_same_order(self, tmp_path):
         """`GET /api/radio/stations?favorites_only=true` is served from here, so
-        this is the list the grid renders. It must be the list next/prev steps,
-        not a second one that happens to hold the same stations."""
+        this is the list every client renders. It must come out in the order
+        above, not in the order the stations were added."""
         service = StationDataService()
         service._data_file = tmp_path / "radio_data.json"
         await service.initialize()
@@ -619,133 +618,6 @@ class TestTransportOnAnIdleSource:
 
         assert result["success"] is True
         assert not radio.active()
-
-
-A = {"id": "a", "name": "A", "url": "http://stream.example/a"}
-B = {"id": "b", "name": "B", "url": "http://stream.example/b"}
-C = {"id": "c", "name": "C", "url": "http://stream.example/c"}
-SEARCHED = {"id": "not-a-favorite", "name": "Found", "url": "http://stream.example/found"}
-
-
-class TestFavoriteStepping:
-    """next/prev walk the favorites list — a live stream has no track to skip.
-
-    The senders are the rotary multi-click, the IR remote and the Milo-iOS lock
-    screen, all of which reach `command()` with no argument: the station the
-    press lands on is chosen by the source and nowhere else. Each case reads
-    the station that ended up tuned and what mpv was told to load.
-    """
-
-    @pytest.fixture
-    async def tuned(self, radio):
-        """Radio with three favorites, playing the middle one."""
-        radio.favorites(A, B, C)
-        await radio.select()
-        await radio.tune(B)
-        return radio
-
-    async def test_next_takes_the_following_favorite(self, tuned):
-        assert (await tuned.command("next"))["success"] is True
-        assert tuned.station() == "c"
-        assert tuned.loads()[-1][1] == C["url"]
-
-    async def test_prev_takes_the_preceding_favorite(self, tuned):
-        await tuned.command("prev")
-        assert tuned.station() == "a"
-
-    async def test_the_list_wraps_in_both_directions(self, tuned):
-        await tuned.tune(C)
-        await tuned.command("next")
-        assert tuned.station() == "a"
-
-        await tuned.command("prev")
-        assert tuned.station() == "c"
-
-    async def test_a_searched_station_enters_the_list_at_an_end(self, tuned):
-        """A station played from search has no place in the list, so there is no
-        neighbor to step to — next enters at the first favorite, prev at the
-        last, rather than refusing the press."""
-        await tuned.command("play_station", {"station_id": SEARCHED["id"], "station": SEARCHED})
-        await tuned.command("next")
-        assert tuned.station() == "a"
-
-        await tuned.command("play_station", {"station_id": SEARCHED["id"], "station": SEARCHED})
-        await tuned.command("prev")
-        assert tuned.station() == "c"
-
-    async def test_a_stopped_source_steps_from_the_station_it_stopped_on(self, tuned):
-        """The press has to know where the walk left off, or every press after
-        a stop would restart at one end of the list."""
-        await tuned.command("stop")
-        assert not tuned.active()
-
-        await tuned.command("next")
-
-        assert tuned.station() == "c"
-        assert tuned.active()
-
-    async def test_the_only_favorite_is_not_re_tuned(self, tuned):
-        """Re-tuning the station already playing costs a re-buffer and buys
-        nothing — the press is answered, no stream is loaded."""
-        tuned.favorites(B)
-        loads = len(tuned.loads())
-
-        result = await tuned.command("next")
-
-        assert result["success"] is True
-        assert len(tuned.loads()) == loads
-        assert tuned.station() == "b"
-
-    async def test_a_second_stop_does_not_forget_where_the_walk_was(self, tuned):
-        """`stop` is idempotent, so it can arrive twice — the idle timeout next
-        to a user press, or the iOS lock screen. The second one must not blank
-        the station kept, or the next press restarts at the head of the list
-        (and `resume_playback` answers "No station to resume")."""
-        await tuned.command("stop")
-        await tuned.command("stop")
-
-        await tuned.command("next")
-
-        assert tuned.station() == "c"
-
-    async def test_two_presses_move_two_stations(self, tuned):
-        """Two presses that overlap must not collapse into one step.
-
-        The IR remote dispatches on every key event, the lock screen on every
-        tap, and nothing upstream serializes them. The first press is held
-        where it has let go of the station it left and not yet tuned the next
-        one (the recognition service stopping with the old session): a second
-        press read there would compute the same target.
-        """
-        release = asyncio.Event()
-        shazam = tuned.shazams[-1]
-        real_stop = shazam.stop
-
-        async def slow_stop():
-            await release.wait()
-            await real_stop()
-
-        shazam.stop = slow_stop
-        presses = asyncio.gather(
-            tuned.source.command("next", None), tuned.source.command("next", None),
-        )
-        await settle()
-        release.set()
-        await presses
-        await settle()
-
-        # b → c → a (the list wraps), not b → c twice.
-        assert tuned.station() == "a"
-        assert [load[1] for load in tuned.loads()] == [B["url"], C["url"], A["url"]]
-
-    async def test_no_favorites_refuses(self, tuned):
-        tuned.favorites()
-        loads = len(tuned.loads())
-
-        result = await tuned.command("next")
-
-        assert result["success"] is False
-        assert len(tuned.loads()) == loads
 
 
 @pytest.fixture

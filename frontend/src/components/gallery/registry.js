@@ -127,8 +127,8 @@ const UNIT_OPTIONS = { kind: 'enum', options: ['', ...UNITS] };
 const PIXEL_SIZE = { kind: 'enum', options: [16, 24, 32, 48, 64] };
 
 /**
- * What a source adds after the transport: radio's favorite, in a toggle's box,
- * inked from the slot's own `ink` as RadioSource inks it.
+ * What a source adds after the transport: radio's favorite, in the slot's own
+ * `variant` as RadioSource draws it.
  */
 const TRANSPORT_END = {
   none: null,
@@ -251,7 +251,7 @@ const NOW_PLAYING = {
       artist: 'Alain Bashung',
       artwork: musicPlaceholder
     },
-    controls: ['stop', 'next', 'prev'],
+    controls: ['stop'],
     details: {
       kind: 'radio',
       station: radioStation('st-nova', 'Radio Nova', stationImageTurntable),
@@ -263,7 +263,7 @@ const NOW_PLAYING = {
   'Radio — stopped, no logo': {
     source: 'radio',
     resume: { title: 'FIP' },
-    controls: ['resume_playback', 'next', 'prev'],
+    controls: ['resume_playback'],
     details: { kind: 'radio', station: radioStation('st-fip', 'FIP', null), track: null }
   },
   'CD — paused': {
@@ -716,7 +716,7 @@ export const REGISTRY = {
     args: { source: 'spotify' },
     notes: {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
-      end: 'What the source adds after the row that is not a command — radio’s favorite — at the end a toggle takes, held by a spacer at the other so the main button stays centred.'
+      end: 'What the source adds after the row that is not a command — radio’s favorite — at the end a toggle takes, held by a spacer at the other so the main button stays centred; beside a labelled main button (radio’s stop), at the end across from it.'
     },
     state: {
       nowPlaying: NOW_PLAYING_STATE
@@ -865,7 +865,7 @@ export const REGISTRY = {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
       'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.',
       'top-end': 'What the source adds that is not a command — CD’s eject, Bluetooth’s disconnect — at the end of the top row, drawn only when a slot fills it.',
-      'transport-end': 'Radio’s favorite after the transport, in the box a toggle takes, so the main button stays centred.'
+      'transport-end': 'Radio’s favorite after the transport, in the box a toggle takes, across from its labelled stop.'
     },
     state: {
       nowPlaying: NOW_PLAYING_STATE

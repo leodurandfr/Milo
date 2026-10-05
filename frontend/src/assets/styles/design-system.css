@@ -730,38 +730,23 @@
    allows; a real divergence is drift, and the guardrail says so. Every value is
    a multiple of 4.
 
-   Why a third role. `secondary` is calibrated on the flattest glyph of the set:
-   `next`/`previous` stand 12.0 units tall in the 24 the box holds, where every
-   other glyph stands 16 to 20.5. Rasterised at 240px, `rewind15`/`forward30`
-   cover 115 units² of ink against the arrows' 141 — they are *lighter* — yet
-   they fill 20.5 units in both axes, so at an equal box they occupy 60% more of
-   it. On the compact tier that put the podcast's seek pair at 28.1 x 30.8px
-   beside a pause drawn 25.7 x 29.3: the flanking control came out larger than
-   the control it flanks, in both axes, in the state a playing podcast spends
-   its time in. The glyphs are not at fault — 20.5 sits with `shuffle`'s 20.3
-   and `heart`'s 21.0, and outline marks are drawn larger than solid ones on
-   purpose — so the correction belongs to the rung, not to the file. A glyph
-   that fills its box in both axes takes `secondary-round` — which is where
-   Music Library's shuffle and like sit too, on the 20.3/21.0 measured just
-   above: a rung below the arrows they flank left them reading as half the
-   row's other controls.
+   Every step takes `secondary`, the arrows and the −15 / +30 rings alike. The
+   rings had a rung of their own a grid step lower, calibrated so that, filling
+   their box in both axes where the arrows stand 12 units tall, they would not
+   outgrow the pause they flank; the owner chose one size for every step
+   (2026-10-06), for a simpler row, knowing the ring then stands a little
+   taller than the pause.
 
-   A ceiling bounds it, not a proportion: the flanking glyph must not outgrow
-   the `pause` it flanks, which caps it at primary x 0.78 — the pause stands
-   16.0 units where the ring stands 20.45, so 43.8/37.6/34.4px. 36/32/28 sits a
-   grid step under that, because at the ceiling itself the pair still read as
-   level with the pause rather than under it; like the tiers above, the last
-   step was settled by eye on the row, not derived. The floor is the two digits
-   the glyphs carry: 8.2px tall at the compact value, against the 5.8 a rung at
-   20 would leave. A bound rounded to a 4px grid on values near 32 carries most
-   of a step of noise, so the tiers land 6.7% apart on this pair where the
-   others hold 5 — the guardrail gives it its own tolerance and says why. */
+   A toggle (shuffle, repeat, radio's favorite) is not a step: it sets how the
+   row plays rather than moving it, and at a step's size it read as one more
+   step. `toggle` sits under `secondary`, at the size that read as "slightly
+   smaller" and no more; settled by eye, like the tiers. */
 
 /* The full-screen player on a desktop-shaped viewport. */
 .transport-scale {
     --transport-primary: 56px;
     --transport-secondary: 48px;
-    --transport-secondary-round: 36px;
+    --transport-toggle: 32px;
 }
 
 /* The same player on a phone. It has a tier of its own rather than borrowing
@@ -772,7 +757,7 @@
 .transport-scale--phone {
     --transport-primary: 48px;
     --transport-secondary: 40px;
-    --transport-secondary-round: 32px;
+    --transport-toggle: 28px;
 }
 
 /* A transport row inside a column — Music Library, the lyrics bar, podcast — at
@@ -781,7 +766,7 @@
 .transport-scale--compact {
     --transport-primary: 44px;
     --transport-secondary: 36px;
-    --transport-secondary-round: 28px;
+    --transport-toggle: 24px;
 }
 
 /* Roles. `--spinner-size` rides along so a control swapping to its loading
@@ -801,10 +786,10 @@
     --spinner-size: var(--transport-secondary);
 }
 
-/* The flanking rung for a glyph that fills its box in both axes — see above. */
-.transport-secondary-round {
-    --svg-size: var(--transport-secondary-round);
-    --spinner-size: var(--transport-secondary-round);
+/* The rung of a toggle at the row's ends — see above. */
+.transport-toggle {
+    --svg-size: var(--transport-toggle);
+    --spinner-size: var(--transport-toggle);
 }
 
 

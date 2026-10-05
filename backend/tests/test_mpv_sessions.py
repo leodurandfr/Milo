@@ -110,7 +110,6 @@ class RadioRig(Rig):
         )
         data = Mock()
         data.initialize = AsyncMock()
-        data.favorite_ids = ["fip", "nova"]
         data.is_favorite = Mock(side_effect=lambda sid: sid in ("fip", "nova"))
         data.get_favorite_metadata_local = Mock(
             side_effect=lambda sid: {"fip": FIP, "nova": NOVA}.get(sid)

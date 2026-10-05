@@ -523,6 +523,8 @@
     "repeatOff": "关闭循环",
     "repeatTrack": "单曲循环",
     "takeOver": "在 Milō 上收听",
+    "stopPlayback": "停止播放",
+    "resumePlayback": "继续播放",
     "shuffle": "随机播放"
   },
   "radio": {

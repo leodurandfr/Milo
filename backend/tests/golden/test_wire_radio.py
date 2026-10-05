@@ -86,7 +86,6 @@ class Radio:
         )
         data = Mock()
         data.initialize = AsyncMock()
-        data.favorite_ids = ["fip", "nova"]
         data.is_favorite = Mock(side_effect=lambda sid: sid in ("fip", "nova"))
         data.get_favorite_metadata_local = Mock(
             side_effect=lambda sid: {"fip": FIP, "nova": NOVA}.get(sid)
@@ -187,18 +186,6 @@ async def test_mpv_dies_mid_play(radio):
     await radio.wire.snapshot_rest()
     await radio.deselect()
     check_recording("radio", "mpv_dies_mid_play", radio.wire)
-
-
-async def test_step_through_favorites(radio):
-    await radio.select()
-    await radio.command("next")
-    await radio.tick()
-    await radio.command("next")
-    await radio.tick()
-    await radio.command("prev")
-    await radio.wire.snapshot_rest()
-    await radio.deselect()
-    check_recording("radio", "step_through_favorites", radio.wire)
 
 
 async def test_mpv_pause_auto_stops(monkeypatch):

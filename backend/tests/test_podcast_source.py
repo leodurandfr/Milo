@@ -585,6 +585,62 @@ class TestTransportOnAnIdleSource:
         assert (url, start_s) == (EPISODE_A["audio_url"], 305)
         assert rig.playing()
 
+    async def test_a_skip_on_a_stopped_episode_moves_where_it_resumes(self, auto_stop_rig):
+        """The episode kept to resume takes −15 / +30 as a disc does: the
+        second moves, in the state and in the progress file a resume reads,
+        and nothing plays until the press on resume. If it fails, the idle
+        player draws −15 / +30 that do nothing, or a skip starts the episode."""
+        rig = auto_stop_rig
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(305)
+        await rig.command("pause")               # the 1 s idle timeout fires
+        await settle()
+        loads = len(rig.loads())
+
+        result = await rig.command("skip", {"seconds": 30})
+
+        assert result["success"] is True
+        assert not rig.active()
+        assert len(rig.loads()) == loads
+        assert rig.state()["resume"]["position_ms"] == 335_000
+
+        await rig.command("resume")
+
+        assert rig.loads()[-1][3] == 335
+
+    async def test_a_resume_plays_the_second_a_stopped_skip_moved_to(self, auto_stop_rig):
+        """The progress file keeps no position under ten seconds, so a resume
+        read from it would start an episode moved back to 0:05 at 0:00 — the
+        state on screen disagreeing with the press. The resume plays the
+        second the resume point publishes."""
+        rig = auto_stop_rig
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(20)
+        await rig.command("pause")               # the 1 s idle timeout fires
+        await settle()
+
+        await rig.command("skip", {"seconds": -15})
+        await rig.command("resume")
+
+        assert rig.loads()[-1][3] == 5
+
+    async def test_a_stopped_seek_stays_within_the_episode(self, auto_stop_rig):
+        """A seek past the end would be saved as is — the episode marked
+        listened, and the next resume ending at once."""
+        rig = auto_stop_rig
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(100)
+        await rig.command("pause")               # the 1 s idle timeout fires
+        await settle()
+        duration_ms = rig.state()["resume"]["duration_ms"]
+
+        await rig.command("seek", {"position_ms": duration_ms + 60_000})
+
+        assert rig.state()["resume"]["position_ms"] == duration_ms
+
     @pytest.mark.asyncio
     async def test_seek_with_no_session_answers_a_domain_error(self, podcast_source):
         """Unlike pause and stop, a seek has no idempotent reading — there is no

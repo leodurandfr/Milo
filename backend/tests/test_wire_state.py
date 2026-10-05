@@ -95,10 +95,8 @@ class Scenario:
 
 # === Builders: each returns the world, in the state its scenario names ===
 
-async def _radio(mp, tmp, *, tune=True, stop=False, favorites=True, loading=False):
+async def _radio(mp, tmp, *, tune=True, stop=False, loading=False):
     rig = RadioRig(mp)
-    if not favorites:
-        rig.source._station_data.favorite_ids = []
     if loading:
         # The rig's watchdog is shortened to end a stall at once; a load stays here.
         mp.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 30.0)
@@ -236,26 +234,24 @@ def _cover(song: Dict[str, Any]) -> str:
 
 
 SCENARIOS: List[Scenario] = [
-    # Radio — no pause, no playhead; next/prev walk the favorites.
+    # Radio — no pause, no playhead, no track to skip.
     Scenario("radio loading", lambda mp, t: _radio(mp, t, loading=True), expect={
         "session": {
             "id": "<id>", "phase": "loading", "title": "FIP", "artist": None, "album": "FIP",
             "artwork": FIP_ARTWORK, "senders": [], "duration_ms": None, "position": None,
         },
-        "controls": ["stop", "next", "prev"], "resume": None,
+        "controls": ["stop"], "resume": None,
         "details": {"kind": "radio", "station": FIP_STATION, "track": None},
     }),
-    Scenario("radio playing", _radio, expect={"controls": ["stop", "next", "prev"]},
+    Scenario("radio playing", _radio, expect={"controls": ["stop"]},
              session_has={"phase": "playing", "position": None}),
     Scenario("radio stopped", lambda mp, t: _radio(mp, t, stop=True), expect={
-        "session": None, "controls": ["resume_playback", "next", "prev"], "resume": FIP_RESUME,
+        "session": None, "controls": ["resume_playback"], "resume": FIP_RESUME,
         "details": {"kind": "radio", "station": FIP_STATION, "track": None},
     }),
     Scenario("radio with nothing", lambda mp, t: _radio(mp, t, tune=False), expect={
-        "session": None, "controls": ["next", "prev"], "resume": None, "details": None,
+        "session": None, "controls": [], "resume": None, "details": None,
     }),
-    Scenario("radio without favorites", lambda mp, t: _radio(mp, t, favorites=False),
-             expect={"controls": ["stop"]}),
     # Podcast — an episode, kept to resume once it stops.
     Scenario("podcast loading", lambda mp, t: _podcast(mp, t, loading=True),
              expect={"controls": ["pause"]}, session_has={"phase": "loading"}),
@@ -270,9 +266,10 @@ SCENARIOS: List[Scenario] = [
     }),
     Scenario("podcast paused", lambda mp, t: _podcast(mp, t, pause=True),
              expect={"controls": ["resume", "seek", "skip"]}, session_has={"phase": "paused"}),
-    # E50: nothing to seek with no session.
+    # E50: the resume view offers what the source takes — the kept episode
+    # moves without playing, as a disc's does.
     Scenario("podcast kept to resume", lambda mp, t: _podcast(mp, t, kept=True), expect={
-        "session": None, "controls": ["resume"],
+        "session": None, "controls": ["resume", "seek", "skip"],
         "resume": {
             "title": "The Sunday Read", "artist": SHOW, "album": SHOW,
             "artwork": EPISODE_A["image_url"], "duration_ms": 1800000, "position_ms": 0,

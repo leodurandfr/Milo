@@ -116,9 +116,8 @@ export const useRadioStore = defineStore('radio', () => {
   });
 
   // Display order is the backend's, not ours: `/api/radio/stations` already
-  // returns the favorites sorted by name, and RadioSource's next/prev steps the
-  // same list. A second sort here would let the grid and the physical buttons
-  // disagree about which station is "the next one".
+  // returns the favorites sorted by name, the order Milo-Mac and Milo-iOS show
+  // too. A second sort here would let the grid disagree with them.
   const enrichedFavorites = computed(() => {
     return favoriteStations.value.map(station => ({ ...station, is_favorite: true }));
   });
@@ -498,7 +497,7 @@ export const useRadioStore = defineStore('radio', () => {
     if (isFavoriteNow) {
       // Refetched rather than appended in place: the list comes ordered by the
       // backend, and an append would park the new station at the end of the
-      // grid while next/prev already steps it at its real position. Through
+      // grid rather than at its real position. Through
       // preloadFavorites, not loadStations: the heart is usually tapped from
       // the search view, whose results share the `loading` flag — reloading
       // through it would blank the grid the user is looking at.
@@ -546,8 +545,8 @@ export const useRadioStore = defineStore('radio', () => {
 
     // Last, because the three updates above are local and must not wait on a
     // request: the splice refreshed the card where it already sat, but a rename
-    // moves the station in the backend's order — and that order is the one
-    // next/prev steps. Resynced silently (see handleFavoriteEvent on the flag).
+    // moves the station in the backend's order, which is the grid's.
+    // Resynced silently (see handleFavoriteEvent on the flag).
     if (favIndex !== -1) await preloadFavorites({ force: true });
   }
 
