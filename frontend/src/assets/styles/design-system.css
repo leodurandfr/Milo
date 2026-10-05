@@ -3,7 +3,8 @@
    The palette (--gray-*) is the only place a neutral is written as a value:
    true grays, no hue, the same in both themes, and the tints — a step at an
    alpha (--gray-200-a55), for a layer meant to let what is behind it through.
-   A tint is a
+   Every translucent neutral is a tint: a role never mixes its own alpha, so a
+   value two roles share is written once. A tint is a
    value like a step, not a role, so any role may pick it. The palette is
    private to this file — a component never reads a step, it reads a role.
 
@@ -54,12 +55,31 @@
     --gray-975: #121212;
     --gray-1000: #0b0b0b;
     /* Tints. */
+    --gray-0-a12: color-mix(in srgb, var(--gray-0) 12%, transparent);
+    --gray-0-a50: color-mix(in srgb, var(--gray-0) 50%, transparent);
     --gray-0-a80: color-mix(in srgb, var(--gray-0) 80%, transparent);
+    --gray-100-a4: color-mix(in srgb, var(--gray-100) 4%, transparent);
+    --gray-100-a8: color-mix(in srgb, var(--gray-100) 8%, transparent);
+    --gray-100-a10: color-mix(in srgb, var(--gray-100) 10%, transparent);
+    --gray-100-a14: color-mix(in srgb, var(--gray-100) 14%, transparent);
     --gray-100-a72: color-mix(in srgb, var(--gray-100) 72%, transparent);
+    --gray-100-a80: color-mix(in srgb, var(--gray-100) 80%, transparent);
     --gray-200-a55: color-mix(in srgb, var(--gray-200) 55%, transparent);
+    --gray-400-a20: color-mix(in srgb, var(--gray-400) 20%, transparent);
+    --gray-500-a9: color-mix(in srgb, var(--gray-500) 9%, transparent);
+    --gray-500-a16: color-mix(in srgb, var(--gray-500) 16%, transparent);
+    --gray-500-a32: color-mix(in srgb, var(--gray-500) 32%, transparent);
     --gray-800-a55: color-mix(in srgb, var(--gray-800) 55%, transparent);
     --gray-800-a80: color-mix(in srgb, var(--gray-800) 80%, transparent);
+    --gray-950-a2: color-mix(in srgb, var(--gray-950) 2%, transparent);
+    --gray-950-a5: color-mix(in srgb, var(--gray-950) 5%, transparent);
+    --gray-950-a6: color-mix(in srgb, var(--gray-950) 6%, transparent);
+    --gray-950-a32: color-mix(in srgb, var(--gray-950) 32%, transparent);
+    --gray-950-a40: color-mix(in srgb, var(--gray-950) 40%, transparent);
+    --gray-950-a50: color-mix(in srgb, var(--gray-950) 50%, transparent);
     --gray-950-a72: color-mix(in srgb, var(--gray-950) 72%, transparent);
+    --gray-950-a80: color-mix(in srgb, var(--gray-950) 80%, transparent);
+    --gray-1000-a55: color-mix(in srgb, var(--gray-1000) 55%, transparent);
 
     /* === BRAND === */
     --color-brand: #ff6428;
@@ -76,7 +96,7 @@
        --color-panel. */
     --color-surface: var(--gray-0);
     /* The same panel at half opacity, letting what is behind it through. */
-    --color-surface-glass: color-mix(in srgb, var(--gray-0) 50%, transparent);
+    --color-surface-glass: var(--gray-0-a50);
     /* A panel laid on a modal's glass: a card, white in light, a dark gray
        in dark. */
     --color-section: var(--color-surface);
@@ -112,7 +132,7 @@
     /* Every empty track — slider, progress, meter, gauge, step indicator. An
        ink at low alpha rather than a gray, so it reads on whatever panel or
        inset it crosses. */
-    --color-track: color-mix(in srgb, var(--gray-950) 6%, transparent);
+    --color-track: var(--gray-950-a6);
     /* The strong neutral fill of a track: progress, a Toggle on without the
        brand, the dock's active indicator. */
     --color-fill: var(--gray-950);
@@ -129,8 +149,8 @@
        what is behind it: the volume bar's track on a contrast surface, and
        its stronger twin (the volume bar's track, the dock handle). The
        floating chrome itself is .glass-shell. */
-    --color-glass: color-mix(in srgb, var(--gray-500) 16%, transparent);
-    --color-glass-strong: color-mix(in srgb, var(--gray-500) 32%, transparent);
+    --color-glass: var(--gray-500-a16);
+    --color-glass-strong: var(--gray-500-a32);
     /* The veil over the screen behind a modal: a step off the ground toward
        the glass, so the modal's .glass-shell lands on about the tone the
        dock has on the bare ground. A mid gray here darkened the shell well
@@ -154,15 +174,15 @@
     /* A surface dark in both themes, which carries white text: a detail
        header, the lyrics, a notification, the artist index's bubble. */
     --color-contrast: var(--gray-950);
-    --color-contrast-80: color-mix(in srgb, var(--gray-950) 80%, transparent);
+    --color-contrast-80: var(--gray-950-a80);
     /* A white glint on a contrast surface: the fill of a button or a track
        drawn on it. */
-    --color-glint: color-mix(in srgb, var(--gray-0) 12%, transparent);
+    --color-glint: var(--gray-0-a12);
     /* The strong fill of a track drawn on a contrast surface. */
     --color-fill-on-contrast: var(--gray-0);
     /* Text on a contrast surface, an image or a glass over an image. */
     --color-text-on-contrast: var(--gray-0);
-    --color-text-on-contrast-secondary: color-mix(in srgb, var(--gray-0) 50%, transparent);
+    --color-text-on-contrast-secondary: var(--gray-0-a50);
 
     /* === ON IMAGE === */
     /* Drawn over artwork, which does not change with the theme, so neither do
@@ -170,28 +190,28 @@
        spinner or text, the near-black base of a gradient over a busy backdrop,
        and the full player's backdrop (a ground and the veil over its blurred
        cover), which only the dark theme draws. */
-    --color-image-plate: color-mix(in srgb, var(--gray-950) 40%, transparent);
-    --color-image-veil: color-mix(in srgb, var(--gray-950) 32%, transparent);
+    --color-image-plate: var(--gray-950-a40);
+    --color-image-veil: var(--gray-950-a32);
     --color-image-scrim: var(--gray-950);
     --color-backdrop: var(--gray-1000);
-    --color-backdrop-veil: color-mix(in srgb, var(--gray-1000) 55%, transparent);
+    --color-backdrop-veil: var(--gray-1000-a55);
 
     /* === TEXT === */
     --color-text: var(--gray-950);
     --color-text-secondary: var(--gray-500);
     --color-text-tertiary: var(--gray-300);
     /* A decorative glyph that should barely show: a state card's big icon. */
-    --color-text-faint: color-mix(in srgb, var(--gray-500) 16%, transparent);
+    --color-text-faint: var(--gray-500-a16);
 
     /* === BORDERS === */
-    --color-border: color-mix(in srgb, var(--gray-950) 5%, transparent);
+    --color-border: var(--gray-950-a5);
 
     /* === SKELETON === */
     /* A placeholder: a loading shape, which the highlight sweeps, and an
        artwork that has not arrived. An ink like the track, so it reads on
        whatever panel or inset it stands in. */
-    --color-skeleton: color-mix(in srgb, var(--gray-950) 6%, transparent);
-    --color-skeleton-highlight: color-mix(in srgb, var(--gray-950) 2%, transparent);
+    --color-skeleton: var(--gray-950-a6);
+    --color-skeleton-highlight: var(--gray-950-a2);
 
     /* === KEYBOARD === */
     /* A modifier that is engaged (shift, caps, the symbol page) or a function
@@ -201,7 +221,7 @@
        white in both themes. */
     --color-key-active: var(--color-contrast-80);
     --color-key-active-ink: var(--color-text-on-contrast);
-    --color-key-function: color-mix(in srgb, var(--gray-950) 32%, transparent);
+    --color-key-function: var(--gray-950-a32);
 
     /* === STATUS === */
     --color-success: #11aa3a;
@@ -398,13 +418,13 @@
 :root[data-theme="dark"] {
     --color-ground: var(--gray-1000);
     --color-surface: var(--gray-950);
-    --color-surface-glass: color-mix(in srgb, var(--gray-950) 50%, transparent);
+    --color-surface-glass: var(--gray-950-a50);
     --color-section: var(--gray-950);
     --color-panel: var(--color-surface);
     /* A screen's header is a translucent gray in dark, so it reads the same
        over the ground and over a source's wash; a modal's header is its
        section's gray. */
-    --color-header: color-mix(in srgb, var(--gray-500) 9%, transparent);
+    --color-header: var(--gray-500-a9);
     --color-header-control: var(--color-control);
     --color-header-text: var(--color-text);
     --color-header-text-secondary: var(--color-text-secondary);
@@ -425,7 +445,7 @@
     --color-section-tile: var(--gray-850);
     --color-control: var(--gray-800);
 
-    --color-track: color-mix(in srgb, var(--gray-100) 10%, transparent);
+    --color-track: var(--gray-100-a10);
     --color-fill: var(--gray-300);
     --color-fill-muted: var(--gray-400);
     --color-fill-off: var(--gray-600);
@@ -442,16 +462,16 @@
     --color-text: var(--gray-100);
     --color-text-secondary: var(--gray-400);
     --color-text-tertiary: var(--gray-600);
-    --color-text-faint: color-mix(in srgb, var(--gray-400) 20%, transparent);
+    --color-text-faint: var(--gray-400-a20);
 
     /* Matched to the light border by eye, not by alpha: 8% and above
        glared on the dark insets. */
-    --color-border: color-mix(in srgb, var(--gray-100) 4%, transparent);
+    --color-border: var(--gray-100-a4);
 
-    --color-skeleton: color-mix(in srgb, var(--gray-100) 8%, transparent);
-    --color-skeleton-highlight: color-mix(in srgb, var(--gray-100) 14%, transparent);
+    --color-skeleton: var(--gray-100-a8);
+    --color-skeleton-highlight: var(--gray-100-a14);
 
-    --color-key-active: color-mix(in srgb, var(--gray-100) 80%, transparent);
+    --color-key-active: var(--gray-100-a80);
     --color-key-active-ink: var(--color-ground);
     --color-key-function: var(--color-glint);
 

@@ -146,4 +146,29 @@ describe('color tokens', () => {
 
     expect(written).toEqual([]);
   });
+
+  it('writes every translucent neutral as a palette tint, named for its step and alpha', () => {
+    // A role mixing its own alpha is a second spelling of a tint: two roles
+    // land on one value written twice, and retuning one leaves the other. A
+    // tint whose name disagrees with its value misleads every role reading it.
+    const TINT = /^--gray-(\d+)-a(\d+)$/;
+    const tints = Object.entries(LIGHT).filter(([name]) => TINT.test(name));
+    expect(tints.length).toBeGreaterThan(10);
+
+    const misnamed = tints
+      .filter(([name, value]) => {
+        const [, step, alpha] = TINT.exec(name);
+        return value !== `color-mix(in srgb, var(--gray-${step}) ${alpha}%, transparent)`;
+      })
+      .map(([name, value]) => `${name}: ${value}`);
+    expect(misnamed).toEqual([]);
+
+    const inline = [];
+    for (const [theme, values] of [['light', LIGHT], ['dark', DARK]]) {
+      for (const [name, value] of Object.entries(values)) {
+        if (name.startsWith('--color-') && /color-mix\(/.test(value)) inline.push(`${theme} ${name}: ${value}`);
+      }
+    }
+    expect(inline).toEqual([]);
+  });
 });
