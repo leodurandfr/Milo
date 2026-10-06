@@ -11,8 +11,9 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 import { BROWSER_SOURCES } from '@/constants/audioSources';
 
-// What takes a browser source off its view: the link. The Music Library draws
-// its own storage and catalog states, with the storage wizard at hand (D13).
+// What takes a browser source off its view: the link (and, for Spotify, no
+// account signed in). The Music Library draws its own storage and catalog
+// states, with the storage wizard at hand (D13).
 const LINK_REASONS = ['no_network', 'no_internet'];
 
 /**
@@ -30,7 +31,11 @@ export function richSourceFor(state) {
   const playing = session?.phase === 'playing';
 
   if (BROWSER_SOURCES.includes(source)) {
-    return LINK_REASONS.includes(reason) && !playing ? null : source;
+    if (LINK_REASONS.includes(reason) && !playing) return null;
+    // Spotify's library is an account's: with nobody signed in, only a cast
+    // from a phone brings one, and the card says it is ready for it.
+    if (source === 'spotify' && !details?.account && !session) return null;
+    return source;
   }
   if (reason && !playing) return null;
 

@@ -234,7 +234,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // PROFILES — the accounts that cast to Milō
   // =========================================================================
   const profiles = ref([]);
-  const profilesLoaded = ref(false);
 
   async function loadProfiles() {
     const result = await apiCall.get(`${BASE}/profiles`, {
@@ -244,7 +243,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     });
     if (!result.ok) return;
     profiles.value = result.data.profiles;
-    profilesLoaded.value = true;
   }
 
   async function switchProfile(username) {
@@ -263,10 +261,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     if (result.ok) await loadProfiles();
     return result.ok;
   }
-
-  // With several profiles and nothing playing, the browser opens on the
-  // profile screen: whoever picks Spotify picks whose library it is.
-  const opensOnProfiles = computed(() => profiles.value.length >= 2 && !session.value);
 
   // Another account's library: nothing loaded for the last one still holds.
   watch(account, (now, before) => {
@@ -312,7 +306,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
     // track menu
     trackRadio, contextLength,
     // profiles
-    profiles, profilesLoaded, opensOnProfiles, loadProfiles, switchProfile, forgetProfile,
+    profiles, loadProfiles, switchProfile, forgetProfile,
     // commands
     playContext,
   };

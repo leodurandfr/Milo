@@ -2,11 +2,7 @@
   <div class="spotify-home">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <!-- Nobody signed in, nobody kept: only a cast can bring an account. -->
-        <MessageContent v-if="castFirst" key="cast"
-          :title="t('spotify.castFirstTitle')" :subtitle="t('spotify.castFirstSubtitle')" />
-
-        <MessageContent v-else-if="!home && (store.signingIn || store.homeError === 'not_signed_in')"
+        <MessageContent v-if="!home && (store.signingIn || store.homeError === 'not_signed_in')"
           key="signing-in" loading :title="t('spotify.signingIn')" />
 
         <MessageContent v-else-if="store.homeError === 'unavailable'" key="error" icon="network"
@@ -80,7 +76,6 @@ const store = useSpotifyStore();
 const { columns } = useCardGridColumns();
 
 const home = computed(() => store.home);
-const castFirst = computed(() => !store.account && !store.signingIn);
 
 // The tiles above the shelves: Spotify's shortcuts, as many as its app shows.
 // Without its home, Liked Songs alone.

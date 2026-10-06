@@ -161,16 +161,4 @@ describe('spotifyStore', () => {
       { command: 'play_context', data: { uri: PLAYLIST, shuffle: true } },
     ]);
   });
-
-  it('opens on the profile screen only with several profiles and nothing playing', () => {
-    store.profiles = [{ username: 'owner' }];
-    publish({ details: details() });
-    expect(store.opensOnProfiles).toBe(false);
-
-    store.profiles = [{ username: 'owner' }, { username: 'guest' }];
-    expect(store.opensOnProfiles).toBe(true);
-
-    publish({ session: makeSession(), details: details({ track_uri: TRACK }) });
-    expect(store.opensOnProfiles).toBe(false);
-  });
 });

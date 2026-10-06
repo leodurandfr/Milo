@@ -1327,17 +1327,17 @@ describe('component gallery source pages', () => {
   it('keeps the browser sources away from their own components', () => {
     // The load-bearing safety rule. Radio, Podcasts and Music Library dispatch
     // to *Source.vue files that fetch on mount and whose play paths POST
-    // straight through apiCall — outside the one call CanvasApp neuters. Two
+    // straight through apiCall — outside the one call CanvasApp neuters. Three
     // kinds of state reach AudioSourceView without mounting one — a switch or
-    // a failed service, and a missing link — which richSourceFor answers with
-    // the card before it names the source; every other one must carry its own
+    // a failed service, a missing link, Spotify with no account — which
+    // richSourceFor answers with the card; every other one must carry its own
     // stand-in.
     const unsafe = [];
 
     for (const page of SOURCE_PAGES.filter(entry => entry.via === 'browser')) {
       for (const scenario of page.scenarios) {
         // The app's own rule decides which states reach the card without a
-        // `*Source.vue`: a switch, a failed service, a missing link.
+        // `*Source.vue`: a switch, a failed service, a missing link, no account.
         const dropsToCard = richSourceFor(settledState(scenario)) === null;
         if (!scenario.browser && !dropsToCard) {
           unsafe.push(`${page.id}.${scenario.id} (would mount the real ${page.source} browser)`);
@@ -1599,7 +1599,7 @@ describe('component gallery source pages', () => {
     expect(CANVAS).toMatch(/installApiHarness\(/);
   });
 
-  it('rests on three guards that are still there', () => {
+  it('rests on four guards that are still there', () => {
     // The rule above is only safe because of these, and they live in files this
     // suite would otherwise never look at. Asserted as text because that is
     // what they are — one line each, and deleting any of them is silent.
@@ -1612,7 +1612,10 @@ describe('component gallery source pages', () => {
 
     // And a missing link does the same for the three browsers, the offline
     // scenario's way to the card.
-    expect(richDisplay).toMatch(/LINK_REASONS\.includes\(reason\) && !playing \? null : source/);
+    expect(richDisplay).toMatch(/if \(LINK_REASONS\.includes\(reason\) && !playing\) return null;/);
+
+    // And Spotify with nobody signed in, the Ready scenario's way to the card.
+    expect(richDisplay).toMatch(/source === 'spotify' && !details\?\.account && !session\) return null;/);
 
     // And every action the seven dispatcher sources offer — the Bluetooth
     // disconnect, cdStore's eject and playTrack, AudioPlayerFull's transport —

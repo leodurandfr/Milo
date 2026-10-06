@@ -362,7 +362,8 @@ function offline(source, reason, note) {
  * fixtures serve — nothing in session for a grid being browsed, a session for a
  * station tuning or an episode playing, a resume point for a station stopped
  * but still tuned. None of it changes *which component* mounts here
- * (`richSourceFor` draws these three whatever the session says); it is what the
+ * (`richSourceFor` draws a browser whatever the session says, once Spotify has
+ * an account); it is what the
  * pane and the transport read.
  */
 function browsing(source, label, note, browser) {
@@ -526,11 +527,11 @@ const SPOTIFY_HOME = {
   }
 };
 
-function spotifySetup({ profiles = SPOTIFY_PROFILES } = {}) {
+function spotifySetup() {
   return {
     api: {
       '/api/spotify/home': { status: 'success', ...SPOTIFY_HOME },
-      '/api/spotify/profiles': { status: 'success', profiles }
+      '/api/spotify/profiles': { status: 'success', profiles: SPOTIFY_PROFILES }
     },
     // The loaders are guarded on what is already loaded, and that survives a
     // scenario change: forced, so each scenario shows its own fixtures.
@@ -707,7 +708,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. With several profiles kept and nothing playing it opens on the profile screen; with nobody signed in its home asks for a phone. The player is Music Library\'s track player without the queue carousel — go-librespot does not say what comes next.',
+      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. It opens on the signed-in account\'s home — the last one that cast, with several kept — and the profile screen is one tap away on its avatar; with nobody signed in there is no library to list, and the status card says the speaker is ready for a phone. The player is Music Library\'s track player without the queue carousel — go-librespot does not say what comes next.',
     scenarios: [
       starting('spotify'),
       browsing('spotify', 'Signed in, nothing playing', 'The daemon signed back in with the kept account and holds no session: the home draws Spotify\'s own for that account — its shortcuts, then its shelves in its order and under its titles, in the interface language — and the account\'s playlists after them.', {
@@ -718,13 +719,8 @@ export const SOURCE_PAGES = [
         ...spotifySetup(),
         player: null
       }),
-      browsing('spotify', 'Waiting for a phone', 'Nobody signed in and no profile kept: there is no library to list, so the home says what brings one — a cast from the Spotify app, after which the account is kept.', {
-        condition: ['profiles=0'],
-        layout: SPOTIFY_HEADER,
-        view: 'spotify-home',
-        state: { details: spotifyDetails({ account: null }) },
-        ...spotifySetup({ profiles: [] }),
-        player: null
+      published('spotify', 'Ready', 'Nobody signed in (no profile kept, or the signed-in one forgotten): there is no library to list, so the status card takes over and says the speaker is ready — a cast from the Spotify app signs an account in, and the browser follows.', {
+        details: spotifyDetails({ account: null })
       }),
       browsing('spotify', 'Playing a playlist', 'A context plays, started from Milō or handed over by a phone: the player shows shuffle, transport and repeat, each drawn iff `controls` lists its command; the cover expands the player, the title opens the album and the artist line the artist.', {
         condition: ['repeat=context'],
@@ -774,7 +770,7 @@ export const SOURCE_PAGES = [
           controls: {}
         }
       }),
-      browsing('spotify', 'Profiles', 'Two accounts kept: the screen a visit opens on while nothing plays. Each tile is the name and picture Spotify\'s profile service gave, the signed-in one ringed; a tap on another restarts go-librespot as that account.', {
+      browsing('spotify', 'Profiles', 'Two accounts kept, reached from the avatar on the home\'s header. Each tile is the name and picture Spotify\'s profile service gave, the signed-in one ringed; a tap on another restarts go-librespot as that account.', {
         condition: ['profiles=2'],
         layout: { titleKey: 'spotify.profiles', showBack: true },
         view: 'spotify-profiles',

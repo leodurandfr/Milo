@@ -24,6 +24,12 @@ import { makeSession, publishState } from '../helpers/audioState';
 const PLAYING = makeSession({ title: 'Future Green', artist: 'Masahiro Sugaya' });
 const PAUSED = { ...PLAYING, phase: 'paused' };
 
+const spotifyDetails = (overrides = {}) => ({
+  kind: 'spotify', account: 'owner', signing_in: false,
+  context_uri: null, context_name: null, track_uri: null, album_uri: null, artist_uri: null,
+  shuffle: false, repeat: 'off', remote: null, ...overrides,
+});
+
 describe('useRichDisplay', () => {
   let store;
   let richSource;
@@ -92,17 +98,26 @@ describe('useRichDisplay', () => {
     expect(richSource.value).toBeNull();
   });
 
-  it('shows Spotify\'s browser with nothing playing', () => {
-    // Its browser is where a signed-in account's playlist is picked, and where
-    // "cast from your phone" is said when nobody is: never the bare card.
-    publishState(store, { source: 'spotify', service: 'running', session: null });
+  it('shows Spotify\'s browser with nothing playing once an account is signed in', () => {
+    // Its browser is where the signed-in account's playlist is picked.
+    publishState(store, { source: 'spotify', service: 'running', session: null, details: spotifyDetails() });
 
     expect(richSource.value).toBe('spotify');
   });
 
-  it('gives Spotify\'s browser up for the card when the link is gone and nothing plays', () => {
+  it('shows Spotify\'s card while nobody is signed in', () => {
+    // No library to list: the card says the speaker waits for a phone's cast.
     publishState(store, {
       source: 'spotify', service: 'running', session: null,
+      details: spotifyDetails({ account: null }),
+    });
+
+    expect(richSource.value).toBeNull();
+  });
+
+  it('gives Spotify\'s browser up for the card when the link is gone and nothing plays', () => {
+    publishState(store, {
+      source: 'spotify', service: 'running', session: null, details: spotifyDetails(),
       availability: { spotify: 'no_internet' },
     });
 

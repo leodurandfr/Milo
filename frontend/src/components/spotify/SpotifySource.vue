@@ -157,17 +157,6 @@ function onScrollRestored() {
   pendingScrollRestore.value = null;
 }
 
-// === Which screen opens ===
-// Several profiles and nothing playing: the profile screen first, once per
-// visit. Nobody signed in but profiles kept (one was just forgotten): the
-// profile screen too, since home has nothing to list.
-let gateChecked = false;
-watch(() => store.profilesLoaded, (loaded) => {
-  if (!loaded || gateChecked) return;
-  gateChecked = true;
-  if (store.opensOnProfiles || (!store.account && store.profiles.length > 0)) goTo('profiles');
-}, { immediate: true });
-
 // Another account's library: whatever page was open belonged to the last one.
 watch(() => store.account, (now, before) => {
   if (now !== before && PAGES.includes(currentView.value)) reset();
