@@ -876,8 +876,19 @@ class SpotifySource(BaseAudioSource):
         if username in (self._persisted, await self._stored_account()):
             # Left in state.json, the daemon would sign back in as it, and the
             # next /status would keep it again.
-            await self._sign_in_as("", None)
+            await self._sign_in_successor()
         return self.success_response()
+
+    async def _sign_in_successor(self) -> None:
+        """The signed-in profile is gone: the one signed in last on Milō takes
+        its place, and nobody only when no profile is left — the browser then
+        gives way to the card."""
+        username = self._profiles.successor() if self._profiles is not None else None
+        if username is None:
+            await self._sign_in_as("", None)
+            return
+        self._logger.info("Signing in the Spotify profile signed in last")
+        await self._sign_in_as(username, self._profiles.credentials(username))
 
     async def _sign_in_as(self, username: str, credentials: Optional[str]) -> None:
         """Hand go-librespot one account's credentials (an empty username:
@@ -904,15 +915,26 @@ class SpotifySource(BaseAudioSource):
             await self._start_service()
 
     def _stored_credentials_refused(self, reason: str, line: str) -> None:
-        """Spotify refused the stored account (a changed password): left in
-        state.json, the daemon would exit on it at every start. The profile is
-        marked, the daemon handed nobody; a new cast from the account brings
-        it back. Runs on the journal task, so it posts."""
+        """Spotify refused the stored account (a changed password, Premium
+        gone): left in state.json, the daemon would exit on it at every start.
+        The profile is forgotten — a new cast from the account brings it back —
+        and the next one signs in. Runs on the journal task, so it posts."""
         self._report_login_failure(reason, line)
         account = self._persisted
-        if self._profiles is not None and account:
-            self._bg.spawn(self._profiles.mark_stale(account), label="spotify profile")
-        self._post(Result(lambda: self._sign_in_as("", None)))
+        self._post(Result(lambda: self._drop_refused(account)))
+
+    async def _drop_refused(self, account: Optional[str]) -> None:
+        # The refused account is the one state.json held when the daemon
+        # started — also when the sign-in watch had already given up on it.
+        stored = await self._stored_account()
+        account = account or stored
+        if account is None or account not in (self._persisted, stored):
+            # A switch or a first refusal already moved the daemon on.
+            return
+        if self._profiles is not None and await self._profiles.forget(account):
+            self._harvested.discard(account)
+            self._logger.info(f"Refused Spotify profile forgotten ({len(self._profiles)} stored)")
+        await self._sign_in_successor()
 
     # === /events ===
 
@@ -1191,20 +1213,25 @@ class SpotifySource(BaseAudioSource):
         self._publish_changes()
 
     def _keep_profile(self, account: Optional[str]) -> None:
-        """Keep the signed-in account's credentials, once per daemon run. Off
-        the mailbox: it touches only the profiles, never the source."""
+        """Keep the signed-in account's credentials and when it signed in,
+        once per daemon run. Off the mailbox: it touches only the profiles,
+        never the source."""
         if self._profiles is None or not account or account in self._harvested:
             return
         self._harvested.add(account)
         self._bg.spawn(self._harvest(account), label="spotify profile")
 
     async def _harvest(self, account: str) -> None:
+        signed_in_at = audio_source.wall_time()
         credentials = await self._read_state_credentials()
         if credentials.get("username") != account or not credentials.get("data"):
             # Measured: the file is written before /status names the account.
             self._logger.warning("Signed-in account not found in go-librespot's state — profile not kept")
             return
-        if await self._profiles.harvest(account, credentials["data"]):
+        if account not in self._harvested:
+            # Forgotten while the file was read: kept again, it would come back.
+            return
+        if await self._profiles.harvest(account, credentials["data"], signed_in_at):
             self._logger.info(f"Spotify profile kept ({len(self._profiles)} stored)")
         # Read again at every sign-in (once per daemon run): a picture or a
         # name changed in the Spotify app reaches the profile screen. A failed

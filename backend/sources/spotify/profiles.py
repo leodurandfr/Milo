@@ -7,7 +7,9 @@ with whoever casts next. Milō keeps every one it saw here, so the browser can
 sign the daemon back in as any of them. The credentials are go-librespot's own
 stored blob, verbatim: reusable from any device, so the file is 0600 and never
 leaves the backend — no route, no log line and no diagnostic collector reads
-it. A user may forget a profile; a new cast brings it back.
+it. A user may forget a profile, and one Spotify refuses is forgotten; a new
+cast brings it back. When the signed-in profile goes, the one signed in last
+on Milō takes its place (`successor`).
 """
 import asyncio
 import time
@@ -18,7 +20,7 @@ from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 
 class SpotifyProfiles:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, file: Path) -> None:
         self._file = file
@@ -39,7 +41,6 @@ class SpotifyProfiles:
                 "name": profile["spotify_name"] or username,
                 "spotify_name": profile["spotify_name"],
                 "avatar_url": profile["avatar_url"],
-                "stale": profile["stale"],
             }
             for username, profile in ordered
         ]
@@ -54,21 +55,25 @@ class SpotifyProfiles:
         profile = self._profiles.get(username)
         return profile["credentials"] if profile else None
 
-    async def harvest(self, username: str, credentials: str) -> bool:
-        """Keep `credentials` for `username`; True when the account is new. A
-        known account's blob is refreshed (Spotify rotates it) and its stale
-        mark cleared: it just signed in."""
+    def successor(self) -> Optional[str]:
+        """The profile to sign in when the signed-in one goes: the one signed
+        in last; None with none left."""
+        if not self._profiles:
+            return None
+        return max(self._profiles, key=lambda username: self._profiles[username]["signed_in_at"])
+
+    async def harvest(self, username: str, credentials: str, at: float) -> bool:
+        """Keep `credentials` for `username`, signed in at `at`; True when the
+        account is new. A known account's blob is refreshed (Spotify rotates
+        it)."""
         async with self._lock:
             profile = self._profiles.get(username)
-            if profile is not None and profile["credentials"] == credentials and not profile["stale"]:
-                return False
             new = profile is None
             if new:
                 profile = self._profiles[username] = {
-                    "spotify_name": None, "avatar_url": None,
-                    "added_at": time.time(),
+                    "spotify_name": None, "avatar_url": None, "added_at": time.time(),
                 }
-            profile.update(credentials=credentials, stale=False)
+            profile.update(credentials=credentials, signed_in_at=at)
             await self._save()
             return new
 
@@ -90,16 +95,6 @@ class SpotifyProfiles:
                 return False
             await self._save()
             return True
-
-    async def mark_stale(self, username: str) -> None:
-        """Spotify refused the stored credentials (a changed password): only a
-        new cast from that account can bring it back."""
-        async with self._lock:
-            profile = self._profiles.get(username)
-            if profile is None or profile["stale"]:
-                return
-            profile["stale"] = True
-            await self._save()
 
     async def _save(self) -> None:
         await save_versioned_json(

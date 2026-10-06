@@ -20,6 +20,7 @@ from backend.sources.spotify.profiles import SpotifyProfiles
 from backend.tests.spotify_world import ACCOUNT, SpotifyWorld
 
 GUEST = "31guestaccountxxxxxxxxxxxxx"
+THIRD = "31thirdaccountxxxxxxxxxxxxx"
 PLAYLIST = "spotify:playlist:3G1Qd5iTuEjDBCgpqciOpv"
 
 
@@ -59,14 +60,13 @@ async def test_a_picture_changed_in_spotify_reaches_the_profile_at_the_next_sign
     await world.idle()
     assert kept(world)[ACCOUNT]["avatar_url"] == "https://i.scdn.co/image/new"
 
-    # A read that fails is no answer: nothing is rewritten, nothing raised.
+    # A read that fails is no answer: the picture kept stays, nothing raised.
     world.identities[ACCOUNT] = None
-    before = world.profiles_file.stat().st_mtime_ns
     caplog.set_level(logging.WARNING)
     await world.leave()
     await world.select()
     await world.idle()
-    assert world.profiles_file.stat().st_mtime_ns == before
+    assert kept(world)[ACCOUNT]["avatar_url"] == "https://i.scdn.co/image/new"
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
@@ -165,9 +165,10 @@ async def test_switching_while_spotify_is_stopped_only_writes_the_file(world):
     world.systemd.start.assert_not_awaited()
 
 
-async def test_forgetting_the_active_profile_leaves_the_daemon_to_nobody(world):
+async def test_forgetting_the_only_profile_leaves_the_daemon_to_nobody(world):
     """Left in state.json, the forgotten account would sign back in and be
-    kept again by the next /status."""
+    kept again by the next /status; with no profile left, nobody signs in and
+    the browser gives way to the card."""
     await world.source.forget_profile(ACCOUNT)
     await world.advance(2.1)
 
@@ -175,6 +176,33 @@ async def test_forgetting_the_active_profile_leaves_the_daemon_to_nobody(world):
     assert world.stored_state()["credentials"] == {"username": "", "data": None}
     assert world.state()["details"]["account"] is None
     assert world.daemon.stored is None
+
+
+async def test_forgetting_the_active_profile_signs_in_the_one_signed_in_last(world):
+    """With profiles left, the card would hide them: the one signed in last
+    takes the forgotten one's place — the owner here, signed in after the
+    guest was added, not the guest, added after the owner."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    await world.advance(60)
+    await world.cast_from(THIRD)
+    await world.idle()
+    await world.advance(60)
+    await world.source.switch_profile(ACCOUNT)
+    await world.advance(2.1)
+    await world.idle()
+    await world.advance(60)
+    await world.source.switch_profile(THIRD)
+    await world.advance(2.1)
+    await world.idle()
+
+    await world.source.forget_profile(THIRD)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT, GUEST}
+    assert world.stored_account() == ACCOUNT
+    assert world.state()["details"]["account"] == ACCOUNT
 
 
 async def test_forgetting_another_profile_restarts_nothing(world):
@@ -189,19 +217,70 @@ async def test_forgetting_another_profile_restarts_nothing(world):
     assert world.state()["details"]["account"] == GUEST
 
 
-async def test_refused_stored_credentials_mark_the_profile_and_free_the_daemon(world):
+REFUSED = ('level=fatal msg="daemon exited with error" error="failed authenticating accesspoint '
+           'with stored credentials: accesspoint login failed: BadCredentials <nil>"')
+
+
+async def test_refused_stored_credentials_forget_the_only_profile_and_free_the_daemon(world):
     """A changed password: go-librespot exits on stored credentials it cannot
-    use, at every start. The profile says so, and the daemon is handed nobody."""
+    use, at every start. The profile goes, and with none left the daemon is
+    handed nobody — the card, ready for a cast."""
+    await world.source._handle_log_line(REFUSED)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert kept(world) == {}
+    assert world.stored_state()["credentials"]["username"] == ""
+    assert world.state()["details"]["account"] is None
+    assert world.errors() == ["credentials_refused"]
+
+
+async def test_refused_stored_credentials_hand_the_daemon_to_the_profile_left(world):
+    """The guest's password changed: the owner, still kept, signs in rather
+    than the card hiding them."""
+    await world.cast_from(GUEST)
+    await world.idle()
+
+    await world.source._handle_log_line(REFUSED)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
+    assert world.state()["details"]["account"] == ACCOUNT
+    assert world.errors() == ["credentials_refused"]
+
+
+async def test_a_refusal_heard_twice_moves_the_daemon_once(world):
+    """go-librespot can log the refusal again before Milō has moved it on (a
+    Restart= in between): the second one must not take the next profile out
+    or restart the daemon that just signed in."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    world.systemd.stop.reset_mock()
+
+    await world.source._handle_log_line(REFUSED)
+    await world.source._handle_log_line(REFUSED)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
+    assert world.systemd.stop.await_count == 1
+
+
+async def test_a_spotify_outage_at_sign_in_forgets_nothing(world):
+    """Spotify down is not the account's fault: the profile stays, signed in
+    again at the next start."""
     await world.source._handle_log_line(
-        'level=fatal msg="daemon exited with error" error="failed authenticating accesspoint '
-        'with stored credentials: accesspoint login failed: BadCredentials <nil>"'
+        'level=warning msg="login5 request failed, retrying" '
+        'error="login5 returned HTTP 503: no healthy upstream"'
     )
     await world.advance(2.1)
     await world.idle()
 
-    assert kept(world)[ACCOUNT]["stale"] is True
-    assert world.stored_state()["credentials"]["username"] == ""
-    assert world.errors() == ["credentials_refused"]
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
 
 
 async def test_a_forgotten_profile_comes_back_with_its_next_cast(world):
@@ -223,10 +302,7 @@ async def test_refused_credentials_while_the_daemon_restarts_itself_sign_in_nobo
     """go-librespot exits on credentials it cannot use and Restart= brings it
     back: the account must not be announced as signing in meanwhile."""
     await world.kill_daemon()
-    await world.source._handle_log_line(
-        'level=fatal msg="daemon exited with error" error="failed authenticating accesspoint '
-        'with stored credentials: accesspoint login failed: BadCredentials <nil>"'
-    )
+    await world.source._handle_log_line(REFUSED)
     await world.idle()
     await world.systemd_restarts_it()
 
@@ -240,7 +316,7 @@ async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
     file = tmp_path / "profiles.json"
     profiles = SpotifyProfiles(file)
     await profiles.initialize()
-    await profiles.harvest(ACCOUNT, "blob")
+    await profiles.harvest(ACCOUNT, "blob", 1.0)
     await profiles.set_identity(ACCOUNT, {"spotify_name": "Léo", "avatar_url": None})
 
     reloaded = SpotifyProfiles(file)
@@ -248,9 +324,24 @@ async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
     assert reloaded.list()[0]["name"] == "Léo"
     assert reloaded.credentials(ACCOUNT) == "blob"
 
-    file.write_text(json.dumps({"schema_version": 0, "profiles": {}}))
+    file.write_text(json.dumps({"schema_version": 1, "profiles": {}}))
     with pytest.raises(SchemaVersionMismatch):
         await SpotifyProfiles(file).initialize()
+
+
+async def test_the_successor_is_the_profile_signed_in_last(tmp_path):
+    """Not the one added last: a profile signed in again moves ahead."""
+    profiles = SpotifyProfiles(tmp_path / "profiles.json")
+    await profiles.initialize()
+    await profiles.harvest(ACCOUNT, "blob", 1.0)
+    await profiles.harvest(GUEST, "blob", 2.0)
+    await profiles.harvest(ACCOUNT, "blob", 3.0)
+
+    assert profiles.successor() == ACCOUNT
+    await profiles.forget(ACCOUNT)
+    assert profiles.successor() == GUEST
+    await profiles.forget(GUEST)
+    assert profiles.successor() is None
 
 
 # === Routes ===

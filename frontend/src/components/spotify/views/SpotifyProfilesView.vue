@@ -5,13 +5,13 @@
         <button v-press type="button" class="profile-pick" :disabled="!!switching || !!forgetting"
           @click="pick(profile)">
           <div class="avatar-frame" :class="{ active: profile.active }">
-            <ProfileAvatar :profile="profile" :size="AVATAR_SIZE" />
+            <ProfileAvatar :profile="profile" :size="AVATAR_SIZE" :blurred="switching === profile.username" />
             <div v-if="switching === profile.username" class="avatar-loading">
               <LoadingSpinner :size="32" />
             </div>
           </div>
           <span class="profile-name heading-2">{{ profile.name }}</span>
-          <span class="profile-state text-mono-small" :class="{ warn: profile.stale || pending === profile.username }">
+          <span class="profile-state text-mono-small" :class="{ warn: pending === profile.username }">
             {{ stateLine(profile) }}
           </span>
         </button>
@@ -33,7 +33,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useTimer } from '@/composables/useTimer';
@@ -50,17 +50,19 @@ const timer = useTimer();
 
 const AVATAR_SIZE = 120;
 
-// A switch restarts the daemon: about a second, measured. Past this the tile
-// gives up waiting and the profile screen stays.
+// A switch restarts the daemon: the new account's library answers about a
+// second later, measured. Past this the browser opens on whatever the home
+// answers (its error has a retry).
 const SWITCH_WAIT_MS = 15000;
+// While the daemon restarts, the library answers 409: asked again this often.
+const HOME_RETRY_MS = 300;
 
 const switching = ref(null);
-let switchTimeout = null;
 // Two-tap confirm when picking another account would end what plays.
 const pending = ref(null);
 
 function stateLine(profile) {
-  if (profile.stale) return t('spotify.castAgain');
+  if (switching.value === profile.username) return t('spotify.connecting');
   if (pending.value === profile.username) return t('spotify.switchStopsPlayback');
   if (profile.active) return t('spotify.connected');
   return '';
@@ -78,20 +80,31 @@ async function pick(profile) {
   }
   pending.value = null;
   switching.value = profile.username;
-  timer.clear(switchTimeout);
-  switchTimeout = timer.setTimeout(() => { switching.value = null; }, SWITCH_WAIT_MS);
-  if (!(await store.switchProfile(profile.username))) switching.value = null;
+  if (!(await store.switchProfile(profile.username))) {
+    switching.value = null;
+    return;
+  }
+  // The pick lands with the new account's home loaded, so the browser opens on
+  // it whole: the daemon answers the library a second before the state stops
+  // saying it signs in (measured), and waiting for that, then loading, showed
+  // a sign-in screen in between. The state naming the account can arrive after
+  // this answer, and clears the home it finds: a home counts once it has.
+  const deadline = Date.now() + SWITCH_WAIT_MS;
+  while (Date.now() < deadline) {
+    await store.loadHome({ force: true });
+    if (switching.value !== profile.username) return;
+    if (store.account === profile.username && store.home) break;
+    // Refused and forgotten: the profile signed in last took its place.
+    if (!store.profiles.some((p) => p.username === profile.username)) break;
+    await new Promise((resolve) => timer.setTimeout(resolve, HOME_RETRY_MS));
+  }
+  if (switching.value !== profile.username) return;
+  switching.value = null;
+  emit('picked');
 }
 
-// The pick lands when the daemon answers as that account — not when the
-// account is first announced, which happens before the daemon restarts.
-watch(() => store.account === switching.value && !store.signingIn, (landed) => {
-  if (switching.value && landed) {
-    switching.value = null;
-    timer.clear(switchTimeout);
-    emit('picked');
-  }
-});
+// Leaving the screen ends the wait: no home is asked for behind it.
+onUnmounted(() => { switching.value = null; });
 
 // === Forget ===
 // The X shows a confirm button under the profile, and takes it back on a
@@ -172,6 +185,8 @@ store.loadProfiles();
   box-shadow: 0 0 0 2px var(--color-brand);
 }
 
+/* The picture, blurred, fades toward the page under the spinner while its
+   account signs in: lighter in light, darker under a white spinner in dark. */
 .avatar-loading {
   position: absolute;
   inset: var(--space-01);
@@ -179,7 +194,8 @@ store.loadProfiles();
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-image-veil);
+  background: var(--color-image-shade);
+  color: var(--color-text);
 }
 
 /* Set apart from the avatar, so the name and the state line read as one. */

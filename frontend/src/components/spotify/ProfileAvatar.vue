@@ -1,5 +1,5 @@
 <template>
-  <div class="profile-avatar" :style="{ '--avatar-size': `${size}px` }">
+  <div class="profile-avatar" :class="{ blurred }" :style="{ '--avatar-size': `${size}px` }">
     <LazyImage v-if="profile.avatar_url" :src="profile.avatar_url" :alt="profile.name" class="avatar-image" />
     <span v-else class="avatar-initial heading-2" aria-hidden="true">{{ initial }}</span>
   </div>
@@ -18,6 +18,11 @@ const props = defineProps({
   size: {
     type: Number,
     default: 96,
+  },
+  // Set aside while its account signs in.
+  blurred: {
+    type: Boolean,
+    default: false,
   },
 });
 
@@ -45,5 +50,10 @@ const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUp
 
 .avatar-initial {
   color: var(--color-text-secondary);
+}
+
+/* Inside the circle, which keeps a sharp edge. */
+.blurred > * {
+  filter: blur(var(--blur-01));
 }
 </style>

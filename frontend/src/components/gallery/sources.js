@@ -468,8 +468,8 @@ function spotifyDetails(overrides = {}) {
 }
 
 const SPOTIFY_PROFILES = [
-  { username: 'owner', name: 'Léo', spotify_name: 'Léo', avatar_url: null, stale: false, active: true },
-  { username: 'guest', name: 'Cla', spotify_name: 'Cla', avatar_url: null, stale: false, active: false }
+  { username: 'owner', name: 'Léo', spotify_name: 'Léo', avatar_url: null, active: true },
+  { username: 'guest', name: 'Cla', spotify_name: 'Cla', avatar_url: null, active: false }
 ];
 
 /** A home as GET /api/spotify/home answers it: covers are the shared placeholder. */
@@ -719,7 +719,7 @@ export const SOURCE_PAGES = [
         ...spotifySetup(),
         player: null
       }),
-      published('spotify', 'Ready', 'Nobody signed in (no profile kept, or the signed-in one forgotten): there is no library to list, so the status card takes over and says the speaker is ready — a cast from the Spotify app signs an account in, and the browser follows.', {
+      published('spotify', 'Ready', 'Nobody signed in, no profile kept (a forgotten or refused one hands the daemon to the one signed in last while any is left): there is no library to list, so the status card takes over and says the speaker is ready — a cast from the Spotify app signs an account in, and the browser follows.', {
         details: spotifyDetails({ account: null })
       }),
       browsing('spotify', 'Playing a playlist', 'A context plays, started from Milō or handed over by a phone: the player shows shuffle, transport and repeat, each drawn iff `controls` lists its command; the cover expands the player, the title opens the album and the artist line the artist.', {

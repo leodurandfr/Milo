@@ -202,6 +202,9 @@
     --color-image-scrim: var(--gray-950);
     --color-backdrop: var(--gray-1000);
     --color-backdrop-veil: var(--gray-1000-a55);
+    /* The one theme-following wash on a picture: a picture set aside while it
+       loads fades toward the page, under a spinner in the text color. */
+    --color-image-shade: var(--gray-0-a50);
 
     /* === TEXT === */
     --color-text: var(--gray-950);
@@ -492,6 +495,8 @@
     --color-text-secondary: var(--gray-400);
     --color-text-tertiary: var(--gray-600);
     --color-text-faint: var(--gray-400-a20);
+
+    --color-image-shade: var(--gray-950-a50);
 
     /* Matched to the light border by eye, not by alpha: 8% and above
        glared on the dark insets. */
