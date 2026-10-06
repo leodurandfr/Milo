@@ -867,8 +867,8 @@
 .glass-shell {
     position: relative;
     background: var(--glass-tone, var(--color-shell));
-    backdrop-filter: blur(var(--blur-03)) saturate(220%);
-    -webkit-backdrop-filter: blur(var(--blur-03)) saturate(220%);
+    backdrop-filter: blur(var(--blur-04));
+    -webkit-backdrop-filter: blur(var(--blur-04));
     box-shadow: var(--shadow-glass-shell);
 }
 
