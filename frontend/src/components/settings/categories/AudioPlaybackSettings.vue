@@ -7,14 +7,12 @@
       :enabled="autoStopEnabled"
       @change="handleAutoStopToggle"
     >
-      <SettingItem :label="t('audioPlayback.autoStopHint')">
-        <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
-        <RangeSlider
-          :model-value="autoStopEnabled ? config.auto_stop_delay : lastAutoStop"
-          :steps="autoStopSteps"
-          @change="setAutoStopDelay"
-        />
-      </SettingItem>
+      <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
+      <RangeSlider :label="t('audioPlayback.autoStopHint')"
+        :model-value="autoStopEnabled ? config.auto_stop_delay : lastAutoStop"
+        :steps="autoStopSteps"
+        @change="setAutoStopDelay"
+      />
     </ToggleSection>
   </SettingsContainer>
 </template>
@@ -26,7 +24,6 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t, formatDuration } = useI18n();

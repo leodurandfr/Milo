@@ -11,25 +11,28 @@
       :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label" :class="size === 'small' ? 'heading-4' : 'heading-3'">{{ selectedLabel }}</span>
+      <span class="dropdown-label heading-4">{{ selectedLabel }}</span>
       <SvgIcon name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
     </button>
 
     <Teleport to="body">
       <Transition name="dropdown-menu">
-        <div v-if="isOpen" ref="menuRef" class="dropdown-menu"
+        <div v-if="isOpen" ref="menuRef" class="dropdown-menu glass-shell"
           :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'open-upward': openUpward, 'open-leftward': openLeftward }]"
-          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
-          @scroll.stop>
-          <div v-if="title" class="dropdown-title text-mono-small">{{ title }}</div>
-          <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
-            :class="[size === 'small' ? 'heading-4' : 'heading-3', { 'is-selected': option.value === modelValue }]"
-            @click="selectOption(option.value)">
-            <span class="dropdown-item-label">{{ option.label }}</span>
-            <span v-if="option.icon" class="dropdown-item-icon" :role="option.iconLabel ? 'img' : null"
-              :aria-label="option.iconLabel" :aria-hidden="option.iconLabel ? null : 'true'">
-              <SvgIcon :name="option.icon" :size="20" />
-            </span>
+          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }">
+          <!-- The list scrolls inside the glass, never the glass itself: its rim
+               is an absolutely placed layer that would scroll away with it. -->
+          <div class="dropdown-list" @scroll.stop>
+            <div v-if="title" class="dropdown-title text-mono-small">{{ title }}</div>
+            <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
+              :class="['heading-4', { 'is-selected': option.value === modelValue }]"
+              @click="selectOption(option.value)">
+              <span class="dropdown-item-label">{{ option.label }}</span>
+              <span v-if="option.icon" class="dropdown-item-icon" :role="option.iconLabel ? 'img' : null"
+                :aria-label="option.iconLabel" :aria-hidden="option.iconLabel ? null : 'true'">
+                <SvgIcon :name="option.icon" :size="20" />
+              </span>
+            </div>
           </div>
         </div>
       </Transition>
@@ -63,8 +66,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'outline',
-    validator: (value) => ['outline', 'plain'].includes(value)
+    default: 'filled',
+    validator: (value) => ['filled', 'plain'].includes(value)
   },
   size: {
     type: String,
@@ -290,35 +293,35 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--space-03) var(--space-04);
+  height: 48px;
+  padding: 0 var(--space-03) 0 var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-panel);
+  background: var(--color-control);
   cursor: pointer;
   outline: none;
   gap: var(--space-01);
-  box-shadow: inset 0 0 0 2px var(--color-border);
-  transition: box-shadow var(--transition-fast), var(--transition-press);
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
 }
 
-/* Size: small */
 .dropdown-trigger--small {
   height: 36px;
-  padding: var(--space-02) var(--space-03);
+  padding: 0 var(--space-02) 0 var(--space-03);
   border-radius: var(--radius-03);
 }
 
+/* Open: the trigger lifts out of its track, as the ButtonGroup's thumb does. */
 .dropdown-trigger.is-open {
-  -webkit-box-shadow: inset 0 0 0 2px var(--color-brand);
-  box-shadow: inset 0 0 0 2px var(--color-brand);
+  background: var(--color-panel);
+  box-shadow: 0 0 0 1px var(--color-border), var(--shadow-thumb);
+}
+
+.dropdown-trigger--plain {
+  background: transparent;
 }
 
 .dropdown-trigger:disabled {
-  opacity: 0.5;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
-}
-
-.dropdown-trigger:disabled .dropdown-label {
-  color: var(--color-text-tertiary);
 }
 
 .dropdown-label {
@@ -332,16 +335,7 @@ onBeforeUnmount(() => {
   transition: color var(--transition-fast);
 }
 
-.dropdown-trigger--outline.has-selection .dropdown-label {
-  color: var(--color-text);
-}
-
-/* Plain variant: the same trigger without its outline */
-.dropdown-trigger--plain {
-  box-shadow: none;
-}
-
-.dropdown-trigger--plain.has-selection .dropdown-label {
+.dropdown-trigger.has-selection .dropdown-label {
   color: var(--color-text);
 }
 
@@ -355,26 +349,29 @@ onBeforeUnmount(() => {
   transform: rotate(180deg);
 }
 
+/* The menu floats, so it is floating chrome's material: the glass. The
+   picked option is a brand tint across the row, the others plain. */
 .dropdown-menu {
   position: fixed;
   z-index: 5001;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-04);
-  box-shadow: var(--shadow-02);
+  border-radius: var(--radius-05);
+  overflow: hidden;
+  min-width: 200px;
+  transform-origin: top center;
+}
+
+.dropdown-menu.open-upward {
+  transform-origin: bottom center;
+}
+
+.dropdown-list {
   max-height: 340px;
   overflow-y: auto;
-  min-width: 200px;
+  padding: 6px;
 }
 
-/* Size: small — the menu carries the trigger's metrics, not the base ones. */
 .dropdown-menu--small .dropdown-item {
   padding: var(--space-02) var(--space-03);
-}
-
-.dropdown-menu--small .dropdown-item::after {
-  left: var(--space-03);
-  right: var(--space-03);
 }
 
 .dropdown-item-icon {
@@ -396,13 +393,14 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-title {
-  padding: var(--space-03) var(--space-04) 0;
+  padding: var(--space-02) var(--space-03) var(--space-01);
   color: var(--color-text-secondary);
 }
 
 .dropdown-item {
   position: relative;
-  padding: var(--space-03) var(--space-04);
+  padding: 10px var(--space-03);
+  border-radius: var(--radius-04);
   color: var(--color-text);
   cursor: pointer;
   transition:
@@ -413,7 +411,6 @@ onBeforeUnmount(() => {
   gap: var(--space-01);
 }
 
-/* The ellipsis lives on the label, so an icon beside it keeps its place. */
 .dropdown-item-label {
   min-width: 0;
   overflow: hidden;
@@ -421,58 +418,40 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.dropdown-item::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: var(--space-04);
-  right: var(--space-04);
-  height: 1px;
-  background: var(--color-border);
-}
-
-.dropdown-item:last-child::after {
-  display: none;
+.dropdown-item:not(.is-selected):active {
+  background: var(--color-shell-control);
 }
 
 .dropdown-item.is-selected {
+  background: var(--color-brand-subtle);
   color: var(--color-brand);
 }
 
-/* Transition animations. */
+/* Open: fades in and settles from the trigger on the spring; close: fades
+   back without one. */
 .dropdown-menu-enter-active {
   transition:
     opacity var(--transition-fast),
-    transform var(--transition-fast);
+    transform var(--transition-spring-light);
 }
 
 .dropdown-menu-leave-active {
   transition:
-    opacity var(--transition-fast-leave),
-    transform var(--transition-fast-leave);
+    opacity 150ms var(--easeInCubic),
+    transform 150ms var(--easeInCubic);
 }
 
-.dropdown-menu-enter-from {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-
-.dropdown-menu.open-upward.dropdown-menu-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
+.dropdown-menu-enter-from,
 .dropdown-menu-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-6px) scale(0.98);
 }
 
+.dropdown-menu.open-upward.dropdown-menu-enter-from,
 .dropdown-menu.open-upward.dropdown-menu-leave-to {
-  opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(6px) scale(0.98);
 }
 
-/* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
   .dropdown-trigger--small {
     height: 34px;

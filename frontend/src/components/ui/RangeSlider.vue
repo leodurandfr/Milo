@@ -1,23 +1,37 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
+<!-- A native <input type="range"> drawn as Milō's slider: the browser drags,
+     snaps and places the thumb; the component only maps stops to values and
+     hands the fill one number, where the value sits from 0 to 1. -->
 <template>
-  <div :class="['slider-container', orientation, { disabled, muted, dragging: isDragging }]" :style="cssVars">
+  <div :class="['slider-container', orientation, { disabled, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel }]"
+    :style="{ '--fraction': fraction }">
+    <span v-if="hasLabel" class="slider-label text-body">{{ label }}</span>
+
     <div class="slider-rail">
-      <div ref="track" class="range-track"></div>
+      <div class="range-track"></div>
 
       <span
         v-for="index in tickIndexes"
         :key="index"
         class="range-tick"
-        :style="tickStyle(index)"
+        :class="{ 'range-tick--passed': index <= position }"
+        :style="{ '--tick': index / (stops.length - 1) }"
       ></span>
 
-      <div
-        ref="thumbRef"
-        class="range-thumb"
-        :class="{ dragging: isDragging }"
-        :style="thumbStyle"
+      <input
+        class="range-input"
+        type="range"
+        :min="posMin"
+        :max="posMax"
+        :step="isStepped ? 1 : step"
+        :value="position"
+        :disabled="disabled"
+        :aria-label="label || null"
+        :aria-valuetext="currentLabel"
         @pointerdown="startDrag"
-      ></div>
+        @input="handleInput"
+        @change="handleChange"
+      />
     </div>
 
     <!-- Beside the track, never on it: a thumb at either end covered it. -->
@@ -26,7 +40,7 @@
         <!-- Every label in one cell, all but the current one hidden: the box is as
              wide as the widest, so the track does not resize mid-drag. -->
         <span
-          v-for="(stop, index) in steps"
+          v-for="(stop, index) in stops"
           :key="stop.value"
           :class="{ 'slider-value__other': index !== position }"
         >{{ stop.label }}</span>
@@ -41,8 +55,9 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { usePointerHold } from '@/composables/usePointerHold';
 import { UNITS } from '@/utils/units';
 
 const props = defineProps({
@@ -56,57 +71,76 @@ const props = defineProps({
   // Written the way the UI language writes it (spacing, decimal comma); '' is a bare number.
   unit: { type: String, default: '', validator: (value) => value === '' || UNITS.includes(value) },
   hideInlineValue: { type: Boolean, default: false },
+  // The setting's name, drawn on its own line above the track.
+  label: { type: String, default: '' },
   // Discrete stops [{ value, label }], spread evenly along the track whatever
   // their values — log-spaced values give a log scale. Overrides min/max/step/
   // unit; the inline value shows the stop's label.
-  steps: { type: Array, default: null }
+  steps: { type: Array, default: null },
+  // A stop at every step from min to max, labeled like the continuous value:
+  // for a setting chosen among a few levels rather than dialed in.
+  ticks: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
-const isDragging = ref(false);
-const track = ref(null);
-const thumbRef = ref(null);
-// Layout (untransformed) sizes — for CSS positioning, which uses % of the parent's layout box.
-const trackSize = ref({ width: 0, height: 0 });
-const thumbAxisSize = ref(54);
+const { held: isDragging, press } = usePointerHold({ onRelease: stopDrag });
 
 // Local value during drag - prevents external updates (WebSocket echo) from causing jumps
 const localDragValue = ref(null);
-
-let resizeObserver = null;
-let thumbOffset = 0;
-// Scaled thumb size captured fresh at drag start (drag math runs in viewport/scaled coords).
-let dragThumbSize = 0;
-// A press that ends where it started is not a change: no commit for a tap.
+// The value a press started from: a press that ends where it started is no commit.
 let dragStartValue = null;
+// The value last committed, so the browser's own change after a drag is not
+// sent a second time.
+let lastCommitted = null;
+// Arrow keys move the input with no pointer: each step is run as a drag of its
+// own, so callers that commit on drag-end (a volume, an EQ band) commit it.
+let keyboardEditing = false;
 
 // Effective value: local during drag, prop otherwise
 const effectiveValue = computed(() => {
   return localDragValue.value !== null ? localDragValue.value : props.modelValue;
 });
 
-const isStepped = computed(() => (props.steps?.length ?? 0) > 0);
+const stops = computed(() => {
+  if (props.steps?.length) return props.steps;
+  if (!props.ticks) return [];
+  const count = Math.round((props.max - props.min) / props.step);
+  return Array.from({ length: count + 1 }, (_, i) => {
+    const value = parseFloat((props.min + i * props.step).toFixed(decimals.value));
+    return { value, label: valueLabel(value) };
+  });
+});
+const isStepped = computed(() => stops.value.length > 0);
+const hasLabel = computed(() => Boolean(props.label) && props.orientation === 'horizontal');
 
 // A stored value off the grid shows on the nearest stop; it is not rewritten
 // until the user moves the thumb.
 function stepIndex(value) {
   let best = 0;
-  props.steps.forEach((stop, index) => {
-    if (Math.abs(stop.value - value) < Math.abs(props.steps[best].value - value)) best = index;
+  stops.value.forEach((stop, index) => {
+    if (Math.abs(stop.value - value) < Math.abs(stops.value[best].value - value)) best = index;
   });
   return best;
 }
 
 // Where the thumb sits: the value itself, or the stop's index when stepped.
 const posMin = computed(() => (isStepped.value ? 0 : props.min));
-const posMax = computed(() => (isStepped.value ? props.steps.length - 1 : props.max));
+const posMax = computed(() => (isStepped.value ? stops.value.length - 1 : props.max));
 const position = computed(() => (isStepped.value ? stepIndex(effectiveValue.value) : effectiveValue.value));
+
+// Where the value sits along the track, 0 to 1 — the one number the fill reads.
+// A zero/negative range (min === max, e.g. a curve point pinned between
+// adjacent neighbours) sits at 0 rather than at NaN.
+const fraction = computed(() => {
+  const range = posMax.value - posMin.value;
+  return range > 0 ? clamp((position.value - posMin.value) / range, 0, 1) : 0;
+});
 
 // Every stop, ends included.
 const tickIndexes = computed(() => {
   if (!isStepped.value) return [];
-  return props.steps.map((_, i) => i);
+  return stops.value.map((_, i) => i);
 });
 
 const { formatNumber, formatUnit } = useI18n();
@@ -116,6 +150,10 @@ const decimals = computed(() => (String(props.step).split('.')[1] ?? '').length)
 function valueLabel(value, options = { maximumFractionDigits: decimals.value }) {
   return props.unit ? formatUnit(value, props.unit, options) : formatNumber(value, options);
 }
+
+const currentLabel = computed(() => (isStepped.value
+  ? stops.value[position.value]?.label
+  : valueLabel(effectiveValue.value)));
 
 // Mono digits: the longest of the two bounds, at the step's precision, is the widest label.
 const widestLabel = computed(() => {
@@ -127,163 +165,64 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function roundToStep(value) {
-  return parseFloat((Math.round(value / props.step) * props.step).toFixed(10));
+// The input's own value, as the value it stands for: a stop's value, or the
+// number at the step's precision (a float step drifts in the last digits).
+function valueOf(input) {
+  const raw = Number(input.value);
+  if (isStepped.value) return stops.value[Math.round(raw)].value;
+  return clamp(parseFloat(raw.toFixed(decimals.value)), props.min, props.max);
 }
 
-// Thumb positioning via CSS calc (same formula as DoubleRangeSlider)
-const thumbStyle = computed(() => {
-  // Guard a zero/negative range (min === max, e.g. a curve point pinned between
-  // adjacent neighbours) so the thumb position stays a finite number, not NaN.
-  const range = posMax.value - posMin.value;
-  const pct = range > 0 ? clamp((position.value - posMin.value) / range, 0, 1) : 0;
-  return placeAt(pct);
-});
-
-function placeAt(pct) {
-  const size = thumbAxisSize.value;
-  const half = size / 2;
-  if (props.orientation === 'horizontal') {
-    return { left: `calc(${half}px + ${pct} * (100% - ${size}px))` };
-  } else {
-    return { bottom: `calc(${half}px + ${pct} * (100% - ${size}px))` };
-  }
-}
-
-function tickStyle(index) {
-  const last = props.steps.length - 1;
-  return placeAt(last > 0 ? index / last : 0);
-}
-
-// Progress percentage for CSS gradient (accounts for thumb size)
-const percentage = computed(() => {
-  const range = posMax.value - posMin.value;
-  const rawPercentage = range > 0 ? ((position.value - posMin.value) / range) * 100 : 0;
-  const size = thumbAxisSize.value;
-
-  if (props.orientation === 'horizontal') {
-    const containerWidth = trackSize.value.width || 400;
-    const thumbAdjustment = (size / containerWidth) * 100;
-    return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
-  } else {
-    const containerHeight = trackSize.value.height || 260;
-    const thumbAdjustment = (size / containerHeight) * 100;
-    return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
-  }
-});
-
-const cssVars = computed(() => ({
-  '--progress': `${percentage.value}%`
-}));
-
-// Drag handling with offset to prevent thumb jump
+// Only the thumb takes the pointer (the input itself has pointer-events off),
+// so a press is a press on the thumb: a touch on the track scrolls the page.
 function startDrag(event) {
-  if (event.button !== 0 || props.disabled) return;
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  if (!track.value || !thumbRef.value) return;
-
-  const rect = track.value.getBoundingClientRect();
-  const thumbRect = thumbRef.value.getBoundingClientRect();
-  const currentPosition = isStepped.value ? stepIndex(props.modelValue) : props.modelValue;
-  const currentRange = posMax.value - posMin.value;
-  const currentPct = currentRange > 0 ? (currentPosition - posMin.value) / currentRange : 0;
-  // Use BCR (scaled) for drag math so it matches event.clientX coords.
-  dragThumbSize = props.orientation === 'horizontal' ? thumbRect.width : thumbRect.height;
-  const half = dragThumbSize / 2;
-
-  if (props.orientation === 'horizontal') {
-    const usableWidth = rect.width - dragThumbSize;
-    const thumbCenterX = rect.left + half + (currentPct * usableWidth);
-    thumbOffset = event.clientX - thumbCenterX;
-  } else {
-    const usableHeight = rect.height - dragThumbSize;
-    const thumbCenterY = rect.bottom - half - (currentPct * usableHeight);
-    thumbOffset = event.clientY - thumbCenterY;
-  }
-
+  if (props.disabled || !press(event)) return;
   localDragValue.value = props.modelValue;
   dragStartValue = props.modelValue;
-  isDragging.value = true;
+  lastCommitted = null;
   emit('drag-start');
-
-  document.addEventListener('pointermove', handleDrag);
-  document.addEventListener('pointerup', stopDrag);
-  document.addEventListener('pointercancel', stopDrag);
 }
 
-function handleDrag(event) {
-  if (!track.value) return;
-
-  const rect = track.value.getBoundingClientRect();
-  const size = dragThumbSize;
-  const half = size / 2;
-  let pct;
-
-  if (props.orientation === 'horizontal') {
-    const correctedX = event.clientX - thumbOffset;
-    const usableWidth = rect.width - size;
-    const positionInUsableArea = correctedX - rect.left - half;
-    pct = clamp(positionInUsableArea / usableWidth, 0, 1);
-  } else {
-    const correctedY = event.clientY - thumbOffset;
-    const usableHeight = rect.height - size;
-    const positionInUsableArea = rect.bottom - half - correctedY;
-    pct = clamp(positionInUsableArea / usableHeight, 0, 1);
+function handleInput(event) {
+  const value = valueOf(event.target);
+  if (value === effectiveValue.value) return;
+  if (isDragging.value) {
+    localDragValue.value = value;
+  } else if (!keyboardEditing) {
+    keyboardEditing = true;
+    lastCommitted = null;
+    emit('drag-start');
   }
-
-  const value = isStepped.value
-    ? props.steps[Math.round(pct * (props.steps.length - 1))].value
-    : clamp(roundToStep(props.min + pct * (props.max - props.min)), props.min, props.max);
-  if (value === localDragValue.value) return;
-
-  localDragValue.value = value;
   emit('update:modelValue', value);
   emit('input', value);
 }
 
+// The commit of a drag is sent here, on release, with the value dragged to:
+// by the time the browser fires its own change, a caller that binds the value
+// without v-model has not seen it, and the input has been put back.
 function stopDrag() {
-  if (isDragging.value) {
-    isDragging.value = false;
-    if (effectiveValue.value !== dragStartValue) emit('change', effectiveValue.value);
+  const value = effectiveValue.value;
+  if (value !== dragStartValue) {
+    lastCommitted = value;
+    emit('change', value);
+  }
+  emit('drag-end');
+  localDragValue.value = null;
+}
+
+// The browser's change: after a key step, the commit; after a drag, the one
+// already sent on release, skipped.
+function handleChange(event) {
+  const value = valueOf(event.target);
+  if (value !== lastCommitted) {
+    lastCommitted = value;
+    emit('change', value);
+  }
+  if (keyboardEditing) {
+    keyboardEditing = false;
     emit('drag-end');
-    localDragValue.value = null;
-  }
-
-  document.removeEventListener('pointermove', handleDrag);
-  document.removeEventListener('pointerup', stopDrag);
-  document.removeEventListener('pointercancel', stopDrag);
-}
-
-function updateSizes() {
-  if (track.value) {
-    trackSize.value = { width: track.value.offsetWidth, height: track.value.offsetHeight };
-  }
-  if (thumbRef.value) {
-    thumbAxisSize.value = props.orientation === 'horizontal'
-      ? thumbRef.value.offsetWidth
-      : thumbRef.value.offsetHeight;
   }
 }
-
-onMounted(() => {
-  updateSizes();
-  resizeObserver = new ResizeObserver(updateSizes);
-  if (track.value) resizeObserver.observe(track.value);
-  if (thumbRef.value) resizeObserver.observe(thumbRef.value);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('pointermove', handleDrag);
-  document.removeEventListener('pointerup', stopDrag);
-  document.removeEventListener('pointercancel', stopDrag);
-
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-});
 </script>
 
 <style>
@@ -293,157 +232,303 @@ onUnmounted(() => {
   initial-value: transparent;
 }
 
-@property --progress {
-  syntax: '<percentage>';
+@property --fraction {
+  syntax: '<number>';
   inherits: true;
-  initial-value: 0%;
+  initial-value: 0;
+}
+
+/* How far the knob is held, 0 at rest to 1 held: it drives the knob's widening
+   and the fill's following it, on one spring. */
+@property --grow {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
 }
 </style>
 
 <style scoped>
+/* The Toggle's dimensions: a 34px track with its 44x28 pill knob inside it,
+   3px from every side. The track and its fill are drawn by the component; the
+   native input lies over them, 3px in from each end, so its thumb travels
+   exactly where the knob belongs. While held, the knob widens by 4px, anchored
+   where it stands — at the left end it grows to the right, at the right end to
+   the left, in between in proportion — so it never eats into the track's ends,
+   and the fill follows its right edge out to keep the 3px around it. */
 .slider-container {
   --slider-accent: var(--color-fill-muted);
-  transition: --slider-accent var(--transition-fast);
+  --track-thickness: 34px;
+  --knob-width: 44px;
+  --knob-height: 28px;
+  /* The 4px the knob widens by, as a share of its width (a length cannot
+     divide a length in every engine yet). */
+  --knob-grow: 0.0909;
+  /* The knob plus its 3px each side: the length of track it stands on. */
+  --thumb-length: calc(var(--knob-width) + 6px);
+  --grow: 0;
+  /* What the knob's right edge moves out by: none at the right end. */
+  --fill-extra: calc(var(--grow) * 4px * (1 - var(--fraction)));
+  transition: --slider-accent var(--transition-fast), --grow var(--transition-spring-light), opacity var(--transition-fast);
   display: flex;
   gap: var(--space-02);
 }
 
-/* The positioning box of the thumb and ticks: the track alone, never the value beside it */
+.slider-container.dragging {
+  --slider-accent: var(--color-brand);
+  --grow: 1;
+}
+
+.slider-container:not(.dragging) {
+  transition: --slider-accent var(--transition-fast), --grow var(--transition-spring-light), opacity var(--transition-fast);
+}
+
+/* --fraction is never transitioned: the native thumb jumps to a new value,
+   and a fill easing after it would leave the knob off the fill's end. */
+
 .slider-rail {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   position: relative;
   flex: 1;
-}
-
-/* Animate value changes smoothly (e.g. EQ loading), but not during drag */
-.slider-container:not(.dragging) {
-  transition: --slider-accent var(--transition-fast), --progress var(--transition-fast);
-}
-
-.slider-container:not(.dragging) .range-thumb {
-  transition: left var(--transition-fast), bottom var(--transition-fast);
+  min-width: 0;
 }
 
 .slider-container.horizontal {
   width: 100%;
-  height: 36px;
-}
-
-.slider-container.horizontal .slider-rail {
-  min-width: 0;
+  height: 34px;
 }
 
 .slider-container.vertical {
-  width: 36px;
+  width: 34px;
   flex: 1;
   flex-direction: column;
 }
 
 .slider-container.vertical .slider-rail {
-  flex-direction: column;
+  min-height: 260px;
 }
 
-/* Track */
+/* === TRACK AND FILL === */
 .range-track {
+  position: absolute;
   border-radius: var(--radius-full);
+  background: var(--color-track);
+  /* The fill's extra run past a held knob never pokes out of the track's
+     rounded end, at the maximum or on the spring's overshoot. */
+  overflow: hidden;
   pointer-events: none;
 }
 
-.slider-container.horizontal .range-track {
-  width: 100%;
-  height: 36px;
-  background: linear-gradient(to right,
-      var(--slider-accent) 0%,
-      var(--slider-accent) var(--progress),
-      var(--color-track) var(--progress),
-      var(--color-track) 100%);
-}
-
-.slider-container.vertical .range-track {
-  width: 36px;
-  min-height: 260px;
-  flex: 1;
-  background: linear-gradient(to top,
-      var(--slider-accent) 0%,
-      var(--slider-accent) var(--progress),
-      var(--color-track) var(--progress),
-      var(--color-track) 100%);
-}
-
-/* Thumb */
-.range-thumb {
+/* The fill is a pill of its own, running to the knob's far edge so the knob
+   always sits on it and its rounded end wraps the knob's. */
+.range-track::before {
+  content: '';
   position: absolute;
-  border-radius: var(--radius-full);
-  background: var(--color-thumb);
-  border: 2px solid var(--slider-accent);
-  cursor: pointer;
-  z-index: 2;
-  touch-action: none; /* Prevent browser touch handling (scroll/pan) during drag */
+  border-radius: inherit;
+  background: var(--slider-accent);
 }
 
-.slider-container.horizontal .range-thumb {
+.horizontal .range-track {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: var(--track-thickness);
+  transform: translateY(-50%);
+}
+
+.horizontal .range-track::before {
   top: 0;
-  height: 100%;
-  aspect-ratio: 1.6;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--thumb-length) + var(--fraction) * (100% - var(--thumb-length)) + var(--fill-extra));
+}
+
+.vertical .range-track {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: var(--track-thickness);
   transform: translateX(-50%);
 }
 
-/* Sized off the track, not the container: `flex: 1` above only means "fill the
-   height" in a column parent — in a row one it stretches the *width* instead,
-   and a container-relative thumb followed it to the full width of the host. */
-.slider-container.vertical .range-thumb {
-  left: 50%;
-  width: 36px;
-  aspect-ratio: 1 / 1.5;
-  transform: translate(-50%, 50%);
+.vertical .range-track::before {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--thumb-length) + var(--fraction) * (100% - var(--thumb-length)) + var(--fill-extra));
 }
 
-/* Step ticks — under the thumb */
-.range-tick {
+/* === THE NATIVE INPUT === */
+/* Only the thumb takes the pointer: a touch on the track lands on what is
+   under it and scrolls the page, as the slider never moved on a track tap. */
+.range-input {
   position: absolute;
-  width: 4px;
-  height: 4px;
-  border-radius: var(--radius-full);
-  background: var(--color-fill-off);
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
   pointer-events: none;
-  z-index: 1;
+  touch-action: none;
+  outline: none;
 }
 
-.slider-container.horizontal .range-tick {
+.horizontal .range-input {
+  left: 3px;
   top: 50%;
-  transform: translate(-50%, -50%);
+  width: calc(100% - 6px);
+  height: var(--knob-height);
+  transform: translateY(-50%);
 }
 
-.slider-container.vertical .range-tick {
+/* Bottom to top, as a fader is read. */
+.vertical .range-input {
+  top: 3px;
   left: 50%;
-  transform: translate(-50%, 50%);
+  width: var(--knob-height);
+  height: calc(100% - 6px);
+  transform: translateX(-50%);
+  writing-mode: vertical-lr;
+  direction: rtl;
 }
 
-/* Disabled state */
-.slider-container.disabled {
-  --slider-accent: color-mix(in srgb, var(--color-fill-muted) 50%, transparent);
+.range-input::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+  border: none;
 }
 
-.slider-container.disabled .range-thumb {
+.range-input::-moz-range-track {
+  height: 100%;
+  background: transparent;
+  border: none;
+}
+
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--knob-width);
+  height: var(--knob-height);
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-thumb);
+  box-shadow: var(--shadow-knob);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.range-input::-moz-range-thumb {
+  width: var(--knob-width);
+  height: var(--knob-height);
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-thumb);
+  box-shadow: var(--shadow-knob);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* A fader cap across a vertical track: wider than tall, as horizontally. */
+.vertical .range-input::-webkit-slider-thumb {
+  width: var(--knob-height);
+  height: var(--knob-width);
+}
+
+.vertical .range-input::-moz-range-thumb {
+  width: var(--knob-height);
+  height: var(--knob-width);
+}
+
+/* Widened from where it stands along the track (its own fraction across its
+   box), so the end it is near stays put. */
+.horizontal .range-input::-webkit-slider-thumb {
+  transform: scaleX(calc(1 + var(--grow) * var(--knob-grow)));
+  transform-origin: calc(var(--fraction) * 100%) 50%;
+}
+
+.horizontal .range-input::-moz-range-thumb {
+  transform: scaleX(calc(1 + var(--grow) * var(--knob-grow)));
+  transform-origin: calc(var(--fraction) * 100%) 50%;
+}
+
+.vertical .range-input::-webkit-slider-thumb {
+  transform: scaleY(calc(1 + var(--grow) * var(--knob-grow)));
+  transform-origin: 50% calc((1 - var(--fraction)) * 100%);
+}
+
+.vertical .range-input::-moz-range-thumb {
+  transform: scaleY(calc(1 + var(--grow) * var(--knob-grow)));
+  transform-origin: 50% calc((1 - var(--fraction)) * 100%);
+}
+
+.range-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--shadow-knob), 0 0 0 2px var(--color-brand);
+}
+
+.range-input:focus-visible::-moz-range-thumb {
+  box-shadow: var(--shadow-knob), 0 0 0 2px var(--color-brand);
+}
+
+.range-input:disabled::-webkit-slider-thumb {
   cursor: not-allowed;
 }
 
-/* Muted state: visual disabled appearance but still interactive */
+.range-input:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+}
+
+/* === STOPS === */
+/* The stops sit under the track, never on it: the ones the value has passed
+   a light gray, the ones ahead barely there. Placed by the thumb's own formula. */
+.range-tick {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-fill-soft);
+  pointer-events: none;
+  transition: background-color var(--transition-fast);
+}
+
+.range-tick--passed {
+  background: var(--color-text-tertiary);
+}
+
+.slider-container.horizontal.stepped {
+  margin-bottom: var(--space-03);
+}
+
+.horizontal .range-tick {
+  left: calc(var(--thumb-length) / 2 + var(--tick) * (100% - var(--thumb-length)));
+  top: calc(50% + var(--track-thickness) / 2 + 7px);
+  transform: translate(-50%, -50%);
+}
+
+.vertical .range-tick {
+  bottom: calc(var(--thumb-length) / 2 + var(--tick) * (100% - var(--thumb-length)));
+  left: calc(50% + var(--track-thickness) / 2 + 7px);
+  transform: translate(-50%, 50%);
+}
+
+/* === STATES === */
+.slider-container.disabled {
+  opacity: var(--opacity-disabled);
+}
+
 .slider-container.muted {
   --slider-accent: color-mix(in srgb, var(--color-fill-muted) 50%, transparent);
 }
 
-/* Inline value */
+/* === VALUE === */
+/* One width for every slider's value, so the tracks of a section line up and
+   none resizes mid-drag; a label longer than that (a long translation) widens
+   it, the widest label held hidden in the same cell. */
 .slider-value {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  min-width: 80px;
+  min-width: 88px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
-  background: var(--color-inset);
+  background: var(--color-track);
   color: var(--slider-accent);
   white-space: nowrap;
 }
@@ -456,31 +541,51 @@ onUnmounted(() => {
   visibility: hidden;
 }
 
-.slider-container.dragging .slider-value {
-  color: var(--color-brand);
+/* With a label: the name on its own line above the track, the value in its
+   pill beside the track as without one. */
+.slider-container.horizontal.labeled {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label label"
+    "rail value";
+  gap: var(--space-03) var(--space-02);
+  height: auto;
 }
 
-/* Responsive */
+.slider-label {
+  grid-area: label;
+  min-width: 0;
+  color: var(--color-text-secondary);
+}
+
+.labeled .slider-rail {
+  grid-area: rail;
+  height: 34px;
+}
+
+.labeled .slider-value {
+  grid-area: value;
+}
+
 @media (max-aspect-ratio: 4/3) {
+  .slider-container {
+    --track-thickness: 30px;
+    --knob-width: 38px;
+    --knob-height: 24px;
+    --knob-grow: 0.105;
+  }
+
   .slider-container.horizontal {
     height: 30px;
   }
 
-  .slider-container.horizontal .range-track {
+  .labeled .slider-rail {
     height: 30px;
   }
 
   .slider-container.vertical {
     width: 30px;
   }
-
-  .slider-container.vertical .range-track {
-    width: 30px;
-  }
-
-  .slider-container.vertical .range-thumb {
-    width: 30px;
-  }
-
 }
 </style>

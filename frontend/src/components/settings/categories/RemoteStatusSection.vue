@@ -28,7 +28,7 @@
           </Button>
           <Button
             v-if="showUnpair"
-            variant="outline"
+            variant="tinted"
             size="small"
             :loading="unpairLoading"
             :disabled="unpairLoading"
@@ -40,15 +40,13 @@
       </SectionHeader>
     </template>
 
-    <SettingItem :label="stepLabel">
-      <RangeSlider
-        :model-value="modelValue"
-        :min="1" :max="6" :step="1"
-        unit="dB"
-        @update:model-value="$emit('update:modelValue', $event)"
-        @change="$emit('step-change', $event)"
-      />
-    </SettingItem>
+    <RangeSlider :label="stepLabel"
+      :model-value="modelValue"
+      :min="1" :max="6" :step="1" ticks
+      unit="dB"
+      @update:model-value="$emit('update:modelValue', $event)"
+      @change="$emit('step-change', $event)"
+    />
   </SettingsSection>
 </template>
 
@@ -56,7 +54,6 @@
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 import Button from '@/components/ui/Button.vue';
 
 defineProps({

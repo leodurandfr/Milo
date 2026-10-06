@@ -191,7 +191,8 @@ const KINDS = {
   'BORDER RADIUS': 'radius',
   'TEXT STYLES': 'tokens',
   SHADOWS: 'shadow',
-  BLUR: 'blur'
+  BLUR: 'blur',
+  STATES: 'tokens'
 };
 
 /**
@@ -216,7 +217,8 @@ const NOTES = {
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
   'TEXT STYLES': 'The raw operands. What a component applies is the utility class below, never these directly.',
-  BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.'
+  BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.',
+  STATES: 'One rule for a control that cannot be used now, whatever it is: the whole control at this opacity, keeping its shape and color, so it still says what it would do.'
 };
 
 function sectionBlock(title) {
@@ -270,7 +272,7 @@ const PAGES = [
     id: 'elevation',
     title: 'Elevation & blur',
     summary: 'What lifts a surface off the one below it: the shadow casts across their intents (ambient, raised, the artwork halo, hairline, the glass edge), the blur radii, and the glass material that combines a tint, a blur and a rim.',
-    sections: ['SHADOWS', 'BLUR'],
+    sections: ['SHADOWS', 'BLUR', 'STATES'],
     extras: [
       {
         title: 'GLASSMORPHISM',

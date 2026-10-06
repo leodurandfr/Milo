@@ -22,7 +22,7 @@
       <template #header>
         <SectionHeader :title="t('musicLibrary.shares.title')">
           <template #actions>
-            <Button variant="outline" size="small" @click="$emit('add-share')">
+            <Button variant="tinted" size="small" @click="$emit('add-share')">
               {{ t('musicLibrary.shares.addShare') }}
             </Button>
           </template>

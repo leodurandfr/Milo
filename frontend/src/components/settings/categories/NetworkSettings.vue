@@ -13,10 +13,9 @@
           <span v-if="miloLocalIface === 'ethernet'" class="connection-card__ip text-mono-small">
             {{ status.ethernet.ip_address }}
           </span>
-          <span class="connection-badge text-mono-small"
-            :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
+          <Badge :tone="status.ethernet.connected ? 'success' : 'error'">
             {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
-          </span>
+          </Badge>
         </div>
       </div>
 
@@ -32,9 +31,9 @@
               <span v-if="miloLocalIface === 'wifi'" class="connection-card__ip text-mono-small">
                 {{ status.wifi.ip_address }}
               </span>
-              <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
+              <Badge :tone="wifiBadgeTone" :pulse="status.wifi.connecting && !status.wifi.connected">
                 {{ wifiBadgeLabel }}
-              </span>
+              </Badge>
             </div>
           </div>
         </div>
@@ -70,7 +69,7 @@
         <div class="wifi-group">
           <div class="network-subheader">
             <span class="heading-3 network-subheader__title">{{ t('network.otherNetworks') }}</span>
-            <Button variant="outline" size="small" left-icon="arrowClockwise"
+            <Button variant="tinted" size="small" left-icon="arrowClockwise"
               :loading="scanning" :disabled="scanning"
               @click="scanNetworks">
               {{ t('network.refresh') }}
@@ -140,6 +139,7 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import InputText from '@/components/ui/InputText.vue';
 import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
+import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
@@ -181,10 +181,10 @@ const showWifiCard = computed(() =>
   status.value.wifi_enabled && !!wifiDisplaySsid.value
 );
 
-const wifiBadgeClass = computed(() => {
-  if (status.value.wifi.connected) return 'connection-badge--connected';
-  if (status.value.wifi.connecting) return 'connection-badge--connecting';
-  return 'connection-badge--disconnected';
+const wifiBadgeTone = computed(() => {
+  if (status.value.wifi.connected) return 'success';
+  if (status.value.wifi.connecting) return 'warning';
+  return 'error';
 });
 
 const wifiBadgeLabel = computed(() => {
@@ -382,27 +382,6 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.connection-badge {
-  flex-shrink: 0;
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
-}
-
-.connection-badge--connected {
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-}
-
-.connection-badge--connecting {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-}
-
-.connection-badge--disconnected {
-  background: var(--color-error-subtle);
-  color: var(--color-error);
 }
 
 /* Height wrapper for single-step animation */

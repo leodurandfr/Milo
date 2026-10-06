@@ -65,7 +65,7 @@
     <GalleryVariant label="actions slot — right-aligned, and it stacks below 4:3" stacked>
       <SectionHeader title="Stations" subtitle="24 saved">
         <template #actions>
-          <Button size="small" variant="outline">Add</Button>
+          <Button size="small" variant="tinted">Add</Button>
         </template>
       </SectionHeader>
     </GalleryVariant>

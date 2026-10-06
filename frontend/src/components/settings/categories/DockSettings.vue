@@ -8,7 +8,7 @@
           <template #actions>
             <Button
               size="small"
-              :variant="isReordering ? 'brand' : 'outline'"
+              :variant="isReordering ? 'brand' : 'tinted'"
               @click="toggleReorderMode"
             >
               {{ isReordering ? t('applicationsSettings.done') : t('applicationsSettings.reorder') }}

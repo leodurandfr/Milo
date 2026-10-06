@@ -26,7 +26,7 @@
         <div v-if="ssh.enabled" class="system-command text-mono-medium">
           ssh milo@milo.local
         </div>
-        <Button size="small" variant="outline" @click="$emit('open-password')">
+        <Button size="small" variant="tinted" @click="$emit('open-password')">
           {{ t('system.password.change') }}
         </Button>
       </div>
@@ -40,7 +40,7 @@
     <SettingsSection :title="t('system.diagnostic.title')">
       <span class="text-mono-medium system-description">{{ t('system.diagnostic.description') }}</span>
 
-      <Button variant="outline" :loading="generating" :disabled="generating"
+      <Button variant="tinted" :loading="generating" :disabled="generating"
         @click="generateReport">
         {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
       </Button>

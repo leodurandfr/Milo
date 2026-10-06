@@ -7,8 +7,7 @@
       :options="storageOptions" size="small" mobile-layout="scroll" />
 
     <!-- Top-level tabs -->
-    <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll"
-      inactive-variant="surface" />
+    <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll" />
 
     <!-- The storage space on screen has just been disconnected. It keeps its
          button until the user picks another one — dropping it here would swap

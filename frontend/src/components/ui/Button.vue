@@ -16,7 +16,7 @@ const props = defineProps({
     variant: {
         type: String,
         default: 'control',
-        validator: (value) => ['control', 'surface', 'brand', 'on-contrast', 'outline', 'outline-neutral', 'important'].includes(value)
+        validator: (value) => ['control', 'brand', 'on-contrast', 'tinted', 'important'].includes(value)
     },
     size: {
         type: String,
@@ -41,33 +41,29 @@ const props = defineProps({
     loading: {
         type: Boolean,
         default: false
+    },
+    // Drawn over content that scrolls under it (a sticky Apply, a wizard's
+    // footer): the tint and the disabled fade are laid over the panel's opaque
+    // color, so nothing shows through the button.
+    floating: {
+        type: Boolean,
+        default: false
     }
 })
 
 const emit = defineEmits(['click'])
 
-function getStateClass() {
-    // Loading + disabled = disabled appearance with spinner
-    if (props.loading && props.disabled) {
-        return 'btn--disabled'
+const buttonClasses = computed(() => [
+    'btn',
+    'heading-4',
+    `btn--${props.variant}`,
+    `btn--${props.size}`,
+    {
+        'btn--loading': props.loading && !props.disabled,
+        'btn--floating': props.floating,
+        'btn--with-icon': props.leftIcon || props.loading
     }
-    // Loading alone keeps variant style
-    if (props.loading) {
-        return 'btn--loading'
-    }
-    return props.disabled ? 'btn--disabled' : 'btn--normal'
-}
-
-const buttonClasses = computed(() => {
-    const typoClass = props.size === 'small' ? 'heading-4' : 'heading-3'
-    const baseClasses = `btn ${typoClass}`
-    const variantClass = `btn--${props.variant}`
-    const sizeClass = `btn--${props.size}`
-    const stateClass = getStateClass()
-    const iconClass = (props.leftIcon || props.loading) ? 'btn--with-icon' : ''
-
-    return `${baseClasses} ${variantClass} ${sizeClass} ${stateClass} ${iconClass}`.trim()
-})
+])
 
 function handleClick(event) {
     if (!props.disabled) {
@@ -78,10 +74,12 @@ function handleClick(event) {
 
 <style scoped>
 .btn {
+    background: var(--btn-fill);
+    color: var(--btn-ink);
     text-align: center;
     border: none;
     cursor: pointer;
-    transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast), var(--transition-press);
+    transition: background var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -94,6 +92,7 @@ function handleClick(event) {
 /* === SIZE variants === */
 /* Medium (default): 48px raspberry / 38px mobile */
 .btn--medium {
+    min-height: 48px;
     padding: 12px 16px;
     border-radius: var(--radius-04);
 }
@@ -135,133 +134,70 @@ function handleClick(event) {
     --spinner-size: 24px;
 }
 
-/* === CONTROL variant === */
-.btn--control.btn--normal {
-    background-color: var(--color-control);
-    color: var(--color-text);
+/* === VARIANTS === */
+/* Each variant names its fill and its ink; .btn paints them, and a floating
+   button composes the same fill over an opaque base. */
+.btn--control {
+    --btn-fill: var(--color-control);
+    --btn-ink: var(--color-text);
 }
 
-.btn--control.btn--disabled {
-    background-color: var(--color-inset);
-    color: var(--color-text-tertiary);
+.btn--brand {
+    --btn-fill: var(--color-brand);
+    --btn-ink: var(--color-text-on-brand);
 }
 
-/* === SURFACE variant (the panel's fill, no border) === */
-.btn--surface.btn--normal {
-    background-color: var(--color-surface);
-    color: var(--color-text-secondary);
+/* A glint on a contrast surface */
+.btn--on-contrast {
+    --btn-fill: var(--color-glint);
+    --btn-ink: var(--color-text-on-contrast);
 }
 
-.btn--surface.btn--disabled {
-    background-color: var(--color-inset);
-    color: var(--color-text-tertiary);
+/* The secondary action: brand ink on a brand tint */
+.btn--tinted {
+    --btn-fill: var(--color-brand-subtle);
+    --btn-ink: var(--color-brand);
 }
 
-/* === BRAND variant === */
-.btn--brand.btn--normal {
-    background-color: var(--color-brand);
-    color: var(--color-text-on-brand);
+/* A destructive action: red ink on a red tint */
+.btn--important {
+    --btn-fill: var(--color-error-subtle);
+    --btn-ink: var(--color-error);
 }
 
-.btn--brand.btn--disabled {
-    background-color: var(--color-inset);
-    color: var(--color-text-tertiary);
+/* === STATES === */
+/* Disabled (loading or not): the button as it is, faded, so it still says
+   what it would do. */
+.btn:disabled {
+    opacity: var(--opacity-disabled);
 }
 
-/* === ON-CONTRAST variant (a glint on a contrast surface) === */
-.btn--on-contrast.btn--normal {
-    background-color: var(--color-glint);
-    color: var(--color-text-on-contrast);
-}
-
-.btn--on-contrast.btn--disabled {
-    background-color: var(--color-glint);
-    color: var(--color-text-on-contrast-secondary);
-}
-
-/* === OUTLINE variant === */
-.btn--outline.btn--normal {
-    background-color: var(--color-panel);
-    color: var(--color-brand);
-    box-shadow: inset 0 0 0 2px var(--color-brand);
-}
-
-.btn--outline.btn--disabled {
-    background-color: var(--color-inset);
-    color: var(--color-text-tertiary);
-    box-shadow: none;
-}
-
-/* === OUTLINE-NEUTRAL variant (neutral border, e.g. unselected ButtonGroup item) === */
-.btn--outline-neutral.btn--normal {
-    background-color: var(--color-panel);
-    color: var(--color-text-secondary);
-    box-shadow: inset 0 0 0 2px var(--color-border);
-}
-
-.btn--outline-neutral.btn--disabled {
-    background-color: var(--color-inset);
-    color: var(--color-text-tertiary);
-    box-shadow: none;
-}
-
-/* === IMPORTANT variant (a destructive action: a red fill, no border) === */
-.btn--important.btn--normal {
-    background-color: var(--color-error);
-    color: var(--color-text-on-error);
-}
-
-.btn--important.btn--disabled {
-    background-color: var(--color-inset);
-    color: var(--color-text-tertiary);
-}
-
-/* === LOADING state - preserves variant styling === */
 .btn--loading {
     cursor: wait;
     pointer-events: none;
 }
 
-.btn--control.btn--loading {
-    background-color: var(--color-control);
-    color: var(--color-text);
+/* Floating: the fill over the panel, and the disabled fade as a veil of the
+   panel over both rather than an opacity, which would let the content
+   scrolling underneath show through. */
+.btn--floating {
+    background: linear-gradient(var(--btn-fill), var(--btn-fill)), var(--color-panel);
 }
 
-.btn--surface.btn--loading {
-    background-color: var(--color-surface);
-    color: var(--color-text-secondary);
-}
-
-.btn--brand.btn--loading {
-    background-color: var(--color-brand);
-    color: var(--color-text-on-brand);
-}
-
-.btn--on-contrast.btn--loading {
-    background-color: var(--color-glint);
-    color: var(--color-text-on-contrast);
-}
-
-.btn--outline.btn--loading {
-    background-color: var(--color-panel);
-    color: var(--color-brand);
-    box-shadow: inset 0 0 0 2px var(--color-brand);
-}
-
-.btn--outline-neutral.btn--loading {
-    background-color: var(--color-panel);
-    color: var(--color-text-secondary);
-    box-shadow: inset 0 0 0 2px var(--color-border);
-}
-
-.btn--important.btn--loading {
-    background-color: var(--color-error);
-    color: var(--color-text-on-error);
+.btn--floating:disabled {
+    --btn-veil: color-mix(in srgb, var(--color-panel) 60%, transparent);
+    opacity: 1;
+    background:
+        linear-gradient(var(--btn-veil), var(--btn-veil)),
+        linear-gradient(var(--btn-fill), var(--btn-fill)),
+        var(--color-panel);
+    color: color-mix(in srgb, var(--btn-ink) 40%, var(--color-panel));
 }
 
 /* === RESPONSIVE (Mobile) === */
 @media (max-aspect-ratio: 4/3) {
     .btn--medium {
+        min-height: 38px;
         height: 38px;
         padding: 8px 16px;
         border-radius: var(--radius-03);

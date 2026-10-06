@@ -43,7 +43,7 @@
         </Button>
       </SettingsSection>
 
-      <Button v-if="hasChanged" variant="brand" size="medium" type="submit" class="apply-button-sticky"
+      <Button v-if="hasChanged" variant="brand" size="medium" type="submit" class="apply-button-sticky" floating
         :loading="isSubmitting" :disabled="isSubmitting">
         {{ t('musicLibrary.usb.rename') }}
       </Button>

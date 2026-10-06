@@ -34,16 +34,17 @@ function toggle() {
 </script>
 
 <style scoped>
+/* Off, a translucent disc (the ground of a Toggle that is off), so it reads
+   on any panel; on, the brand with the thumb's dot. */
 .radio {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-full);
-  background: transparent;
-  box-shadow: inset 0 0 0 2px var(--color-fill-off);
+  background: var(--color-fill-soft);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color var(--transition-fast), box-shadow var(--transition-fast), var(--transition-press);
+  transition: background-color var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
   cursor: pointer;
   flex-shrink: 0;
   border: none;
@@ -52,26 +53,33 @@ function toggle() {
 
 .radio--active {
   background: var(--color-brand);
-  box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
+/* The dot keeps its size and fades: in from half its size on the spring,
+   out to half its size without one, so it never shrinks to a speck. */
 .radio__dot {
-  width: 28px;
-  height: 28px;
+  width: 12px;
+  height: 12px;
   border-radius: var(--radius-full);
-  transition: width var(--transition-fast), height var(--transition-fast);
+  background: var(--color-thumb);
+  box-shadow: var(--shadow-knob);
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    transform var(--transition-fast-leave),
+    opacity var(--transition-fast-leave);
 }
 
-/* Off, the ring is drawn and its middle left empty, so it reads on any panel,
-   translucent ones included; on, the dot is the thumb on the brand. */
 .radio--active .radio__dot {
-  width: 16px;
-  height: 16px;
-  background: var(--color-thumb);
+  opacity: 1;
+  transform: none;
+  transition:
+    transform var(--transition-spring-light),
+    opacity var(--transition-fast);
 }
 
 .radio:disabled {
-  opacity: 0.5;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 </style>

@@ -6,7 +6,7 @@
     <header class="discography-header">
       <SpotifySectionTitle :title="t('spotify.discography')" linked @open="$emit('show-all', current.id)" />
       <ButtonGroup v-if="groups.length > 1" :model-value="current.id" :options="options"
-        size="small" inactive-variant="surface" width="hug" mobile-layout="scroll"
+        size="small" width="hug" mobile-layout="scroll"
         @update:model-value="$emit('update:group', $event)" />
     </header>
     <SpotifyShelfRow :key="current.id" :items="cards" @select="$emit('select', $event)" />

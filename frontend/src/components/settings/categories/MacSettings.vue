@@ -4,11 +4,9 @@
     <template v-if="caps">
       <!-- The half this unit runs: roc-recv. -->
       <SettingsSection :title="t('macSettings.receiver')">
-        <SettingItem :label="t('macSettings.targetLatency')">
-          <RangeSlider :model-value="draft.target_latency_ms" :min="caps.target_latency_ms.min"
-            :max="caps.target_latency_ms.max" :step="5" unit="ms" :disabled="busy"
-            @update:model-value="set('target_latency_ms', $event)" />
-        </SettingItem>
+        <RangeSlider :label="t('macSettings.targetLatency')" :model-value="draft.target_latency_ms" :min="caps.target_latency_ms.min"
+          :max="caps.target_latency_ms.max" :step="5" unit="ms" :disabled="busy"
+          @update:model-value="set('target_latency_ms', $event)" />
 
         <SettingItem :label="t('macSettings.latencyProfile')">
           <ButtonGroup :model-value="draft.latency_profile" :options="profileOptions" :disabled="busy"
@@ -31,17 +29,13 @@
             :disabled="busy" mobile-layout="grid-3" @change="set('packet_length_ms', $event)" />
         </SettingItem>
 
-        <SettingItem :label="t('macSettings.fecSource')">
-          <RangeSlider :model-value="draft.fec_block_source" :min="caps.fec_block_source.min"
-            :max="caps.fec_block_source.max" :disabled="busy"
-            @update:model-value="set('fec_block_source', $event)" />
-        </SettingItem>
+        <RangeSlider :label="t('macSettings.fecSource')" :model-value="draft.fec_block_source" :min="caps.fec_block_source.min"
+          :max="caps.fec_block_source.max" :disabled="busy"
+          @update:model-value="set('fec_block_source', $event)" />
 
-        <SettingItem :label="t('macSettings.fecRepair')">
-          <RangeSlider :model-value="draft.fec_block_repair" :min="caps.fec_block_repair.min"
-            :max="caps.fec_block_repair.max" :disabled="busy"
-            @update:model-value="set('fec_block_repair', $event)" />
-        </SettingItem>
+        <RangeSlider :label="t('macSettings.fecRepair')" :model-value="draft.fec_block_repair" :min="caps.fec_block_repair.min"
+          :max="caps.fec_block_repair.max" :disabled="busy"
+          @update:model-value="set('fec_block_repair', $event)" />
 
         <div class="toggle-row">
           <span class="text-mono-medium toggle-row__label">{{ t('macSettings.interleaving') }}</span>
@@ -53,7 +47,7 @@
       <!-- The analysis measures and proposes; the controls above move and
            Apply stays the one write. -->
       <SettingsSection :title="t('macSettings.analysis')">
-        <Button variant="outline" size="medium" class="auto-tune" :loading="calibration.running"
+        <Button variant="tinted" size="medium" class="auto-tune" :loading="calibration.running"
           :disabled="busy" @click="startAnalysis">
           {{ t('macSettings.autoTune') }}
         </Button>
@@ -113,7 +107,7 @@
 
     <!-- One write for both halves: mac.env and a roc-recv restart here, the
          Mac's device rebuilt by the Milō app for Mac. -->
-    <Button v-if="macLinkStore.hasChanges" variant="brand" size="medium" class="apply-button-sticky"
+    <Button v-if="macLinkStore.hasChanges" variant="brand" size="medium" class="apply-button-sticky" floating
       :loading="macLinkStore.isApplying" :disabled="busy" @click="macLinkStore.apply()">
       {{ macLinkStore.isApplying ? t('macSettings.applying') : t('macSettings.apply') }}
     </Button>

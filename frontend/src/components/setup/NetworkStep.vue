@@ -22,19 +22,18 @@
           <SvgIcon name="network" :size="24"
             :color="status.ethernet.connected ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)'" />
           <span class="text-body">{{ t('network.ethernet') }}</span>
-          <span class="connection-badge text-mono-small"
-            :class="status.ethernet.connected ? 'connection-badge--connected' : 'connection-badge--disconnected'">
+          <Badge class="connection-badge" :tone="status.ethernet.connected ? 'success' : 'neutral'">
             {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
-          </span>
+          </Badge>
         </div>
 
         <!-- WiFi row (always visible) -->
         <div class="connection-row connection-row--wifi">
           <WifiSignal :signal="wifiCardSignal" :size="24" />
           <span class="text-body connection-row__ssid">{{ wifiDisplaySsid || t('network.wifi') }}</span>
-          <span class="connection-badge text-mono-small" :class="wifiBadgeClass">
+          <Badge class="connection-badge" :tone="wifiBadgeTone" :pulse="wifiBadgeTone === 'warning'">
             {{ wifiBadgeLabel }}
-          </span>
+          </Badge>
         </div>
       </template>
     </div>
@@ -65,6 +64,7 @@ import { useTimer } from '@/composables/useTimer';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
+import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -98,11 +98,12 @@ const wifiCardSignal = computed(() => {
   return ssid ? (networks.value.find(n => n.ssid === ssid)?.signal ?? null) : null;
 });
 
-const wifiBadgeClass = computed(() => {
-  if (status.value.wifi.connected) return 'connection-badge--connected';
-  if (status.value.wifi.connecting) return 'connection-badge--connecting';
-  if (wifiDisplaySsid.value) return 'connection-badge--ready';
-  return 'connection-badge--disconnected';
+// Disconnected stays neutral: at setup an unplugged cable is not an error.
+const wifiBadgeTone = computed(() => {
+  if (status.value.wifi.connected) return 'success';
+  if (status.value.wifi.connecting) return 'warning';
+  if (wifiDisplaySsid.value) return 'brand';
+  return 'neutral';
 });
 
 const wifiBadgeLabel = computed(() => {
@@ -172,8 +173,8 @@ onMounted(() => {
 .connection-badge-skeleton {
   margin-left: auto;
   width: 64px;
-  height: 20px;
-  border-radius: var(--radius-02);
+  height: 26px;
+  border-radius: var(--radius-full);
 }
 
 .connection-row__ssid {
@@ -185,28 +186,5 @@ onMounted(() => {
 
 .connection-badge {
   margin-left: auto;
-  flex-shrink: 0;
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
-}
-
-.connection-badge--connected {
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-}
-
-.connection-badge--connecting {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-}
-
-.connection-badge--ready {
-  background: color-mix(in srgb, var(--color-brand) 16%, transparent);
-  color: var(--color-brand);
-}
-
-.connection-badge--disconnected {
-  background: color-mix(in srgb, var(--color-text-tertiary) 16%, transparent);
-  color: var(--color-text-secondary);
 }
 </style>

@@ -114,7 +114,7 @@
 
     <!-- Pick the current folder (SMB, once inside a share) — sticky, so it's
          reachable from anywhere in the entries list. -->
-    <Button v-if="phase === 'browsing' && canUseFolder" variant="brand" size="medium" class="apply-button-sticky"
+    <Button v-if="phase === 'browsing' && canUseFolder" variant="brand" size="medium" class="apply-button-sticky" floating
       :loading="creating" @click="useThisFolder">
       {{ t('musicLibrary.shares.wizard.useFolder', { name: currentName }) }}
     </Button>

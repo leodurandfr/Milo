@@ -14,10 +14,8 @@
 
     <!-- Brightness -->
     <SettingsSection :title="t('screenSettings.brightness')">
-      <SettingItem :label="t('screenSettings.brightnessIntensity')">
-        <RangeSlider v-model="config.brightness_on" :min="1" :max="10" :step="1"
-          @input="handleBrightnessChange" @change="saveBrightness" />
-      </SettingItem>
+      <RangeSlider :label="t('screenSettings.brightnessIntensity')" v-model="config.brightness_on" :min="1" :max="10" :step="1" ticks
+        @input="handleBrightnessChange" @change="saveBrightness" />
     </SettingsSection>
 
     <!-- UI Scale: the kiosk's device scale factor, applied by a kiosk restart -->
@@ -38,17 +36,15 @@
       :enabled="config.color_filter_enabled"
       @change="handleColorFilterToggle"
     >
-      <SettingItem :label="t('screenSettings.colorFilterWarmth')">
-        <RangeSlider
-          v-model="config.color_filter_warmth"
-          :min="0"
-          :max="100"
-          :step="1"
-          unit="%"
-          @input="previewColorFilterWarmth"
-          @change="saveColorFilterWarmth"
-        />
-      </SettingItem>
+      <RangeSlider :label="t('screenSettings.colorFilterWarmth')"
+        v-model="config.color_filter_warmth"
+        :min="0"
+        :max="100"
+        :step="1"
+        unit="%"
+        @input="previewColorFilterWarmth"
+        @change="saveColorFilterWarmth"
+      />
     </ToggleSection>
 
     <!-- Automatic full-screen player -->
@@ -57,15 +53,11 @@
       :enabled="config.auto_player_enabled"
       @change="handleAutoPlayerToggle"
     >
-      <div class="auto-player-content">
-        <SettingItem :label="t('screenSettings.autoPlayerDelay')">
-          <RangeSlider
-            :model-value="config.auto_player_delay_seconds"
-            :steps="delaySteps"
-            @change="setAutoPlayerDelay"
-          />
-        </SettingItem>
-      </div>
+      <RangeSlider :label="t('screenSettings.autoPlayerDelay')"
+        :model-value="config.auto_player_delay_seconds"
+        :steps="delaySteps"
+        @change="setAutoPlayerDelay"
+      />
     </ToggleSection>
 
     <!-- Auto sleep -->
@@ -74,14 +66,12 @@
       :enabled="config.timeout_enabled"
       @change="handleAutoSleepToggle"
     >
-      <SettingItem :label="t('screenSettings.sleepDelay')">
-        <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
-        <RangeSlider
-          :model-value="config.timeout_enabled ? config.timeout_seconds : lastNonZeroTimeout"
-          :steps="delaySteps"
-          @change="setScreenTimeout"
-        />
-      </SettingItem>
+      <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
+      <RangeSlider :label="t('screenSettings.sleepDelay')"
+        :model-value="config.timeout_enabled ? config.timeout_seconds : lastNonZeroTimeout"
+        :steps="delaySteps"
+        @change="setScreenTimeout"
+      />
     </ToggleSection>
   </SettingsContainer>
 </template>
@@ -268,14 +258,3 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
-.auto-player-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.auto-player-content :deep(.setting-item) {
-  gap: var(--space-04);
-}
-</style>

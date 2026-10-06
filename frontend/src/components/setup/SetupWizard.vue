@@ -38,7 +38,7 @@
 
       <!-- Unified footer (absolute positioned, all steps) -->
       <div class="setup-card__footer">
-        <Button v-if="currentStep === 0" variant="brand" @click="nextStep">
+        <Button floating v-if="currentStep === 0" variant="brand" @click="nextStep">
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
@@ -49,16 +49,16 @@
           <span v-if="!wifiCountry || !wizardState.wifiSsid" class="text-mono-small setup-card__hint">
             {{ t('setup.wifi.continueHint') }}
           </span>
-          <Button variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
+          <Button floating variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
             {{ t('setup.continue') }}
           </Button>
         </template>
 
-        <Button v-else-if="!isSummaryStep" variant="brand" @click="nextStep">
+        <Button floating v-else-if="!isSummaryStep" variant="brand" @click="nextStep">
           {{ t('setup.continue') }}
         </Button>
 
-        <Button v-else :variant="applyButtonVariant" :loading="isApplying" :disabled="isRebooting"
+        <Button floating v-else :variant="applyButtonVariant" :loading="isApplying" :disabled="isRebooting"
           @click="handleApply">
           {{ applyButtonLabel }}
         </Button>
@@ -170,7 +170,7 @@ const applyButtonLabel = computed(() => {
 });
 
 const applyButtonVariant = computed(() => {
-  if (confirmReboot.value) return 'outline';
+  if (confirmReboot.value) return 'tinted';
   return 'brand';
 });
 

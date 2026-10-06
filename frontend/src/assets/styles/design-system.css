@@ -85,6 +85,8 @@
     --color-brand: #ff6428;
     /* What is written on the brand color: white in both themes. */
     --color-text-on-brand: var(--gray-0);
+    /* The brand at 12%, under brand text: the tinted button. */
+    --color-brand-subtle: rgba(255, 100, 40, 0.12);
 
     /* === SURFACES === */
     /* The ground a screen is painted on: the page, the setup wizard, the
@@ -125,8 +127,10 @@
        content as --color-inset and --color-tile. */
     --color-section-inset: var(--color-inset);
     --color-section-tile: var(--color-tile);
-    /* The fill of a button or an icon button. */
-    --color-control: var(--gray-50);
+    /* The fill of a button or an icon button: the track's ink, so a control
+       reads as pressed into whatever it sits on — a panel, the ground, a
+       source's wash — rather than as a gray plate laid over it. */
+    --color-control: var(--gray-950-a6);
 
     /* === TRACKS AND FILLS === */
     /* Every empty track — slider, progress, meter, gauge, step indicator. An
@@ -138,8 +142,11 @@
     --color-fill: var(--gray-950);
     /* The quiet one: a slider's value, a dimmed progress, a usage gauge. */
     --color-fill-muted: var(--gray-500);
-    /* Something that is off: a Toggle's track, a radio's ring, a status dot. */
+    /* Something that is off: a status dot, a dimmed glyph. */
     --color-fill-off: var(--gray-300);
+    /* The ground of a switch that is off, a Toggle's track or a Radio's disc:
+       a translucent gray, as iOS draws it. */
+    --color-fill-soft: var(--gray-500-a16);
     /* The knob of a Toggle or a slider, the dot of a radio: a light disc in
        both themes, as a physical switch's would be. */
     --color-thumb: var(--gray-0);
@@ -222,15 +229,17 @@
     --color-key-active: var(--color-contrast-80);
     --color-key-active-ink: var(--color-text-on-contrast);
     --color-key-function: var(--gray-950-a32);
+    /* A character key held down: an opaque step off the key, so the glass
+       under the keyboard never shows through the key under the finger. */
+    --color-key-pressed: var(--gray-50);
 
     /* === STATUS === */
     --color-success: #11aa3a;
     --color-warning: #ff9800;
     --color-error: #f44336;
-    /* The ink on a red fill (the important button), white in both themes. */
-    --color-text-on-error: var(--gray-0);
 
-    /* Subtle variants — ~12% alpha for badges, banners, status blocks */
+    /* Subtle variants — ~12% alpha for badges, banners, status blocks, the
+       important button */
     --color-warning-subtle: rgba(255, 152, 0, 0.12);
     --color-error-subtle: rgba(244, 67, 54, 0.12);
     --color-success-subtle: rgba(17, 170, 58, 0.12);
@@ -336,6 +345,16 @@
     /* Halo behind the full player's artwork: no offset, very wide, barely there. */
     --shadow-artwork: 0 0 96px #0000000d;
 
+    /* The lift of a ButtonGroup's thumb off its track. */
+    --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+    /* The knob of a Toggle or a slider, and a Radio's dot: a light disc that
+       must read on a white panel too, where only its edge and its drop tell it
+       apart — a half-pixel ring, then a close and a wide shadow. */
+    --shadow-knob:
+        0 0 0 0.5px rgba(0, 0, 0, 0.12),
+        0 1px 3px rgba(0, 0, 0, 0.2),
+        0 4px 10px rgba(0, 0, 0, 0.1);
+
     /* Hairline under a key at rest — a bottom edge that takes no layout space. */
     --shadow-key: 0 1px 0 rgba(0, 0, 0, 0.12);
 
@@ -351,6 +370,11 @@
         inset 0 -1.25px 0.25px rgba(255, 255, 255, 0.16),
         inset 0 10px 10px -10px rgba(255, 255, 255, 0.16),
         inset 0 -10px 10px -10px rgba(255, 255, 255, 0.16);
+
+    /* === STATES === */
+    /* A control that cannot be used now: the whole control, faded, keeping its
+       shape and its color so it still says what it would do. */
+    --opacity-disabled: 0.4;
 
     /* === BLUR === */
     --blur-01: 4px;
@@ -396,6 +420,7 @@
 
     --transition-spring-fast: 1.0s
     linear(0, 0.018, 0.0673, 0.1405, 0.2309, 0.3324, 0.4395, 0.5474, 0.6522, 0.7509, 0.841, 0.9209, 0.9895, 1.0466, 1.092, 1.1262, 1.15, 1.1645, 1.1706, 1.1697, 1.163, 1.1518, 1.1373, 1.1205, 1.1024, 1.0839, 1.0657, 1.0484, 1.0325, 1.0182, 1.0057, 0.9953, 0.9868, 0.9803, 0.9756, 0.9726, 0.971, 0.9708, 0.9716, 0.9733, 0.9756, 0.9783, 0.9814, 0.9845, 0.9877, 0.9907, 0.9935, 0.9961, 0.9983, 1.0002, 1.0018, 1.003, 1.0039, 1.0045, 1.0049, 1.005, 1.0049, 1.0047, 1.0043, 1.0039, 1.0034, 1.0028, 1.0023, 1.0018, 1.0013, 1.0008, 1.0004, 1.0001, 0.9998, 0.9996, 0.9994, 0.9993, 0.9992, 0.9991, 0.9991, 0.9992, 0.9992, 0.9993, 0.9994, 0.9995, 0.9996, 0.9997, 0.9998, 0.9998, 0.9999, 1, 1, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1.0001, 1);
+
 
     --transition-press: transform 400ms linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1),
         opacity 150ms ease-out;
@@ -446,12 +471,13 @@
        an equal step between dark tones reads weaker. */
     --color-section-inset: var(--gray-900);
     --color-section-tile: var(--gray-850);
-    --color-control: var(--gray-800);
+    --color-control: var(--gray-100-a10);
 
     --color-track: var(--gray-100-a10);
     --color-fill: var(--gray-300);
     --color-fill-muted: var(--gray-400);
     --color-fill-off: var(--gray-600);
+    --color-fill-soft: var(--gray-500-a32);
     --color-thumb: var(--gray-100);
 
     --color-overlay: var(--gray-950-a72);
@@ -477,6 +503,7 @@
     --color-key-active: var(--gray-100-a80);
     --color-key-active-ink: var(--color-ground);
     --color-key-function: var(--color-glint);
+    --color-key-pressed: var(--gray-800);
 
 
     /* Each wash tints the dark ground by what it tints the light one (the same

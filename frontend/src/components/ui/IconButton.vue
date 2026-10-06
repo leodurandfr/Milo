@@ -187,7 +187,7 @@ function handleClick(event) {
 
 /* === STATES === */
 .icon-button:disabled {
-  opacity: 0.24;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 

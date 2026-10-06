@@ -128,7 +128,7 @@ export const ENTRIES = [
     id: 'Button',
     group: 'actions',
     file: 'components/ui/Button.vue',
-    summary: '7 variants x 2 sizes. loading keeps the variant styling; loading + disabled greys out. A labelless spinner button is IconButton, not this.',
+    summary: '5 variants x 2 sizes. loading keeps the variant styling; loading + disabled greys out. A labelless spinner button is IconButton, not this.',
   },
   {
     id: 'IconButton',
@@ -140,7 +140,7 @@ export const ENTRIES = [
     id: 'ButtonGroup',
     group: 'actions',
     file: 'components/ui/ButtonGroup.vue',
-    summary: 'Segmented control over options. The selected option is always outline; inactiveVariant styles the rest. mobileLayout picks the reflow below 4:3.',
+    summary: 'Segmented control over options: one track, a thumb gliding under the selected one. mobileLayout picks the reflow below 4:3.',
   },
   {
     id: 'ListItemButton',
@@ -191,7 +191,7 @@ export const ENTRIES = [
     id: 'RangeSlider',
     group: 'controls',
     file: 'components/ui/RangeSlider.vue',
-    summary: 'Single-value slider, horizontal or vertical. Emits drag-start/drag-end so a caller can throttle writes to the value and commit once. With steps ([{ value, label }]) it snaps between evenly spaced stops, marks each on the track and shows the stop\'s label.',
+    summary: 'Single-value slider, horizontal or vertical. Emits drag-start/drag-end so a caller can throttle writes to the value and commit once. With steps ([{ value, label }]) it snaps between evenly spaced stops, marks each on the track and shows the stop\'s label; ticks does the same at every step from min to max, for a setting chosen among a few levels.',
   },
   {
     id: 'DoubleRangeSlider',
@@ -213,6 +213,12 @@ export const ENTRIES = [
     group: 'feedback',
     file: 'components/ui/LoadingSpinner.vue',
     summary: 'Indeterminate spinner, drawn in currentColor at the same optical weight as an icon of the same size — so it can stand in for one. It carries no surface: the light plate it used to offer is AppIcon\'s loading state.',
+  },
+  {
+    id: 'Badge',
+    group: 'feedback',
+    file: 'components/ui/Badge.vue',
+    summary: 'A short status beside a row\'s title: a pill tinted by its tone, with a dot for a state (success, warning, error, brand) and none for a plain fact (neutral). pulse makes the dot breathe while the state is in progress.',
   },
   {
     id: 'NotificationBanner',

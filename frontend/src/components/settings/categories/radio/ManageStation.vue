@@ -27,7 +27,7 @@
         <div class="image-upload-group">
           <div class="form-group">
             <label class="text-mono-medium">{{ t('radio.manageStation.image') }}</label>
-            <Button variant="outline" size="medium" class="full-width-btn" @click="$refs.fileInput.click()">
+            <Button variant="tinted" size="medium" class="full-width-btn" @click="$refs.fileInput.click()">
               {{ t('radio.manageStation.chooseImage') }}
             </Button>
           </div>

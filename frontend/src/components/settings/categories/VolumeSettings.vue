@@ -8,23 +8,17 @@
   <SettingsContainer v-else>
     <!-- Volume controls -->
     <SettingsSection :title="t('volumeSettings.controls')">
-      <SettingItem v-if="rotaryEnabled" :label="t('volumeSettings.rotaryStep')">
-        <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" unit="dB"
-          @change="updateSetting('rotary-steps', { step_rotary_db: $event })" />
-      </SettingItem>
+      <RangeSlider v-if="rotaryEnabled" :label="t('volumeSettings.rotaryStep')" v-model="config.step_rotary_db" :min="1" :max="6" :step="1" ticks unit="dB"
+        @change="updateSetting('rotary-steps', { step_rotary_db: $event })" />
 
-      <SettingItem :label="t('volumeSettings.mobileStep')">
-        <RangeSlider v-model="config.step_mobile_db" :min="1" :max="6" :step="1" unit="dB"
-          @change="updateSetting('volume-steps', { step_mobile_db: $event })" />
-      </SettingItem>
+      <RangeSlider :label="t('volumeSettings.mobileStep')" v-model="config.step_mobile_db" :min="1" :max="6" :step="1" ticks unit="dB"
+        @change="updateSetting('volume-steps', { step_mobile_db: $event })" />
     </SettingsSection>
 
     <!-- Volume limits -->
     <SettingsSection :title="t('volumeSettings.limits')">
-      <SettingItem :label="t('volumeSettings.minMax')">
-        <DoubleRangeSlider v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" unit="dB"
-          @change="updateVolumeLimits" />
-      </SettingItem>
+      <DoubleRangeSlider :label="t('volumeSettings.minMax')" v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" unit="dB"
+        @change="updateVolumeLimits" />
     </SettingsSection>
 
     <!-- Startup volume -->
@@ -36,10 +30,8 @@
         @change="handleStartupModeChange"
       />
 
-      <SettingItem v-if="!config.restore_last_volume" :label="t('volumeSettings.fixedStartup')">
-        <RangeSlider v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" unit="dB"
-          @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
-      </SettingItem>
+      <RangeSlider v-if="!config.restore_last_volume" :label="t('volumeSettings.fixedStartup')" v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" unit="dB"
+        @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
     </SettingsSection>
   </SettingsContainer>
 </template>
@@ -56,7 +48,6 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t } = useI18n();
 const { updateSetting } = useSettingsAPI();

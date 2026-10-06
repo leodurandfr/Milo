@@ -12,7 +12,7 @@
     <GalleryVariant label='size="small"'>
       <Button variant="brand" size="small" @click="clicks++">brand</Button>
       <Button size="small" @click="clicks++">control</Button>
-      <Button variant="outline" size="small" @click="clicks++">outline</Button>
+      <Button variant="tinted" size="small" @click="clicks++">tinted</Button>
     </GalleryVariant>
     <GalleryVariant label="leftIcon">
       <Button left-icon="heart" variant="brand" @click="clicks++">Favourite</Button>
@@ -57,11 +57,11 @@
     <GalleryVariant :label="`v-model — ${quality}`" stacked>
       <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" />
     </GalleryVariant>
-    <GalleryVariant label='size="small" + inactiveVariant="surface"' stacked>
-      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" inactive-variant="surface" />
+    <GalleryVariant label='size="small"' stacked>
+      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" />
     </GalleryVariant>
     <GalleryVariant label='width="hug" — filters beside a title' stacked>
-      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" inactive-variant="surface" width="hug" />
+      <ButtonGroup v-model="quality" :options="QUALITY_OPTIONS" size="small" width="hug" />
     </GalleryVariant>
     <GalleryVariant label="a disabled option, then the whole group disabled" stacked>
       <ButtonGroup v-model="preset" :options="PRESET_OPTIONS" />
@@ -124,7 +124,7 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 // drawn on a panel; `on-contrast` is a translucent glint, only legible over the
 // contrast surface it was drawn for, so judging it on a panel is how a variant
 // gets called broken.
-const PANEL_BUTTON_VARIANTS = ['control', 'surface', 'brand', 'outline', 'outline-neutral', 'important'];
+const PANEL_BUTTON_VARIANTS = ['control', 'brand', 'tinted', 'important'];
 
 const QUALITY_OPTIONS = [
   { label: 'Low', value: 'low' },

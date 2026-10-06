@@ -11,11 +11,11 @@
  *
  *   1. a control in a section `#header` sits in `SectionHeader`'s `#actions`
  *      (layout lives there once), never beside it;
- *   2. an action is a Button or a Dropdown — IconButton has no outline —, a
- *      Button is `small` and `outline` — `brand` only
+ *   2. an action is a Button or a Dropdown — IconButton has no label —, a
+ *      Button is `small` and `tinted` — `brand` only
  *      for a state asking for the user's attention now (a preset edited and
  *      unsaved, Done while reordering, a remote to pair) — and a Dropdown is
- *      `small` in its default `outline`.
+ *      `small` in its default `filled`.
  *
  * `brand` cannot be told apart from a misuse by reading a template; that half
  * stays a review call. A header whose only control is a Toggle is
@@ -29,8 +29,8 @@ import { dirname, join, resolve, relative } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
 
-const BUTTON_VARIANTS = new Set(['outline', 'brand']);
-const DROPDOWN_VARIANTS = new Set(['outline']);
+const BUTTON_VARIANTS = new Set(['tinted', 'brand']);
+const DROPDOWN_VARIANTS = new Set(['filled']);
 const CONTROLS = ['Button', 'IconButton', 'Dropdown'];
 
 function vueFiles(dir) {
@@ -168,7 +168,7 @@ describe('section header actions', () => {
     expect(iconOnly).toEqual([]);
   });
 
-  it('a header Button is small, and outline or brand', () => {
+  it('a header Button is small, and tinted or brand', () => {
     const offenders = ACTIONS.flatMap(({ file, body }) => tags(body, 'Button')
       .filter((tag) => {
         const variants = attrValues(tag, 'variant');
@@ -180,7 +180,7 @@ describe('section header actions', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('a header Dropdown is small, in its default outline', () => {
+  it('a header Dropdown is small, in its default filled', () => {
     const offenders = ACTIONS.flatMap(({ file, body }) => tags(body, 'Dropdown')
       .filter((tag) => {
         const variants = attrValues(tag, 'variant');

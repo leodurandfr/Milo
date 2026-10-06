@@ -35,28 +35,24 @@
     <template v-else>
       <ButtonGroup :model-value="config.mode" :options="modeOptions" @change="setMode" />
 
-      <SettingItem v-if="config.mode === 'manual'" :label="t('fanSettings.manualSpeed')">
-        <RangeSlider
-          v-model="config.manual_percent"
-          :min="0"
-          :max="100"
-          :step="5"
-          unit="%"
-          @input="onManualInput"
-          @change="onManualChange"
-        />
-      </SettingItem>
+      <RangeSlider v-if="config.mode === 'manual'" :label="t('fanSettings.manualSpeed')"
+        v-model="config.manual_percent"
+        :min="0"
+        :max="100"
+        :step="5"
+        unit="%"
+        @input="onManualInput"
+        @change="onManualChange"
+      />
 
-      <SettingItem v-if="config.mode === 'target'" :label="t('fanSettings.targetTemp')">
-        <RangeSlider
-          v-model="config.target_temp_c"
-          :min="55"
-          :max="76"
-          :step="1"
-          unit="°C"
-          @change="onTargetChange"
-        />
-      </SettingItem>
+      <RangeSlider v-if="config.mode === 'target'" :label="t('fanSettings.targetTemp')"
+        v-model="config.target_temp_c"
+        :min="55"
+        :max="76"
+        :step="1"
+        unit="°C"
+        @change="onTargetChange"
+      />
     </template>
   </SettingsSection>
 </template>
@@ -67,7 +63,6 @@ import { useI18n } from '@/services/i18n';
 import { useFanStore } from '@/stores/fanStore';
 import { useTimer } from '@/composables/useTimer';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Toggle from '@/components/ui/Toggle.vue';

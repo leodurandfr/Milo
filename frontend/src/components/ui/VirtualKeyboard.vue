@@ -527,7 +527,7 @@ onUnmounted(() => {
 }
 
 .keyboard-key:active {
-  background: var(--color-control);
+  background: var(--color-key-pressed);
   box-shadow: none;
 }
 

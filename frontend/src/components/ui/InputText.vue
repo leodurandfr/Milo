@@ -3,7 +3,7 @@
   <div class="input-wrapper">
     <div v-press="type !== 'password'" class="input-container" :class="[`input-container--${variant}`, { 'keyboard-active': isKeyboardActiveForThis }]" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
-        :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
+        :maxlength="maxlength" class="heading-4" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" @keydown.enter="handleSubmit" />
       <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
     </div>
@@ -46,8 +46,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'outline',
-    validator: (value) => ['outline', 'plain'].includes(value)
+    default: 'filled',
+    validator: (value) => ['filled', 'plain'].includes(value)
   }
 });
 
@@ -133,31 +133,30 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: var(--space-03) var(--space-04);
+  height: 48px;
+  padding: 0 var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-panel);
-  gap: var(--space-01);
-  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  transition: box-shadow var(--transition-fast), var(--transition-press);
+  background: var(--color-control);
+  gap: var(--space-02);
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
 }
 
 .input-container:has(input:disabled) {
-  opacity: 0.5;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
+/* Focused (or written to by the virtual keyboard): the field lifts onto the
+   panel, ringed by one brand pixel. */
 .input-container:focus-within,
 .input-container.keyboard-active {
-  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
-  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
-  box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+  background: var(--color-panel);
+  box-shadow: inset 0 0 0 1px var(--color-brand);
 }
 
-/* Plain variant: the same field without its outline */
+/* Plain variant: the same field without its fill */
 .input-container--plain {
-  box-shadow: none;
+  background: transparent;
 }
 
 input {

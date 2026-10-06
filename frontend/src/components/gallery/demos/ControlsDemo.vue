@@ -61,7 +61,7 @@
   </GalleryItem>
 
   <GalleryItem id="Dropdown">
-    <GalleryVariant :label="`variant — outline / plain (${country})`" stacked>
+    <GalleryVariant :label="`variant — filled / plain (${country})`" stacked>
       <Dropdown v-model="country" :options="COUNTRY_OPTIONS" />
       <Dropdown v-model="country" :options="COUNTRY_OPTIONS" variant="plain" />
     </GalleryVariant>
@@ -78,6 +78,11 @@
   <GalleryItem id="RangeSlider">
     <GalleryVariant :label="`horizontal — ${level}`" stacked>
       <RangeSlider v-model="level" @drag-start="dragging = true" @drag-end="dragging = false" />
+    </GalleryVariant>
+    <GalleryVariant label="label — the name above the track; steps — stops under it; ticks — a stop at every step" stacked>
+      <RangeSlider v-model="gain" label="Startup volume" :min="-40" :max="6" :step="0.5" unit="dB" />
+      <RangeSlider v-model="stop" label="Sleep after" :steps="SLEEP_STEPS" />
+      <RangeSlider v-model="volumeStep" label="Volume step" :min="1" :max="6" ticks unit="dB" />
     </GalleryVariant>
     <GalleryVariant label="unit / hideInlineValue / muted / disabled" stacked>
       <RangeSlider v-model="gain" :min="-40" :max="6" :step="0.5" unit="dB" />
@@ -97,6 +102,9 @@
     <GalleryVariant :label="`min ${band.min} / max ${band.max}, gap floor 10`" stacked>
       <DoubleRangeSlider v-model="band" />
     </GalleryVariant>
+    <GalleryVariant label="label — the name above the track" stacked>
+      <DoubleRangeSlider v-model="band" label="Volume limits" />
+    </GalleryVariant>
     <GalleryVariant label="a crossover range in Hz, gap 200" stacked>
       <DoubleRangeSlider v-model="crossover" :min="20" :max="20000" :step="10" :gap="200" unit="Hz" />
     </GalleryVariant>
@@ -106,7 +114,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { useI18n } from '@/services/i18n';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -135,6 +144,11 @@ const country = ref('fr');
 const unset = ref('');
 const level = ref(60);
 const gain = ref(-6);
+const stop = ref(60);
+const volumeStep = ref(3);
+const { formatDuration } = useI18n();
+const SLEEP_STEPS = computed(() => [10, 20, 30, 60, 120, 300, 600, 1800, 3600]
+  .map(value => ({ value, label: formatDuration(value) })));
 const dragging = ref(false);
 const band = ref({ min: 20, max: 80 });
 const crossover = ref({ min: 80, max: 2000 });

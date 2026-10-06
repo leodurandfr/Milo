@@ -11,7 +11,7 @@
         <div v-else key="loaded" class="content-stack">
           <h2 v-if="page.name" class="artist-name heading-2">{{ page.name }}</h2>
           <ButtonGroup v-if="groups.length > 1" :model-value="current.id" :options="options"
-            size="small" inactive-variant="surface" mobile-layout="scroll"
+            size="small" mobile-layout="scroll"
             @update:model-value="state.group = $event" />
           <SpotifyCardGrid :items="cards" @select="$emit('select', $event)" />
         </div>

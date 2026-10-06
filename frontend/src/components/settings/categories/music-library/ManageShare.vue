@@ -70,7 +70,7 @@
       </Button>
 
       <!-- Save — sticky, and only once there's something to save. -->
-      <Button v-if="showSubmit" variant="brand" size="medium" type="submit" class="apply-button-sticky"
+      <Button v-if="showSubmit" variant="brand" size="medium" type="submit" class="apply-button-sticky" floating
         :loading="isSubmitting" :disabled="isSubmitting">
         {{ isEditMode ? t('musicLibrary.shares.save') : t('musicLibrary.shares.add') }}
       </Button>

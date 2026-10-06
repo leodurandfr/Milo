@@ -134,7 +134,7 @@ const cardMetadata = computed(() => {
   z-index: 2;
   /* An opaque shimmer here, so the SVG fallback underneath cannot bleed
      through during the favicon load: the skeleton colors are an ink. */
-  --shimmer-base: var(--color-control);
+  --shimmer-base: var(--color-inset);
   --shimmer-highlight: var(--color-tile);
 }
 

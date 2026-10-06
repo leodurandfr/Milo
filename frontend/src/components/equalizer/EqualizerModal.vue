@@ -48,19 +48,13 @@
           <ToggleSection :title="t('equalizer.loudness.title')" :enabled="equalizerStore.loudness.enabled"
             @change="handleLoudnessToggle">
             <div class="effect-controls">
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.loudness.lowBoost') }}</label>
-                <RangeSlider :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5"
-                  unit="dB" @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
-                  @change="handleLoudnessChange('low_boost', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.loudness.lowBoost')" :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5"
+                unit="dB" @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
+                @change="handleLoudnessChange('low_boost', $event)" />
 
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.loudness.highBoost') }}</label>
-                <RangeSlider :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5"
-                  unit="dB" @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
-                  @change="handleLoudnessChange('high_boost', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.loudness.highBoost')" :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5"
+                unit="dB" @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
+                @change="handleLoudnessChange('high_boost', $event)" />
             </div>
           </ToggleSection>
 
@@ -68,40 +62,25 @@
           <ToggleSection :title="t('equalizer.compressor.title')" :enabled="equalizerStore.compressor.enabled"
             @change="handleCompressorToggle">
             <div class="effect-controls">
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.compressor.ratio') }}</label>
-                <RangeSlider :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5"
-                  unit=":1" @update:model-value="(v) => equalizerStore.compressor.ratio = v"
-                  @change="handleCompressorChange('ratio', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.compressor.ratio')" :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5"
+                unit=":1" @update:model-value="(v) => equalizerStore.compressor.ratio = v"
+                @change="handleCompressorChange('ratio', $event)" />
 
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.compressor.threshold') }}</label>
-                <RangeSlider :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1"
-                  unit="dB" @update:model-value="(v) => equalizerStore.compressor.threshold = v"
-                  @change="handleCompressorChange('threshold', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.compressor.threshold')" :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1"
+                unit="dB" @update:model-value="(v) => equalizerStore.compressor.threshold = v"
+                @change="handleCompressorChange('threshold', $event)" />
 
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.compressor.attack') }}</label>
-                <RangeSlider :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1"
-                  unit="ms" @update:model-value="(v) => equalizerStore.compressor.attack = v"
-                  @change="handleCompressorChange('attack', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.compressor.attack')" :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1"
+                unit="ms" @update:model-value="(v) => equalizerStore.compressor.attack = v"
+                @change="handleCompressorChange('attack', $event)" />
 
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.compressor.release') }}</label>
-                <RangeSlider :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10"
-                  unit="ms" @update:model-value="(v) => equalizerStore.compressor.release = v"
-                  @change="handleCompressorChange('release', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.compressor.release')" :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10"
+                unit="ms" @update:model-value="(v) => equalizerStore.compressor.release = v"
+                @change="handleCompressorChange('release', $event)" />
 
-              <div class="control-item">
-                <label class="text-mono-small">{{ t('equalizer.compressor.makeup') }}</label>
-                <RangeSlider :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5"
-                  unit="dB" @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
-                  @change="handleCompressorChange('makeup_gain', $event)" />
-              </div>
+              <RangeSlider :label="t('equalizer.compressor.makeup')" :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5"
+                unit="dB" @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
+                @change="handleCompressorChange('makeup_gain', $event)" />
             </div>
           </ToggleSection>
 
@@ -331,16 +310,6 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-03);
-}
-
-.control-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.control-item label {
-  color: var(--color-text-secondary);
 }
 
 /* Mobile adjustments */

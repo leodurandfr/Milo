@@ -7,7 +7,6 @@
         { label: t('musicLibrary.sections.albums'), value: 'albums' },
       ]"
       mobile-layout="scroll"
-      inactive-variant="surface"
     />
 
     <div class="swap-stack"><Transition name="fade-slide">

@@ -1,7 +1,7 @@
 <!-- Shared setting item - label + control wrapper -->
 <template>
   <div class="setting-item">
-    <div v-if="label" class="setting-item__label text-mono-medium">{{ label }}</div>
+    <div v-if="label" class="setting-item__label text-body">{{ label }}</div>
     <slot />
   </div>
 </template>

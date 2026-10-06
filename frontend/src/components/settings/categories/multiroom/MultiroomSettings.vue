@@ -31,7 +31,7 @@
             <template #header>
               <SectionHeader :title="t('multiroom.zonesAndSystems')">
                 <template #actions>
-                  <Button v-if="ungroupedClients.length >= 2" variant="outline" size="small" @click="handleCreateZone">
+                  <Button v-if="ungroupedClients.length >= 2" variant="tinted" size="small" @click="handleCreateZone">
                     {{ t('equalizer.zones.createZone') }}
                   </Button>
                 </template>
@@ -52,14 +52,14 @@
                   <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
                   <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
                   <!-- Crossover badge -->
-                  <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono-medium"
+                  <Badge v-if="zone.crossover_enabled" class="crossover-badge"
                     :title="t('multiroom.crossover.badgeActive')">
                     {{ formatUnit(zone.crossover_frequency, 'Hz') }}
-                  </span>
-                  <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono-medium"
+                  </Badge>
+                  <Badge v-else-if="zone.has_subwoofer" class="crossover-badge" tone="warning"
                     :title="t('multiroom.crossover.subwooferOffline')">
                     {{ t('multiroom.crossover.badgeInactive') }}
-                  </span>
+                  </Badge>
                 </button>
                 <div class="zone-clients">
                   <SystemListItem v-for="client in zone.clients" :key="client.id"
@@ -87,7 +87,7 @@
             <template #header>
               <SectionHeader :title="t('multiroomSettings.latencyAndQuality')">
                 <template #actions>
-                  <Button v-if="canReset" variant="outline" size="small"
+                  <Button v-if="canReset" variant="tinted" size="small"
                     :disabled="snapcastStore.isApplyingServerConfig || calibration.running"
                     @click="resetToDefault">
                     {{ t('multiroomSettings.reset') }}
@@ -96,20 +96,14 @@
               </SectionHeader>
             </template>
 
-            <SettingItem :label="t('multiroomSettings.globalBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="100"
-                unit="ms" :disabled="busy" />
-            </SettingItem>
+            <RangeSlider :label="t('multiroomSettings.globalBuffer')" v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="10"
+              unit="ms" :disabled="busy" />
 
-            <SettingItem :label="t('multiroomSettings.chunkSize')">
-              <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5"
-                unit="ms" :disabled="busy" />
-            </SettingItem>
+            <RangeSlider :label="t('multiroomSettings.chunkSize')" v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5" ticks
+              unit="ms" :disabled="busy" />
 
-            <SettingItem :label="t('multiroomSettings.snapclientBuffer')">
-              <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
-                unit="ms" :disabled="busy" />
-            </SettingItem>
+            <RangeSlider :label="t('multiroomSettings.snapclientBuffer')" v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
+              unit="ms" :disabled="busy" />
 
             <SettingItem :label="t('multiroomSettings.codec')">
               <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
@@ -121,7 +115,7 @@
             <!-- The result of this button is the sliders above moving. The only
                  thing they cannot say is which speaker held the house back, so
                  that is the one line printed underneath. -->
-            <Button variant="outline" size="medium" class="auto-tune"
+            <Button variant="tinted" size="medium" class="auto-tune"
               :loading="calibration.running" :disabled="busy" @click="startAnalysis">
               {{ t('multiroomSettings.autoTune') }}
             </Button>
@@ -186,7 +180,7 @@
           </SettingsSection>
 
           <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium"
-            class="apply-button-sticky" :loading="snapcastStore.isApplyingServerConfig"
+            class="apply-button-sticky" floating :loading="snapcastStore.isApplyingServerConfig"
             :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
             {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
           </Button>
@@ -202,6 +196,7 @@ import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
+import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -560,23 +555,7 @@ onBeforeUnmount(() => {
 
 /* Crossover badge */
 .crossover-badge {
-  display: inline-flex;
-  align-items: center;
   margin-left: auto;
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
-  white-space: nowrap;
-}
-
-.crossover-badge--active {
-  background: var(--color-inset);
-  color: var(--color-text-secondary);
-}
-
-.crossover-badge--inactive {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-  opacity: 0.8;
 }
 
 /* Section subtitle (e.g., "Individual speakers") */

@@ -14,6 +14,16 @@
     </GalleryVariant>
   </GalleryItem>
 
+  <GalleryItem id="Badge">
+    <GalleryVariant label="tone">
+      <Badge tone="success">Connected</Badge>
+      <Badge tone="warning" pulse>Connecting…</Badge>
+      <Badge tone="error">Not connected</Badge>
+      <Badge tone="brand">Ready</Badge>
+      <Badge>80 Hz</Badge>
+    </GalleryVariant>
+  </GalleryItem>
+
   <GalleryItem id="NotificationBanner">
     <GalleryVariant label="title only" contain :contain-height="90">
       <NotificationBanner title="Snapcast client reconnected" />
@@ -73,6 +83,7 @@
 import { ref } from 'vue';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
+import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';

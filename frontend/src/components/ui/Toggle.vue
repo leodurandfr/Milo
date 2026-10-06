@@ -3,7 +3,9 @@
   <div class="toggle-container" :class="{ 'toggle-container--disabled': disabled }">
     <h2 v-if="title" class="heading-2">{{ title }}</h2>
 
-    <label v-press :class="['toggle', `toggle--${variant}`, `toggle--${size}`]">
+    <!-- No press scale: the knob widening is the press feedback. -->
+    <label :class="['toggle', `toggle--${variant}`, `toggle--${size}`, { 'toggle--pressed': pressed || isHeld }]"
+      @pointerdown="startPress">
       <input type="checkbox" :checked="modelValue" @change="handleToggle" :disabled="disabled">
       <span class="slider"></span>
     </label>
@@ -11,6 +13,8 @@
 </template>
 
 <script setup>
+import { usePointerHold } from '@/composables/usePointerHold';
+
 const props = defineProps({
   modelValue: {
     type: Boolean,
@@ -33,10 +37,23 @@ const props = defineProps({
     type: String,
     default: 'default',
     validator: (value) => ['default', 'compact'].includes(value)
+  },
+  // Held by whatever carries it and takes the pointer in its place — a
+  // ListItemButton row — so the knob widens while the row is held.
+  pressed: {
+    type: Boolean,
+    default: false
   }
 });
 
 const emit = defineEmits(['update:modelValue', 'change']);
+
+// Held while the pointer that pressed it is down.
+const { held: isHeld, press } = usePointerHold();
+
+function startPress(event) {
+  if (!props.disabled) press(event);
+}
 
 function handleToggle(event) {
   const newValue = event.target.checked;
@@ -65,41 +82,31 @@ function handleToggle(event) {
 .toggle {
   position: relative;
   display: inline-block;
-  transition: opacity 300ms ease, var(--transition-press);
 }
 
-/* Default - Desktop */
+/* The knob is a pill that stretches toward the far side while pressed. Its
+   width and its position travel on one curve, so the edge it is anchored to
+   (left when off, right when on) stays put through the whole press. */
+
+/* iOS's proportions: the track 2.2 times as wide as it is tall, the knob 1.6
+   times as wide as it is tall and 3px inside, its travel 0.6 of its width. */
+
+/* Default - Desktop: 76x34, a 44x28 knob */
 .toggle--default {
-  width: 60px;
-  height: 36px;
+  width: 76px;
+  height: 34px;
+  --knob-width: 44px;
+  --knob-height: 28px;
+  --knob-stretch: 4px;
 }
 
-.toggle--default .slider:before {
-  height: 32px;
-  width: 32px;
-  left: 2px;
-  bottom: 2px;
-}
-
-.toggle--default input:checked+.slider:before {
-  transform: translateX(24px);
-}
-
-/* Compact - Desktop */
+/* Compact - Desktop: 66x30, a 38x24 knob */
 .toggle--compact {
-  width: 50px;
+  width: 66px;
   height: 30px;
-}
-
-.toggle--compact .slider:before {
-  height: 26px;
-  width: 26px;
-  left: 2px;
-  bottom: 2px;
-}
-
-.toggle--compact input:checked+.slider:before {
-  transform: translateX(20px);
+  --knob-width: 38px;
+  --knob-height: 24px;
+  --knob-stretch: 4px;
 }
 
 .toggle input {
@@ -116,62 +123,72 @@ function handleToggle(event) {
   right: 0;
   bottom: 0;
   border-radius: var(--radius-full);
-  transition: background-color 0.2s ease;
+  transition: background-color var(--transition-fast);
 }
 
 .slider:before {
   position: absolute;
   content: "";
+  left: 3px;
+  top: 3px;
+  width: var(--knob-width);
+  height: var(--knob-height);
   background-color: var(--color-thumb);
+  box-shadow: var(--shadow-knob);
   border-radius: var(--radius-full);
-  transition: transform 0.2s ease;
+  transition:
+    transform var(--transition-spring-light),
+    width var(--transition-spring-light);
 }
+
+.toggle--pressed:not(:has(input:disabled)) .slider:before {
+  width: calc(var(--knob-width) + var(--knob-stretch));
+}
+
+.toggle input:checked + .slider:before {
+  transform: translateX(calc(var(--toggle-width) - var(--knob-width) - 6px));
+}
+
+.toggle--pressed:not(:has(input:disabled)) input:checked + .slider:before {
+  transform: translateX(calc(var(--toggle-width) - var(--knob-width) - var(--knob-stretch) - 6px));
+}
+
+.toggle--default { --toggle-width: 76px; }
+.toggle--compact { --toggle-width: 66px; }
 
 /* Colors */
-.toggle--primary .slider {
-  background-color: var(--color-fill-off);
+.toggle--primary .slider,
+.toggle--secondary .slider {
+  background-color: var(--color-fill-soft);
 }
 
-.toggle--primary input:checked+.slider {
+.toggle--primary input:checked + .slider {
   background-color: var(--color-brand);
 }
 
-.toggle--secondary .slider {
-  background-color: var(--color-fill-off);
-}
-
-.toggle--secondary input:checked+.slider {
+.toggle--secondary input:checked + .slider {
   background-color: var(--color-fill);
 }
 
 /* Disabled */
 .toggle:has(input:disabled) {
-  opacity: 0.5;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
-input:disabled+.slider {
+input:disabled + .slider {
   cursor: not-allowed;
 }
 
-/* Responsive  */
+/* Responsive: one size on a phone, the compact one */
 @media (max-aspect-ratio: 4/3) {
-
-  .toggle--default,
-  .toggle--compact {
-    width: 50px;
+  .toggle--default {
+    width: 66px;
     height: 30px;
-  }
-
-  .toggle--default .slider:before,
-  .toggle--compact .slider:before {
-    height: 26px;
-    width: 26px;
-  }
-
-  .toggle--default input:checked+.slider:before,
-  .toggle--compact input:checked+.slider:before {
-    transform: translateX(20px);
+    --toggle-width: 66px;
+    --knob-width: 38px;
+    --knob-height: 24px;
+    --knob-stretch: 4px;
   }
 }
 </style>

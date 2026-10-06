@@ -18,16 +18,15 @@
       :enabled="crossfadeEnabled"
       @change="handleCrossfadeToggle"
     >
-      <SettingItem :label="t('spotifySettings.crossfadeDuration')">
-        <RangeSlider
-          v-model="crossfadeSeconds"
-          :min="1"
-          :max="12"
-          :step="1"
-          unit="s"
-          @change="handleCrossfadeChange"
-        />
-      </SettingItem>
+      <RangeSlider :label="t('spotifySettings.crossfadeDuration')"
+        v-model="crossfadeSeconds"
+        :min="1"
+        :max="12"
+        :step="1"
+        ticks
+        unit="s"
+        @change="handleCrossfadeChange"
+      />
     </ToggleSection>
 
     <!-- Off (default) runs go-librespot with external_volume: samples stay at
@@ -45,7 +44,7 @@
       v-if="needsRestart"
       variant="brand"
       size="medium"
-      class="apply-button-sticky"
+      class="apply-button-sticky" floating
       :loading="isApplying"
       :disabled="isApplying"
       @click="applyNow"
@@ -64,7 +63,6 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();

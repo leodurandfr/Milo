@@ -66,6 +66,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import Badge from '@/components/ui/Badge.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
@@ -384,8 +385,8 @@ export const REGISTRY = {
     args: { variant: 'brand' },
     slots: { default: 'Button' },
     overrides: { leftIcon: OPTIONAL_ICON },
-    // Six of the seven variants are self-coloured; `on-contrast` is a white
-    // glint, white on white without the contrast surface it is drawn for.
+    // Every variant but one is self-colored; `on-contrast` is a white glint,
+    // white on white without the contrast surface it is drawn for.
     surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 
@@ -401,8 +402,7 @@ export const REGISTRY = {
     component: ButtonGroup,
     args: { modelValue: 'medium', options: SELECT_OPTIONS },
     overrides: {
-      modelValue: { kind: 'enum', options: SELECT_OPTIONS.map(option => option.value) },
-      inactiveVariant: { kind: 'enum', options: ['outline-neutral', 'surface'] }
+      modelValue: { kind: 'enum', options: SELECT_OPTIONS.map(option => option.value) }
     }
   },
 
@@ -519,6 +519,12 @@ export const REGISTRY = {
     overrides: { size: PIXEL_SIZE }
   },
 
+  Badge: {
+    component: Badge,
+    args: { tone: 'success' },
+    slots: { default: 'Connected' }
+  },
+
   NotificationBanner: {
     component: NotificationBanner,
     args: {
@@ -541,8 +547,8 @@ export const REGISTRY = {
     overrides: {
       icon: OPTIONAL_ICON,
       variant: { kind: 'enum', options: ['default', 'on-contrast'] },
-      ctaVariant: { kind: 'enum', options: ['brand', 'control', 'outline', 'important'] },
-      ctaSecondaryVariant: { kind: 'enum', options: ['control', 'brand', 'outline', 'important'] }
+      ctaVariant: { kind: 'enum', options: ['brand', 'control', 'tinted', 'important'] },
+      ctaSecondaryVariant: { kind: 'enum', options: ['control', 'brand', 'tinted', 'important'] }
     },
     // `on-contrast` drops the card and colours every line white, for the blurred
     // artwork the Lyrics view lays it over.

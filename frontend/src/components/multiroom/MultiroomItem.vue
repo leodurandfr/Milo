@@ -717,8 +717,8 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 /* === TOGGLE WRAPPER === */
 .toggle-wrapper {
-  width: 60px;
-  height: 36px;
+  width: 76px;
+  height: 34px;
   position: relative;
   display: flex;
   align-items: center;
@@ -728,8 +728,8 @@ function handleClientMuteToggle(clientMacId, muted) {
 /* Skeleton for toggle */
 .toggle-skeleton {
   position: absolute;
-  width: 70px;
-  height: 40px;
+  width: 76px;
+  height: 34px;
   border-radius: var(--radius-full);
   opacity: 0;
   transition: opacity 450ms ease 0ms;
@@ -941,14 +941,14 @@ function handleClientMuteToggle(clientMacId, muted) {
   .toggle-wrapper {
     grid-column: 3;
     grid-row: 1;
-    width: 56px;
-    height: 32px;
+    width: 66px;
+    height: 30px;
     justify-self: end;
   }
 
   .toggle-skeleton {
-    width: 56px;
-    height: 32px;
+    width: 66px;
+    height: 30px;
   }
 
   .volume-wrapper {

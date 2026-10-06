@@ -36,7 +36,7 @@
       v-if="!groupId && selectedClients.length >= 2"
       variant="brand"
       size="medium"
-      class="action-button-sticky"
+      class="action-button-sticky" floating
       :loading="saving"
       @click="handleCreate"
     >

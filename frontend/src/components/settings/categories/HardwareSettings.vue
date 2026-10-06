@@ -168,7 +168,7 @@
     </SettingsSection>
 
     <!-- Apply & Reboot (sticky, two-step confirm) -->
-    <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky"
+    <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky" floating
       :loading="isApplying || isRebooting" :disabled="isApplying || isRebooting" @click="handleApply">
       {{ applyButtonLabel }}
     </Button>

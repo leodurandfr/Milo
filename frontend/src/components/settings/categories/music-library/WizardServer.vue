@@ -36,9 +36,9 @@
 
       <p v-else class="wiz-empty text-mono-medium">{{ t('musicLibrary.shares.wizard.noServers') }}</p>
 
-      <!-- Manual entry (outline) on the left, discovery re-scan (brand) on the right. -->
+      <!-- Manual entry (tinted) on the left, discovery re-scan (brand) on the right. -->
       <div class="wiz-actions">
-        <Button variant="outline" size="medium" @click="$emit('manual')">
+        <Button variant="tinted" size="medium" @click="$emit('manual')">
           {{ t('musicLibrary.shares.wizard.manual') }}
         </Button>
         <Button variant="brand" size="medium" :loading="discovering" @click="discover">

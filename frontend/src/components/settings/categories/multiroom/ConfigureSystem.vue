@@ -108,7 +108,7 @@
       <Button
         :variant="confirmReboot ? 'important' : 'brand'"
         size="medium"
-        class="apply-button-sticky"
+        class="apply-button-sticky" floating
         :disabled="!canApply"
         @click="handleApply"
       >

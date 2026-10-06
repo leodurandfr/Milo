@@ -21,7 +21,7 @@
     <div v-if="action !== 'none'" class="list-item-button__action">
       <SvgIcon v-if="action === 'caret'" name="caretRight" :size="24" class="caret-icon" />
       <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :variant="toggleVariant"
-        :disabled="disabled" />
+        :disabled="disabled" :pressed="toggleHeld" />
       <Radio v-else-if="action === 'radio'" :model-value="modelValue" :disabled="disabled" />
     </div>
   </component>
@@ -33,6 +33,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Radio from '@/components/ui/Radio.vue';
 import { useTimer } from '@/composables/useTimer';
+import { usePointerHold } from '@/composables/usePointerHold';
 
 const props = defineProps({
   title: {
@@ -83,7 +84,7 @@ const emit = defineEmits(['click', 'update:modelValue']);
 
 const slots = useSlots();
 
-// Press state for action button animation
+// Press state of a radio action (a 150ms pulse)
 const actionPressed = ref(false);
 
 const hasSubtitle = computed(() => Boolean(props.subtitle) || Boolean(slots.subtitle));
@@ -98,11 +99,20 @@ const isActionInactive = computed(() => {
 
 const timer = useTimer();
 
-// Handle press animation for toggle/radio actions
-function handlePointerDown() {
-  if (props.disabled) return;
-  if (props.action !== 'toggle' && props.action !== 'radio') return;
+// Handle the press feedback of a toggle/radio action
+// The row takes the pointer for its Toggle, so it holds the Toggle while it is
+// held: the knob widens as it would under the finger.
+const { held: toggleHeld, press: holdToggle } = usePointerHold();
 
+function handlePointerDown(event) {
+  if (props.disabled || !props.interactive) return;
+
+  if (props.action === 'toggle') {
+    holdToggle(event);
+    return;
+  }
+
+  if (props.action !== 'radio') return;
   actionPressed.value = true;
   timer.setTimeout(() => {
     actionPressed.value = false;
@@ -249,11 +259,14 @@ function handleClick(event) {
 .list-item-button__action :deep(.toggle),
 .list-item-button__action :deep(.radio) {
   pointer-events: none;
+}
+
+.list-item-button__action :deep(.radio) {
   transition: var(--transition-press);
 }
 
-/* Press effect on Toggle/Radio when action-pressed */
-.list-item-button.action-pressed .list-item-button__action :deep(.toggle),
+/* Press effect on the Radio when action-pressed; a Toggle widens its knob
+   instead (toggleHeld). */
 .list-item-button.action-pressed .list-item-button__action :deep(.radio) {
   transform: scale(0.88);
 }

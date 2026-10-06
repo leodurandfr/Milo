@@ -34,7 +34,7 @@
         <SectionHeader :title="t('qobuzSettings.accountTitle')" :subtitle="account.email">
           <template #actions>
             <Button
-              variant="outline"
+              variant="tinted"
               size="small"
               :loading="disconnecting"
               @click="disconnect"

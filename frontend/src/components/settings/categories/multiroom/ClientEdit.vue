@@ -84,10 +84,8 @@
             <h3 class="info-title heading-4">{{ t('multiroom.crossover.lowpassActive') }}</h3>
             <ListItemButton :title="t('multiroom.crossover.autoFrequency')" action="toggle"
               :model-value="crossoverAuto" @click="toggleCrossoverAuto" />
-            <SettingItem v-if="!crossoverAuto" :label="t('multiroom.crossover.crossoverFrequency')">
-              <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" unit="Hz"
-                @change="handleCrossoverChange" />
-            </SettingItem>
+            <RangeSlider v-if="!crossoverAuto" :label="t('multiroom.crossover.crossoverFrequency')" v-model="crossoverFrequency" :min="40" :max="200" :step="5" unit="Hz"
+              @change="handleCrossoverChange" />
             <p v-else class="text-mono-medium">
               {{ t('multiroom.crossover.highpassDescription', { frequency: formatUnit(zoneCrossoverFrequency, 'Hz') }) }}
             </p>
@@ -120,10 +118,8 @@
           :enabled="gainEnabled"
           @change="handleGainToggle"
         >
-          <SettingItem :label="t('multiroom.tuning.gainHint')">
-            <RangeSlider v-model="gainDb" :min="-12" :max="12" :step="0.5" unit="dB"
-              @change="handleGainChange" />
-          </SettingItem>
+          <RangeSlider :label="t('multiroom.tuning.gainHint')" v-model="gainDb" :min="-12" :max="12" :step="0.5" unit="dB"
+            @change="handleGainChange" />
         </ToggleSection>
 
         <!-- Playback delay — toggle expands to the delay slider (0 = off) -->
@@ -132,10 +128,8 @@
           :enabled="delayEnabled"
           @change="handleDelayToggle"
         >
-          <SettingItem :label="t('multiroom.tuning.delayHint')">
-            <RangeSlider v-model="delayMs" :min="1" :max="100" :step="1" unit="ms"
-              @change="handleDelayChange" />
-          </SettingItem>
+          <RangeSlider :label="t('multiroom.tuning.delayHint')" v-model="delayMs" :min="1" :max="100" :step="1" unit="ms"
+            @change="handleDelayChange" />
         </ToggleSection>
       </template>
 
@@ -158,7 +152,7 @@
         v-if="isAudioDirty"
         :variant="confirmReboot ? 'important' : 'brand'"
         size="medium"
-        class="apply-button-sticky"
+        class="apply-button-sticky" floating
         :loading="isApplying"
         :disabled="isApplying"
         @click="handleApply"
@@ -189,7 +183,6 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
   macId: {
