@@ -10,7 +10,7 @@
  * make them look alike. This holds the two halves:
  *
  *   1. a control in a section `#header` sits in `SectionHeader`'s `#actions`
- *      (layout, and the stack below 4:3, live there once), never beside it;
+ *      (layout lives there once), never beside it;
  *   2. an action is a Button or a Dropdown — IconButton has no outline —, a
  *      Button is `small` and `outline` — `brand` only
  *      for a state asking for the user's attention now (a preset edited and

@@ -61,11 +61,4 @@ defineProps({
 .section-header__actions:empty {
   display: none;
 }
-
-@media (max-aspect-ratio: 4/3) {
-  .section-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
 </style>
