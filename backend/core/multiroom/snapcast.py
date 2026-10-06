@@ -297,12 +297,16 @@ class SnapcastService:
             await asyncio.sleep(1)
         return False
 
-    @handle_errors(default={})
+    @handle_errors(default={}, level='warning')
     async def get_server_status(self) -> dict:
         """Get complete Snapcast server status.
 
         Fail-open query: callers guard on an empty dict, so a request failure
-        is logged and flattened to {} rather than propagated.
+        is logged and flattened to {} rather than propagated. Logged at warning,
+        not error: the 30 s reconcile sweep can land in the ~100 ms between
+        snapserver stopping and its WebSocket close being read (every backend
+        restart stops snapserver first), and an error there is a UI banner for
+        an outage nobody needs to act on.
         """
         return await self._request("Server.GetStatus")
 
