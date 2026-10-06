@@ -3,8 +3,9 @@
      song plays on, the show an episode belongs to, the device sending to a
      receiver, the Spotify account, else the source's own name. Always an icon:
      the source's AppIcon, or, given `image`, that image in its place — the
-     station's logo once a song is detected, with the generated avatar of the
-     label when the station has none, as the playing bar draws a station.
+     station's logo once a song with a cover of its own is detected (the
+     generated avatar of the label for a station with no logo), as the playing
+     bar draws a station.
      AudioPlayerFull decides both; this draws them, on every source. -->
 <template>
   <div class="source-bar" :class="`source-bar--${size}`">

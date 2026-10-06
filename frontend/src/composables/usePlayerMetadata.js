@@ -35,11 +35,11 @@ import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
  * line.
  *
  * `barOnCard` says whether the playing bar's card draws the source bar too.
- * Only for a station playing a detected song: the card's cover is then the
- * song's, and nothing else on the card says which station it comes from. Every
- * other card names its source already — the station's own logo, the show in
- * the secondary line, the browser around it — and the full player draws the
- * source bar always.
+ * Only for a station playing a detected song with its own cover: the card's
+ * cover is then the song's, and nothing else on the card says which station it
+ * comes from. Every other card names its source already — the station's own
+ * logo, the show in the secondary line, the browser around it — and the full
+ * player draws the source bar always.
  *
  * @param {object|null} current - the source's `details`
  */
@@ -48,7 +48,11 @@ export function linesOf(current) {
   const none = { barLabel: null, barImage: null, barAccount: null, barRemote: null, avatarName: '', barOnCard: false };
   if (kind === 'radio') {
     const station = current.station;
-    const detected = !!current.track && !!station?.name;
+    const track = current.track;
+    // A song counts once it has a title, an artist and a cover of its own:
+    // without that cover the cover slot holds the station's logo already, and
+    // the bar would draw it a second time.
+    const detected = !!track?.title && !!track?.artist && !!track?.artwork && !!station?.name;
     return {
       ...none,
       barLabel: detected ? station.name : null,
