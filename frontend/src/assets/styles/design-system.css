@@ -206,6 +206,27 @@
        loads fades toward the page, under a spinner in the text color. */
     --color-image-shade: var(--gray-0-a50);
 
+    /* === THEME PREVIEW === */
+    /* A picture of each theme, not a theme: the theme picker draws a corner
+       of the light screen while the app is dark and the reverse, so these
+       never follow the theme. Each pair repeats the two values of a role —
+       the ground, the section card, its row, its text, a knob, the dock's
+       glass. */
+    --color-preview-light-ground: var(--gray-25);
+    --color-preview-light-panel: var(--gray-0);
+    --color-preview-light-inset: var(--gray-25);
+    --color-preview-light-ink: var(--gray-950);
+    --color-preview-light-ink-secondary: var(--gray-200);
+    --color-preview-light-thumb: var(--gray-0);
+    --color-preview-light-shell: var(--gray-200-a55);
+    --color-preview-dark-ground: var(--gray-1000);
+    --color-preview-dark-panel: var(--gray-950);
+    --color-preview-dark-inset: var(--gray-925);
+    --color-preview-dark-ink: var(--gray-100);
+    --color-preview-dark-ink-secondary: var(--gray-700);
+    --color-preview-dark-thumb: var(--gray-100);
+    --color-preview-dark-shell: var(--gray-800-a55);
+
     /* === TEXT === */
     --color-text: var(--gray-950);
     --color-text-secondary: var(--gray-500);

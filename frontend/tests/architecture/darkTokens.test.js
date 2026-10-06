@@ -33,8 +33,9 @@ const THEMABLE = /^--(?:color|gradient|stroke)-/;
  * Themable by name, theme-neutral on purpose. The brand and the status colors
  * mean the same thing in both themes; glass is tinted by what is behind it;
  * a contrast surface is dark in both themes, so what is drawn on it is too;
- * and artwork does not change with the theme, so neither does what is drawn
- * over it.
+ * artwork does not change with the theme, so neither does what is drawn
+ * over it; and the theme picker's thumbnails picture each theme whichever
+ * one is current.
  */
 const NEUTRAL = [
   '--color-brand', '--color-text-on-brand', '--color-brand-subtle',
@@ -45,6 +46,12 @@ const NEUTRAL = [
   '--color-shell-on-contrast',
   '--color-image-plate', '--color-image-veil', '--color-image-scrim',
   '--color-backdrop', '--color-backdrop-veil',
+  '--color-preview-light-ground', '--color-preview-light-panel', '--color-preview-light-inset',
+  '--color-preview-light-ink', '--color-preview-light-ink-secondary', '--color-preview-light-thumb',
+  '--color-preview-light-shell',
+  '--color-preview-dark-ground', '--color-preview-dark-panel', '--color-preview-dark-inset',
+  '--color-preview-dark-ink', '--color-preview-dark-ink-secondary', '--color-preview-dark-thumb',
+  '--color-preview-dark-shell',
 ];
 
 /** The declarations of the first rule whose selector is exactly `selector`. */

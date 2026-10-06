@@ -4,7 +4,7 @@
     <!-- Theme: every browser showing Milō follows it, the kiosk included -->
     <SettingsSection :title="t('screenSettings.theme')">
       <SettingItem :label="t('screenSettings.themeDescription')">
-        <ButtonGroup
+        <ThemePicker
           :model-value="settingsStore.screenTheme.theme"
           :options="themeOptions"
           @change="setTheme"
@@ -89,6 +89,7 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
+import ThemePicker from '@/components/settings/categories/ThemePicker.vue';
 
 const { t, formatDuration, formatUnit } = useI18n();
 const { updateSetting } = useSettingsAPI();

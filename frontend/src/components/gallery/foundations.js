@@ -180,6 +180,7 @@ const KINDS = {
   GLASS: 'swatch',
   CONTRAST: 'swatch',
   'ON IMAGE': 'swatch',
+  'THEME PREVIEW': 'swatch',
   TEXT: 'swatch',
   BORDERS: 'swatch',
   SKELETON: 'swatch',
@@ -213,6 +214,7 @@ const NOTES = {
   SURFACES: 'From the ground up. In light a panel is white and what it holds sinks below it; in dark each layer is a step lighter than the one under it. --color-panel is --color-surface on a screen and --color-section inside a modal, where --color-inset and --color-tile also become --color-section-inset and --color-section-tile.',
   CONTRAST: 'Dark in both themes, so what is drawn on it — the glint, the fill, the white text — is the same in both.',
   'ON IMAGE': 'Drawn over artwork, which does not change with the theme, so neither do these. The backdrop pair is what AudioPlayerFull draws under its blurred cover, in the dark theme only.',
+  'THEME PREVIEW': 'A picture of each theme rather than a theme: the theme picker draws a corner of the light screen while the app is dark and the reverse, so each pair repeats the two values of a role and never follows the theme.',
   'SOURCE GRADIENTS': 'The tint AudioSourceLayout washes behind a browsing source. Three one-off brand colours, which is why they are gradients here and not tokens in a ramp.',
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
@@ -244,7 +246,7 @@ const PAGES = [
     id: 'colors',
     title: 'Colours',
     summary: 'Every color the app is allowed to be, in both themes: the gray palette the neutrals are picked from, then the roles a component reads — surfaces, tracks, glass, contrast, what is drawn on an image, text — and the brand, status and gradient colors that belong to no ramp.',
-    sections: ['PALETTE', 'BRAND', 'SURFACES', 'TRACKS AND FILLS', 'GLASS', 'CONTRAST', 'ON IMAGE', 'TEXT', 'BORDERS', 'SKELETON', 'KEYBOARD', 'STATUS', 'SOURCE GRADIENTS'],
+    sections: ['PALETTE', 'BRAND', 'SURFACES', 'TRACKS AND FILLS', 'GLASS', 'CONTRAST', 'ON IMAGE', 'THEME PREVIEW', 'TEXT', 'BORDERS', 'SKELETON', 'KEYBOARD', 'STATUS', 'SOURCE GRADIENTS'],
     extras: []
   },
   {
