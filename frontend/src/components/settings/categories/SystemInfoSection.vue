@@ -9,9 +9,11 @@
         </div>
         <span class="heading-2">Milō OS</span>
         <span class="info-version text-mono-medium">
-          <span v-if="showVersionSkeleton" class="skeleton-line shimmer" style="width: 96px"></span>
-          <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
-          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+          <Transition name="reveal">
+            <span v-if="showVersionSkeleton" class="skeleton-line shimmer" style="width: 96px"></span>
+            <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
+            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+          </Transition>
         </span>
       </div>
 
@@ -21,9 +23,11 @@
           <div class="info-item-top">
             <span class="info-label text-mono-medium">{{ t('info.cpu') }}</span>
             <span class="info-value text-mono-medium">
-              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 36px"></span>
-              <span v-else-if="cpuPercent !== null">{{ formatUnit(cpuPercent, '%') }}</span>
-              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              <Transition name="reveal">
+                <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 36px"></span>
+                <span v-else-if="cpuPercent !== null">{{ formatUnit(cpuPercent, '%') }}</span>
+                <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              </Transition>
             </span>
           </div>
           <div class="bar-container">
@@ -35,9 +39,11 @@
           <div class="info-item-top">
             <span class="info-label text-mono-medium">{{ t('info.ram') }}</span>
             <span class="info-value text-mono-medium">
-              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
-              <span v-else-if="ram !== null">{{ formatNumber(ram.used_mb) }} / {{ formatUnit(ram.total_mb, 'MB') }}</span>
-              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              <Transition name="reveal">
+                <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
+                <span v-else-if="ram !== null">{{ formatNumber(ram.used_mb) }} / {{ formatUnit(ram.total_mb, 'MB') }}</span>
+                <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              </Transition>
             </span>
           </div>
           <div class="bar-container">
@@ -49,9 +55,11 @@
           <div class="info-item-top">
             <span class="info-label text-mono-medium">{{ t('info.temperature') }}</span>
             <span class="info-value text-mono-medium">
-              <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
-              <span v-else-if="systemTemperature !== null">{{ formatUnit(systemTemperature, '°C', ONE_DECIMAL) }}</span>
-              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              <Transition name="reveal">
+                <span v-if="showTempSkeleton" class="skeleton-line shimmer" style="width: 48px"></span>
+                <span v-else-if="systemTemperature !== null">{{ formatUnit(systemTemperature, '°C', ONE_DECIMAL) }}</span>
+                <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              </Transition>
             </span>
           </div>
           <div class="bar-container">
@@ -63,9 +71,11 @@
           <div class="info-item-top">
             <span class="info-label text-mono-medium">{{ t('info.disk') }}</span>
             <span class="info-value text-mono-medium">
-              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
-              <span v-else-if="disk !== null">{{ formatNumber(disk.used_gb) }} / {{ formatUnit(disk.total_gb, 'GB') }}</span>
-              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              <Transition name="reveal">
+                <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 88px"></span>
+                <span v-else-if="disk !== null">{{ formatNumber(disk.used_gb) }} / {{ formatUnit(disk.total_gb, 'GB') }}</span>
+                <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+              </Transition>
             </span>
           </div>
           <div class="bar-container">
@@ -76,21 +86,25 @@
         <div class="info-item">
           <span class="info-label text-mono-medium">{{ t('info.ipAddress') }}</span>
           <span class="info-value text-mono-medium">
-            <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
-            <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
-            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            <Transition name="reveal">
+              <span v-if="showIpSkeleton" class="skeleton-line shimmer" style="width: 100px"></span>
+              <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
+              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            </Transition>
           </span>
         </div>
 
         <div class="info-item">
           <span class="info-label text-mono-medium">{{ t('info.network') }}</span>
           <span class="info-value text-mono-medium">
-            <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 140px"></span>
-            <span v-else-if="network !== null" class="network-rates">
-              <span><span class="rate-arrow">↓</span> {{ formatRate(network.rx_bytes_per_s) }}</span>
-              <span class="rate-out"><span class="rate-arrow">↑</span> {{ formatRate(network.tx_bytes_per_s) }}</span>
-            </span>
-            <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            <Transition name="reveal">
+              <span v-if="showResourcesSkeleton" class="skeleton-line shimmer" style="width: 140px"></span>
+              <span v-else-if="network !== null" class="network-rates">
+                <span><span class="rate-arrow">↓</span> {{ formatRate(network.rx_bytes_per_s) }}</span>
+                <span class="rate-out"><span class="rate-arrow">↑</span> {{ formatRate(network.tx_bytes_per_s) }}</span>
+              </span>
+              <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+            </Transition>
           </span>
         </div>
       </div>
@@ -128,10 +142,16 @@ const disk = ref(null);
 const network = ref(null);
 const resourcesLoading = ref(false);
 
-const showVersionSkeleton = computed(() => versionLoading.value && miloVersion.value === null);
-const showIpSkeleton = computed(() => ipLoading.value && ipAddress.value === null);
-const showTempSkeleton = computed(() => temperatureLoading.value && systemTemperature.value === null);
-const showResourcesSkeleton = computed(() => resourcesLoading.value && cpuPercent.value === null);
+// A skeleton until the first read answers, never again: a value that fails
+// stays "not available" across the polls instead of pulsing through it.
+const versionRead = ref(false);
+const ipRead = ref(false);
+const temperatureRead = ref(false);
+const resourcesRead = ref(false);
+const showVersionSkeleton = computed(() => !versionRead.value);
+const showIpSkeleton = computed(() => !ipRead.value);
+const showTempSkeleton = computed(() => !temperatureRead.value);
+const showResourcesSkeleton = computed(() => !resourcesRead.value);
 
 const ramPercent = computed(() => {
   if (!ram.value) return 0;
@@ -173,6 +193,7 @@ async function loadMiloVersion() {
   });
   miloVersion.value = result.ok ? (result.data.installed?.versions?.main || null) : null;
   versionLoading.value = false;
+  versionRead.value = true;
 }
 
 async function loadSystemTemperature() {
@@ -185,6 +206,7 @@ async function loadSystemTemperature() {
   });
   systemTemperature.value = (result.ok && result.data.temperature !== null) ? result.data.temperature : null;
   temperatureLoading.value = false;
+  temperatureRead.value = true;
 }
 
 async function loadNetworkInfo() {
@@ -197,6 +219,7 @@ async function loadNetworkInfo() {
   });
   ipAddress.value = (result.ok && result.data.ip !== null) ? result.data.ip : null;
   ipLoading.value = false;
+  ipRead.value = true;
 }
 
 async function loadSystemResources() {
@@ -214,14 +237,19 @@ async function loadSystemResources() {
     network.value = result.data.network;
   }
   resourcesLoading.value = false;
+  resourcesRead.value = true;
 }
 
 async function pollDynamicData() {
   await Promise.all([loadSystemTemperature(), loadSystemResources()]);
 }
 
+// Asked during setup, so the first frame already draws the skeletons: asked
+// from onMounted, it drew "not available" first, which then faded out.
+const firstLoad = Promise.all([loadMiloVersion(), loadNetworkInfo(), pollDynamicData()]);
+
 onMounted(async () => {
-  await Promise.all([loadMiloVersion(), loadNetworkInfo(), pollDynamicData()]);
+  await firstLoad;
   timer.setInterval(pollDynamicData, 5000); // auto-cleared on unmount
 });
 </script>
@@ -291,6 +319,22 @@ onMounted(async () => {
 .info-value {
   color: var(--color-text);
   text-align: right;
+}
+
+/* One cell for a skeleton and the value it reveals: they crossfade in place. */
+.info-version,
+.info-value {
+  display: inline-grid;
+  justify-items: end;
+}
+
+.info-version {
+  justify-items: start;
+}
+
+.info-version > *,
+.info-value > * {
+  grid-area: 1 / 1;
 }
 
 

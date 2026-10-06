@@ -30,7 +30,7 @@
                 <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
               </p>
               <div class="crossfade-wrapper">
-                <Transition name="crossfade">
+                <Transition name="reveal">
                   <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
                     <div class="program-item-skeleton">
                       <div class="skeleton-icon shimmer"></div>
@@ -85,7 +85,7 @@
           <div class="update-group">
             <h2 class="heading-2">{{ t('updates.programsTitle') }}</h2>
             <div class="crossfade-wrapper">
-              <Transition name="crossfade">
+              <Transition name="reveal">
                 <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
                   <div v-for="n in enabledProgramCount" :key="n" class="program-item-skeleton">
                     <div class="skeleton-icon shimmer"></div>
@@ -189,7 +189,7 @@
               client.name || client.mac_id }}</span></h2>
           </template>
           <div class="crossfade-wrapper">
-            <Transition name="crossfade">
+            <Transition name="reveal">
               <div v-if="!satelliteByMacId[client.mac_id] && isSatelliteLoading(client.mac_id)" key="skeleton"
                 class="programs-list">
                 <div class="program-item-skeleton">
@@ -718,26 +718,13 @@ onMounted(async () => {
   border-radius: var(--radius-03);
 }
 
-/* Crossfade transition */
+/* One cell for the skeleton and the list it reveals: they crossfade in place. */
 .crossfade-wrapper {
   display: grid;
 }
 
 .crossfade-wrapper>* {
   grid-area: 1 / 1;
-}
-
-.crossfade-enter-active {
-  transition: opacity var(--transition-normal);
-}
-
-.crossfade-leave-active {
-  transition: opacity var(--transition-normal-leave);
-}
-
-.crossfade-enter-from,
-.crossfade-leave-to {
-  opacity: 0;
 }
 
 .program-item-skeleton {

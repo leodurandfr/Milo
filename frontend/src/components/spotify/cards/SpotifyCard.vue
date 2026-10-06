@@ -1,11 +1,7 @@
 <template>
   <div v-press class="playlist-card" @click="$emit('click')">
-    <LazyImage ref="lazyImg" :src="item.image || ''" :fallback="musicPlaceholder"
-      :alt="title" lazy class="playlist-cover" :class="{ round: item.kind === 'artist' }">
-      <transition name="content-fade">
-        <div v-if="!contentReady" class="cover-skeleton shimmer"></div>
-      </transition>
-    </LazyImage>
+    <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
+      class="playlist-cover" :class="{ round: item.kind === 'artist' }" />
     <div class="playlist-info">
       <p class="playlist-name heading-4">{{ title }}</p>
       <p v-if="byline" class="playlist-owner text-mono-medium">{{ byline }}</p>
@@ -14,10 +10,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
@@ -34,8 +29,6 @@ const props = defineProps({
 defineEmits(['click']);
 
 const { t } = useI18n();
-const lazyImg = ref(null);
-const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.item.image);
 
 const title = computed(() => props.item.name || t('spotify.untitledPlaylist'));
 const byline = computed(() => {
@@ -65,18 +58,8 @@ const byline = computed(() => {
   border-radius: var(--radius-full);
 }
 
-.cover-skeleton {
-  position: absolute;
-  inset: 0;
-}
 
-.content-fade-leave-active {
-  transition: opacity var(--transition-normal-leave);
-}
 
-.content-fade-leave-to {
-  opacity: 0;
-}
 
 .playlist-info {
   display: flex;

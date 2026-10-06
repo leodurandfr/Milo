@@ -238,7 +238,7 @@ export const ENTRIES = [
     id: 'LazyImage',
     group: 'media',
     file: 'components/ui/LazyImage.vue',
-    summary: 'Artwork with a fallback chain: src, then fallbackName (a deterministic generated avatar) or fallback (a static asset). lazy defers the fetch; the default slot overlays the image.',
+    summary: 'Artwork with a fallback chain: src, then fallbackName (a deterministic generated avatar) or fallback (a static asset). lazy defers the fetch; skeleton draws a shimmer while it loads, which hands over to the image — or to the fallback — with the reveal; the default slot overlays the image. An image ready before the first frame is drawn at once.',
   },
   {
     id: 'SvgIcon',
@@ -373,7 +373,7 @@ export const ENTRIES = [
     id: 'StationCard',
     group: 'cards',
     file: 'components/radio/StationCard.vue',
-    summary: 'A radio station, in two shapes the same component serves: `card` is the horizontal row of the search and favourites lists, `image` is the bare favicon tile of the favourites grid. It mounts SkeletonStationCard over itself until the artwork resolves, so the generated SVG fallback never pops into view — the only card here that owns its own skeleton.',
+    summary: 'A radio station, in two shapes the same component serves: `card` is the horizontal row of the search and favourites lists, `image` is the bare favicon tile of the favourites grid. The `image` tile shows LazyImage\'s skeleton while a favicon loads, never the generated SVG fallback a failed one falls back to.',
   },
   {
     id: 'SkeletonStationCard',

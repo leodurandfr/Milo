@@ -2,11 +2,11 @@
   <!-- "image" variant: Image only for favorites grid -->
   <div v-if="variant === 'image'" v-press class="station-image-wrapper" @click="$emit('click')">
     <LazyImage
-      ref="lazyImg"
       :src="getFaviconUrl(station.favicon)"
       :fallback-name="station.name"
       :alt="station.name"
       priority="high"
+      skeleton
       :class="['station-image', { playing: isPlaying, loading: isLoading }]"
     >
       <transition name="loading-fade">
@@ -15,16 +15,6 @@
         </div>
       </transition>
     </LazyImage>
-
-    <!-- Skeleton overlay: hides the placeholder/favicon until content is
-         ready, then fades out. Shown for every station (favicon or not) so
-         the SVG fallback never "pops" into view. -->
-    <transition name="content-fade">
-      <SkeletonStationCard
-        v-if="!contentReady"
-        class="skeleton-overlay"
-      />
-    </transition>
   </div>
 
   <!-- "card" variant: Horizontal layout for lists -->
@@ -60,15 +50,13 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
 import { getTranslatedGenreName } from '@/constants/musicGenres';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import SkeletonStationCard from './SkeletonStationCard.vue';
 import { getFaviconUrl } from '@/utils/faviconUrl';
-import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
 
 const { getCurrentLanguage } = useI18n();
 
@@ -94,8 +82,6 @@ const props = defineProps({
 
 defineEmits(['click']);
 
-const lazyImg = ref(null);
-const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.station.favicon);
 
 const cardMetadata = computed(() => {
   const { country, countrycode } = props.station || {};
@@ -128,25 +114,8 @@ const cardMetadata = computed(() => {
   cursor: pointer;
 }
 
-.skeleton-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  /* An opaque shimmer here, so the SVG fallback underneath cannot bleed
-     through during the favicon load: the skeleton colors are an ink. */
-  --shimmer-base: var(--color-inset);
-  --shimmer-highlight: var(--color-tile);
-}
 
-/* Skeleton overlay fade-out — leave-only; the skeleton is mounted at full
-   opacity on first paint, then fades when content is ready. */
-.content-fade-leave-active {
-  transition: opacity var(--transition-normal-leave);
-}
 
-.content-fade-leave-to {
-  opacity: 0;
-}
 
 /* Station image container */
 .station-image {

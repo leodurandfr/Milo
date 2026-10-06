@@ -7,16 +7,22 @@
     <div
       v-if="fallbackName"
       class="lazy-image-placeholder"
-      :class="{ hidden: imageLoaded }"
+      :class="{ hidden: placeholderHidden }"
       v-html="resolvedFallbackSvg"
     />
     <img
       v-else-if="fallback"
       :src="fallback"
       class="lazy-image-placeholder"
-      :class="{ hidden: imageLoaded }"
+      :class="{ hidden: placeholderHidden }"
       alt=""
     />
+
+    <!-- While the image loads, in place of the placeholder: the skeleton is
+         an ink, the placeholder would show through it. -->
+    <Transition :name="instant ? 'none' : 'reveal'">
+      <div v-if="skeletonShown" class="lazy-image-skeleton shimmer" />
+    </Transition>
 
     <!-- Real image layer: fades in over the placeholder once loaded. -->
     <img
@@ -38,7 +44,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 
@@ -73,19 +79,26 @@ const props = defineProps({
   lazy: {
     type: Boolean,
     default: false
+  },
+  // A skeleton while the image loads, which hands over to it — or to the
+  // placeholder, when it fails — with the reveal.
+  skeleton: {
+    type: Boolean,
+    default: false
   }
 })
-
-// A real image that is already cached (or returns within a frame or two) must
-// never cross-fade — the generated placeholder would flash over it on every
-// page switch. Reveal those instantly; keep the fade only for genuine loads.
-const INSTANT_REVEAL_MS = 80
 
 const imgRef = ref(null)
 const imageLoaded = ref(false)
 const imageError = ref(false)
+// Ready before anything was painted: shown as it is, with nothing to reveal it
+// from. Once a frame went out with the skeleton or the placeholder, the image
+// fades in over it.
 const instant = ref(false)
-let loadStartedAt = 0
+let painted = false
+
+const skeletonShown = computed(() => props.skeleton && !!props.src && !imageLoaded.value && !imageError.value)
+const placeholderHidden = computed(() => imageLoaded.value || skeletonShown.value)
 
 const resolvedFallbackSvg = computed(() => {
   if (!props.fallbackName) return ''
@@ -93,12 +106,13 @@ const resolvedFallbackSvg = computed(() => {
 })
 
 function handleImageLoad() {
+  if (imageLoaded.value) return
   const img = imgRef.value
   if (img && (img.naturalWidth < MIN_IMAGE_SIZE || img.naturalHeight < MIN_IMAGE_SIZE)) {
     imageError.value = true
     return
   }
-  instant.value = performance.now() - loadStartedAt < INSTANT_REVEAL_MS
+  instant.value = !painted
   imageLoaded.value = true
 }
 
@@ -106,25 +120,34 @@ function handleImageError() {
   imageError.value = true
 }
 
-watch(() => props.src, () => {
-  imageLoaded.value = false
-  imageError.value = false
-  instant.value = false
-  loadStartedAt = performance.now()
-})
-
-// Browser-cached images may complete before Vue mounts. Flip imageLoaded so
-// the parent's skeleton overlay can dismiss on first paint instead of waiting
-// for a `load` event that won't fire — and reveal instantly (no fade), since a
-// complete-at-mount image is already on screen the moment the placeholder would.
-onMounted(() => {
-  loadStartedAt = performance.now()
+// An image the browser already holds is complete as soon as it is in the DOM,
+// before the next frame: it is drawn at once, never revealed from a skeleton or
+// a placeholder nobody saw. Otherwise the image is revealed once a frame went
+// out without it.
+function settle() {
+  if (!props.src) return
   const img = imgRef.value
   if (img?.complete && img.naturalHeight >= MIN_IMAGE_SIZE && img.naturalWidth >= MIN_IMAGE_SIZE) {
     instant.value = true
     imageLoaded.value = true
+    return
   }
+  painted = false
+  // Called back before the next frame: the second is called once one went out.
+  requestAnimationFrame(() => requestAnimationFrame(() => { painted = true }))
+}
+
+// Another image in the same place (a station change in the source bar): the
+// same rule as a mount, once the new src is in the DOM.
+watch(() => props.src, async () => {
+  imageLoaded.value = false
+  imageError.value = false
+  instant.value = false
+  await nextTick()
+  settle()
 })
+
+onMounted(settle)
 
 defineExpose({ imageLoaded, imageError })
 </script>
@@ -136,7 +159,8 @@ defineExpose({ imageLoaded, imageError })
 }
 
 .lazy-image-main,
-.lazy-image-placeholder {
+.lazy-image-placeholder,
+.lazy-image-skeleton {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -150,7 +174,7 @@ img.lazy-image-placeholder {
 
 .lazy-image-placeholder {
   z-index: 0;
-  transition: opacity 200ms ease-out;
+  transition: opacity var(--transition-reveal);
 }
 
 .lazy-image-placeholder.hidden {
@@ -159,7 +183,7 @@ img.lazy-image-placeholder {
 
 .lazy-image-main {
   opacity: 0;
-  transition: opacity 200ms ease-out;
+  transition: opacity var(--transition-reveal);
   z-index: 1;
 }
 
@@ -167,8 +191,7 @@ img.lazy-image-placeholder {
   opacity: 1;
 }
 
-/* Cached / instant reveal: swap placeholder → image with no cross-fade, so the
-   generated avatar never flashes over an image that's already there. */
+/* Ready before the first frame: nothing was shown to reveal it from. */
 .lazy-image.instant .lazy-image-placeholder,
 .lazy-image.instant .lazy-image-main {
   transition: none;

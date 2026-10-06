@@ -424,6 +424,11 @@
 
     --transition-in-out: 250ms cubic-bezier(0.5, 0, 0.1, 1);
 
+    /* Content appearing where its skeleton stood, in the time and the curve
+       the content of a fade-slide swap enters with: every end of a wait is
+       one motion. The `reveal` transition below carries it. */
+    --transition-reveal: var(--transition-in-out);
+
     /* A dissolve between two texts handing over. Linear on purpose: an eased
        opacity does most of its work in the middle third, which reads as a switch
        being thrown rather than as one text becoming the other. */
@@ -1051,6 +1056,20 @@
 .swap-stack > .fade-slide-enter-active .swap-fades-leaves *,
 .swap-stack > .fade-slide-leave-active .swap-fades-leaves * {
     transition: none;
+}
+
+/* Reveal: a skeleton handing over to its content in the same place, the two
+   crossfading in one cell (--transition-reveal). A skeleton is a faint ink
+   over the ground, so the crossfade never dips: halfway, it is half the
+   content over the ground. */
+.reveal-enter-active,
+.reveal-leave-active {
+    transition: opacity var(--transition-reveal);
+}
+
+.reveal-enter-from,
+.reveal-leave-to {
+    opacity: 0;
 }
 
 /* Loading fade (for card loading overlays) */

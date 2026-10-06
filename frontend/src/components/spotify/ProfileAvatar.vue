@@ -1,13 +1,27 @@
 <template>
   <div class="profile-avatar" :class="{ blurred }" :style="{ '--avatar-size': `${size}px` }">
-    <LazyImage v-if="profile.avatar_url" :src="profile.avatar_url" :alt="profile.name" class="avatar-image" />
-    <span v-else class="avatar-initial heading-2" aria-hidden="true">{{ initial }}</span>
+    <!-- Until Spotify names the picture; the image's own skeleton takes over
+         in place once it does. -->
+    <Transition :name="profile.avatar_url ? 'none' : 'reveal'">
+      <div v-if="describing" class="avatar-skeleton shimmer" />
+    </Transition>
+    <Transition name="reveal">
+      <span v-if="initialShown" class="avatar-initial heading-2" aria-hidden="true">{{ initial }}</span>
+    </Transition>
+    <LazyImage v-if="profile.avatar_url" ref="imageRef" :src="profile.avatar_url" :alt="profile.name"
+      :skeleton="!waited" class="avatar-image" />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import LazyImage from '@/components/ui/LazyImage.vue';
+
+// How long a picture may keep the avatar a skeleton before the initial stands
+// in: Spotify describes a new profile within its 10 s request, and a picture
+// that comes later still fades in over the initial.
+const PICTURE_WAIT_MS = 4000;
 
 const props = defineProps({
   // { name, avatar_url }
@@ -27,6 +41,21 @@ const props = defineProps({
 });
 
 const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUpperCase());
+
+const imageRef = ref(null);
+const waited = ref(false);
+useTimer().setTimeout(() => { waited.value = true; }, PICTURE_WAIT_MS);
+
+// Spotify has not described the profile yet: a profile kept a moment ago has
+// no Spotify name, and may still get a picture.
+const describing = computed(() =>
+  !props.profile.avatar_url && props.profile.spotify_name == null && !waited.value);
+// No picture to wait for: none described, one that failed, or the wait over.
+const initialShown = computed(() => {
+  if (!props.profile.avatar_url) return !describing.value;
+  if (imageRef.value?.imageLoaded) return false;
+  return !!imageRef.value?.imageError || waited.value;
+});
 </script>
 
 <style scoped>
@@ -48,7 +77,17 @@ const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUp
   height: 100%;
 }
 
+/* Under the picture, which comes after them and is positioned too. */
+.avatar-skeleton,
 .avatar-initial {
+  position: absolute;
+  inset: 0;
+}
+
+.avatar-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--color-text-secondary);
 }
 

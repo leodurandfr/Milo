@@ -5,17 +5,13 @@
     </div>
     <LazyImage
       v-else
-      ref="lazyImg"
       :src="store.thumbUrl(coverId)"
       :fallback="musicPlaceholder"
       :alt="title"
       lazy
+      skeleton
       class="media-cover"
-    >
-      <transition name="content-fade">
-        <div v-if="!contentReady" class="cover-skeleton shimmer"></div>
-      </transition>
-    </LazyImage>
+    />
     <div class="media-details">
       <p class="media-title heading-3">{{ title }}</p>
       <p v-if="subtitle" class="media-subtitle text-mono-medium">{{ subtitle }}</p>
@@ -24,11 +20,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
@@ -56,8 +50,6 @@ const props = defineProps({
 defineEmits(['click']);
 
 const store = useMusicLibraryStore();
-const lazyImg = ref(null);
-const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
 </script>
 
 <style scoped>
@@ -88,20 +80,8 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
   color: var(--color-brand);
 }
 
-.cover-skeleton {
-  position: absolute;
-  inset: 0;
-}
 
-/* Leave-only: the skeleton mounts at full opacity, then fades once the cover
-   (real or fallback) is ready, so it always paints at least once. */
-.content-fade-leave-active {
-  transition: opacity var(--transition-normal-leave);
-}
 
-.content-fade-leave-to {
-  opacity: 0;
-}
 
 .media-details {
   flex: 1;

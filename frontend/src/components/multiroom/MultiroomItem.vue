@@ -563,24 +563,24 @@ function handleClientMuteToggle(clientMacId, muted) {
   height: 40px;
   border-radius: var(--radius-03);
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
   pointer-events: none;
 }
 
 .icon-skeleton.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 /* Real icon content */
 .icon-content {
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 .icon-content.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 /* === EXPAND BUTTON === */
@@ -628,13 +628,13 @@ function handleClientMuteToggle(clientMacId, muted) {
   flex-direction: column;
   justify-content: center;
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
   pointer-events: none;
 }
 
 .client-name-skeletons.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 .item-name-skeleton {
@@ -687,13 +687,13 @@ function handleClientMuteToggle(clientMacId, muted) {
   inset: 0;
   border-radius: var(--radius-full);
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
   pointer-events: none;
 }
 
 .volume-skeleton.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 /* Real volume content */
@@ -703,12 +703,12 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 .volume-control.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 .volume-control.muted :deep(.slider-container) {
@@ -732,13 +732,13 @@ function handleClientMuteToggle(clientMacId, muted) {
   height: 34px;
   border-radius: var(--radius-full);
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
   pointer-events: none;
 }
 
 .toggle-skeleton.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 /* Real toggle content */
@@ -748,12 +748,12 @@ function handleClientMuteToggle(clientMacId, muted) {
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 .control-toggle.visible {
   opacity: 1;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 /* === EXPANDED CLIENTS SECTION === */
@@ -874,7 +874,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   inset: 0;
   margin-block: auto;
   opacity: 0;
-  transition: opacity 450ms ease 0ms;
+  transition: opacity var(--transition-reveal);
 }
 
 .volume-wrapper .client-offline.visible,
