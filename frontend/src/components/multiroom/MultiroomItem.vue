@@ -590,7 +590,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-control);
+  background: var(--color-inset);
   border: none;
   cursor: pointer;
   color: var(--color-text-secondary);
