@@ -74,9 +74,12 @@ export const useSpotifyStore = defineStore('spotify', () => {
   const homeLoading = ref(false);
   // 'not_signed_in' | 'unavailable' | null
   const homeError = ref(null);
+  // Moved by a change of account: a home asked before it is the last one's.
+  let homeGeneration = 0;
 
   async function loadHome({ force = false } = {}) {
     if (homeLoading.value || (home.value && !force)) return;
+    const generation = homeGeneration;
     homeLoading.value = true;
     const result = await apiCall.get(`${BASE}/home`, {
       // Spotify titles its shelves in the language asked for.
@@ -85,6 +88,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
       message: 'Error loading the Spotify library',
       logLevel: 'warn',
     });
+    if (generation !== homeGeneration) return;
     homeLoading.value = false;
     if (!result.ok) {
       homeError.value = result.error?.status === NOT_SIGNED_IN ? 'not_signed_in' : 'unavailable';
@@ -233,16 +237,37 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // =========================================================================
   // PROFILES — the accounts that cast to Milō
   // =========================================================================
-  const profiles = ref([]);
+  // Pushed whole (`source/profiles_changed`) when one is kept, described or
+  // forgotten: a new account is named in the audio state before its profile
+  // exists, and its picture comes later still. The one signed in is the
+  // state's account, so a switch needs no list read again.
+  const kept = ref([]);
+  const profiles = computed(() =>
+    kept.value.map((profile) => ({ ...profile, active: profile.username === account.value }))
+  );
+  // Moved by every push: a list read before it is older than the push.
+  let profilePushes = 0;
 
   async function loadProfiles() {
+    const pushes = profilePushes;
     const result = await apiCall.get(`${BASE}/profiles`, {
       category: 'spotify',
       message: 'Error loading Spotify profiles',
       logLevel: 'warn',
     });
-    if (!result.ok) return;
-    profiles.value = result.data.profiles;
+    if (result.ok && pushes === profilePushes) kept.value = result.data.profiles;
+    return result.ok;
+  }
+
+  /** WS: source/profiles_changed — a profile kept, described or forgotten. */
+  function applyProfiles(event) {
+    profilePushes += 1;
+    kept.value = event.data.profiles;
+  }
+
+  // App.vue's reconnect / tab-visible: a push missed meanwhile is gone.
+  async function resync() {
+    return loadProfiles();
   }
 
   async function switchProfile(username) {
@@ -258,13 +283,16 @@ export const useSpotifyStore = defineStore('spotify', () => {
       category: 'spotify',
       message: 'Error forgetting a Spotify profile',
     });
-    if (result.ok) await loadProfiles();
     return result.ok;
   }
 
   // Another account's library: nothing loaded for the last one still holds.
+  // Synchronous, so the home view asking for the next account's library always
+  // finds it cleared, never cleared after it asked.
   watch(account, (now, before) => {
     if (now === before) return;
+    homeGeneration += 1;
+    homeLoading.value = false;
     home.value = null;
     homeError.value = null;
     contexts.value = {};
@@ -272,8 +300,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
     forgetArtists();
     radios = new Map();
     contextLengths = new Map();
-    if (now) loadProfiles();
-  });
+  }, { flush: 'sync' });
 
   // Another interface language: the shelves and the artist pages are titled
   // in the last one.
@@ -306,7 +333,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
     // track menu
     trackRadio, contextLength,
     // profiles
-    profiles, loadProfiles, switchProfile, forgetProfile,
+    profiles, loadProfiles, applyProfiles, switchProfile, forgetProfile,
+    resync,
     // commands
     playContext,
   };

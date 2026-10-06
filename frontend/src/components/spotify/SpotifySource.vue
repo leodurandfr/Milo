@@ -16,7 +16,7 @@
         <template v-if="currentView === 'home' && activeProfile" #header-actions>
           <button v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
             @click="goTo('profiles')">
-            <ProfileAvatar :profile="activeProfile" :size="40" />
+            <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" :size="40" />
           </button>
         </template>
 
@@ -161,8 +161,6 @@ function onScrollRestored() {
 watch(() => store.account, (now, before) => {
   if (now !== before && PAGES.includes(currentView.value)) reset();
 });
-
-store.loadProfiles();
 </script>
 
 <style scoped>

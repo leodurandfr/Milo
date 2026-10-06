@@ -18,7 +18,7 @@ import { logger } from '@/services/logger';
  *               ping is consumed internally as the keepalive)
  *   source    → unifiedAudioStore + per-source stores (state, position,
  *               session_ended, error, error_cleared, storages_changed,
- *               favorite_* with data.source discriminator)
+ *               profiles_changed, favorite_* with data.source discriminator)
  *   volume    → unifiedAudioStore (volume_changed)
  *   routing   → multiroomStore (multiroom_* transition events)
  *   multiroom → multiroomStore / equalizerStore (client_state_changed,

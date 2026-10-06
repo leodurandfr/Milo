@@ -468,8 +468,8 @@ function spotifyDetails(overrides = {}) {
 }
 
 const SPOTIFY_PROFILES = [
-  { username: 'owner', name: 'Léo', spotify_name: 'Léo', avatar_url: null, active: true },
-  { username: 'guest', name: 'Cla', spotify_name: 'Cla', avatar_url: null, active: false }
+  { username: 'owner', name: 'Léo', spotify_name: 'Léo', avatar_url: null },
+  { username: 'guest', name: 'Cla', spotify_name: 'Cla', avatar_url: null }
 ];
 
 /** A home as GET /api/spotify/home answers it: covers are the shared placeholder. */

@@ -58,7 +58,7 @@ library (library.py), its shaping (catalog.py) and the kept profiles
 (profiles.py).
 """
 import asyncio
-from backend.core.models.ws_events import SourceErrorReason
+from backend.core.models.ws_events import SourceErrorReason, SpotifyProfilesChanged
 import contextlib
 import json
 import os
@@ -873,6 +873,7 @@ class SpotifySource(BaseAudioSource):
             return self.error_response("Unknown Spotify profile")
         self._harvested.discard(username)
         self._logger.info(f"Spotify profile forgotten ({len(self._profiles)} stored)")
+        await self._profiles_changed()
         if username in (self._persisted, await self._stored_account()):
             # Left in state.json, the daemon would sign back in as it, and the
             # next /status would keep it again.
@@ -934,6 +935,7 @@ class SpotifySource(BaseAudioSource):
         if self._profiles is not None and await self._profiles.forget(account):
             self._harvested.discard(account)
             self._logger.info(f"Refused Spotify profile forgotten ({len(self._profiles)} stored)")
+            await self._profiles_changed()
         await self._sign_in_successor()
 
     # === /events ===
@@ -1233,12 +1235,21 @@ class SpotifySource(BaseAudioSource):
             return
         if await self._profiles.harvest(account, credentials["data"], signed_in_at):
             self._logger.info(f"Spotify profile kept ({len(self._profiles)} stored)")
+            await self._profiles_changed()
         # Read again at every sign-in (once per daemon run): a picture or a
         # name changed in the Spotify app reaches the profile screen. A failed
         # read keeps what was kept.
         identity = await self._library.fetch_profile(account)
-        if identity is not None:
-            await self._profiles.set_identity(account, identity)
+        if identity is not None and await self._profiles.set_identity(account, identity):
+            await self._profiles_changed()
+
+    async def _profiles_changed(self) -> None:
+        """The browser's copy of the profiles: nothing else tells it one came,
+        changed or went."""
+        if self.state_machine:
+            await self.state_machine.broadcast(
+                SpotifyProfilesChanged(profiles=self._profiles.list())
+            )
 
     async def _read_state_credentials(self) -> Dict[str, Any]:
         """state.json's `credentials`, or {} when it cannot be read."""

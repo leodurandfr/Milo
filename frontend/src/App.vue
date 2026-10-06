@@ -101,6 +101,7 @@ import { useLyricsStore } from '@/stores/lyricsStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
+import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMacLinkStore } from '@/stores/macLinkStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -148,6 +149,7 @@ const lyricsStore = useLyricsStore();
 const podcastStore = usePodcastStore();
 const radioStore = useRadioStore();
 const musicLibraryStore = useMusicLibraryStore();
+const spotifyStore = useSpotifyStore();
 const snapcastStore = useSnapcastStore();
 const macLinkStore = useMacLinkStore();
 const settingsStore = useSettingsStore();
@@ -218,7 +220,7 @@ function processInitialState(event) {
 const deltaStores = [
   unifiedStore, multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
-  musicLibraryStore, snapcastStore, macLinkStore,
+  musicLibraryStore, snapcastStore, macLinkStore, spotifyStore,
 ];
 
 // Every resync goes through serverSync, which retries what failed and folds
@@ -572,6 +574,8 @@ const RAW_EVENTS = [
   // Storage spaces music is browsed from: a USB key plugged in or pulled, a
   // share written, and the counts growing while Navidrome indexes.
   ['source', 'storages_changed', musicLibraryStore.handleStoragesEvent],
+  // The Spotify accounts Milō keeps: one kept, described or forgotten.
+  ['source', 'profiles_changed', spotifyStore.applyProfiles],
 ];
 
 /**

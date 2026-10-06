@@ -8,7 +8,7 @@
  * opening over music someone is listening to, and Spotify's shelves left titled
  * in the language the interface just left.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 import { useSpotifyStore } from '@/stores/spotifyStore';
@@ -57,6 +57,10 @@ describe('spotifyStore', () => {
     store = useSpotifyStore();
   });
 
+  // A store outlives its test's pinia: its watchers would answer the next
+  // test's language change.
+  afterEach(() => store.$dispose());
+
   it('describes the playing track from the session and the details', () => {
     publish({
       session: makeSession({ title: 'Says', artist: 'Nils Frahm' }),
@@ -80,6 +84,46 @@ describe('spotifyStore', () => {
 
     expect(store.home).toBeNull();
     expect(store.contexts).toEqual({});
+  });
+
+  it("drops the last account's home still in flight, and loads the next account's", async () => {
+    publish({ details: details() });
+    let answerOwner;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answerOwner = resolve; }));
+    const ownerHome = store.loadHome();
+
+    publish({ details: details({ account: 'guest' }) });
+    apiCall.get.mockResolvedValueOnce(ok({ ...HOME, account: 'guest' }));
+    await store.loadHome();
+    answerOwner(ok(HOME));
+    await ownerHome;
+
+    expect(homeLocales()).toHaveLength(2);
+    expect(store.home.account).toBe('guest');
+    expect(store.homeLoading).toBe(false);
+  });
+
+  it("marks the state's account as the active profile, with no list read at a switch", () => {
+    const owner = { username: 'owner', name: 'Léo', avatar_url: null };
+    const guest = { username: 'guest', name: 'Cla', avatar_url: null };
+    store.applyProfiles({ data: { source: 'spotify', profiles: [owner, guest] } });
+    publish({ details: details({ account: 'guest' }) });
+
+    expect(store.profiles.filter((p) => p.active).map((p) => p.username)).toEqual(['guest']);
+    expect(apiCall.get.mock.calls.filter(([url]) => url === '/api/spotify/profiles')).toEqual([]);
+  });
+
+  it('keeps a pushed list over a read that answers after it', async () => {
+    let answerRead;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answerRead = resolve; }));
+    const read = store.resync();
+
+    const guest = { username: 'guest', name: 'Cla', avatar_url: 'https://i.scdn.co/image/cla' };
+    store.applyProfiles({ data: { source: 'spotify', profiles: [guest] } });
+    answerRead(ok({ status: 'success', profiles: [] }));
+
+    expect(await read).toBe(true);
+    expect(store.profiles.map((p) => p.username)).toEqual(['guest']);
   });
 
   it("asks for Spotify's home in the interface language, and again when it changes", async () => {

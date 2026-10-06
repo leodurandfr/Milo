@@ -124,8 +124,6 @@ async function forget(profile) {
   await store.forgetProfile(profile.username);
   forgetting.value = null;
 }
-
-store.loadProfiles();
 </script>
 
 <style scoped>

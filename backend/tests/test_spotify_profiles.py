@@ -125,6 +125,43 @@ async def test_no_account_name_reaches_the_logs(world, caplog):
     assert GUEST not in text and ACCOUNT not in text and "Léo" not in text
 
 
+def profile_pushes(world):
+    return [e["data"]["profiles"] for e in world.recorder.envelopes
+            if (e["category"], e["type"]) == ("source", "profiles_changed")]
+
+
+async def test_a_new_cast_tells_the_browser_its_profile_and_then_its_picture(world):
+    """The audio state names a new account before its profile is kept, and a
+    picture comes later still: a browser that read the list at the account
+    change never shows the newcomer's avatar unless both are pushed."""
+    world.identities[GUEST] = {"name": "Cla", "image_url": "https://i.scdn.co/image/cla"}
+    sent = len(profile_pushes(world))
+    await world.cast_from(GUEST)
+    await world.idle()
+
+    kept_then, described = profile_pushes(world)[sent:]
+    assert [(p["username"], p["avatar_url"]) for p in kept_then] == [
+        (ACCOUNT, "https://i.scdn.co/image/leo"), (GUEST, None)]
+    assert [(p["username"], p["name"], p["avatar_url"]) for p in described] == [
+        (ACCOUNT, "Léo", "https://i.scdn.co/image/leo"), (GUEST, "Cla", "https://i.scdn.co/image/cla")]
+
+    # Read again at the next sign-in, an unchanged identity pushes nothing.
+    sent = len(profile_pushes(world))
+    await world.leave()
+    await world.select()
+    await world.idle()
+    assert profile_pushes(world)[sent:] == []
+
+
+async def test_a_forgotten_profile_leaves_the_browser_s_list(world):
+    await world.cast_from(GUEST)
+    await world.idle()
+    await routes.forget_profile(GUEST, source=world.source)
+    await world.idle()
+
+    assert [p["username"] for p in profile_pushes(world)[-1]] == [ACCOUNT]
+
+
 # === Switching and forgetting ===
 
 async def test_switching_profile_ends_the_session_and_signs_in_as_the_other(world):
@@ -689,11 +726,13 @@ async def test_the_library_answers_409_when_spotify_is_not_running(world):
     assert answer.value.status_code == 409
 
 
-async def test_no_route_answers_a_credential(world):
+async def test_no_route_or_push_answers_a_credential(world):
     """The blob is reusable from any device: it must never leave the backend."""
     answer = await routes.get_profiles(source=world.source)
     assert "c3RvcmVkLWJsb2I=" not in json.dumps(answer)
-    assert answer["profiles"][0]["active"] is True
+    assert answer["profiles"][0]["username"] == ACCOUNT
+    assert profile_pushes(world)
+    assert "c3RvcmVkLWJsb2I=" not in json.dumps(profile_pushes(world))
 
 
 def _recording(calls, name, real, world):

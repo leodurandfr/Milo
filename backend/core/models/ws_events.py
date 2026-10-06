@@ -298,6 +298,23 @@ class MusicLibraryStoragesChanged(WsEvent):
     scanning: bool
 
 
+class SpotifyProfilesChanged(WsEvent):
+    """spotifyStore.applyProfiles — the Spotify accounts Milō keeps.
+
+    Pushed when a profile is kept, described (the name and picture Spotify
+    gives, read after the sign-in) or forgotten. None of that moves the audio
+    state: a cast from a new account names it there before its profile exists,
+    so a list read at that moment lacks the profile it is about to show. Sent
+    whole, exactly as `GET /api/spotify/profiles` answers it: one short entry
+    per account, ``{username, name, spotify_name, avatar_url}``. Which one is
+    signed in is the audio state's `details.account`, never a flag here.
+    """
+    CATEGORY = "source"
+    TYPE = "profiles_changed"
+    source: Literal["spotify"] = "spotify"
+    profiles: List[Dict[str, Any]]
+
+
 # =============================================================================
 # VOLUME
 # =============================================================================

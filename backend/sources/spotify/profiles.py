@@ -33,7 +33,9 @@ class SpotifyProfiles:
         self._profiles = data["profiles"] if data else {}
 
     def list(self) -> List[Dict[str, Any]]:
-        """Every profile in the order they were first seen — never the credentials."""
+        """Every profile in the order they were first seen — never the
+        credentials. Which one is signed in is the audio state's to say
+        (`details.account`): a flag here would go stale at every switch."""
         ordered = sorted(self._profiles.items(), key=lambda item: item[1]["added_at"])
         return [
             {
@@ -77,17 +79,18 @@ class SpotifyProfiles:
             await self._save()
             return new
 
-    async def set_identity(self, username: str, identity: Dict[str, Optional[str]]) -> None:
+    async def set_identity(self, username: str, identity: Dict[str, Optional[str]]) -> bool:
         """Take what Spotify answered (`spotify_name`, `avatar_url`):
-        a field it left out keeps what was kept."""
+        a field it left out keeps what was kept. True when the profile moved."""
         async with self._lock:
             profile = self._profiles.get(username)
             if profile is None:
-                return
+                return False
             if all(profile[key] == value for key, value in identity.items()):
-                return
+                return False
             profile.update(identity)
             await self._save()
+            return True
 
     async def forget(self, username: str) -> bool:
         async with self._lock:

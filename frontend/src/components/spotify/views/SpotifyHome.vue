@@ -98,8 +98,10 @@ const librarySections = computed(() => {
 
 // The library answers once the daemon is signed in — the audio state names the
 // account a moment before that (a start, a profile switch): it loads then, and
-// again if a first try met the sign-in still in progress.
-watch(() => store.account && !store.signingIn, (signedIn) => {
+// again if a first try met the sign-in still in progress. Keyed on the account,
+// not on "signed in": a Connect cast replaces one signed-in account with
+// another and never says it is signing in.
+watch(() => (store.signingIn ? null : store.account), (signedIn) => {
   if (signedIn) store.loadHome({ force: store.homeError !== null });
 }, { immediate: true });
 </script>

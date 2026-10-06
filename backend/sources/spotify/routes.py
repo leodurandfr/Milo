@@ -185,13 +185,7 @@ async def get_track_radio(
 async def get_profiles(source: SpotifySource = Depends(get_source)):
     """The accounts Milō keeps — never their credentials."""
     profiles = _require_profiles(source)
-    return {
-        "status": "success",
-        "profiles": [
-            {**profile, "active": profile["username"] == source.account}
-            for profile in profiles.list()
-        ],
-    }
+    return {"status": "success", "profiles": profiles.list()}
 
 
 @router.delete("/profiles/{username}")
