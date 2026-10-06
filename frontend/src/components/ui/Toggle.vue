@@ -91,11 +91,11 @@ function handleToggle(event) {
 /* iOS's proportions: the track 2.2 times as wide as it is tall, the knob 1.6
    times as wide as it is tall and 3px inside, its travel 0.6 of its width. */
 
-/* Default - Desktop: 76x34, a 44x28 knob */
+/* Default - Desktop: 68x34, a 42x28 knob */
 .toggle--default {
-  width: 76px;
+  width: 68px;
   height: 34px;
-  --knob-width: 44px;
+  --knob-width: 42px;
   --knob-height: 28px;
   --knob-stretch: 4px;
 }
@@ -153,7 +153,7 @@ function handleToggle(event) {
   transform: translateX(calc(var(--toggle-width) - var(--knob-width) - var(--knob-stretch) - 6px));
 }
 
-.toggle--default { --toggle-width: 76px; }
+.toggle--default { --toggle-width: 68px; }
 .toggle--compact { --toggle-width: 66px; }
 
 /* Colors */
