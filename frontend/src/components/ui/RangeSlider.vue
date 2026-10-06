@@ -1,7 +1,8 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
-<!-- A native <input type="range"> drawn as Milō's slider: the browser drags,
-     snaps and places the thumb; the component only maps stops to values and
-     hands the fill one number, where the value sits from 0 to 1. -->
+<!-- A native <input type="range"> drawn as Milō's slider: the browser drags
+     and snaps; the component maps stops to values and hands the track one
+     number, where the value sits from 0 to 1, which places the fill and the
+     knob — so the two glide together from stop to stop. -->
 <template>
   <div :class="['slider-container', orientation, { disabled, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel }]"
     :style="{ '--fraction': fraction }">
@@ -32,6 +33,8 @@
         @input="handleInput"
         @change="handleChange"
       />
+
+      <span class="range-knob" aria-hidden="true"></span>
     </div>
 
     <!-- Beside the track, never on it: a thumb at either end covered it. -->
@@ -278,12 +281,16 @@ function handleChange(event) {
   --grow: 1;
 }
 
-.slider-container:not(.dragging) {
-  transition: --slider-accent var(--transition-fast), --grow var(--transition-spring-light), opacity var(--transition-fast);
-}
+/* The fill and the knob both read --fraction, so they move as one. While a
+   continuous slider is dragged it follows the finger untransitioned; between
+   stops it glides, quickly and without a spring, so a fast sweep does not
+   bounce at each stop. A value changed elsewhere (the encoder, another
+   device) is not eased: the invisible thumb that takes the pointer jumps at
+   once, and a knob still on its way would be pressed beside it. */
 
-/* --fraction is never transitioned: the native thumb jumps to a new value,
-   and a fill easing after it would leave the knob off the fill's end. */
+.slider-container.stepped.dragging {
+  transition: --slider-accent var(--transition-fast), --fraction 120ms var(--easeOutCubic), --grow var(--transition-spring-light);
+}
 
 .slider-rail {
   position: relative;
@@ -402,6 +409,9 @@ function handleChange(event) {
   border: none;
 }
 
+/* Invisible but there: it takes the pointer, and a thumb at opacity 0 still
+   does. Safari draws its own shadow under a thumb with no appearance, so the
+   shadow and the border go too, not only the fill. */
 .range-input::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -409,8 +419,9 @@ function handleChange(event) {
   height: var(--knob-height);
   border: none;
   border-radius: var(--radius-full);
-  background: var(--color-thumb);
-  box-shadow: var(--shadow-knob);
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -420,8 +431,9 @@ function handleChange(event) {
   height: var(--knob-height);
   border: none;
   border-radius: var(--radius-full);
-  background: var(--color-thumb);
-  box-shadow: var(--shadow-knob);
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -437,42 +449,48 @@ function handleChange(event) {
   height: var(--knob-width);
 }
 
-/* Widened from where it stands along the track (its own fraction across its
-   box), so the end it is near stays put. */
-.horizontal .range-input::-webkit-slider-thumb {
-  transform: scaleX(calc(1 + var(--grow) * var(--knob-grow)));
-  transform-origin: calc(var(--fraction) * 100%) 50%;
-}
-
-.horizontal .range-input::-moz-range-thumb {
-  transform: scaleX(calc(1 + var(--grow) * var(--knob-grow)));
-  transform-origin: calc(var(--fraction) * 100%) 50%;
-}
-
-.vertical .range-input::-webkit-slider-thumb {
-  transform: scaleY(calc(1 + var(--grow) * var(--knob-grow)));
-  transform-origin: 50% calc((1 - var(--fraction)) * 100%);
-}
-
-.vertical .range-input::-moz-range-thumb {
-  transform: scaleY(calc(1 + var(--grow) * var(--knob-grow)));
-  transform-origin: 50% calc((1 - var(--fraction)) * 100%);
-}
-
-.range-input:focus-visible::-webkit-slider-thumb {
-  box-shadow: var(--shadow-knob), 0 0 0 2px var(--color-brand);
-}
-
-.range-input:focus-visible::-moz-range-thumb {
-  box-shadow: var(--shadow-knob), 0 0 0 2px var(--color-brand);
-}
-
 .range-input:disabled::-webkit-slider-thumb {
   cursor: not-allowed;
 }
 
 .range-input:disabled::-moz-range-thumb {
   cursor: not-allowed;
+}
+
+/* === KNOB === */
+/* The knob seen: the native thumb under it is transparent and only takes the
+   pointer, since a native thumb jumps from stop to stop and cannot glide. It
+   stands where the thumb does, by the fill's own formula. Held, it widens by
+   4px from where it stands along the track (its own fraction across it), so
+   the end it is near stays put. */
+.range-knob {
+  position: absolute;
+  border-radius: var(--radius-full);
+  background: var(--color-thumb);
+  box-shadow: var(--shadow-knob);
+  pointer-events: none;
+}
+
+.horizontal .range-knob {
+  top: 50%;
+  left: calc(3px + var(--fraction) * (100% - var(--thumb-length)));
+  width: var(--knob-width);
+  height: var(--knob-height);
+  transform: translateY(-50%) scaleX(calc(1 + var(--grow) * var(--knob-grow)));
+  transform-origin: calc(var(--fraction) * 100%) 50%;
+}
+
+.vertical .range-knob {
+  left: 50%;
+  bottom: calc(3px + var(--fraction) * (100% - var(--thumb-length)));
+  width: var(--knob-height);
+  height: var(--knob-width);
+  transform: translateX(-50%) scaleY(calc(1 + var(--grow) * var(--knob-grow)));
+  transform-origin: 50% calc((1 - var(--fraction)) * 100%);
+}
+
+.range-input:focus-visible ~ .range-knob {
+  box-shadow: var(--shadow-knob), 0 0 0 2px var(--color-brand);
 }
 
 /* === STOPS === */
