@@ -470,7 +470,9 @@
      },
      "session": null,
      "controls": [
-      "resume_playback"
+      "resume_playback",
+      "prev",
+      "next"
      ],
      "resume": {
       "title": "FIP",
@@ -805,7 +807,9 @@
     },
     "session": null,
     "controls": [
-     "resume_playback"
+     "resume_playback",
+     "prev",
+     "next"
     ],
     "resume": {
      "title": "FIP",
@@ -1342,7 +1346,9 @@
      },
      "session": null,
      "controls": [
-      "resume_playback"
+      "resume_playback",
+      "prev",
+      "next"
      ],
      "resume": {
       "title": "FIP",
@@ -1458,7 +1464,9 @@
     },
     "session": null,
     "controls": [
-     "resume_playback"
+     "resume_playback",
+     "prev",
+     "next"
     ],
     "resume": {
      "title": "FIP",
@@ -1692,7 +1700,9 @@
      },
      "session": null,
      "controls": [
-      "resume_playback"
+      "resume_playback",
+      "prev",
+      "next"
      ],
      "resume": {
       "title": "FIP",
@@ -1808,7 +1818,9 @@
     },
     "session": null,
     "controls": [
-     "resume_playback"
+     "resume_playback",
+     "prev",
+     "next"
     ],
     "resume": {
      "title": "FIP",
@@ -2098,7 +2110,9 @@
      },
      "session": null,
      "controls": [
-      "resume_playback"
+      "resume_playback",
+      "prev",
+      "next"
      ],
      "resume": {
       "title": "FIP",
@@ -2205,7 +2219,9 @@
     },
     "session": null,
     "controls": [
-     "resume_playback"
+     "resume_playback",
+     "prev",
+     "next"
     ],
     "resume": {
      "title": "FIP",

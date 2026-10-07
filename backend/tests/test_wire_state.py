@@ -248,7 +248,7 @@ SCENARIOS: List[Scenario] = [
     Scenario("radio playing", _radio, expect={"controls": ["stop", "prev", "next"]},
              session_has={"phase": "playing", "position": None}),
     Scenario("radio stopped", lambda mp, t: _radio(mp, t, stop=True), expect={
-        "session": None, "controls": ["resume_playback"], "resume": FIP_RESUME,
+        "session": None, "controls": ["resume_playback", "prev", "next"], "resume": FIP_RESUME,
         "details": {"kind": "radio", "station": FIP_STATION, "track": None},
     }),
     Scenario("radio with nothing", lambda mp, t: _radio(mp, t, tune=False), expect={

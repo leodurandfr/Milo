@@ -17,7 +17,7 @@ import asyncio
 from backend.core.models.ws_events import SourceErrorReason
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Any, List, Optional
 from urllib.parse import quote, urlparse
 
@@ -177,8 +177,9 @@ class RadioSource(MpvAudioSource):
         "play_station": CommandScope.CONTENT,
         "stop": CommandScope.RESUME,
         "resume_playback": CommandScope.RESUME,
-        "prev": CommandScope.SESSION,
-        "next": CommandScope.SESSION,
+        # Stopped, a step moves the station a play re-tunes, and plays nothing.
+        "prev": CommandScope.RESUME,
+        "next": CommandScope.RESUME,
     }
 
     def __init__(
@@ -388,24 +389,31 @@ class RadioSource(MpvAudioSource):
         self._publish()
         return self.success_response("Playback stopped")
 
-    def _can_step(self) -> bool:
-        """The station playing is one of at least two favorites."""
-        session = self._session
+    def _can_step(self, station: Optional[Dict[str, Any]]) -> bool:
+        """`station` — the one on screen: playing, or the one a play re-tunes —
+        is one of at least two favorites."""
         return (
-            isinstance(session, RadioSession)
+            station is not None
             and self._station_data.favorite_count >= 2
-            and self._station_data.is_favorite(session.station.get("id"))
+            and self._station_data.is_favorite(station.get("id"))
         )
 
     async def _handle_step(self, step: int) -> Dict[str, Any]:
         """Tune the previous or next favorite, in the order the favorites are
-        shown and round the list. A favorite with no record to load (not
+        shown and round the list — or, stopped, make it the station a play
+        re-tunes, without playing it. A favorite with no record to load (not
         cached, the directory unreachable) is passed over for the one after
         it, so one dead favorite does not wall the others off."""
-        if not self._can_step():
-            return self.error_response("The playing station is not one of several favorites")
+        playing = self._session is not None
+        if not playing and self.state_machine and self.state_machine.system_state.active_source != self.source:
+            # The station kept for when radio is selected again is not this
+            # command's to change.
+            return self.error_response("Radio is not the active source")
+        here_station = self._displayed_station
+        if not self._can_step(here_station):
+            return self.error_response("The station on screen is not one of several favorites")
         favorites = self._station_data.favorite_ids
-        here = favorites.index(self._session.station.get("id"))
+        here = favorites.index(here_station.get("id"))
         try:
             for distance in range(1, len(favorites)):
                 target = favorites[(here + step * distance) % len(favorites)]
@@ -413,17 +421,27 @@ class RadioSource(MpvAudioSource):
                     self._station_data.get_favorite_metadata_local(target)
                     or await self._station_data.get_station_metadata(target)
                 )
-                if station:
+                if not station:
+                    continue
+                if playing:
                     return await self._tune(station)
+                # A station chosen stopped never plays on its own, not even
+                # from a reroute's point, which a start would restore playing.
+                self._set_resume_point(replace(
+                    self._resume_point, identity=target, content=station, phase=Phase.PAUSED,
+                ))
+                self._publish()
+                return self.success_response(f"Stopped on {station.get('name', target)}", station=station)
             return self.error_response("No other favorite could be loaded")
         except Exception as e:
             self._logger.error(f"Station step error: {e}")
-            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
+            if playing:
+                self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response(str(e))
 
     def _favorites_changed(self) -> None:
-        """A favorite was added or removed: whether the playing station can
-        step moved. Called from the route's task, so it posts; the net after
+        """A favorite was added or removed: whether the station on screen,
+        playing or stopped, can step moved. Called from the route's task, so it posts; the net after
         the message republishes what moved."""
         self._post_result(self._favorites_moved)
 
@@ -548,13 +566,14 @@ class RadioSource(MpvAudioSource):
 
     def _controls(self) -> List[str]:
         """A live stream has no pause and no track to skip: stop, or re-tune
-        what was stopped — and, from a favorite, step to the one before or
-        after it."""
+        what was stopped — and, from a favorite playing or stopped on, step to
+        the one before or after it."""
+        steps = ["prev", "next"] if self._can_step(self._displayed_station) else []
         if self._session is not None:
-            return ["stop", "prev", "next"] if self._can_step() else ["stop"]
+            return ["stop", *steps]
         station = self._displayed_station
         if station and station.get("id"):
-            return ["resume_playback"]
+            return ["resume_playback", *steps]
         return []
 
     async def on_shazam_setting_changed(self, enabled: bool) -> bool:

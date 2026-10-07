@@ -247,7 +247,8 @@ class CommandScope(str, Enum):
 
     CONTENT starts something new; SESSION needs a live session and is refused
     without one; RESUME works from the resume point when there is no session
-    (it restores, then acts); DEVICE acts on the hardware, not on the session.
+    (the handler decides how: a resume restores it, radio's steps move it);
+    DEVICE acts on the hardware, not on the session.
     """
     CONTENT = "content"
     SESSION = "session"
