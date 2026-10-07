@@ -162,6 +162,11 @@ class Librespot:
         self.next_tracks: List[Dict[str, Any]] = []
         self.has_queue_route = True     # False: a go-librespot without it (stock 0.10.3), 404
         self.queue_answers = True       # False: GET /player/queue answers 503
+        self.queue_reads = 0
+        self.queue_body: Any = None     # not None: GET /player/queue answers 200 with this instead
+        # True: a change of the order raises no `queue` of its own (the test
+        # says it later), as when the event lands in a burst after the track's.
+        self.queue_event_late = False
         self.queue_listed: Optional[Dict[str, Any]] = None
         # What the account plays on another device, as /status's `remote`.
         self.remote: Optional[Dict[str, Any]] = None
@@ -250,10 +255,13 @@ class Librespot:
                 **self._player_flags(), "remote": None,
             }))
         if url.endswith("/player/queue"):
+            self.queue_reads += 1
             if not self.has_queue_route:
                 return _Exchange(_Response(404))
             if not self.queue_answers:
                 return _Exchange(_Response(503))
+            if self.queue_body is not None:
+                return _Exchange(_Response(200, self.queue_body))
             if not self.session and not self.signed_in:
                 return _Exchange(_Response(204))
             return _Exchange(_Response(200, self._queue()))
@@ -385,7 +393,7 @@ class Librespot:
     def says(self, *events: Dict[str, Any]) -> None:
         if self.socket is not None:
             queue = self._queue()
-            if self.has_queue_route and queue != self.queue_listed:
+            if self.has_queue_route and not self.queue_event_late and queue != self.queue_listed:
                 self.queue_listed = queue
                 events = ({"type": "queue"}, *events)
             for event in events:

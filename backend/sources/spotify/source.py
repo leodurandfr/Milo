@@ -10,9 +10,10 @@ the source follows it through `reconcile()` (docs: source architecture,
 GET /status, read once after every burst of /events. An event is when to look,
 never what to believe — two writers (the event and /status) is how the screen
 said "playing" while the auto-stop counted down a pause (E11). The play order
-around the track is GET /player/queue, read in the same burst when it carries
-the daemon's `queue` event (raised whenever that answer changes) or a
-connection.
+around the track is GET /player/queue, a second read: it is read again when the
+daemon's `queue` event says it moved (raised whenever that answer changes), on
+a connection, after a read that failed, and whenever the order it holds does
+not surround the track /status names — it is never shown around another track.
 
 The account. With `persist_credentials`, the first cast's account is stored in
 go-librespot's state.json and signs the daemon back in, with no phone, at every
@@ -142,8 +143,35 @@ def repeat_posts(mode: str) -> List[tuple]:
     ]
 
 
+@dataclass(frozen=True)
+class PlayOrder:
+    """What GET /player/queue said: the entries ({uri, uid, provider, track})
+    before the current one oldest first, the ones after it nearest first, and
+    the uris that name the current one (its own, and its track's if relinked)."""
+    current: frozenset = frozenset()
+    prev_tracks: Tuple[Dict[str, Any], ...] = ()
+    next_tracks: Tuple[Dict[str, Any], ...] = ()
+
+    def surrounds(self, uri: Optional[str]) -> bool:
+        return uri is not None and uri in self.current
+
+
+def play_order(data: Dict[str, Any]) -> PlayOrder:
+    current = data.get("track") if isinstance(data.get("track"), dict) else {}
+    track = current.get("track") if isinstance(current.get("track"), dict) else {}
+
+    def entries(key: str) -> Tuple[Dict[str, Any], ...]:
+        return tuple(item for item in data.get(key) or () if isinstance(item, dict))
+
+    return PlayOrder(
+        current=frozenset(uri for uri in (current.get("uri"), track.get("uri")) if uri),
+        prev_tracks=entries("prev_tracks"),
+        next_tracks=entries("next_tracks"),
+    )
+
+
 class _Unreadable:
-    """/status could not be read: nothing was learned."""
+    """go-librespot could not be read: nothing was learned."""
 
 
 UNREADABLE = _Unreadable()
@@ -348,10 +376,13 @@ class SpotifySource(BaseAudioSource):
         # daemon itself saw before it went to sign in again, the one record of
         # the phone while /status cannot name it. Consumed by the next read.
         self._announced_remote: Optional[Dict[str, Any]] = None
-        # The play order around the track, as GET /player/queue last listed it
-        # ({uri, uid, provider, track} entries): the ones before it oldest
-        # first, the ones after it nearest first.
-        self._window: Tuple[Tuple[Dict[str, Any], ...], Tuple[Dict[str, Any], ...]] = ((), ())
+        # The play order around the track, as GET /player/queue last listed it;
+        # stale once the daemon said it moved or a read of it failed, until it
+        # is read again. A daemon without the route (stock 0.10.3) is not asked.
+        self._order = PlayOrder()
+        self._order_stale = True
+        self._order_route = True
+        self._order_retried = False     # the one retry after a failed read is spent
 
         # The browser's two services. Profiles only where a path is given
         # (dependencies.py): a source built without one keeps no account.
@@ -988,7 +1019,6 @@ class SpotifySource(BaseAudioSource):
         if self._http is None:
             return
         gone = False
-        queue_moved = False
         for event in events:
             kind = event.get("type")
             if kind == "inactive":
@@ -996,16 +1026,14 @@ class SpotifySource(BaseAudioSource):
             elif kind in ("active", "connected"):
                 gone = False
             if kind in ("queue", "connected"):
-                queue_moved = True
+                # Said once: a failed /status read below must not lose it.
+                self._order_stale = True
             if kind == "remote":
                 self._announced_remote = event.get("data")
             if kind == "connected" and self._unanswered:
                 # The daemon that did not answer at start does now.
                 self.broadcast_error_cleared()
         status = None if gone else await self._read_status()
-        if queue_moved and not gone:
-            # Read even when /status was not: the event will not come again.
-            await self._read_window()
         if status is UNREADABLE:
             self._logger.warning("go-librespot status unavailable — keeping the session as it stands")
             if not self._timer_armed("status"):
@@ -1045,6 +1073,8 @@ class SpotifySource(BaseAudioSource):
         it disarms the timers, and the sign-in watch armed below must outlive
         that end."""
         if status is None:
+            # The order belonged to the session that ended.
+            self._order, self._order_stale = PlayOrder(), True
             await self.reconcile(None)
         else:
             await self._apply_session(status)
@@ -1081,17 +1111,20 @@ class SpotifySource(BaseAudioSource):
             session.track, session.uri = content, uri
             session.album_uri = status.track.get("album_uri") or None
             session.artists = artists_of(status.track)
-            # Taken with the track, so a buffering read keeps the order around
-            # the track still on screen. With nothing around it there is no
-            # order to swipe through.
-            prev_tracks, next_tracks = self._window
-            if prev_tracks or next_tracks:
+            # Only with a track: a buffering read keeps the order around the
+            # track still on screen. An order that does not surround this track
+            # is no order for it, and with nothing around it there is no order
+            # to swipe through.
+            if self._order_stale or not self._order.surrounds(uri):
+                await self._read_order()
+            order = self._order
+            if order.surrounds(uri) and (order.prev_tracks or order.next_tracks):
                 session.queue = [
-                    *(queue_entry(item.get("uri"), item.get("track")) for item in prev_tracks),
+                    *(queue_entry(item.get("uri"), item.get("track")) for item in order.prev_tracks),
                     queue_entry(uri, status.track),
-                    *(queue_entry(item.get("uri"), item.get("track")) for item in next_tracks),
+                    *(queue_entry(item.get("uri"), item.get("track")) for item in order.next_tracks),
                 ]
-                session.queue_index = len(prev_tracks)
+                session.queue_index = len(order.prev_tracks)
             else:
                 session.queue, session.queue_index = [], None
             if new_track:
@@ -1388,25 +1421,34 @@ class SpotifySource(BaseAudioSource):
         )
         return False
 
-    async def _read_status(self) -> Union[LibrespotStatus, None, _Unreadable]:
-        """GET /status: a session, None (204: no phone holds the speaker), or
-        UNREADABLE — the one failure rule (E10): a read that failed learned
-        nothing, and nothing is changed on it."""
+    async def _read(self, path: str, what: str) -> Union[Tuple[int, Any], _Unreadable]:
+        """GET one of go-librespot's routes: its HTTP status and its JSON body
+        (None unless 200), or UNREADABLE — the one failure rule (E10): a read
+        that failed learned nothing, and nothing is changed on it."""
         if not self._http or not self._api_url:
             return UNREADABLE
-
         try:
-            async with self._http.get(f"{self._api_url}/status") as resp:
-                if resp.status == 204:
-                    return None
+            async with self._http.get(f"{self._api_url}{path}") as resp:
                 if resp.status != 200:
-                    return UNREADABLE
-                data = await resp.json()
+                    return resp.status, None
+                return 200, await resp.json()
         except (aiohttp.ClientConnectorError, aiohttp.ClientOSError, asyncio.TimeoutError):
-            self._logger.debug("Status read skipped: go-librespot not reachable")
+            self._logger.debug(f"{what} read skipped: go-librespot not reachable")
             return UNREADABLE
         except Exception as e:
-            self._logger.error(f"Status read failed: {e}")
+            self._logger.error(f"{what} read failed: {e}")
+            return UNREADABLE
+
+    async def _read_status(self) -> Union[LibrespotStatus, None, _Unreadable]:
+        """GET /status: a session, None (204: no phone holds the speaker), or
+        UNREADABLE."""
+        answer = await self._read("/status", "Status")
+        if answer is UNREADABLE:
+            return UNREADABLE
+        code, data = answer
+        if code == 204:
+            return None
+        if not isinstance(data, dict):
             return UNREADABLE
 
         return LibrespotStatus(
@@ -1421,26 +1463,32 @@ class SpotifySource(BaseAudioSource):
             remote=data.get("remote"),
         )
 
-    async def _read_window(self) -> None:
+    async def _read_order(self) -> None:
         """GET /player/queue: the play order around the track. A 204 (no
-        session) or a 404 (a go-librespot without the route: stock 0.10.3)
-        lists nothing; a read that fails keeps the last one (E10)."""
-        try:
-            async with self._http.get(f"{self._api_url}/player/queue") as resp:
-                if resp.status in (204, 404):
-                    self._window = ((), ())
-                    return
-                if resp.status != 200:
-                    self._logger.warning(f"go-librespot queue read answered {resp.status} — keeping the last one")
-                    return
-                data = await resp.json()
-        except (aiohttp.ClientConnectorError, aiohttp.ClientOSError, asyncio.TimeoutError):
-            self._logger.debug("Queue read skipped: go-librespot not reachable")
+        session) lists nothing, and a 404 (stock 0.10.3) says the daemon has no
+        order to give for the rest of its run. A read that fails keeps the
+        order stale: the status retry reads it again once, then the daemon's
+        next event does."""
+        if not self._order_route:
             return
-        except Exception as e:
-            self._logger.error(f"Queue read failed: {e}")
+        answer = await self._read("/player/queue", "Queue")
+        code, data = (None, None) if answer is UNREADABLE else answer
+        if code == 404:
+            self._order_route = False
+            self._order, self._order_stale = PlayOrder(), False
+        elif code == 204:
+            self._order, self._order_stale = PlayOrder(), False
+        elif code == 200 and isinstance(data, dict):
+            self._order, self._order_stale = play_order(data), False
+        else:
+            if code is not None:
+                self._logger.warning(f"go-librespot queue read answered {code} — keeping the last order")
+            self._order_stale = True
+            if not self._order_retried and not self._timer_armed("status"):
+                self._order_retried = True
+                self._arm_timer("status", self.STATUS_RETRY_DELAY)
             return
-        self._window = (tuple(data.get("prev_tracks") or ()), tuple(data.get("next_tracks") or ()))
+        self._order_retried = False
 
     async def refresh_metadata(self) -> bool:
         """A state request (GET /api/audio/state): read /status, follow it, and
@@ -1629,7 +1677,8 @@ class SpotifySource(BaseAudioSource):
         # What played elsewhere belongs to this daemon run: the next one reads
         # its own before the bar shows anything.
         self._remote = self._announced_remote = None
-        self._window = ((), ())
+        self._order, self._order_stale, self._order_route = PlayOrder(), True, True
+        self._order_retried = False
         self._release_remote_hold()
         self._shuffle, self._repeat = False, "off"
         self._harvested.clear()

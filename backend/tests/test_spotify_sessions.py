@@ -130,14 +130,17 @@ async def test_no_window_is_no_order_to_swipe_through(world):
 async def test_a_daemon_without_the_queue_route_lists_no_order(world):
     """Stock go-librespot 0.10.3 (what dependencies.env pins) has no GET
     /player/queue and answers 404: the bar keeps its single cell rather
-    than an order the daemon never gave."""
+    than an order the daemon never gave, and the route is not asked again
+    for the rest of the daemon's run (no warning, no retry, per track)."""
     d = world.daemon
     d.has_queue_route = False
     d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
     await world.phone_plays(PARAPLUIE)
+    await world.phone_plays(TROIS_NEUF_TROIS)
     details = world.state()["details"]
     assert details["queue"] == [] and details["queue_index"] is None
     assert world.playing()
+    assert d.queue_reads == 1
 
 
 async def test_the_play_order_is_read_again_when_events_reconnect(world):
@@ -163,9 +166,10 @@ async def test_a_queue_event_read_with_an_unreadable_status_is_not_lost(world):
     assert world.state()["details"]["queue"][1]["title"] == "Trois Neuf Trois"
 
 
-async def test_an_unreadable_play_order_keeps_the_last_one(world):
+async def test_an_unreadable_play_order_keeps_the_last_one_and_is_read_again(world):
     """E10 for the order: a read that fails learns nothing, so the carousel
-    keeps the neighbours it had rather than collapsing to one cell."""
+    keeps the neighbours it had rather than collapsing to one cell — and,
+    the `queue` event being said once, the read is tried again on its own."""
     d = world.daemon
     d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
     await world.phone_plays(PARAPLUIE)
@@ -174,6 +178,63 @@ async def test_an_unreadable_play_order_keeps_the_last_one(world):
     await world._says({"type": "volume", "value": 40, "max": 100})
     assert world.state()["details"]["queue"][1]["title"] == "Trois Neuf Trois"
     assert world.playing()
+    d.queue_answers = True
+    await world.advance(2.1)                  # the retry
+    assert world.state()["details"]["queue"][1]["title"] == "Le Chemin"
+
+
+async def test_a_play_order_that_keeps_failing_is_retried_once(world):
+    """The retry is one read, not a loop: a queue route that keeps failing
+    is read again by the daemon's next event, never every two seconds."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    d.queue_answers = False
+    await world._says({"type": "queue"})
+    reads = d.queue_reads
+    await world.advance(10)
+    assert d.queue_reads == reads + 1
+    assert world.playing()
+
+
+async def test_an_order_around_another_track_is_never_shown(world):
+    """/status and /player/queue are two reads: a track change whose `queue`
+    lands in a later burst must not draw the old neighbours around the new
+    track (the new track would slide in as its own next)."""
+    d = world.daemon
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS), _listed(LE_CHEMIN)]
+    await world.phone_plays(PARAPLUIE)
+    d.queue_event_late = True
+    d.prev_tracks, d.next_tracks = [_listed(PARAPLUIE)], [_listed(LE_CHEMIN)]
+    await world.phone_plays(TROIS_NEUF_TROIS)
+    details = world.state()["details"]
+    assert [entry["uri"] for entry in details["queue"]] == [
+        PARAPLUIE["uri"], TROIS_NEUF_TROIS["uri"], LE_CHEMIN["uri"],
+    ]
+    assert details["queue_index"] == 1
+
+
+async def test_the_order_of_an_ended_session_is_not_the_next_ones(world):
+    """A phone that leaves takes its order with it: the next session, even
+    on the same track, is drawn with its own order, not the last one's."""
+    d = world.daemon
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world.phone_plays(PARAPLUIE)
+    d.next_tracks = []
+    d.queue_event_late = True
+    await world.phone_leaves()
+    await world.phone_plays(PARAPLUIE)
+    details = world.state()["details"]
+    assert details["queue"] == [] and details["queue_index"] is None
+
+
+async def test_a_play_order_that_is_not_one_changes_nothing(world):
+    """A 200 whose body is no order (a proxy, a fork) is a failed read: the
+    session it came with is still followed."""
+    d = world.daemon
+    d.queue_body = ["spotify:track:not-an-order"]
+    await world.phone_plays(PARAPLUIE)
+    assert world.playing() and world.session()["title"] == "Parapluie"
+    assert world.state()["details"]["queue"] == []
 
 
 async def test_a_seek_moves_the_published_position(world):
