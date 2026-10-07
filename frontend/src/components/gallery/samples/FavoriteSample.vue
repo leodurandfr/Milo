@@ -1,17 +1,12 @@
 <!-- frontend/src/components/gallery/samples/FavoriteSample.vue -->
 <!--
   Radio's favorite at the end of the transport, drawn the way RadioSource draws
-  it: in the `variant` the transport's end slot hands over — the fill of the
-  labelled button beside it, on the plate as on the bar's card.
+  it: a ghost, which the transport's end slot draws in the box a toggle takes.
 -->
 <template>
-  <IconButton icon="heart" :variant="variant" size="medium" />
+  <IconButton icon="heart" variant="ghost" size="medium" />
 </template>
 
 <script setup>
 import IconButton from '@/components/ui/IconButton.vue';
-
-defineProps({
-  variant: { type: String, required: true }
-});
 </script>

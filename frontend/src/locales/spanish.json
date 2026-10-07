@@ -523,7 +523,8 @@
     "takeOver": "Escuchar en Milō",
     "stop": "Detener",
     "play": "Reproducir",
-    "shuffle": "Aleatorio"
+    "shuffle": "Aleatorio",
+    "live": "En directo"
   },
   "radio": {
     "country": "País",

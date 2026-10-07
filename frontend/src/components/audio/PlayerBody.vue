@@ -71,6 +71,7 @@
         <ProgressBar :currentPosition="currentPosition" :duration="duration"
           :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
           :interactive="canSeek" :loading="phase === 'loading'" :variant="surface === 'card' ? 'on-contrast' : 'default'"
+          :live="isLive" :onAir="phase === 'playing'"
           :animateIn="surface === 'full'" @seek="seekTo" />
       </div>
       <div v-if="hasTransport" class="body-transport" :class="{ 'transport-scale--compact': surface === 'card' }">
@@ -126,6 +127,9 @@ const {
 const hasTransport = computed(() => shownControls.value.some(control => control.row === 'transport'));
 const canSeek = computed(() => liveControls.value.some(control => control.id === 'seek'));
 const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
+// A live stream's main button (stop, or the play that re-tunes): its bar is
+// the live one.
+const isLive = computed(() => shownControls.value.some(control => control.id === 'main' && control.live));
 
 // The album behind the title and the artist behind the line, where the
 // navigation says there is one. Not on the phone's mini-bar, which is one
@@ -220,15 +224,11 @@ defineExpose({ swipe });
   gap: var(--space-02);
 }
 
-/* The bar and the transport stop widening past a phone-to-kiosk column: on a
-   wide desktop window a row that fills a button (radio's stop) would run the
-   width of the screen. The kiosk's 448px column sits under the cap. */
 .player-body--full .player-body-bottom {
-  gap: var(--space-06);
+  gap: var(--space-07);
   align-self: center;
   width: 100%;
-  max-width: 480px;
-  padding-bottom: var(--space-04);
+  padding-bottom: var(--space-07);
 }
 
 /* A receiver ends on its progress bar: as far from the bottom as the source
@@ -355,7 +355,12 @@ defineExpose({ swipe });
 
 .player-body--card .player-body-bottom {
   gap: var(--space-04);
-  padding: 0 var(--space-04);
+}
+
+/* The progress bar keeps the block's side padding; the transport under it
+   takes the card's full width. */
+.player-body--card .body-progress {
+  padding-inline: var(--space-04);
 }
 
 .card-lines.has-album-link :deep(.player-info-title),
@@ -395,14 +400,6 @@ defineExpose({ swipe });
   display: block;
 }
 
-/* Five ghost buttons fill the card's row nearly edge to edge, so the row takes
-   back the ghost padding from the block's sides: the toggles' glyphs then line
-   up with the progress bar's ends, and the room it frees separates them from
-   the trio. */
-.player-body--card .body-transport {
-  margin-inline: calc(-1 * var(--space-02));
-}
-
 @media (max-aspect-ratio: 4/3) {
   .player-body--full .player-body-bottom {
     margin-bottom: calc(env(safe-area-inset-bottom, 0px));
@@ -438,8 +435,11 @@ defineExpose({ swipe });
 
   .player-body--card .player-body-bottom {
     flex-shrink: 0;
-    padding: 0;
     gap: 0;
+  }
+
+  .player-body--card .body-progress {
+    padding-inline: 0;
   }
 
   /* The progress: a thin strip pinned to the very bottom of the bar, clipped
@@ -458,6 +458,11 @@ defineExpose({ swipe });
     display: none;
   }
 
+  /* Without its label a live bar is a full strip that tells nothing. */
+  .player-body--card .body-progress :deep(.progress-bar--live) {
+    display: none;
+  }
+
   .player-body--card .body-progress :deep(.progress-container),
   .player-body--card .body-progress :deep(.progress) {
     height: 100%;
@@ -469,7 +474,6 @@ defineExpose({ swipe });
      than picked. */
   .player-body--card .body-transport {
     --transport-primary: 28px;
-    margin-inline: 0;
   }
 }
 </style>

@@ -87,6 +87,8 @@ class Radio:
         data = Mock()
         data.initialize = AsyncMock()
         data.is_favorite = Mock(side_effect=lambda sid: sid in ("fip", "nova"))
+        data.favorite_ids = ["fip", "nova"]
+        data.favorite_count = 2
         data.get_favorite_metadata_local = Mock(
             side_effect=lambda sid: {"fip": FIP, "nova": NOVA}.get(sid)
         )

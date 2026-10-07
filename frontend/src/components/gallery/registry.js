@@ -134,7 +134,7 @@ const PIXEL_SIZE = { kind: 'enum', options: [16, 24, 32, 48, 64] };
  */
 const TRANSPORT_END = {
   none: null,
-  'IconButton — radio’s favorite': { component: FavoriteSample, scoped: true }
+  'IconButton — radio’s favorite': { component: FavoriteSample }
 };
 
 const SELECT_OPTIONS = [
@@ -723,7 +723,7 @@ export const REGISTRY = {
     args: { source: 'spotify' },
     notes: {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
-      end: 'What the source adds after the row that is not a command — radio’s favorite — at the end a toggle takes, held by a spacer at the other so the main button stays centred; beside a labelled main button (radio’s stop), at the end across from it.'
+      end: 'What the source adds after the row that is not a command — radio’s favorite — at the end a toggle takes, held by a spacer at the other so the main button stays centred.'
     },
     state: {
       nowPlaying: NOW_PLAYING_STATE
@@ -902,7 +902,7 @@ export const REGISTRY = {
       nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
       'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.',
       'top-end': 'What the source adds that is not a command — CD’s eject, Bluetooth’s disconnect — at the end of the top row, drawn only when a slot fills it.',
-      'transport-end': 'Radio’s favorite after the transport, in the box a toggle takes, across from its labelled stop.'
+      'transport-end': 'Radio’s favorite after the transport, in the box a toggle takes, across from the steps between favorites.'
     },
     state: {
       nowPlaying: NOW_PLAYING_STATE

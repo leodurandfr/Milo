@@ -170,11 +170,15 @@ class RadioSource(MpvAudioSource):
         "play_station": PlayStationParams,
         "stop": None,
         "resume_playback": None,
+        "prev": None,
+        "next": None,
     }
     COMMAND_SCOPES = {
         "play_station": CommandScope.CONTENT,
         "stop": CommandScope.RESUME,
         "resume_playback": CommandScope.RESUME,
+        "prev": CommandScope.SESSION,
+        "next": CommandScope.SESSION,
     }
 
     def __init__(
@@ -194,7 +198,9 @@ class RadioSource(MpvAudioSource):
         )
 
         # Station data service (initialized immediately for API access)
-        self._station_data = StationDataService(state_machine=state_machine)
+        self._station_data = StationDataService(
+            state_machine=state_machine, on_favorites_changed=self._favorites_changed
+        )
 
         # RadioBrowser API (initialized immediately for API access)
         self._radio_api = RadioBrowserAPI(
@@ -287,6 +293,9 @@ class RadioSource(MpvAudioSource):
         if cmd == "resume_playback":
             return await self._handle_resume_playback()
 
+        if cmd in ("prev", "next"):
+            return await self._handle_step(1 if cmd == "next" else -1)
+
         return self.error_response(f"Unhandled command: {cmd}")
 
     # === Command Handlers ===
@@ -378,6 +387,48 @@ class RadioSource(MpvAudioSource):
             await self.end_session(EndReason.USER_STOP)
         self._publish()
         return self.success_response("Playback stopped")
+
+    def _can_step(self) -> bool:
+        """The station playing is one of at least two favorites."""
+        session = self._session
+        return (
+            isinstance(session, RadioSession)
+            and self._station_data.favorite_count >= 2
+            and self._station_data.is_favorite(session.station.get("id"))
+        )
+
+    async def _handle_step(self, step: int) -> Dict[str, Any]:
+        """Tune the previous or next favorite, in the order the favorites are
+        shown and round the list. A favorite with no record to load (not
+        cached, the directory unreachable) is passed over for the one after
+        it, so one dead favorite does not wall the others off."""
+        if not self._can_step():
+            return self.error_response("The playing station is not one of several favorites")
+        favorites = self._station_data.favorite_ids
+        here = favorites.index(self._session.station.get("id"))
+        try:
+            for distance in range(1, len(favorites)):
+                target = favorites[(here + step * distance) % len(favorites)]
+                station = (
+                    self._station_data.get_favorite_metadata_local(target)
+                    or await self._station_data.get_station_metadata(target)
+                )
+                if station:
+                    return await self._tune(station)
+            return self.error_response("No other favorite could be loaded")
+        except Exception as e:
+            self._logger.error(f"Station step error: {e}")
+            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
+            return self.error_response(str(e))
+
+    def _favorites_changed(self) -> None:
+        """A favorite was added or removed: whether the playing station can
+        step moved. Called from the route's task, so it posts; the net after
+        the message republishes what moved."""
+        self._post_result(self._favorites_moved)
+
+    async def _favorites_moved(self) -> None:
+        """Nothing to apply: `_republish_if_moved` publishes the new controls."""
 
     async def _handle_resume_playback(self) -> Dict[str, Any]:
         """Re-tune the station on screen: the live one, or the one kept."""
@@ -497,9 +548,10 @@ class RadioSource(MpvAudioSource):
 
     def _controls(self) -> List[str]:
         """A live stream has no pause and no track to skip: stop, or re-tune
-        what was stopped."""
+        what was stopped — and, from a favorite, step to the one before or
+        after it."""
         if self._session is not None:
-            return ["stop"]
+            return ["stop", "prev", "next"] if self._can_step() else ["stop"]
         station = self._displayed_station
         if station and station.get("id"):
             return ["resume_playback"]

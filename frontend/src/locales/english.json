@@ -523,7 +523,8 @@
     "takeOver": "Listen on Milō",
     "stop": "Stop",
     "play": "Play",
-    "shuffle": "Shuffle"
+    "shuffle": "Shuffle",
+    "live": "Live"
   },
   "radio": {
     "country": "Country",

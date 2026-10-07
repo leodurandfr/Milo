@@ -17,7 +17,7 @@ import unicodedata
 import uuid
 import io
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiofiles
 from PIL import Image
@@ -300,9 +300,12 @@ class StationDataService:
 
     SCHEMA_VERSION: int = 1
 
-    def __init__(self, state_machine=None):
+    def __init__(self, state_machine=None, on_favorites_changed: Optional[Callable[[], None]] = None):
         self.logger = logging.getLogger("source.radio.data")
         self._state_machine = state_machine
+        # The source's: whether the playing station can step to another
+        # favorite depends on the list.
+        self._on_favorites_changed = on_favorites_changed
         self.image_manager = ImageManager()
 
         self._data_file = Path('/var/lib/milo/radio_data.json')
@@ -426,6 +429,15 @@ class StationDataService:
         return station_id in self._favorites
 
     @property
+    def favorite_count(self) -> int:
+        return len(self._favorites)
+
+    def _favorites_moved(self) -> None:
+        """Tell the source the list changed, once it is saved."""
+        if self._on_favorites_changed:
+            self._on_favorites_changed()
+
+    @property
     def favorite_ids(self) -> List[str]:
         """Favorite station ids, in the one order every consumer shows them.
 
@@ -527,6 +539,7 @@ class StationDataService:
         success = await self._save()
 
         if success:
+            self._favorites_moved()
             await self._broadcast(RadioFavoriteAdded(station_id=station_id))
 
         return success
@@ -565,6 +578,7 @@ class StationDataService:
         else:
             if override and override.get('image_filename'):
                 await self.image_manager.delete_image(override['image_filename'])
+            self._favorites_moved()
             await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
         return success
@@ -671,6 +685,7 @@ class StationDataService:
             success = await self._save()
 
             if success:
+                self._favorites_moved()
                 await self._broadcast(RadioFavoriteAdded(station_id=station_id))
 
             return {"success": success, "station": station}
@@ -704,6 +719,7 @@ class StationDataService:
             if station.get('image_filename'):
                 await self.image_manager.delete_image(station['image_filename'])
             if position is not None:
+                self._favorites_moved()
                 await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
         return success

@@ -9,11 +9,21 @@
        - variant "on-contrast": the light fill, for the surfaces that are dark
          in both themes and render over artwork (lyrics bar, the playing bar's
          card).
-     Self-hides when the source reports no duration (e.g. Qobuz, radio). -->
+     Self-hides when the source reports no duration (e.g. Qobuz).
+       - `live`: a live stream (radio), which has no playhead to show: the
+         bare track, and the word "live" over its middle, the track fading
+         out on either side of it. Dimmed while the stream does not play.
+         Never seeks. -->
 
 <template>
+  <div v-if="live" class="progress-bar progress-bar--live"
+    :class="[`progress-bar--${variant}`, { 'progress-bar--animated': animateIn, 'is-on-air': onAir }]">
+    <span class="live-line" aria-hidden="true"></span>
+    <span class="text-mono-medium time live-label">{{ t('player.live') }}</span>
+    <span class="live-line live-line--end" aria-hidden="true"></span>
+  </div>
   <div class="progress-bar" :class="[`progress-bar--${variant}`, { 'progress-bar--animated': animateIn }]"
-    v-if="duration > 0 && isReady">
+    v-else-if="duration > 0 && isReady">
     <span class="text-mono-medium time">{{ formatTime(currentPosition) }}</span>
     <div class="progress-container" :class="{ interactive, dimmed: !looksInteractive }" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
@@ -25,6 +35,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { useI18n } from '@/services/i18n';
 
 const props = defineProps({
   // Both in milliseconds.
@@ -61,6 +72,16 @@ const props = defineProps({
     default: 'default',
     validator: (v) => ['default', 'on-contrast'].includes(v)
   },
+  // A live stream: the "live" bar, dimmed unless `onAir`.
+  live: {
+    type: Boolean,
+    default: false
+  },
+  // The live stream plays (not loading, not stopped).
+  onAir: {
+    type: Boolean,
+    default: false
+  },
   // Spring rise + fade on mount, for the surfaces whose whole player stages in
   // (AudioPlayerFull, lyrics bar). Off for bars that are already
   // part of a staged parent.
@@ -71,6 +92,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['seek']);
+const { t } = useI18n();
 
 const longLoad = useDelayedFlag(() => props.loading);
 const looksInteractive = ref(props.interactive);
@@ -202,5 +224,42 @@ function onProgressClick(event) {
 
 .progress-bar--on-contrast .time {
   color: var(--color-text-on-contrast-secondary);
+}
+
+/* === Live === */
+
+/* The track in two halves around the word, each fading out toward it. */
+.live-line {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--radius-01);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - var(--space-07)), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - var(--space-07)), transparent);
+}
+
+.live-line--end {
+  -webkit-mask-image: linear-gradient(to left, black calc(100% - var(--space-07)), transparent);
+  mask-image: linear-gradient(to left, black calc(100% - var(--space-07)), transparent);
+}
+
+.progress-bar--default .live-line {
+  background-color: var(--color-track);
+}
+
+.progress-bar--on-contrast .live-line {
+  background-color: var(--color-glint);
+}
+
+.live-label {
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.progress-bar--live {
+  transition: opacity var(--transition-medium);
+}
+
+.progress-bar--live:not(.is-on-air) {
+  opacity: var(--opacity-disabled);
 }
 </style>

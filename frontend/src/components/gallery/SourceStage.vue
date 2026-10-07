@@ -91,8 +91,8 @@
                     />
                   </template>
 
-                  <template v-if="page.source === 'radio'" #transport-end="{ variant }">
-                    <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" :variant="variant" size="medium" />
+                  <template v-if="page.source === 'radio'" #transport-end>
+                    <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" variant="ghost" size="medium" />
                   </template>
 
                 </AudioPlayer>
@@ -100,8 +100,8 @@
             </AudioSourceLayout>
           </template>
 
-          <template v-if="page.source === 'radio'" #transport-end="{ variant }">
-            <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" :variant="variant" size="medium" />
+          <template v-if="page.source === 'radio'" #transport-end>
+            <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" variant="ghost" size="medium" />
           </template>
         </BrowserSourceViews>
       </div>

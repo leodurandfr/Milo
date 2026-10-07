@@ -28,15 +28,14 @@ function mainControl(listed, phase) {
   if (listed('take_over')) {
     return { id: 'main', row: 'transport', command: 'take_over', icon: 'play', labelled: true, enabled: true };
   }
-  // A live stream has no pause to stand beside: the button says what it does,
-  // in words where there is room for them and by its glyph alone elsewhere.
+  // A live stream has no pause: its stop glyph, else the play that re-tunes.
+  // The progress bar above it says the stream is live.
   if (listed('stop') || listed('resume_playback')) {
     const stops = listed('stop');
     return {
-      id: 'main', row: 'transport',
+      id: 'main', row: 'transport', live: true,
       command: stops ? 'stop' : 'resume_playback',
       icon: stops ? 'stop' : 'play',
-      labelled: true, glyphSuffices: true,
       enabled: true
     };
   }
@@ -55,9 +54,13 @@ function mainControl(listed, phase) {
  * pair is drawn disabled meanwhile, so the row has its shape from the first
  * frame rather than growing two buttons when the file opens. A source that can
  * step while it loads lists its steps, which win as above.
+ *
+ * `live`: a live stream steps between stations only from some of them (radio:
+ * a favorite among several). Its steps are always drawn, disabled while they
+ * are not listed, so the row keeps one shape whatever station plays.
  */
-function flankControls(listed, opening) {
-  if (listed('prev') || listed('next')) {
+function flankControls(listed, opening, live) {
+  if (listed('prev') || listed('next') || live) {
     return [
       { id: 'prev', row: 'transport', command: 'prev', icon: 'previous', enabled: listed('prev') },
       { id: 'next', row: 'transport', command: 'next', icon: 'next', enabled: listed('next') }
@@ -122,7 +125,7 @@ export function playerControls({ controls, details, phase }) {
   const main = mainControl(listed, phase);
   if (main) {
     const pauses = listed('pause') || listed('resume');
-    const [before, after] = flankControls(listed, pauses && phase === 'loading');
+    const [before, after] = flankControls(listed, pauses && phase === 'loading', !!main.live);
     const [shuffle, repeat] = toggleControls(listed, details);
     items.push(...[shuffle, before, main, after, repeat].filter(Boolean));
   }

@@ -108,9 +108,14 @@ class RadioRig(Rig):
             {"mpv_socket": "/nonexistent/radio.sock"}, state_machine=self.machine,
             settings_service=self.settings, systemd_manager=self.systemd,
         )
+        # The real store, wired to the source by its constructor, for the
+        # scenarios that need it; every other one reads the fake below.
+        self.real_station_data = source._station_data
         data = Mock()
         data.initialize = AsyncMock()
         data.is_favorite = Mock(side_effect=lambda sid: sid in ("fip", "nova"))
+        data.favorite_ids = ["fip", "nova"]
+        data.favorite_count = 2
         data.get_favorite_metadata_local = Mock(
             side_effect=lambda sid: {"fip": FIP, "nova": NOVA}.get(sid)
         )

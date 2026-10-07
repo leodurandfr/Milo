@@ -523,7 +523,8 @@
     "takeOver": "在 Milō 上收听",
     "stop": "停止",
     "play": "播放",
-    "shuffle": "随机播放"
+    "shuffle": "随机播放",
+    "live": "直播"
   },
   "radio": {
     "country": "国家",

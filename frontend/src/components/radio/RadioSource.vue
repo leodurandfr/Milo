@@ -42,8 +42,8 @@
               <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
             </template>
 
-            <template #transport-end="{ variant }">
-              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" :variant="variant" size="medium"
+            <template #transport-end>
+              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="medium"
                 :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </template>
           </AudioPlayer>
@@ -54,8 +54,8 @@
     <!-- The station's favorite is not a command, so it is this source's to add,
          after the transport — in the full player as on the bar, in the fill of
          the stop button beside it. -->
-    <template #transport-end="{ variant }">
-      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" :variant="variant" size="medium"
+    <template #transport-end>
+      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="medium"
         :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
     </template>
   </BrowserSourceViews>

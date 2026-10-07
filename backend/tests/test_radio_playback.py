@@ -340,6 +340,131 @@ class TestResumeDispatch:
         assert len(radio.loads()) == 1
 
 
+class TestFavoriteSteps:
+    """`prev` / `next` step between favorites, from a favorite playing.
+
+    The order is the one every client shows the favorites in (`favorite_ids`),
+    round the list. The steps are listed in `controls` only while they can run
+    — a favorite among at least two plays — so the player draws them enabled
+    exactly then; the rotary and the IR remote send the same commands.
+    """
+
+    LAST = {"id": "zzz", "name": "Zebra FM", "url": "http://stream.example/zebra.mp3"}
+
+    async def test_next_tunes_the_following_favorite_and_wraps_past_the_last(self, radio):
+        radio.favorites(FIP, NOVA, self.LAST)
+        await radio.select()
+        await radio.tune(NOVA)
+
+        await radio.command("next")
+        assert radio.loads()[-1][1] == self.LAST["url"]
+
+        await radio.command("next")
+        assert radio.loads()[-1][1] == FIP["url"]
+        assert radio.station() == "fip"
+
+    async def test_prev_tunes_the_favorite_before_and_wraps_past_the_first(self, radio):
+        radio.favorites(FIP, NOVA, self.LAST)
+        await radio.select()
+        await radio.tune(FIP)
+
+        await radio.command("prev")
+
+        assert radio.loads()[-1][1] == self.LAST["url"]
+
+    async def test_a_favorite_among_several_lists_its_steps(self, radio):
+        radio.favorites(FIP, NOVA)
+        await radio.select()
+        await radio.tune(FIP)
+
+        assert radio.state()["controls"] == ["stop", "prev", "next"]
+
+    async def test_a_station_that_is_not_a_favorite_takes_no_step(self, radio):
+        """Played from a search: the steps are not listed, and one sent anyway
+        (the remote, a stale client) is refused with mpv left alone."""
+        radio.favorites(FIP, NOVA)
+        await radio.select()
+        await radio.command("play_station", play("s1", STATION))
+        loads = len(radio.loads())
+
+        result = await radio.command("next")
+
+        assert radio.state()["controls"] == ["stop"]
+        assert result["success"] is False
+        assert len(radio.loads()) == loads
+
+    async def test_a_lone_favorite_has_nowhere_to_step(self, radio):
+        radio.favorites(FIP)
+        await radio.select()
+        await radio.tune(FIP)
+
+        assert radio.state()["controls"] == ["stop"]
+
+    async def test_a_stopped_radio_takes_no_step(self, radio):
+        """The steps change what plays; with nothing playing, the only command
+        is the re-tune."""
+        radio.favorites(FIP, NOVA)
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.command("stop")
+
+        assert radio.state()["controls"] == ["resume_playback"]
+
+    async def test_favoriting_the_playing_station_lists_its_steps_at_once(
+        self, radio, tmp_path
+    ):
+        """The heart is pressed on the player itself: its arrows must come on
+        without waiting for the next state the stream happens to send. Through
+        the real station store, which tells the source it was handed at
+        construction — the path the favorites route takes."""
+        data = radio.real_station_data
+        data._data_file = tmp_path / "radio_data.json"
+        radio.source._station_data = data
+        await radio.select()
+        await data.add_favorite("fip", FIP)
+        await radio.command("play_station", play("s1", STATION))
+        assert radio.state()["controls"] == ["stop"]
+
+        await data.add_favorite("s1", STATION)
+        await settle()
+        assert radio.state()["controls"] == ["stop", "prev", "next"]
+
+        await data.remove_favorite("fip")
+        await settle()
+        assert radio.state()["controls"] == ["stop"]
+
+    async def test_a_favorite_with_nothing_to_load_is_passed_over(self, radio):
+        """A favorite neither cached nor in the directory (gone, or the
+        directory down) would otherwise answer every press, and the favorites
+        past it could never be reached."""
+        ghost = {"id": "ghost", "name": "Ghost FM"}
+        radio.favorites(FIP, ghost, self.LAST)
+        radio.data.get_favorite_metadata_local = Mock(
+            side_effect=lambda sid: {"fip": FIP, "zzz": self.LAST}.get(sid)
+        )
+        radio.data.get_station_metadata = AsyncMock(return_value=None)
+        await radio.select()
+        await radio.tune(FIP)
+
+        result = await radio.command("next")
+
+        assert result["success"] is True
+        assert radio.loads()[-1][1] == self.LAST["url"]
+
+    async def test_a_step_that_fails_says_so_like_a_tap_on_the_grid(self, radio):
+        """The banner a failed tune from the grid raises: a step that fails the
+        same way must not fail in silence."""
+        radio.favorites(FIP, NOVA)
+        radio.data.get_favorite_metadata_local = Mock(side_effect=RuntimeError("store unreadable"))
+        await radio.select()
+        await radio.command("play_station", play("fip", FIP))
+
+        result = await radio.command("next")
+
+        assert result["success"] is False
+        assert radio.errors() == ["playback_failed"]
+
+
 class TestShazamSettingChanged:
     """`PUT /api/settings/radio-settings` → `on_shazam_setting_changed`.
 

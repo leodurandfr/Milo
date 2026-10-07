@@ -659,3 +659,37 @@ class TestJpegRendition:
         await manager.delete_image(name)
 
         assert not (manager.IMAGES_DIR / "station.jpg").exists()
+
+
+class TestFavoritesListener:
+    """The source is told when the favorites move: whether the playing station
+    can step to another favorite (`prev` / `next`) depends on the list."""
+
+    @pytest.fixture
+    def told(self, tmp_path):
+        calls = []
+        svc = StationDataService(
+            state_machine=MagicMock(broadcast=AsyncMock()),
+            on_favorites_changed=lambda: calls.append(True),
+        )
+        svc._data_file = tmp_path / "radio_data.json"
+        svc.image_manager.delete_image = AsyncMock(return_value=True)
+        return svc, calls
+
+    async def test_adding_and_removing_a_favorite_each_tell_the_source(self, told):
+        svc, calls = told
+
+        await svc.add_favorite("s1", {"name": "One", "url": "http://example.invalid/1"})
+        assert len(calls) == 1
+
+        await svc.remove_favorite("s1")
+        assert len(calls) == 2
+
+    async def test_an_edit_that_keeps_the_list_tells_nothing(self, told):
+        svc, calls = told
+        await svc.add_favorite("s1", {"name": "One", "url": "http://example.invalid/1"})
+        calls.clear()
+
+        await svc.modify_favorite_metadata("s1", name="Renamed", url="http://example.invalid/1")
+
+        assert calls == []

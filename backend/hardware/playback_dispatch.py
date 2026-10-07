@@ -27,13 +27,15 @@ _PLAY_PAUSE_SOURCES = {
     AudioSource.BLUETOOTH,
 }
 
-# Sources that support next/prev navigation. Radio has no track to skip.
+# Sources that support next/prev navigation. Radio steps between favorites,
+# from a favorite playing (it refuses the step otherwise).
 _TRACK_NAV_SOURCES = {
     AudioSource.SPOTIFY,
     AudioSource.CD,
     AudioSource.MUSIC_LIBRARY,
     AudioSource.TIDAL,
     AudioSource.BLUETOOTH,
+    AudioSource.RADIO,
 }
 
 

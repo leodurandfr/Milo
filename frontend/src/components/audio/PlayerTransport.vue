@@ -9,12 +9,11 @@
      A relative skip (−15 / +30) is emitted, not sent: the progress bar beside
      the transport owns the playhead that shows a burst's sum at once.
      The steps and the main button sit together as one control, spaced the
-     same with or without toggles; the toggles flank it — on the plate half as
-     far from the column's edges as from the steps, on the card at the row's ends.
+     same with or without toggles; the toggles flank it, as far from the
+     column's edges as from the steps, on both surfaces.
      The `end` slot is what the source adds after the row that is not a command
      (radio's favorite): it takes an end the way a toggle does, held by a spacer
-     at the other one, so the main button stays centred — or, beside a labelled
-     main button that fills the row, a button of the same fill at its end. -->
+     at the other one, so the main button stays centred. -->
 <template>
   <!-- The plate carries its own scale; on the card the bar's compact one
        applies. In the template, where the icon-scale guardrail reads it. -->
@@ -26,9 +25,8 @@
       <!-- The row carries its own layout, so the one leaving keeps it while
            it fades out rather than re-flowing to the one arriving. -->
       <div :key="labelled ? 'labelled' : 'controls'" class="player-transport-row"
-        :class="{ 'player-transport--toggles': hasToggles || (!!$slots.end && !labelled),
-                  'player-transport--labelled-end': labelled && !!$slots.end }">
-        <span v-if="$slots.end && !labelled && !hasToggles" class="player-button player-button--toggle player-extra"
+        :class="{ 'player-transport--toggles': hasToggles || !!$slots.end }">
+        <span v-if="$slots.end && !hasToggles" class="player-button player-button--toggle player-extra"
           aria-hidden="true" />
         <template v-for="item in plate" :key="item.id">
           <span v-if="item.spacer" class="player-button player-button--toggle player-extra" aria-hidden="true" />
@@ -49,7 +47,8 @@
                 :color="ink(control)"
                 class="player-button"
                 :class="control.id === 'main' ? 'player-button--primary transport-primary' : 'transport-secondary player-extra'"
-                :loading="control.id === 'main' && isBuffering" :disabled="!control.enabled"
+                :aria-label="control.live ? t(LIVE_LABEL_KEYS[control.command]) : undefined"
+                :loading="control.id === 'main' && waiting(control)" :disabled="!control.enabled"
                 @click="press(control)" />
             </template>
           </span>
@@ -58,9 +57,8 @@
             :aria-label="toggleLabel(item)" :aria-pressed="item.active" :disabled="!item.enabled"
             @click="press(item)" />
         </template>
-        <span v-if="$slots.end" class="player-extra player-transport-end"
-          :class="labelled ? null : ['player-button', 'player-button--toggle']">
-          <slot name="end" :variant="labelled ? filled : 'ghost'" />
+        <span v-if="$slots.end" class="player-button player-button--toggle player-extra player-transport-end">
+          <slot name="end" />
         </span>
       </div>
     </Transition>
@@ -95,17 +93,20 @@ const emit = defineEmits(['skip']);
 const { t } = useI18n();
 const { isMobile } = useIsMobile();
 // The player's one reading of its state, made by the shell drawing this row.
-const { controls, shownControls, isBuffering, sendSourceCommand } = usePlayerState(props.source).controls;
+const { controls, shownControls, phase, isBuffering, sendSourceCommand } = usePlayerState(props.source).controls;
+
+// The main button spins while the session loads: past a second for a track
+// change, which passes through loading too briefly to be worth a spinner, at
+// once for a live stream, whose tune is always a real wait for the network —
+// as its progress bar dims at once.
+const waiting = (control) => (control.live ? phase.value === 'loading' : isBuffering.value);
 
 const isToggle = (control) => control.id === 'shuffle' || control.id === 'repeat';
 const transportControls = computed(() => shownControls.value.filter(control => control.row === 'transport'));
 const hasToggles = computed(() => transportControls.value.some(isToggle));
-// A control that says what it does in words — unless its glyph can say it
-// alone and there is no room for words: the phone's mini-bar, where a live
-// stream's stop stays its glyph. A take-over keeps its words everywhere: its
-// bare play glyph would read as playing it on the other device.
-const isLabelled = (control) => control.labelled
-  && !(control.glyphSuffices && props.surface === 'card' && isMobile.value);
+// A control that says what it does in words: a take-over, whose bare play
+// glyph would read as playing it on the other device.
+const isLabelled = (control) => control.labelled;
 const labelled = computed(() => transportControls.value.some(isLabelled));
 
 // The row in drawing order: the steps as one item, flanked by the toggles, a
@@ -122,8 +123,7 @@ const plate = computed(() => {
   ];
 });
 
-// What a button with a ground takes on each surface: a labelled main button,
-// and the end slot's button beside it.
+// What a labelled main button's ground takes on each surface.
 const filled = computed(() => (props.surface === 'card' ? 'on-contrast' : 'control'));
 
 // The main button and the steps beside it are one control in one ink, the
@@ -153,6 +153,10 @@ const REPEAT_LABEL_KEYS = {
 // A button that says what it does in words, by its command.
 const LABEL_KEYS = {
   take_over: 'player.takeOver',
+};
+
+// What a live stream's glyph-only main button says to a screen reader.
+const LIVE_LABEL_KEYS = {
   stop: 'player.stop',
   resume_playback: 'player.play',
 };
@@ -185,7 +189,9 @@ async function press(control) {
     if (controls.value.includes('skip')) emit('skip', control.seconds);
     return;
   }
-  if (!isLabelled(control)) {
+  // A labelled command and a live stream's main button wait for the source
+  // before taking another press: a second tap would tune the stream twice.
+  if (!isLabelled(control) && !control.live) {
     sendSourceCommand(control.command, control.params);
     return;
   }
@@ -202,6 +208,23 @@ async function press(control) {
   align-items: center;
 }
 
+/* The trio's glyphs sit the same distance apart on every surface, whether
+   toggles flank it or not: 0.45 of a step's glyph. The buttons' own gap is
+   that less what their targets hold around their glyphs (`--step-pad`,
+   `--primary-pad`, set per surface). */
+.player-transport-steps {
+  --trio-gap: calc(0.45 * var(--transport-secondary));
+  gap: max(0px, calc(var(--trio-gap) - var(--step-pad) - var(--primary-pad)));
+}
+
+/* With toggles, the row spreads its three items evenly, inset by what a
+   step's target holds around its glyph: the toggles then sit as far from the
+   column's edges as from the trio, glyph to glyph. */
+.player-transport-row.player-transport--toggles {
+  justify-content: space-evenly;
+  margin-inline: var(--toggle-inset);
+}
+
 /* === PLATE (AudioPlayerFull) ===
    No ground: the row spans the column, edge to edge with the progress bar
    above it. The steps and the main button touch, their tap targets alone
@@ -215,7 +238,20 @@ async function press(control) {
   --toggle-target: 56px;
   --step-target: 64px;
   --primary-target: 80px;
+  --step-pad: calc((var(--step-target) - var(--transport-secondary)) / 2);
+  --primary-pad: calc((var(--primary-target) - var(--transport-primary)) / 2);
+  --toggle-inset: var(--step-pad);
+  --labelled-width: 50%;
+  /* The column, for the trio's opening below. */
+  container-type: inline-size;
   color: var(--color-text);
+}
+
+/* Past the kiosk's 448px column (a wide desktop window), the trio opens by
+   10px per 100px of column: at the kiosk's spacing it reads cramped in a row
+   that wide. The kiosk, the phone and the card never reach it. */
+.player-transport--plate .player-transport-steps {
+  --trio-gap: calc(0.45 * var(--transport-secondary) + max(0px, (100cqi - 448px) * 0.1));
 }
 
 .player-transport--plate .player-button {
@@ -234,15 +270,6 @@ async function press(control) {
   flex-shrink: 0;
   width: var(--toggle-target);
   height: var(--toggle-target);
-}
-
-/* The toggles half as far from the column's edges as from the steps, glyph to
-   glyph: as far on both sides, they read as drifting off the edges toward the
-   heavier trio. The row spreads its items around, inset by what a step's
-   target holds around its glyph, which the toggles' targets hold already. */
-.player-transport--plate .player-transport--toggles {
-  justify-content: space-around;
-  margin-inline: calc((var(--step-target) - var(--transport-secondary)) / 2);
 }
 
 /* The row inside the swap, which holds the transport's layout: the steps
@@ -293,7 +320,11 @@ async function press(control) {
   min-width: 0;
 }
 
+/* On the plate a labelled button (a take-over) keeps to a centred share of
+   the column, wider on the phone where the column is narrow: across a wide
+   desktop column it would run the width of the screen. */
 .player-transport--plate .player-transport-labelled {
+  flex: 0 1 var(--labelled-width);
   height: var(--primary-target);
 }
 
@@ -305,15 +336,20 @@ async function press(control) {
   width: 100%;
 }
 
-.player-transport--labelled-end {
-  gap: var(--space-03);
-}
-
 /* The source's own button at the row's end, in the box a toggle takes. */
 .player-transport-end {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Ghost there, it is drawn as a toggle: the toggle's glyph, filling the box. */
+.player-transport-end.player-button--toggle :deep(.icon-button) {
+  --svg-size: var(--transport-toggle);
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-radius: 50%;
 }
 
 /* A loading ghost dims the ink it inherits; on the plate the spinner keeps
@@ -323,37 +359,22 @@ async function press(control) {
 }
 
 /* === CARD (AudioPlayer, through PlayerBody) ===
-   The bar's own ghost buttons, at its compact scale: the trio centred, its
-   ghost padding alone spacing it, and once a toggle is listed, shuffle and
-   repeat pushed to the row's two ends. PlayerBody lets the row reach into the
-   card's side padding by that ghost padding, so the toggles' glyphs land on
-   the progress bar's ends. */
+   The bar's own ghost buttons, at its compact scale, whose ghost padding is
+   what their targets hold around their glyphs. The row takes the card's full
+   width (only the progress bar above it is inset), so the toggles measure
+   from the card's edges. */
 .player-transport--card {
+  --step-pad: var(--space-02);
+  --primary-pad: var(--space-02);
+  --toggle-inset: var(--space-02);
   color: var(--color-text-on-contrast);
   width: 100%;
 }
 
-.player-transport--card .player-transport--toggles {
-  justify-content: space-between;
-}
-
-/* Buttons with no ghost padding take it back, so their edges stay on the
-   bar's. */
-.player-transport--card .player-transport-labelled,
-.player-transport--card .player-transport--labelled-end {
-  padding-inline: var(--space-02);
-}
-
-.player-transport--card .player-transport--labelled-end .player-transport-labelled {
-  height: auto;
-  padding-inline: 0;
-}
-
-/* Beside the end slot the row holds the main button's box itself, and the
-   labelled button and the slot's sit at its bottom, on the card's edge. */
-.player-transport--card .player-transport--labelled-end {
-  height: calc(var(--transport-primary) + 2 * var(--space-02));
-  align-items: flex-end;
+/* A labelled button keeps its edges on the progress bar's, whose inset it
+   takes. */
+.player-transport--card .player-transport-labelled {
+  padding-inline: var(--space-04);
 }
 
 /* The spacer holds the end a missing toggle would take: a ghost button is its
@@ -371,11 +392,18 @@ async function press(control) {
     --toggle-target: 48px;
     --step-target: 56px;
     --primary-target: 64px;
+    --labelled-width: 75%;
   }
 
-  /* The mini-bar centres its one row. */
-  .player-transport--card .player-transport--labelled-end {
-    align-items: center;
+  /* The mini-bar has no progress bar to align with: a labelled button keeps
+     only its ghost padding. */
+  .player-transport--card .player-transport-labelled {
+    padding-inline: var(--space-02);
+  }
+
+  /* The toggles are hidden there (`player-extra`): nothing to inset. */
+  .player-transport--card .player-transport-row.player-transport--toggles {
+    margin-inline: 0;
   }
 }
 </style>

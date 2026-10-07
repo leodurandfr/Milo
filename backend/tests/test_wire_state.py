@@ -227,6 +227,7 @@ FIP_RESUME = {
 SHOW = EPISODE_A["podcast"]["name"]
 FIRST = ALBUM[0]
 LIBRARY_TAIL = ["set_shuffle", "set_repeat", "play_index", "stop"]
+CD_TAIL = ["set_shuffle", "set_repeat", "play_track", "eject"]
 
 
 def _cover(song: Dict[str, Any]) -> str:
@@ -234,16 +235,17 @@ def _cover(song: Dict[str, Any]) -> str:
 
 
 SCENARIOS: List[Scenario] = [
-    # Radio — no pause, no playhead, no track to skip.
+    # Radio — no pause, no playhead; FIP is one of two favorites, so it steps
+    # to the other.
     Scenario("radio loading", lambda mp, t: _radio(mp, t, loading=True), expect={
         "session": {
             "id": "<id>", "phase": "loading", "title": "FIP", "artist": None, "album": "FIP",
             "artwork": FIP_ARTWORK, "senders": [], "duration_ms": None, "position": None,
         },
-        "controls": ["stop"], "resume": None,
+        "controls": ["stop", "prev", "next"], "resume": None,
         "details": {"kind": "radio", "station": FIP_STATION, "track": None},
     }),
-    Scenario("radio playing", _radio, expect={"controls": ["stop"]},
+    Scenario("radio playing", _radio, expect={"controls": ["stop", "prev", "next"]},
              session_has={"phase": "playing", "position": None}),
     Scenario("radio stopped", lambda mp, t: _radio(mp, t, stop=True), expect={
         "session": None, "controls": ["resume_playback"], "resume": FIP_RESUME,
@@ -312,15 +314,18 @@ SCENARIOS: List[Scenario] = [
     }),
     # CD — the drive's state is the availability; a READY disc always resumes.
     Scenario("cd opened, paused", _cd,
-             expect={"controls": ["resume", "seek", "skip", "next", "prev", "play_track", "eject"]},
+             expect={"controls": ["resume", "seek", "skip", "next", "prev", *CD_TAIL]},
              session_has={"phase": "paused", "senders": []}),
     Scenario("cd playing", lambda mp, t: _cd(mp, t, play=True),
-             expect={"controls": ["pause", "seek", "skip", "next", "prev", "play_track", "eject"]},
+             expect={"controls": ["pause", "seek", "skip", "next", "prev", *CD_TAIL]},
              session_has={"phase": "playing"}),
     # E67: a disc Milō cannot play still comes out.
     Scenario("cd unreadable", lambda mp, t: _cd(mp, t, disc="data"), expect={
         "session": None, "controls": ["eject"], "resume": None,
-        "details": {"kind": "cd", "disc": None, "current_track": None, "artwork_pending": False},
+        "details": {
+            "kind": "cd", "disc": None, "current_track": None, "artwork_pending": False,
+            "shuffle": False, "repeat": "off",
+        },
     }),
     Scenario("cd no drive", lambda mp, t: _cd(mp, t, plugged=False), expect={
         "session": None, "controls": [], "resume": None, "details": None,
