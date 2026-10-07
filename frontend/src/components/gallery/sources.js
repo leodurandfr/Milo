@@ -460,6 +460,8 @@ function spotifyDetails(overrides = {}) {
     track_uri: null,
     album_uri: null,
     artists: [],
+    queue: [],
+    queue_index: null,
     shuffle: false,
     repeat: 'off',
     remote: null,
@@ -708,7 +710,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. It opens on the signed-in account\'s home — the last one that cast, with several kept — and the profile screen is one tap away on its avatar; with nobody signed in there is no library to list, and the status card says the speaker is ready for a phone. The player is Music Library\'s track player without the queue carousel — go-librespot does not say what comes next.',
+      'The signed-in account\'s library, browsed and played from Milō: go-librespot keeps the account of the first phone that cast, signs back in with it, and plays a context on `play_context`. Its details carry the account, the context and the track, so the browser knows whose library to list and which row is playing. It opens on the signed-in account\'s home — the last one that cast, with several kept — and the profile screen is one tap away on its avatar; with nobody signed in there is no library to list, and the status card says the speaker is ready for a phone. The player is Music Library\'s track player; its details also carry go-librespot\'s play order around the track (up to 32 tracks either side, the user\'s queue included), which is what turns the mobile swipe into the three-cell text carousel.',
     scenarios: [
       starting('spotify'),
       browsing('spotify', 'Signed in, nothing playing', 'The daemon signed back in with the kept account and holds no session: the home draws Spotify\'s own for that account — its shortcuts, then its shelves in its order and under its titles, in the interface language — and the account\'s playlists after them.', {
@@ -1337,7 +1339,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'The richest of the three: the only source whose details carry a queue, which is what turns the mobile swipe into the three-cell text carousel, and the only one where hasEntityLinks is true — the artwork and the secondary line become links to the album and the artist. Both are Phone-viewport behaviours; the docked desktop card shows the full transport row instead. It needs no network, so it has no offline screen: its own two reasons (no_storage, catalog_unavailable) are drawn by its view, with the storage wizard at hand, never by the card.',
+      'The richest of the three: its details carry the whole queue, which turns the mobile swipe into the three-cell text carousel (Spotify carries its play order for the same), and it is the only one where hasEntityLinks is true — the artwork and the secondary line become links to the album and the artist. Both are Phone-viewport behaviours; the docked desktop card shows the full transport row instead. It needs no network, so it has no offline screen: its own two reasons (no_storage, catalog_unavailable) are drawn by its view, with the storage wizard at hand, never by the card.',
     scenarios: [
       starting('music_library'),
       browsing('music_library', 'One USB key', 'A single storage space, and so no storage picker at all: with one library every tab already shows all of it, and a one-button ButtonGroup would be a control with nothing to choose. The tabs below are the whole chrome.', {

@@ -101,6 +101,18 @@ def artists_of(track: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
     ]
 
 
+def queue_entry(uri: Optional[str], track: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """One track of the play order: its uri, and its title and artist line
+    once go-librespot has its metadata (a window entry's track is null
+    until then)."""
+    track = track or {}
+    return {
+        "uri": uri,
+        "title": track.get("name") or None,
+        "artist": ", ".join(track.get("artist_names") or []) or None,
+    }
+
+
 def normalize_track(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """One /context/tracks entry; None while its metadata is not cached yet."""
     track = entry.get("track")

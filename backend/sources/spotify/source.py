@@ -67,7 +67,7 @@ import time
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import aiofiles
 import aiohttp
@@ -82,10 +82,10 @@ from backend.core.models.session import (
     Session,
 )
 from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams, skip_target
-from backend.sources.spotify.catalog import artists_of
+from backend.sources.spotify.catalog import artists_of, queue_entry
 from backend.sources.spotify.library import SpotifyLibrary
 from backend.sources.spotify.models import (
-    NextPrevParams, PlayContextParams, SeekParams,
+    NextParams, PlayContextParams, PrevParams, SeekParams,
 )
 from backend.sources.spotify.profiles import SpotifyProfiles
 from backend.sources.spotify.websocket import LibrespotWebSocket
@@ -106,6 +106,10 @@ class LibrespotStatus:
     shuffle: bool = False
     repeat: str = "off"
     remote: Optional[Dict[str, Any]] = None
+    # The window around the track, as {uri, track} items: the tracks before
+    # it oldest first, the ones after it nearest first.
+    prev_tracks: Tuple[Dict[str, Any], ...] = ()
+    next_tracks: Tuple[Dict[str, Any], ...] = ()
 
 
 @dataclass
@@ -193,6 +197,9 @@ class SpotifySession(Session):
     context_name: Optional[str] = None
     album_uri: Optional[str] = None
     artists: List[Dict[str, Optional[str]]] = field(default_factory=list)
+    # The play order around the track (queue_entry), and the track's place in it.
+    queue: List[Dict[str, Optional[str]]] = field(default_factory=list)
+    queue_index: Optional[int] = None
 
 
 class SpotifySource(BaseAudioSource):
@@ -599,8 +606,8 @@ class SpotifySource(BaseAudioSource):
         "playpause": None,
         "seek": SeekParams,
         "skip": SkipParams,
-        "next": NextPrevParams,
-        "prev": NextPrevParams,
+        "next": NextParams,
+        "prev": PrevParams,
         "play_context": PlayContextParams,
         "set_shuffle": SetShuffleParams,
         "set_repeat": SetRepeatParams,
@@ -629,9 +636,11 @@ class SpotifySource(BaseAudioSource):
         if cmd in ["pause", "resume", "playpause"]:
             return await self._send_api_command(cmd)
 
-        if cmd in ["next", "prev"]:
-            payload = {"uri": params.uri} if params.uri else {}
-            return await self._send_api_command(cmd, payload)
+        if cmd == "next":
+            return await self._send_api_command(cmd, {"uri": params.uri} if params.uri else {})
+
+        if cmd == "prev":
+            return await self._send_api_command(cmd, {} if params.allow_seeking else {"allow_seeking": False})
 
         if cmd == "play_context":
             return await self._play_context(params)
@@ -1063,6 +1072,18 @@ class SpotifySource(BaseAudioSource):
             session.track, session.uri = content, uri
             session.album_uri = status.track.get("album_uri") or None
             session.artists = artists_of(status.track)
+            # Read with the track, so a buffering read keeps the order around
+            # the track still on screen. With nothing around it there is no
+            # order to swipe through.
+            if status.prev_tracks or status.next_tracks:
+                session.queue = [
+                    *(queue_entry(item.get("uri"), item.get("track")) for item in status.prev_tracks),
+                    queue_entry(uri, status.track),
+                    *(queue_entry(item.get("uri"), item.get("track")) for item in status.next_tracks),
+                ]
+                session.queue_index = len(status.prev_tracks)
+            else:
+                session.queue, session.queue_index = [], None
             if new_track:
                 self._anchor_position(position)
             else:
@@ -1388,6 +1409,8 @@ class SpotifySource(BaseAudioSource):
             shuffle=bool(data.get("shuffle_context", False)),
             repeat=repeat_mode(bool(data.get("repeat_context")), bool(data.get("repeat_track"))),
             remote=data.get("remote"),
+            prev_tracks=tuple(data.get("prev_tracks") or ()),
+            next_tracks=tuple(data.get("next_tracks") or ()),
         )
 
     async def refresh_metadata(self) -> bool:
@@ -1629,6 +1652,8 @@ class SpotifySource(BaseAudioSource):
             track_uri=session.uri if session else None,
             album_uri=session.album_uri if session else None,
             artists=session.artists if session else [],
+            queue=session.queue if session else [],
+            queue_index=session.queue_index if session else None,
             shuffle=self._shuffle,
             repeat=self._repeat,
             remote=self._remote_view(),

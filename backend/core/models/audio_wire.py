@@ -207,6 +207,15 @@ class SpotifyArtist(BaseModel):
     uri: Optional[str]              # null where Spotify names no page (an episode's show)
 
 
+class SpotifyQueueEntry(BaseModel):
+    """One track of the play order around what plays: what the phone's
+    mini-bar slides in under the finger before the swipe lands on it."""
+    uri: str
+    # Null until go-librespot has cached the track's metadata.
+    title: Optional[str]
+    artist: Optional[str]           # the artist line, its names joined
+
+
 class SpotifyDetails(BaseModel):
     kind: Literal["spotify"] = "spotify"
     # The account go-librespot is signed in as, or about to be: its stored
@@ -222,6 +231,12 @@ class SpotifyDetails(BaseModel):
     album_uri: Optional[str]
     # The names of the artist line, in its order: each one opens its page.
     artists: List[SpotifyArtist]
+    # The play order around what plays, as go-librespot holds it (the user's
+    # queue and shuffling included, up to 32 tracks on either side), and the
+    # entry playing in it. Empty and null with no session, or when the daemon
+    # lists nothing around the track.
+    queue: List[SpotifyQueueEntry]
+    queue_index: Optional[int]
     shuffle: bool
     repeat: RepeatMode
     # Null while Milō holds a session, or when no other device is active.

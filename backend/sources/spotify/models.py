@@ -14,9 +14,17 @@ class SeekParams(BaseModel):
     position_ms: float = Field(ge=0)
 
 
-class NextPrevParams(BaseModel):
-    """Params for `next`/`prev` (optional target track URI)."""
+class NextParams(BaseModel):
+    """Params for `next` (optional target track URI)."""
     uri: Optional[str] = None
+
+
+class PrevParams(BaseModel):
+    """Params for `prev`. The transport's button rewinds a track played past
+    its first three seconds, as Spotify does; `allow_seeking` false (the
+    mini-bar's swipe, which already slid the previous title in) always goes
+    to the previous track. Spotify Connect's own name for the option."""
+    allow_seeking: bool = True
 
 
 class PlayContextParams(BaseModel):

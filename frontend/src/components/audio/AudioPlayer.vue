@@ -39,11 +39,13 @@
             <template v-if="$slots['transport-end']" #transport-end="slotProps">
               <slot name="transport-end" v-bind="slotProps" />
             </template>
-            <!-- The phone's swipe over a queue: a 3-cell strip [prev｜current｜next]
+            <!-- The phone's swipe: the lines follow the finger in a viewport
+                 faded at both edges. Over a queue, a 3-cell strip [prev｜current｜next]
                  driven by the carousel's own viewIndex into the queue, so the
                  text is rendered locally and never reindexes against the backend
-                 skip echo mid-animation. -->
-            <template v-if="carousel" #info>
+                 skip echo mid-animation. Without one, a single cell that leaves on
+                 the finger's side and comes back from the other with what plays. -->
+            <template v-if="swipeActive" #info>
               <div class="player-info-carousel">
                 <div ref="trackEl" class="player-info-track" :style="trackStyle" @transitionend.self="onSettleEnd">
                   <div v-for="cell in cells" :key="cell.pos" class="player-info-cell">
@@ -65,7 +67,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
 import { usePlayerState } from '@/composables/usePlayerState'
-import { swipeable, swipeTarget } from '@/utils/playerControls'
+import { swipeable, swipeMove, swipeTarget } from '@/utils/playerControls'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { useI18n } from '@/services/i18n'
 import PlayerBody from './PlayerBody.vue'
@@ -102,7 +104,7 @@ const emit = defineEmits(['after-hide', 'title-click', 'secondary-click', 'expan
 // What this bar names and what its source offers: this bar's one reading of
 // its state, which the body and the transport under it take too.
 const { metadata, controls: sourceControls } = usePlayerState(props.source)
-const { title, artwork, fallback, stationAvatarSvg } = metadata
+const { title, secondaryLine, artwork, fallback, stationAvatarSvg } = metadata
 const { controls, details } = sourceControls
 const body = ref(null)
 
@@ -144,15 +146,21 @@ function handleArtworkLoad(e) {
 // to send; never a live stream). A queue source keeps
 // its steps listed while the track it stepped to loads, so the gesture — and
 // the carousel under it — outlive a track change rather than unmount
-// mid-slide. The animated 3-cell text carousel is the richer case and
-// additionally needs a real queue to read neighbour titles from — without one
-// there's nothing to slide text in from.
+// mid-slide. The 3-cell carousel needs a real queue to read neighbour titles
+// from (Music Library, and Spotify where go-librespot lists the play order
+// around the track); without one (Podcast) the lines slide alone.
 const swipeEnabled = computed(() => swipeable(controls.value))
 const swipeActive = computed(() => isMobile.value && swipeEnabled.value)
-// The queue and the current index within it (Music Library's details), in the
-// Subsonic song shape (title/name + artist).
+// The queue and the current index within it, each entry with a title (or a
+// Subsonic `name`) and an artist line.
 const tracks = computed(() => (Array.isArray(details.value?.queue) ? details.value.queue : []))
 const currentIndex = computed(() => details.value?.queue_index ?? -1)
+// What an entry is across two publishes. Spotify's queue is a window that slides
+// with the track — on a full one the playing entry keeps index 32 across a
+// step — so its entries are known by uri; Music Library's queue holds still,
+// and its index is the entry.
+const keyOf = (index) => tracks.value[index]?.uri ?? index
+const currentKey = computed(() => keyOf(currentIndex.value))
 
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true,
@@ -171,9 +179,40 @@ let touchTracking = false
 // The carousel owns its own index into the queue and reads its three cells from
 // it, NOT from the live backend index — so the skip echo (which reindexes
 // queueIndex almost instantly) can't swap cell contents out from under the
-// settle animation. It re-syncs to the store only between swipes.
+// settle animation. It re-syncs to the store only between swipes, and keeps
+// the entry the last swipe landed on until the backend plays it: a second
+// quick swipe would otherwise see the first one's echo pull the bar back a step.
 const viewIndex = ref(currentIndex.value)
-watch(currentIndex, (ci) => { if (!committing) viewIndex.value = ci })
+let pendingKey = null
+let pendingDirection = 0 // +1 ahead of the playing entry, -1 behind it
+let pendingHandle = null
+// How long a landed swipe waits for the backend to play it before the bar
+// shows what plays instead (a refused step, a dropped one).
+const PENDING_MS = 3000
+
+function resync() {
+  if (pendingKey !== null && currentKey.value === pendingKey) dropPending()
+  const pendingAt = pendingKey === null ? -1 : locatePending()
+  viewIndex.value = pendingAt >= 0 ? pendingAt : currentIndex.value
+}
+
+// Where the entry the last swipe landed on sits now: of its copies (a song the
+// window holds both behind and ahead), the nearest to the playing entry on the
+// side the swipe went — else anywhere, which is where a wrap past the end of a
+// repeating queue lands.
+function locatePending() {
+  for (let i = currentIndex.value; i >= 0 && i < tracks.value.length; i += pendingDirection) {
+    if (keyOf(i) === pendingKey) return i
+  }
+  return tracks.value.findIndex((_, i) => keyOf(i) === pendingKey)
+}
+
+function dropPending() {
+  pendingKey = null
+  if (pendingHandle) { timer.clear(pendingHandle); pendingHandle = null }
+}
+
+watch([currentKey, currentIndex], () => { if (!committing) resync() })
 
 // The entries a swipe lands on either side of the one shown (utils/
 // playerControls' swipeTarget: past the last entry of a repeating queue, the
@@ -187,8 +226,13 @@ const swipeTargets = computed(() => {
   }
 })
 
+// Without a queue the one cell shows what plays, held as it was while it
+// leaves: the next track's title can land before the slide out ends.
+const held = ref(null)
+const shown = computed(() => held.value ?? { title: title.value || '', artist: secondaryLine.value || '' })
+
 const CELLS = [[-1, 'prev'], [0, null], [1, 'next']]
-const cells = computed(() => CELLS.map(([offset, direction]) => {
+const cells = computed(() => !carousel.value ? [{ pos: 0, ...shown.value }] : CELLS.map(([offset, direction]) => {
   const song = tracks.value[direction ? swipeTargets.value[direction] : viewIndex.value]
   return {
     pos: offset,
@@ -199,9 +243,14 @@ const cells = computed(() => CELLS.map(([offset, direction]) => {
 const hasNextCell = computed(() => swipeTargets.value.next >= 0)
 const hasPrevCell = computed(() => swipeTargets.value.prev >= 0)
 
-// Resting is 'center' (translateX(-100%), middle cell centred). A drag follows
-// the finger; on release it settles to 'next' (-200%) / 'prev' (0%) or back.
-// dragging and suppressTransition drop the CSS transition for instant moves.
+// Resting is 'center': over a queue translateX(-100%), the middle cell centred;
+// without one 0%. A drag follows the finger; on release it settles to 'next' /
+// 'prev' — the neighbour cell, or the one cell out of view on that side — or
+// back. dragging and suppressTransition drop the CSS transition for instant moves.
+const OFFSETS = {
+  queue: { prev: '0%', center: '-100%', next: '-200%' },
+  single: { prev: '100%', center: '0%', next: '-100%' }
+}
 const trackEl = ref(null)
 const dragging = ref(false)
 const dragX = ref(0)
@@ -209,28 +258,42 @@ const settle = ref('center')
 const suppressTransition = ref(false)
 
 const trackStyle = computed(() => {
+  const offsets = carousel.value ? OFFSETS.queue : OFFSETS.single
   if (dragging.value) {
-    return { transform: `translateX(calc(-100% + ${dragX.value}px))`, transition: 'none' }
+    return { transform: `translateX(calc(${offsets.center} + ${dragX.value}px))`, transition: 'none' }
   }
-  const pos = settle.value === 'next' ? '-200%' : settle.value === 'prev' ? '0%' : '-100%'
+  const pos = offsets[settle.value]
   return suppressTransition.value
     ? { transform: `translateX(${pos})`, transition: 'none' }
     : { transform: `translateX(${pos})` }
 })
 
 let committing = false
-let committedTarget = -1
+let committedKey = null
+let committedDirection = 0
 let rehomeHandle = null
 
 // Settle finished: advance the local index onto the committed neighbour and snap
 // the strip back to centre. The neighbour text is already centred, so the snap is
-// invisible.
+// invisible. The neighbour is found again by key: an echo during the settle can
+// have slid the window under it.
 function rehome() {
   if (!committing) return
   if (rehomeHandle) { timer.clear(rehomeHandle); rehomeHandle = null }
-  viewIndex.value = committedTarget
   committing = false
-  committedTarget = -1
+  dropPending()
+  pendingKey = committedKey
+  pendingDirection = committedDirection
+  committedKey = null
+  resync()
+  if (pendingKey !== null) {
+    pendingHandle = timer.setTimeout(() => {
+      pendingHandle = null
+      if (committing || pendingKey === null) return
+      pendingKey = null
+      resync()
+    }, PENDING_MS)
+  }
   suppressTransition.value = true
   settle.value = 'center'
   dragX.value = 0
@@ -243,13 +306,67 @@ function rehome() {
   })
 }
 
+// Without a queue a step slides the one cell out on the finger's side, then
+// back in from the other once the title has moved — at once if it already has,
+// else when it does, or after ARRIVE_WAIT_MS regardless (a `prev` that restarts
+// the track, a refused command).
+const ARRIVE_WAIT_MS = 1200
+let leaving = null // 'out' while sliding out, 'waiting' for the title after
+let leftNext = false
+let leaveHandle = null
+
+function leave(goingNext) {
+  held.value = shown.value
+  leftNext = goingNext
+  leaving = 'out'
+  settle.value = goingNext ? 'next' : 'prev'
+  if (leaveHandle) timer.clear(leaveHandle)
+  leaveHandle = timer.setTimeout(onLeft, SETTLE_MS + 120) // fallback if transitionend is missed
+}
+
+function onLeft() {
+  if (leaving !== 'out') return
+  if (titleMoved()) return arrive(true)
+  leaving = 'waiting'
+  if (leaveHandle) timer.clear(leaveHandle)
+  leaveHandle = timer.setTimeout(() => arrive(true), ARRIVE_WAIT_MS)
+}
+
+function titleMoved() {
+  return !!title.value && title.value !== held.value?.title
+}
+
+watch(title, () => { if (leaving === 'waiting' && titleMoved()) arrive(true) })
+
+// Back to the centre with what plays: from the side opposite the one it left
+// by, or at once when a new touch cuts the cycle short.
+function arrive(animated) {
+  if (!leaving) return
+  if (leaveHandle) { timer.clear(leaveHandle); leaveHandle = null }
+  leaving = null
+  held.value = null
+  dragX.value = 0
+  suppressTransition.value = true
+  settle.value = animated ? (leftNext ? 'prev' : 'next') : 'center'
+  nextTick(() => {
+    // The same forced reflow as rehome(): the off-side position must commit
+    // with no transition before the slide back is animated.
+    trackEl.value?.getBoundingClientRect()
+    suppressTransition.value = false
+    settle.value = 'center'
+  })
+}
+
 function onSettleEnd() {
-  rehome()
+  if (carousel.value) rehome()
+  else onLeft()
 }
 
 function onTouchStart(e) {
   if (!swipeActive.value) return
-  if (committing) rehome() // finish a pending swipe before starting a new one
+  // Finish a pending swipe before starting a new one.
+  if (committing) rehome()
+  if (leaving) arrive(false)
   const touch = e.touches[0]
   touchStartX = touch.clientX
   touchStartY = touch.clientY
@@ -273,8 +390,8 @@ function onTouchMove(e) {
   }
   if (e.cancelable) e.preventDefault()
   // Rubber-band toward a missing neighbour (queue end) so it snaps back. Only
-  // meaningful for the queue-backed carousel — a plain seek swipe (podcast) has
-  // no neighbour concept and always follows the finger at full strength.
+  // meaningful for the queue-backed carousel — without a queue (Spotify,
+  // Podcast) there is no neighbour to miss, and the lines follow the finger.
   const towardMissing = carousel.value && (dx < 0 ? !hasNextCell.value : !hasPrevCell.value)
   dragX.value = towardMissing ? dx * 0.25 : dx
 }
@@ -291,20 +408,25 @@ function onTouchEnd(e) {
   const dy = touch.clientY - touchStartY
   const goingNext = dx < 0
   const passed = Math.abs(dx) > SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy) * 1.5
-  // No carousel (podcast: plain seek swipe) → no neighbour to check, always fires.
+  // No queue → no neighbour to check, always fires.
   const hasNeighbour = !carousel.value || (goingNext ? hasNextCell.value : hasPrevCell.value)
   if (passed && hasNeighbour) {
     // Finger left → next, finger right → prev.
     if (carousel.value) {
-      committedTarget = goingNext ? swipeTargets.value.next : swipeTargets.value.prev
+      committedKey = keyOf(goingNext ? swipeTargets.value.next : swipeTargets.value.prev)
+      committedDirection = goingNext ? 1 : -1
       settle.value = goingNext ? 'next' : 'prev'
       committing = true
       if (rehomeHandle) timer.clear(rehomeHandle)
       rehomeHandle = timer.setTimeout(rehome, SETTLE_MS + 120) // fallback if transitionend is missed
+    } else if (swipeMove(controls.value, goingNext ? 'next' : 'prev')?.command) {
+      // A step changes the track; a −15/+30 does not, and the lines just
+      // settle back.
+      leave(goingNext)
     }
     // The body sends it: a step, or a −15/+30 through its own playhead. A step
-    // back counts from the entry the carousel shows, not the one the backend
-    // last echoed, so a second quick swipe aims one entry further back.
+    // counts from the entry the carousel shows, not the one the backend last
+    // echoed, so a second quick swipe aims one entry further.
     body.value?.swipe(goingNext ? 'next' : 'prev', viewIndex.value)
   } else {
     settle.value = 'center'
@@ -512,8 +634,9 @@ img.player-artwork.loaded {
   }
 
   /* Swipe carousel: the clipped viewport the body's info block hosts; the strip
-     holds the three text cells side by side and slides horizontally. Only in
-     the DOM on the phone over a queue (v-if="carousel"). */
+     holds the text cells side by side (three over a queue, else one) and slides
+     horizontally. Only in the DOM on the phone where a swipe is taken
+     (v-if="swipeActive"). */
   .player-info-carousel {
     overflow: hidden;
     position: relative;

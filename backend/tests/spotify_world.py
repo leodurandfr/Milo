@@ -147,6 +147,11 @@ class Librespot:
         self.repeat_context = False
         self.repeat_track = False
         self.track: Optional[Dict[str, Any]] = None
+        # The window /status lists around the track, as {uri, track} items
+        # (track None until its metadata is cached): left out of the answer
+        # while empty, as go-librespot omits it.
+        self.prev_tracks: List[Dict[str, Any]] = []
+        self.next_tracks: List[Dict[str, Any]] = []
         # What the account plays on another device, as /status's `remote`.
         self.remote: Optional[Dict[str, Any]] = None
         self.taken_over: Optional[Dict[str, Any]] = None
@@ -231,9 +236,13 @@ class Librespot:
                 "username": self.account, "stopped": False, "paused": self.paused,
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
                 "context_uri": context_uri, "context_name": context_name,
-                **self._player_flags(), "remote": None,
+                **self._player_flags(), "remote": None, **self._window(),
             }))
         return _Exchange(_Response(200, {"playback_ready": self.session}))
+
+    def _window(self) -> Dict[str, Any]:
+        window = {"prev_tracks": self.prev_tracks, "next_tracks": self.next_tracks}
+        return {key: copy.deepcopy(items) for key, items in window.items() if items}
 
     def post(self, url: str, json: Optional[Dict[str, Any]] = None, **k: Any) -> _Exchange:
         if not self.up:

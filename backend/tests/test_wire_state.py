@@ -163,7 +163,7 @@ def _spotify_details(**fields):
     return {
         "kind": "spotify", "account": ACCOUNT, "signing_in": False,
         "context_uri": None, "context_name": None, "track_uri": None, "album_uri": None,
-        "artists": [], "shuffle": False, "repeat": "off", "remote": None, **fields,
+        "artists": [], "queue": [], "queue_index": None, "shuffle": False, "repeat": "off", "remote": None, **fields,
     }
 
 

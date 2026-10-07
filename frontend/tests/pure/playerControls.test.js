@@ -217,6 +217,15 @@ describe('the mini-bar swipe', () => {
     expect(swipeMove(SPOTIFY_LOADING, 'prev')).toEqual({ command: 'prev' });
   });
 
+  it('steps back over a window without rewinding, and plainly without one', () => {
+    // Spotify's play order: the carousel slid the previous title in, so the
+    // step must reach it even past the track's first seconds.
+    expect(swipeMove(SPOTIFY_LOADING, 'prev', 25)).toEqual({ command: 'prev', params: { allow_seeking: false } });
+    expect(swipeMove(SPOTIFY_LOADING, 'next', 25)).toEqual({ command: 'next' });
+    // No queue shown (a daemon listing no window): the transport's own prev.
+    expect(swipeMove(SPOTIFY_LOADING, 'prev', -1)).toEqual({ command: 'prev' });
+  });
+
   it('an episode skips −15 / +30, and not before its file is open', () => {
     const playing = ['pause', 'seek', 'skip'];
     expect(swipeMove(playing, 'next').skip).toBeGreaterThan(0);
@@ -233,6 +242,10 @@ describe('the mini-bar swipe', () => {
     // Not repeating, the backend lists no `next` there and nothing follows.
     const ending = { controls: LIBRARY_LOADING.filter(c => c !== 'next'), details: { kind: 'music_library', repeat: 'off' } };
     expect(swipeTarget(ending, 'next', 2, 3)).toBe(-1);
+    // A window's first entry is not where a repeating context starts again:
+    // past Spotify's last listed track the carousel slides nothing in.
+    const window = { controls: SPOTIFY_LOADING, details: { kind: 'spotify', repeat: 'context' } };
+    expect(swipeTarget(window, 'next', 2, 3)).toBe(-1);
     // Backward never wraps: on the first entry `prev` restarts the track.
     expect(swipeTarget(repeating, 'prev', 0, 3)).toBe(-1);
     expect(swipeTarget(repeating, 'prev', 2, 3)).toBe(1);

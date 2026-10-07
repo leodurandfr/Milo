@@ -414,10 +414,8 @@ class TestSpotifySourceCommands:
 class TestNextPrevCommands:
     """`next` / `prev`, the one command arm the suite never entered.
 
-    NextPrevParams carries an optional target URI, and the two payload shapes it
-    produces sat at 0% of lines. Sending `{"uri": null}` instead of `{}` is the
-    failure this pins: go-librespot reads the key, so a null target is not the
-    same request as no target.
+    A bare skip sends `{}`, never a null field: go-librespot reads the key, so
+    `{"uri": null}` is not the same request as no target.
     """
 
     @pytest.mark.asyncio
@@ -432,15 +430,26 @@ class TestNextPrevCommands:
         assert world.daemon.posted == [(cmd, {})]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("cmd", ["next", "prev"])
-    async def test_a_targeted_skip_carries_the_uri(self, world, cmd):
-        """The queue view jumps to a track by URI through this same command."""
+    async def test_a_targeted_next_carries_the_uri(self, world):
         await world.phone_plays(PARAPLUIE)
         uri = "spotify:track:0eGsygTp906u18L0Oimnem"
 
-        await world.command(cmd, {"uri": uri})
+        await world.command("next", {"uri": uri})
 
-        assert world.daemon.posted == [(cmd, {"uri": uri})]
+        assert world.daemon.posted == [("next", {"uri": uri})]
+
+    @pytest.mark.asyncio
+    async def test_a_swipe_back_never_rewinds(self, world):
+        """The mini-bar's swipe has already slid the previous title in
+        (AudioPlayer.vue): past the first three seconds of the track, a bare
+        `prev` would rewind it instead, so the swipe says `allow_seeking`
+        false — and only then is the key sent."""
+        await world.phone_plays(PARAPLUIE)
+
+        await world.command("prev", {"allow_seeking": False})
+        await world.command("prev", {"allow_seeking": True})
+
+        assert world.daemon.posted == [("prev", {"allow_seeking": False}), ("prev", {})]
 
     @pytest.mark.asyncio
     async def test_an_unknown_command_is_refused_rather_than_forwarded(self, spotify_source):

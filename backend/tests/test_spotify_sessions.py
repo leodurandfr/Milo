@@ -81,6 +81,51 @@ async def test_every_artist_of_the_track_is_published_with_its_uri(world):
     ]
 
 
+def _listed(song, known=True):
+    """A window entry of go-librespot's /status, its track null until cached."""
+    return {"uri": song["uri"], "track": song if known else None}
+
+
+async def test_the_play_order_around_the_track_is_published(world):
+    """The phone's mini-bar slides the neighbour titles in under the finger
+    (AudioPlayer.vue's carousel reads details.queue / queue_index): the order
+    is go-librespot's window around the track, the one playing in it."""
+    d = world.daemon
+    d.prev_tracks = [_listed(LE_CHEMIN)]
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS), _listed(track("Pas encore lu"), known=False)]
+    await world.phone_plays(PARAPLUIE)
+    details = world.state()["details"]
+    assert details["queue"] == [
+        {"uri": LE_CHEMIN["uri"], "title": "Le Chemin", "artist": "Kery James"},
+        {"uri": PARAPLUIE["uri"], "title": "Parapluie", "artist": "Kery James"},
+        {"uri": TROIS_NEUF_TROIS["uri"], "title": "Trois Neuf Trois", "artist": "Kery James"},
+        {"uri": "spotify:track:pas-encore-lu", "title": None, "artist": None},
+    ]
+    assert details["queue_index"] == 1
+
+
+async def test_a_queue_event_alone_names_what_was_not_known(world):
+    """go-librespot caches the window's metadata about a second after the
+    track loads and says so with `queue` only: that read must reach the
+    wire, or the next title stays blank until the track changes."""
+    d = world.daemon
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS, known=False)]
+    await world.phone_plays(PARAPLUIE)
+    assert world.state()["details"]["queue"][1]["title"] is None
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world._says({"type": "queue"})
+    assert world.state()["details"]["queue"][1]["title"] == "Trois Neuf Trois"
+
+
+async def test_no_window_is_no_order_to_swipe_through(world):
+    """A daemon that lists nothing around the track (stock go-librespot, or
+    its metadata off) publishes no queue: a queue of the track alone would
+    leave the carousel no neighbour, and the swipe nothing to do."""
+    await world.phone_plays(PARAPLUIE)
+    details = world.state()["details"]
+    assert details["queue"] == [] and details["queue_index"] is None
+
+
 async def test_a_seek_moves_the_published_position(world):
     """A seek done on the phone is a discontinuity: it goes out at once, as a
     position alone (nothing else about the session moved)."""

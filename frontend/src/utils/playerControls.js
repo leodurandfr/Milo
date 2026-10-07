@@ -133,11 +133,14 @@ export function playerControls({ controls, details, phase }) {
 /**
  * What a horizontal swipe on the phone's mini-bar sends, or null when the
  * source takes no such move now: a step where the source takes one, else the
- * relative skip (−15 / +30). Backwards over a queue it steps to the entry
- * before the one the bar shows (`play_index`): `prev` restarts the current
- * track past a few seconds, which would contradict the carousel already sliding
- * the previous title in — and counting from the entry shown rather than the one
- * playing is what lets two quick swipes reach two different entries.
+ * relative skip (−15 / +30). Backwards over a queue it never restarts the
+ * current track, as a bare `prev` does past a few seconds — that would
+ * contradict the carousel already sliding the previous title in. A queue the
+ * source addresses steps to the entry before the one the bar shows
+ * (`play_index`), counting from the entry shown rather than the one playing so
+ * two quick swipes reach two entries; one it does not (Spotify's play order, a
+ * window that slides with the track) steps back with `allow_seeking` false, a
+ * relative step the daemon applies in order, so two quick swipes add up too.
  *
  * Read from what the source lists, never from the phase: a queue source keeps
  * its steps listed while the track it stepped to loads (only `skip` drops), so
@@ -155,7 +158,10 @@ export function swipeMove(controls, direction, shownIndex = -1) {
     return listed('skip') ? { skip: SKIP_FORWARD_SECONDS } : null;
   }
   if (shownIndex > 0 && listed('play_index')) return { command: 'play_index', params: { index: shownIndex - 1 } };
-  if (listed('prev')) return { command: 'prev' };
+  if (listed('prev')) {
+    const overWindow = shownIndex >= 0 && !listed('play_index');
+    return overWindow ? { command: 'prev', params: { allow_seeking: false } } : { command: 'prev' };
+  }
   return listed('skip') ? { skip: SKIP_BACK_SECONDS } : null;
 }
 
@@ -165,8 +171,10 @@ export function swipeMove(controls, direction, shownIndex = -1) {
  * Forward it is the next entry, and past the last one the first again where the
  * source takes `next` there while the queue repeats: that press wraps (Music
  * Library goes back to entry 0, as the full player's next button does), so the
- * swipe must too. Backward it never wraps: on the first entry `prev` restarts
- * the track rather than reaching the last one.
+ * swipe must too — over a queue the source addresses whole (`play_index`)
+ * only: the first entry of a window that slides with the track is not where a
+ * repeating context starts again. Backward it never wraps: on the first entry
+ * `prev` restarts the track rather than reaching the last one.
  *
  * @param {object} state
  * @param {string[]} state.controls - the commands the source takes now
@@ -181,7 +189,7 @@ export function swipeTarget({ controls, details }, direction, shownIndex, length
   if (direction === 'prev') return shownIndex - 1;
   if (shownIndex + 1 < length) return shownIndex + 1;
   const repeats = (details?.repeat ?? 'off') !== 'off';
-  return repeats && controls.includes('next') ? 0 : -1;
+  return repeats && controls.includes('next') && controls.includes('play_index') ? 0 : -1;
 }
 
 /**
