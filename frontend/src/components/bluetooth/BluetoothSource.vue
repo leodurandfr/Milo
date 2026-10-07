@@ -12,16 +12,13 @@
   <AudioPlayerFull source="bluetooth">
     <!-- The disconnect CTA lives on the status card, which this player replaces
          the moment the sender publishes a track — i.e. exactly when a user
-         wants to kick the phone off. So it is repeated here, with the card's
-         own wording, at the end of the player's top row; without it the only
-         way to end a session would be to leave the source entirely. -->
+         wants to kick the phone off. So it is repeated here, at the end of the
+         player's top row where CD's eject sits; without it the only way to end
+         a session would be to leave the source entirely. -->
     <template v-if="canDisconnect" #top-end>
-      <Button variant="control" size="medium"
+      <IconButton icon="close" variant="control" size="medium" :aria-label="t('status.disconnect')"
         :loading="unifiedStore.isDisconnecting('bluetooth')"
-        :disabled="unifiedStore.isDisconnecting('bluetooth')"
-        @click="unifiedStore.disconnectSource('bluetooth')">
-        {{ unifiedStore.isDisconnecting('bluetooth') ? t('status.disconnecting') : t('status.disconnect') }}
-      </Button>
+        @click="unifiedStore.disconnectSource('bluetooth')" />
     </template>
   </AudioPlayerFull>
 </template>
@@ -32,7 +29,7 @@ import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
-import Button from '@/components/ui/Button.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();

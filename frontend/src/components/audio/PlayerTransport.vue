@@ -8,10 +8,9 @@
      card's ink on its dark glass and the bar's ghost buttons.
      A relative skip (−15 / +30) is emitted, not sent: the progress bar beside
      the transport owns the playhead that shows a burst's sum at once.
-     The steps and the main button sit together as one control; the toggles
-     are pushed to the row's two ends, their glyphs on the progress bar's.
-     Without toggles, the three buttons spread a little: nothing flanks them
-     to tell them apart from.
+     The steps and the main button sit together as one control, spaced the
+     same with or without toggles; the toggles flank it — on the plate half as
+     far from the column's edges as from the steps, on the card at the row's ends.
      The `end` slot is what the source adds after the row that is not a command
      (radio's favorite): it takes an end the way a toggle does, held by a spacer
      at the other one, so the main button stays centred — or, beside a labelled
@@ -29,35 +28,38 @@
       <div :key="labelled ? 'labelled' : 'controls'" class="player-transport-row"
         :class="{ 'player-transport--toggles': hasToggles || (!!$slots.end && !labelled),
                   'player-transport--labelled-end': labelled && !!$slots.end }">
-        <span v-if="$slots.end && !labelled" class="player-button player-button--toggle player-extra"
-          :class="{ 'player-transport-edge--start': !hasToggles }" aria-hidden="true" />
-        <template v-for="control in plate" :key="control.id">
-          <span v-if="control.spacer" class="player-button player-button--toggle player-extra"
-            :class="`player-transport-edge--${control.edge}`" aria-hidden="true" />
-          <!-- In a box the height of the main button it stands for, so the row
-               does not jump when the transport comes back. -->
-          <span v-else-if="isLabelled(control)" class="player-transport-labelled">
-            <Button :variant="filled" size="medium" :left-icon="control.icon"
-              class="player-button--labelled" :loading="pending === control.command || (control.id === 'main' && isBuffering)" :disabled="!control.enabled"
-              @click="press(control)">
-              {{ t(LABEL_KEYS[control.command]) }}
-            </Button>
+        <span v-if="$slots.end && !labelled && !hasToggles" class="player-button player-button--toggle player-extra"
+          aria-hidden="true" />
+        <template v-for="item in plate" :key="item.id">
+          <span v-if="item.spacer" class="player-button player-button--toggle player-extra" aria-hidden="true" />
+          <!-- The steps and the main button, one control in one box. -->
+          <span v-else-if="item.steps" class="player-transport-steps">
+            <template v-for="control in item.steps" :key="control.id">
+              <!-- In a box the height of the main button it stands for, so the
+                   row does not jump when the transport comes back. -->
+              <span v-if="isLabelled(control)" class="player-transport-labelled">
+                <Button :variant="filled" size="medium" :left-icon="control.icon"
+                  class="player-button--labelled" :loading="pending === control.command || (control.id === 'main' && isBuffering)" :disabled="!control.enabled"
+                  @click="press(control)">
+                  {{ t(LABEL_KEYS[control.command]) }}
+                </Button>
+              </span>
+              <IconButton v-else :icon="control.icon" variant="ghost"
+                :size="control.id === 'main' ? 'medium' : 'small'"
+                :color="ink(control)"
+                class="player-button"
+                :class="control.id === 'main' ? 'player-button--primary transport-primary' : 'transport-secondary player-extra'"
+                :loading="control.id === 'main' && isBuffering" :disabled="!control.enabled"
+                @click="press(control)" />
+            </template>
           </span>
-          <IconButton v-else :icon="control.icon" variant="ghost"
-            :size="control.id === 'main' ? 'medium' : 'small'"
-            :color="ink(control)"
-            class="player-button"
-            :class="[control.id === 'main' ? 'player-button--primary transport-primary'
-              : isToggle(control) ? 'transport-toggle player-extra' : 'transport-secondary player-extra', { 'player-button--toggle': isToggle(control) },
-              control.edge ? `player-transport-edge--${control.edge}` : null]"
-            :aria-label="isToggle(control) ? toggleLabel(control) : undefined"
-            :aria-pressed="isToggle(control) ? control.active : undefined"
-            :loading="control.id === 'main' && isBuffering" :disabled="!control.enabled"
-            @click="press(control)" />
+          <IconButton v-else :icon="item.icon" variant="ghost" size="small" :color="ink(item)"
+            class="player-button player-button--toggle transport-toggle player-extra"
+            :aria-label="toggleLabel(item)" :aria-pressed="item.active" :disabled="!item.enabled"
+            @click="press(item)" />
         </template>
         <span v-if="$slots.end" class="player-extra player-transport-end"
-          :class="labelled ? null
-            : ['player-button', 'player-button--toggle', { 'player-transport-edge--end': !hasToggles }]">
+          :class="labelled ? null : ['player-button', 'player-button--toggle']">
           <slot name="end" :variant="labelled ? filled : 'ghost'" />
         </span>
       </div>
@@ -106,17 +108,17 @@ const isLabelled = (control) => control.labelled
   && !(control.glyphSuffices && props.surface === 'card' && isMobile.value);
 const labelled = computed(() => transportControls.value.some(isLabelled));
 
-// The row in drawing order, its two ends held by a spacer when only one toggle
-// is listed, so the main button stays centred. `edge` marks what is pushed
-// away from the steps.
+// The row in drawing order: the steps as one item, flanked by the toggles, a
+// spacer holding the end of one that is not listed so the main button stays
+// centred.
 const plate = computed(() => {
-  const steps = transportControls.value.filter(control => !isToggle(control));
-  if (!hasToggles.value) return steps;
+  const steps = { id: 'steps', steps: transportControls.value.filter(control => !isToggle(control)) };
+  if (!hasToggles.value) return [steps];
   const find = (id) => transportControls.value.find(control => control.id === id);
   return [
-    { ...(find('shuffle') ?? { id: 'spacer-start', spacer: true }), edge: 'start' },
-    ...steps,
-    { ...(find('repeat') ?? { id: 'spacer-end', spacer: true }), edge: 'end' }
+    find('shuffle') ?? { id: 'spacer-start', spacer: true },
+    steps,
+    find('repeat') ?? { id: 'spacer-end', spacer: true }
   ];
 });
 
@@ -202,51 +204,30 @@ async function press(control) {
 
 /* === PLATE (AudioPlayerFull) ===
    No ground: the row spans the column, edge to edge with the progress bar
-   above it. With toggles, the steps and the main button touch, their tap
-   targets alone spacing the glyphs, so prev/play/next read as one control;
-   the toggles go to the ends, and the row reaches past the column by what
-   their target holds around the glyph, so the glyphs land on the bar's ends.
-   `--toggle-target` is that target, read by both. */
+   above it. The steps and the main button touch, their tap targets alone
+   spacing the glyphs, so prev/play/next read as one control — the same with
+   or without toggles. The tap target is NOT the icon and does not follow it:
+   circles sized for a finger, small enough that five fit the kiosk's column
+   at a 115% interface scale (385px) and a 390px phone. IconButton sizes itself
+   from its padding, so without these the buttons would collapse to the icon
+   plus 8px. */
 .player-transport--plate {
   --toggle-target: 56px;
+  --step-target: 64px;
+  --primary-target: 80px;
   color: var(--color-text);
 }
 
-.player-transport--plate .player-transport--toggles {
-  margin-inline: calc((var(--transport-toggle) - var(--toggle-target)) / 2);
-}
-
-/* Three buttons and nothing flanking them: they spread a little. */
-.player-transport--plate .player-transport-row:not(.player-transport--toggles, .player-transport--labelled-end) {
-  gap: var(--space-06);
-}
-
-/* The tap target, which is NOT the icon and does not follow it: 80/90px circles
-   sized for a finger on the kiosk. IconButton sizes itself from its padding, so
-   without these the buttons would collapse to the icon plus 8px. */
 .player-transport--plate .player-button {
-  width: 80px;
-  height: 80px;
+  width: var(--step-target);
+  height: var(--step-target);
   padding: 0;
   border-radius: 50%;
 }
 
 .player-transport--plate .player-button--primary {
-  width: 90px;
-  height: 90px;
-}
-
-/* Five on the plate: shuffle and repeat at the ends take a smaller target, and
-   the steps and the main button give up some of theirs, so the row still fits
-   the kiosk's column at a 115% interface scale (385px) and a 390px phone. */
-.player-transport--plate .player-transport--toggles .player-button {
-  width: 64px;
-  height: 64px;
-}
-
-.player-transport--plate .player-transport--toggles .player-button--primary {
-  width: 80px;
-  height: 80px;
+  width: var(--primary-target);
+  height: var(--primary-target);
 }
 
 .player-transport--plate .player-button.player-button--toggle {
@@ -255,9 +236,17 @@ async function press(control) {
   height: var(--toggle-target);
 }
 
+/* The toggles half as far from the column's edges as from the steps, glyph to
+   glyph: as far on both sides, they read as drifting off the edges toward the
+   heavier trio. The row spreads its items around, inset by what a step's
+   target holds around its glyph, which the toggles' targets hold already. */
+.player-transport--plate .player-transport--toggles {
+  justify-content: space-around;
+  margin-inline: calc((var(--step-target) - var(--transport-secondary)) / 2);
+}
+
 /* The row inside the swap, which holds the transport's layout: the steps
-   centred, what flanks them pushed to the ends by an auto margin on the side
-   facing the steps. */
+   centred, what flanks them on either side. */
 .player-transport-row {
   display: flex;
   align-items: center;
@@ -266,12 +255,17 @@ async function press(control) {
   min-width: 0;
 }
 
-.player-transport-edge--start {
-  margin-inline-end: auto;
+.player-transport-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
 }
 
-.player-transport-edge--end {
-  margin-inline-start: auto;
+/* Alone, or beside the end slot, the steps take the row: a labelled main
+   button fills it. */
+.player-transport-row:not(.player-transport--toggles) .player-transport-steps {
+  flex: 1;
 }
 
 .transport-swap-enter-active {
@@ -289,7 +283,7 @@ async function press(control) {
 }
 
 /* A labelled button takes the row's width at its own height, centred in the
-   box of the main button it stands for — on the plate its 90px target, on the
+   box of the main button it stands for — on the plate its target, on the
    card its glyph and ghost padding — so the row keeps its height when the
    transport comes back. Beside the end slot it fills what the slot leaves. */
 .player-transport-labelled {
@@ -300,7 +294,7 @@ async function press(control) {
 }
 
 .player-transport--plate .player-transport-labelled {
-  height: 90px;
+  height: var(--primary-target);
 }
 
 .player-transport--card .player-transport-labelled {
@@ -339,8 +333,8 @@ async function press(control) {
   width: 100%;
 }
 
-.player-transport--card .player-transport-row:not(.player-transport--toggles, .player-transport--labelled-end) {
-  gap: var(--space-04);
+.player-transport--card .player-transport--toggles {
+  justify-content: space-between;
 }
 
 /* Buttons with no ghost padding take it back, so their edges stay on the
@@ -371,25 +365,12 @@ async function press(control) {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  /* The phone's glyphs are a rung smaller, so the kiosk's targets would open
-     the trio as wide as the toggles' margins (28 against 26px between glyphs,
-     measured at 390px): the targets shrink with them, still above a finger. */
-  .player-transport--plate .player-transport-row .player-button:not(.player-button--toggle) {
-    width: 56px;
-    height: 56px;
-  }
-
-  .player-transport--plate .player-transport-row .player-button.player-button--primary {
-    width: 64px;
-    height: 64px;
-  }
-
-  .player-transport--plate .player-transport-labelled {
-    height: 64px;
-  }
-
+  /* The phone's glyphs are a rung smaller: the targets shrink with them,
+     still above a finger, so the trio keeps the kiosk's proportions. */
   .player-transport--plate {
     --toggle-target: 48px;
+    --step-target: 56px;
+    --primary-target: 64px;
   }
 
   /* The mini-bar centres its one row. */

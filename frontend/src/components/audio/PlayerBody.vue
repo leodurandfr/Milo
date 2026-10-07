@@ -17,8 +17,8 @@
      for the name, so what opens is what was drawn even if the track moved on
      meanwhile. -->
 <template>
-  <div class="player-body" :class="`player-body--${surface}`">
-    <div class="player-body-info" :class="{ 'no-controls': !hasTransport }">
+  <div class="player-body" :class="[`player-body--${surface}`, { 'player-body--no-transport': !hasTransport }]">
+    <div class="player-body-info">
       <!-- A shell can draw this block itself: the phone's swipe carousel. -->
       <slot name="info">
         <!-- Where the music comes from, at the top of the block: always on the
@@ -197,17 +197,15 @@ defineExpose({ swipe });
   justify-content: space-between;
 }
 
-.player-body--full .player-body-info {
-  flex: 1;
-  text-align: center;
-  padding-top: var(--space-06);
-}
-
 /* The source bar on top, at the block's padding; the title and its line
-   centred in the rest, never closer to the bar than the block's gap. */
+   centred between it and the progress bar: the block's gap above them and the
+   same again as its bottom padding, so neither side is closer. */
 .player-body--full .player-body-info {
   --body-info-gap: var(--space-06);
+  flex: 1;
+  text-align: center;
   gap: var(--body-info-gap);
+  padding-block: var(--space-06) var(--body-info-gap);
 }
 
 .body-lines {
@@ -219,21 +217,24 @@ defineExpose({ swipe });
 }
 
 .player-body--full .body-lines {
-  gap: var(--space-03);
-}
-
-.player-body--full .player-body-info.no-controls {
-  padding-top: 0;
+  gap: var(--space-02);
 }
 
 /* The bar and the transport stop widening past a phone-to-kiosk column: on a
    wide desktop window a row that fills a button (radio's stop) would run the
    width of the screen. The kiosk's 448px column sits under the cap. */
 .player-body--full .player-body-bottom {
-  gap: var(--space-05);
+  gap: var(--space-06);
   align-self: center;
   width: 100%;
   max-width: 480px;
+  padding-bottom: var(--space-04);
+}
+
+/* A receiver ends on its progress bar: as far from the bottom as the source
+   bar is from the top. */
+.player-body--full.player-body--no-transport .player-body-bottom {
+  padding-bottom: var(--space-06);
 }
 
 /* Stagger on mount (first load, and back from CD's tracklist). */
@@ -403,14 +404,6 @@ defineExpose({ swipe });
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .player-body--full .player-body-info {
-    padding: var(--space-06) 0 var(--space-03) 0;
-  }
-
-  .player-body--full .player-body-info.no-controls {
-    padding: 0;
-  }
-
   .player-body--full .player-body-bottom {
     margin-bottom: calc(env(safe-area-inset-bottom, 0px));
   }

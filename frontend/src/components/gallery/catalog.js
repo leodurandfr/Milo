@@ -352,7 +352,7 @@ export const ENTRIES = [
     id: 'SourceBar',
     group: 'player',
     file: 'components/audio/SourceBar.vue',
-    summary: 'Where the full player\'s music comes from: an icon at 32px and one label — the station a detected song plays on (its logo then replaces the source\'s AppIcon, or the label\'s generated avatar without one), the show an episode belongs to when the cover is the episode\'s own picture, the sending device, the Spotify account\'s owner, else the source\'s name. AudioPlayerFull decides the label and draws the bar on every source, at the centre of its top row.',
+    summary: 'Where the full player\'s music comes from: an icon at 24px and one label — the station a detected song plays on (its logo then replaces the source\'s AppIcon, or the label\'s generated avatar without one), the show an episode belongs to when the cover is the episode\'s own picture, the sending device, the Spotify account\'s owner, else the source\'s name. AudioPlayerFull decides the label and draws the bar on every source, at the centre of its top row.',
   },
   {
     id: 'AudioPlayerFull',

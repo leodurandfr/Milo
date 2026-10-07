@@ -11,7 +11,7 @@
   <div class="source-bar" :class="`source-bar--${size}`">
     <LazyImage v-if="image !== null" :src="image" :fallback-name="label" alt=""
       class="source-bar-icon source-bar-image" />
-    <AppIcon v-else :name="source" :size="ICON_PX[size]" class="source-bar-icon" />
+    <AppIcon v-else :name="source" :size="24" class="source-bar-icon" />
     <span class="source-bar-label" :class="size === 'small' ? 'text-body-small' : 'heading-4'">{{ label }}</span>
   </div>
 </template>
@@ -40,15 +40,13 @@ defineProps({
     type: String,
     default: null
   },
-  /** The icon's rung: the full player's, or the playing bar's smaller one. */
+  /** The label's rung: the full player's heading, or the playing bar's text. */
   size: {
     type: String,
     default: 'medium',
     validator: (value) => ['medium', 'small'].includes(value)
   }
 });
-
-const ICON_PX = { medium: 32, small: 24 };
 </script>
 
 <style scoped>
@@ -66,15 +64,10 @@ const ICON_PX = { medium: 32, small: 24 };
 
 /* The AppIcon's own size and corner, so the two read as one slot. */
 .source-bar-image {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-02);
-  overflow: hidden;
-}
-
-.source-bar--small .source-bar-image {
   width: 24px;
   height: 24px;
+  border-radius: var(--radius-02);
+  overflow: hidden;
 }
 
 .source-bar-label {

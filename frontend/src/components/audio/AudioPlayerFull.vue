@@ -74,11 +74,12 @@
       </div>
 
       <!-- Right side: Info and controls with CSS staggering. -->
-      <div class="content-section stagger-2">
+      <div class="content-section stagger-2" :class="{ 'has-top-row': hasTopRow }">
         <!-- What the source puts in the top row, drawn only when it puts
              something there. Start: CD's tracklist. End: CD's eject,
-             Bluetooth's disconnect. -->
-        <PlayerTopRow v-if="$slots['top-start'] || $slots['top-end']" class="player-topbar">
+             Bluetooth's disconnect. It takes no room: its buttons sit on the
+             source bar's line, so the bar stays where it is without them. -->
+        <PlayerTopRow v-if="hasTopRow" class="player-topbar">
           <template #start>
             <slot name="top-start" />
           </template>
@@ -112,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue';
+import { computed, inject, useSlots } from 'vue';
 import { useTheme } from '@/composables/useTheme';
 import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion';
 import { useI18n } from '@/services/i18n';
@@ -142,6 +143,8 @@ const emit = defineEmits(['title-click', 'secondary-click']);
 
 const { t } = useI18n();
 const { isDark } = useTheme();
+const slots = useSlots();
+const hasTopRow = computed(() => !!(slots['top-start'] || slots['top-end']));
 
 // The cover this player draws: from this player's one reading of its state,
 // which the body under it takes too (usePlayerState).
@@ -304,6 +307,9 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
 /* Content Section */
 .content-section {
+  /* The source bar's centre line: the body's top padding and half the bar's
+     24px row (PlayerBody, SourceBar). */
+  --source-line: calc(var(--space-06) + 12px);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -311,6 +317,21 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   min-height: 0;
   order: 2;
   z-index: 1;
+}
+
+/* The top row takes no height: its buttons are centred on the source bar's
+   line, over the body, so the bar sits where it does without them. */
+.player-topbar {
+  position: relative;
+  z-index: 3;
+  height: 0;
+  top: var(--source-line);
+}
+
+/* What replaces the body (CD's tracklist) starts as far below the buttons'
+   line as the line is from the top. */
+.has-top-row .content-replace {
+  padding-top: calc(2 * var(--source-line));
 }
 
 /* Content replacement (e.g., CD tracklist) */
@@ -488,9 +509,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
   .player-topbar {
     order: 2;
-    margin-top: var(--space-04);
-    position: relative;
-    z-index: 3;
   }
 
   .player-info,
