@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <div v-press="type !== 'password'" class="input-container" :class="[`input-container--${variant}`, { 'keyboard-active': isKeyboardActiveForThis }]" @click="handleContainerClick">
+    <div v-press="type !== 'password'" class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-4" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" @keydown.enter="handleSubmit" />
@@ -43,11 +43,6 @@ const props = defineProps({
   iconSize: {
     type: Number,
     default: 24
-  },
-  variant: {
-    type: String,
-    default: 'filled',
-    validator: (value) => ['filled', 'plain'].includes(value)
   }
 });
 
@@ -136,7 +131,7 @@ onUnmounted(() => {
   height: 48px;
   padding: 0 var(--space-03) 0 var(--space-04);
   border-radius: var(--radius-04);
-  /* Filled: an inset well, edged by a hairline that takes no layout space. */
+  /* An inset well, edged by a hairline that takes no layout space. */
   background: var(--color-inset);
   box-shadow: inset 0 0 0 1px var(--color-border);
   gap: var(--space-03);
@@ -154,12 +149,6 @@ onUnmounted(() => {
 .input-container.keyboard-active {
   background: var(--color-panel);
   box-shadow: inset 0 0 0 1px var(--color-brand);
-}
-
-/* Plain variant: the same field without its fill */
-.input-container--plain {
-  background: transparent;
-  box-shadow: none;
 }
 
 input {

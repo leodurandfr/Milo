@@ -5,7 +5,6 @@
       <InputText
         v-model="searchQuery"
         :placeholder="t('audioSources.radioSource.searchPlaceholder')"
-        variant="plain"
         icon="search"
         :icon-size="24"
         @update:modelValue="onSearchInput"
@@ -14,13 +13,11 @@
       <Dropdown
         v-model="countryFilter"
         :options="countryOptions"
-        variant="plain"
         @change="$emit('search')"
       />
       <Dropdown
         v-model="genreFilter"
         :options="genreOptions"
-        variant="plain"
         @change="$emit('search')"
       />
     </div>

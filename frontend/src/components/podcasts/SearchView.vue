@@ -1,7 +1,7 @@
 <template>
   <div class="search-view">
     <!-- Search -->
-    <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" variant="plain"
+    <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')"
       icon="search" @update:modelValue="onSearchInput" />
 
     <!-- Results -->

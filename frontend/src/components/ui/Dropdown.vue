@@ -8,7 +8,7 @@
       <slot name="trigger" :toggle="toggleDropdown" :is-open="isOpen" :disabled="disabled" />
     </div>
     <button v-else v-press type="button" class="dropdown-trigger"
-      :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
+      :class="[`dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
       <span class="dropdown-label heading-4">{{ selectedLabel }}</span>
@@ -64,11 +64,6 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
-  },
-  variant: {
-    type: String,
-    default: 'filled',
-    validator: (value) => ['filled', 'plain'].includes(value)
   },
   size: {
     type: String,
@@ -297,7 +292,7 @@ onBeforeUnmount(() => {
   height: 48px;
   padding: 0 var(--space-03) 0 var(--space-04);
   border-radius: var(--radius-04);
-  /* Filled: an inset well, edged by a hairline, as InputText's. */
+  /* An inset well, edged by a hairline, as InputText's. */
   background: var(--color-inset);
   box-shadow: inset 0 0 0 1px var(--color-border);
   cursor: pointer;
@@ -316,11 +311,6 @@ onBeforeUnmount(() => {
 .dropdown-trigger.is-open {
   background: var(--color-panel);
   box-shadow: 0 0 0 1px var(--color-border), var(--shadow-thumb);
-}
-
-.dropdown-trigger--plain {
-  background: transparent;
-  box-shadow: none;
 }
 
 .dropdown-trigger:disabled {

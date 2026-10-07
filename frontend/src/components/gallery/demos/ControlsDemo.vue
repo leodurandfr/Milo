@@ -51,8 +51,8 @@
     <GalleryVariant :label="`v-model — ${text || '(empty)'}`" stacked>
       <InputText v-model="text" placeholder="Type here" />
     </GalleryVariant>
-    <GalleryVariant label='variant="plain" + icon' stacked>
-      <InputText v-model="search" variant="plain" icon="search" placeholder="Search a station" />
+    <GalleryVariant label='icon="search"' stacked>
+      <InputText v-model="search" icon="search" placeholder="Search a station" />
     </GalleryVariant>
     <GalleryVariant label='type="password" + maxlength, then disabled' stacked>
       <InputText v-model="secret" type="password" :maxlength="16" placeholder="Wi-Fi password" />
@@ -61,9 +61,8 @@
   </GalleryItem>
 
   <GalleryItem id="Dropdown">
-    <GalleryVariant :label="`variant — filled / plain (${country})`" stacked>
+    <GalleryVariant :label="`v-model — ${country}`" stacked>
       <Dropdown v-model="country" :options="COUNTRY_OPTIONS" />
-      <Dropdown v-model="country" :options="COUNTRY_OPTIONS" variant="plain" />
     </GalleryVariant>
     <GalleryVariant label='size="small" / placeholder on an empty value / disabled' stacked>
       <Dropdown v-model="country" :options="COUNTRY_OPTIONS" size="small" />

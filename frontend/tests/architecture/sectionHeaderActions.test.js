@@ -15,7 +15,7 @@
  *      Button is `small` and `tinted` — `brand` only
  *      for a state asking for the user's attention now (a preset edited and
  *      unsaved, Done while reordering, a remote to pair) — and a Dropdown is
- *      `small` in its default `filled`.
+ *      `small`.
  *
  * `brand` cannot be told apart from a misuse by reading a template; that half
  * stays a review call. A header whose only control is a Toggle is
@@ -30,7 +30,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
 
 const BUTTON_VARIANTS = new Set(['tinted', 'brand']);
-const DROPDOWN_VARIANTS = new Set(['filled']);
 const CONTROLS = ['Button', 'IconButton', 'Dropdown'];
 
 function vueFiles(dir) {
@@ -180,13 +179,11 @@ describe('section header actions', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('a header Dropdown is small, in its default filled', () => {
+  it('a header Dropdown is small', () => {
     const offenders = ACTIONS.flatMap(({ file, body }) => tags(body, 'Dropdown')
       .filter((tag) => {
-        const variants = attrValues(tag, 'variant');
         const sizes = attrValues(tag, 'size');
-        return !variants || variants.some((v) => !DROPDOWN_VARIANTS.has(v))
-          || sizes?.length !== 1 || sizes[0] !== 'small';
+        return sizes?.length !== 1 || sizes[0] !== 'small';
       })
       .map((tag) => `${file}: ${tag.replace(/\s+/g, ' ')}`));
     expect(offenders).toEqual([]);
