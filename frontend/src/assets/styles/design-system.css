@@ -71,14 +71,18 @@
     --gray-500-a32: color-mix(in srgb, var(--gray-500) 32%, transparent);
     --gray-800-a55: color-mix(in srgb, var(--gray-800) 55%, transparent);
     --gray-800-a80: color-mix(in srgb, var(--gray-800) 80%, transparent);
+    --gray-925-a96: color-mix(in srgb, var(--gray-925) 96%, transparent);
     --gray-950-a2: color-mix(in srgb, var(--gray-950) 2%, transparent);
     --gray-950-a5: color-mix(in srgb, var(--gray-950) 5%, transparent);
     --gray-950-a6: color-mix(in srgb, var(--gray-950) 6%, transparent);
+    --gray-950-a10: color-mix(in srgb, var(--gray-950) 10%, transparent);
     --gray-950-a32: color-mix(in srgb, var(--gray-950) 32%, transparent);
     --gray-950-a40: color-mix(in srgb, var(--gray-950) 40%, transparent);
     --gray-950-a50: color-mix(in srgb, var(--gray-950) 50%, transparent);
     --gray-950-a72: color-mix(in srgb, var(--gray-950) 72%, transparent);
     --gray-950-a80: color-mix(in srgb, var(--gray-950) 80%, transparent);
+    --gray-1000-a25: color-mix(in srgb, var(--gray-1000) 25%, transparent);
+    --gray-1000-a45: color-mix(in srgb, var(--gray-1000) 45%, transparent);
     --gray-1000-a55: color-mix(in srgb, var(--gray-1000) 55%, transparent);
 
     /* === BRAND === */
@@ -176,6 +180,15 @@
     /* The same glass on a contrast surface (the lyrics, a dark ground): the
        dark tone in both themes. */
     --color-shell-on-contrast: var(--gray-800-a55);
+    /* The .glass-menu material (a dropdown): iOS 27's menu, denser than the
+       shell so a list reads over anything — white at 80% in light, and in
+       dark a near-black barely translucent, set off from the screen by its
+       drop rather than by its tone. Its hairlines (the ring, a separator),
+       the press under a row, and the drop's color. */
+    --color-menu: var(--gray-0-a80);
+    --color-menu-edge: var(--gray-950-a10);
+    --color-menu-press: var(--gray-950-a6);
+    --color-menu-drop: var(--gray-1000-a25);
 
     /* === CONTRAST === */
     /* A surface dark in both themes, which carries white text: a detail
@@ -512,6 +525,10 @@
     --color-overlay: var(--gray-950-a72);
     --color-shell: var(--gray-800-a55);
     --color-shell-control: var(--gray-800-a80);
+    --color-menu: var(--gray-925-a96);
+    --color-menu-edge: var(--gray-100-a10);
+    --color-menu-press: var(--gray-100-a8);
+    --color-menu-drop: var(--gray-1000-a45);
 
     --color-contrast: var(--gray-800);
     --color-contrast-80: var(--gray-800-a80);
@@ -877,6 +894,30 @@
    backdrop-filter makes the element a stacking context, so this z-index
    never reaches past it. */
 .glass-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: var(--shadow-glass-rim);
+    pointer-events: none;
+    z-index: 1000;
+}
+
+/* .glass-menu: the material of a menu that drops from a control (Dropdown),
+   iOS 27's: denser than .glass-shell and frosted less, a hairline ring, a
+   wide soft drop, and the same lit rim, drawn by ::after over what scrolls
+   inside. */
+.glass-menu {
+    position: relative;
+    background: var(--color-menu);
+    backdrop-filter: blur(32px) saturate(1.4);
+    -webkit-backdrop-filter: blur(32px) saturate(1.4);
+    box-shadow:
+        0 0 0 0.5px var(--color-menu-edge),
+        0 8px 48px var(--color-menu-drop);
+}
+
+.glass-menu::after {
     content: '';
     position: absolute;
     inset: 0;

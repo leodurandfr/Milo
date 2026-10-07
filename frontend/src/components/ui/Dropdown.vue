@@ -17,16 +17,17 @@
 
     <Teleport to="body">
       <Transition name="dropdown-menu">
-        <div v-if="isOpen" ref="menuRef" class="dropdown-menu glass-shell"
+        <div v-if="isOpen" ref="menuRef" class="dropdown-menu glass-menu"
           :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'open-upward': openUpward, 'open-leftward': openLeftward }]"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }">
           <!-- The list scrolls inside the glass, never the glass itself: its rim
                is an absolutely placed layer that would scroll away with it. -->
           <div class="dropdown-list" @scroll.stop>
-            <div v-if="title" class="dropdown-title text-mono-small">{{ title }}</div>
+            <div v-if="title" class="dropdown-title text-body-small">{{ title }}</div>
             <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
-              :class="['heading-4', { 'is-selected': option.value === modelValue }]"
+              :class="['text-body', { 'is-selected': option.value === modelValue }]"
               @click="selectOption(option.value)">
+              <SvgIcon v-if="iconPlacement === 'end'" name="check" :size="20" class="dropdown-item-check" />
               <span class="dropdown-item-label">{{ option.label }}</span>
               <span v-if="option.icon" class="dropdown-item-icon" :role="option.iconLabel ? 'img' : null"
                 :aria-label="option.iconLabel" :aria-hidden="option.iconLabel ? null : 'true'">
@@ -349,12 +350,13 @@ onBeforeUnmount(() => {
   transform: rotate(180deg);
 }
 
-/* The menu floats, so it is floating chrome's material: the glass. The
-   picked option is a brand tint across the row, the others plain. */
+/* The menu floats, so it is a menu's material: iOS 27's (.glass-menu). The
+   picked option is a check before its label, in the label's color; every
+   label keeps the check's gutter, so the column does not move with the pick. */
 .dropdown-menu {
   position: fixed;
   z-index: 5001;
-  border-radius: var(--radius-05);
+  border-radius: var(--radius-07);
   overflow: hidden;
   min-width: 200px;
   transform-origin: top center;
@@ -367,11 +369,21 @@ onBeforeUnmount(() => {
 .dropdown-list {
   max-height: 340px;
   overflow-y: auto;
-  padding: 6px;
+  padding: 10px var(--space-02);
 }
 
 .dropdown-menu--small .dropdown-item {
-  padding: var(--space-02) var(--space-03);
+  min-height: 36px;
+  padding-block: 6px;
+}
+
+.dropdown-item-check {
+  flex-shrink: 0;
+  visibility: hidden;
+}
+
+.dropdown-item.is-selected .dropdown-item-check {
+  visibility: visible;
 }
 
 .dropdown-item-icon {
@@ -388,19 +400,25 @@ onBeforeUnmount(() => {
   order: -1;
 }
 
-.dropdown-menu.icons-start .dropdown-item:not(.is-selected) .dropdown-item-icon {
+.dropdown-menu.icons-start .dropdown-item-icon {
   color: var(--color-text-secondary);
 }
 
+/* Aligned on the labels: the item's inset, the check's 20 px, the gap. */
 .dropdown-title {
-  padding: var(--space-02) var(--space-03) var(--space-01);
+  padding: var(--space-01) var(--space-04) var(--space-01) calc(var(--space-02) + 20px + var(--space-02));
   color: var(--color-text-secondary);
+}
+
+.dropdown-menu.icons-start .dropdown-title {
+  padding-left: calc(var(--space-02) + 20px + var(--space-03));
 }
 
 .dropdown-item {
   position: relative;
-  padding: 10px var(--space-03);
-  border-radius: var(--radius-04);
+  min-height: 40px;
+  padding: var(--space-02) var(--space-04) var(--space-02) var(--space-02);
+  border-radius: var(--radius-03);
   color: var(--color-text);
   cursor: pointer;
   transition:
@@ -408,7 +426,7 @@ onBeforeUnmount(() => {
     color var(--transition-fast);
   display: flex;
   align-items: center;
-  gap: var(--space-01);
+  gap: var(--space-02);
 }
 
 .dropdown-item-label {
@@ -418,13 +436,14 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.dropdown-item:not(.is-selected):active {
-  background: var(--color-shell-control);
+.dropdown-item:active {
+  background: var(--color-menu-press);
 }
 
-.dropdown-item.is-selected {
-  background: var(--color-brand-subtle);
-  color: var(--color-brand);
+@media (hover: hover) {
+  .dropdown-item:hover {
+    background: var(--color-menu-press);
+  }
 }
 
 /* Open: fades in and settles from the trigger on the spring; close: fades
