@@ -351,7 +351,15 @@ async function press(control) {
 }
 
 .player-transport--card .player-transport--labelled-end .player-transport-labelled {
+  height: auto;
   padding-inline: 0;
+}
+
+/* Beside the end slot the row holds the main button's box itself, and the
+   labelled button and the slot's sit at its bottom, on the card's edge. */
+.player-transport--card .player-transport--labelled-end {
+  height: calc(var(--transport-primary) + 2 * var(--space-02));
+  align-items: flex-end;
 }
 
 /* The spacer holds the end a missing toggle would take: a ghost button is its
@@ -382,6 +390,11 @@ async function press(control) {
 
   .player-transport--plate {
     --toggle-target: 48px;
+  }
+
+  /* The mini-bar centres its one row. */
+  .player-transport--card .player-transport--labelled-end {
+    align-items: center;
   }
 }
 </style>
