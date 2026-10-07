@@ -269,6 +269,13 @@ function selectOption(value) {
     flex-direction: column-reverse;
   }
 
+  /* In a column, flex: 1's zero basis would override the option's height and
+     collapse it to its text. */
+  .button-group--mobile-column .button-group__option,
+  .button-group--mobile-column-reverse .button-group__option {
+    flex: none;
+  }
+
   .button-group--mobile-grid-3 .button-group__track {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

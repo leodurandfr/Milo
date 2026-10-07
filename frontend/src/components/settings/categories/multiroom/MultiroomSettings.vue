@@ -107,7 +107,7 @@
 
             <SettingItem :label="t('multiroomSettings.codec')">
               <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
-                :disabled="busy" mobile-layout="column" @change="selectCodec" />
+                :disabled="busy" @change="selectCodec" />
             </SettingItem>
 
             <div class="section-divider"></div>
