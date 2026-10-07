@@ -650,6 +650,10 @@ class TestKioskScale:
         assert stored["partition"]["per_host_zoom_levels"] == {}
         assert 1.2 ** _stored_level(tmp_path) == pytest.approx(1.1)
 
+    @pytest.fixture(autouse=True)
+    def _no_settle(self, monkeypatch):
+        monkeypatch.setattr("backend.hardware.screen.KIOSK_RESTART_SETTLE_S", 0)
+
     async def test_an_enabled_kiosk_is_restarted_even_while_still_restarting(self, controller):
         """A second change made while the first restart is under way must still
         restart it — probing `active` then answered no and dropped the change."""
@@ -687,6 +691,72 @@ class TestKioskScale:
         await controller.restart_kiosk(reopen_screen_settings=True)
 
         assert controller.take_reopen_screen_settings() is False
+
+    async def test_a_burst_of_scale_changes_restarts_the_kiosk_once(self, controller):
+        """Each click restarting on its own queued the restarts past the 12.5 s
+        control timeout ("Erreur système"), and stopped a cage still starting,
+        which then held the screen black until systemd's 90 s SIGKILL."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        controller.systemd_manager.restart = AsyncMock(return_value=True)
+
+        await asyncio.gather(*(controller.restart_kiosk() for _ in range(5)))
+
+        controller.systemd_manager.restart.assert_awaited_once_with("milo-kiosk.service")
+
+    async def test_a_kiosk_change_among_a_burst_still_reopens_the_settings(self, controller):
+        """The last click may come from a remote browser; the kiosk that asked
+        earlier in the burst must still come back on its Screen settings."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        controller.systemd_manager.restart = AsyncMock(return_value=True)
+
+        await asyncio.gather(
+            controller.restart_kiosk(reopen_screen_settings=True),
+            controller.restart_kiosk(reopen_screen_settings=False),
+        )
+
+        assert controller.take_reopen_screen_settings() is True
+
+    async def test_a_change_during_a_restart_restarts_again_after_it(self, controller):
+        """The restart under way read the previous kiosk.env; the new value
+        needs one more, and never two restarts of the unit at once."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        in_flight = 0
+        overlapped = False
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def restart(unit):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            overlapped |= in_flight > 1
+            if not first_started.is_set():
+                first_started.set()
+                await release_first.wait()
+            in_flight -= 1
+            return True
+
+        controller.systemd_manager.restart = AsyncMock(side_effect=restart)
+
+        first = asyncio.create_task(controller.restart_kiosk())
+        await first_started.wait()
+        second = asyncio.create_task(controller.restart_kiosk())
+        await asyncio.sleep(0)
+        release_first.set()
+        await asyncio.gather(first, second)
+
+        assert controller.systemd_manager.restart.await_count == 2
+        assert not overlapped
+
+    async def test_a_remote_change_after_a_kiosk_one_keeps_its_reopen(self, controller):
+        """The kiosk the first restart brought up has not asked yet; the
+        restart a remote browser's change triggers must not take its answer."""
+        controller.systemd_manager.is_enabled = AsyncMock(return_value=True)
+        controller.systemd_manager.restart = AsyncMock(return_value=True)
+
+        await controller.restart_kiosk(reopen_screen_settings=True)
+        await controller.restart_kiosk(reopen_screen_settings=False)
+
+        assert controller.take_reopen_screen_settings() is True
 
     def test_a_profile_that_cannot_be_written_still_lets_the_kiosk_start(
         self, tmp_path, monkeypatch

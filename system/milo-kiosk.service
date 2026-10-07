@@ -83,6 +83,10 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
 
 Restart=always
 RestartSec=3
+# A cage stopped while still starting ignored SIGTERM until the default 90 s
+# stop timeout, a black screen all along (measured 2026-10-07). The profile is
+# ephemeral, so a SIGKILL loses nothing.
+TimeoutStopSec=5
 MemoryMax=1536M
 
 [Install]

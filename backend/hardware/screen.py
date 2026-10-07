@@ -14,6 +14,11 @@ from backend.shared.decorators import handle_errors
 from backend.shared.persistence import write_bytes_atomically
 
 KIOSK_UNIT = "milo-kiosk.service"
+# How long a scale change waits for the next one before restarting the kiosk.
+# Each click used to restart it on its own: the restarts queued behind one
+# another past CONTROL_TIMEOUT, and a cage stopped 0.2 s after its start
+# ignored SIGTERM until systemd's stop timeout (measured 2026-10-07).
+KIOSK_RESTART_SETTLE_S = 1.0
 
 
 class ScreenController:
@@ -60,6 +65,12 @@ class ScreenController:
         # Set by a scale change made on the kiosk itself, taken once by the
         # kiosk that restart brings up: its incognito profile keeps nothing.
         self._reopen_screen_settings = False
+        # Scale changes coalesce into one kiosk restart: the latest request
+        # wins, one restart runs at a time, and a change from the kiosk among
+        # the coalesced ones still reopens the settings.
+        self._kiosk_restart_generation = 0
+        self._kiosk_restart_lock = asyncio.Lock()
+        self._kiosk_reopen_requested = False
 
     def _detect_backlight_path(self):
         """Detect the sysfs backlight brightness path for DSI screens."""
@@ -363,12 +374,26 @@ class ScreenController:
         second change skipped then would never reach the screen.
         `reopen_screen_settings` is set before the restart, since the new kiosk
         may ask before it returns.
+
+        A burst of changes restarts it once, after KIOSK_RESTART_SETTLE_S of
+        quiet; a change arriving during a restart waits for it, then restarts
+        again so its value reaches Chromium.
         """
-        if not await self.systemd_manager.is_enabled(KIOSK_UNIT):
-            return
-        self._reopen_screen_settings = reopen_screen_settings
-        if not await self.systemd_manager.restart(KIOSK_UNIT):
-            self._reopen_screen_settings = False
+        self._kiosk_restart_generation += 1
+        generation = self._kiosk_restart_generation
+        self._kiosk_reopen_requested |= reopen_screen_settings
+        await asyncio.sleep(KIOSK_RESTART_SETTLE_S)
+        async with self._kiosk_restart_lock:
+            if generation != self._kiosk_restart_generation:
+                return  # a later change restarts it, with every value written since
+            reopen, self._kiosk_reopen_requested = self._kiosk_reopen_requested, False
+            if not await self.systemd_manager.is_enabled(KIOSK_UNIT):
+                return
+            # OR, not assign: the kiosk the previous restart brought up may
+            # not have asked yet, and a remote change must not take its answer.
+            self._reopen_screen_settings |= reopen
+            if not await self.systemd_manager.restart(KIOSK_UNIT):
+                self._reopen_screen_settings = False
 
     def take_reopen_screen_settings(self) -> bool:
         """Whether the kiosk should reopen the Screen settings — answered once."""
