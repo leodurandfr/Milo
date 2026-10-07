@@ -81,9 +81,10 @@ async def test_every_artist_of_the_track_is_published_with_its_uri(world):
     ]
 
 
-def _listed(song, known=True):
-    """A window entry of go-librespot's /status, its track null until cached."""
-    return {"uri": song["uri"], "track": song if known else None}
+def _listed(song, known=True, uid=None, provider="context"):
+    """An entry of go-librespot's GET /player/queue, its track null until
+    cached (an album's tracks carry no uid, measured)."""
+    return {"uri": song["uri"], "uid": uid, "provider": provider, "track": song if known else None}
 
 
 async def test_the_play_order_around_the_track_is_published(world):
@@ -118,12 +119,61 @@ async def test_a_queue_event_alone_names_what_was_not_known(world):
 
 
 async def test_no_window_is_no_order_to_swipe_through(world):
-    """A daemon that lists nothing around the track (stock go-librespot, or
-    its metadata off) publishes no queue: a queue of the track alone would
-    leave the carousel no neighbour, and the swipe nothing to do."""
+    """A daemon that lists nothing around the track publishes no queue: a
+    queue of the track alone would leave the carousel no neighbour, and the
+    swipe nothing to do."""
     await world.phone_plays(PARAPLUIE)
     details = world.state()["details"]
     assert details["queue"] == [] and details["queue_index"] is None
+
+
+async def test_a_daemon_without_the_queue_route_lists_no_order(world):
+    """Stock go-librespot 0.10.3 (what dependencies.env pins) has no GET
+    /player/queue and answers 404: the bar keeps its single cell rather
+    than an order the daemon never gave."""
+    d = world.daemon
+    d.has_queue_route = False
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world.phone_plays(PARAPLUIE)
+    details = world.state()["details"]
+    assert details["queue"] == [] and details["queue_index"] is None
+    assert world.playing()
+
+
+async def test_the_play_order_is_read_again_when_events_reconnect(world):
+    """go-librespot raises `queue` only on change, so one that went by while
+    /events was down is never said again: the reconnection reads the order."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]   # moved while nobody listened
+    await world.events_blip()
+    assert world.state()["details"]["queue"][1]["title"] == "Trois Neuf Trois"
+
+
+async def test_a_queue_event_read_with_an_unreadable_status_is_not_lost(world):
+    """The `queue` event is said once: when /status fails in its burst, the
+    order it announced still reaches the wire with the retry's read."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    d.status_answers = False
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world._says({"type": "queue"})
+    d.status_answers = True
+    await world.advance(2.1)                  # the status retry
+    assert world.state()["details"]["queue"][1]["title"] == "Trois Neuf Trois"
+
+
+async def test_an_unreadable_play_order_keeps_the_last_one(world):
+    """E10 for the order: a read that fails learns nothing, so the carousel
+    keeps the neighbours it had rather than collapsing to one cell."""
+    d = world.daemon
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world.phone_plays(PARAPLUIE)
+    d.queue_answers = False
+    d.next_tracks = [_listed(LE_CHEMIN)]
+    await world._says({"type": "volume", "value": 40, "max": 100})
+    assert world.state()["details"]["queue"][1]["title"] == "Trois Neuf Trois"
+    assert world.playing()
 
 
 async def test_a_seek_moves_the_published_position(world):

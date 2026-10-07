@@ -37,6 +37,13 @@ one, with its track once resolved and the playhead read when /status was; each
 change raises `remote`. POST /player/transfer answers 200 at once, and the
 session arrives as a phone's transfer does, at the same position.
 
+The play order (the fork's GET /player/queue, measured 2026-10-07 on the
+owner's iPhone): `provider` is "context", "queue" (the user's queue, listed
+first in next_tracks and kept across a new context) or "autoplay" (the station
+that replaces a context once it has run out, never listed after it); a
+playlist's entries carry a uid, an album's none, the user's queue numbers its
+own ("q1", "q2", the same track queued twice included).
+
 Time is a VirtualClock the scenario advances; the daemon's death is heard
 through the same pidfd watch the source opens (patched here, as for AirPlay).
 """
@@ -147,11 +154,15 @@ class Librespot:
         self.repeat_context = False
         self.repeat_track = False
         self.track: Optional[Dict[str, Any]] = None
-        # The window /status lists around the track, as {uri, track} items
-        # (track None until its metadata is cached): left out of the answer
-        # while empty, as go-librespot omits it.
+        # The play order GET /player/queue lists around the track, as
+        # {uri, uid, provider, track} entries (track None until its metadata
+        # is cached). Any change of that answer raises `queue` ahead of the
+        # events it comes with, as go-librespot compares the answer itself.
         self.prev_tracks: List[Dict[str, Any]] = []
         self.next_tracks: List[Dict[str, Any]] = []
+        self.has_queue_route = True     # False: a go-librespot without it (stock 0.10.3), 404
+        self.queue_answers = True       # False: GET /player/queue answers 503
+        self.queue_listed: Optional[Dict[str, Any]] = None
         # What the account plays on another device, as /status's `remote`.
         self.remote: Optional[Dict[str, Any]] = None
         self.taken_over: Optional[Dict[str, Any]] = None
@@ -236,13 +247,26 @@ class Librespot:
                 "username": self.account, "stopped": False, "paused": self.paused,
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
                 "context_uri": context_uri, "context_name": context_name,
-                **self._player_flags(), "remote": None, **self._window(),
+                **self._player_flags(), "remote": None,
             }))
+        if url.endswith("/player/queue"):
+            if not self.has_queue_route:
+                return _Exchange(_Response(404))
+            if not self.queue_answers:
+                return _Exchange(_Response(503))
+            if not self.session and not self.signed_in:
+                return _Exchange(_Response(204))
+            return _Exchange(_Response(200, self._queue()))
         return _Exchange(_Response(200, {"playback_ready": self.session}))
 
-    def _window(self) -> Dict[str, Any]:
-        window = {"prev_tracks": self.prev_tracks, "next_tracks": self.next_tracks}
-        return {key: copy.deepcopy(items) for key, items in window.items() if items}
+    def _queue(self) -> Dict[str, Any]:
+        """What GET /player/queue answers now."""
+        current = None
+        if self.session and self.track:
+            current = {"uri": self.track["uri"], "uid": None, "provider": "context",
+                       "track": copy.deepcopy(self.track)}
+        return {"prev_tracks": copy.deepcopy(self.prev_tracks), "track": current,
+                "next_tracks": copy.deepcopy(self.next_tracks)}
 
     def post(self, url: str, json: Optional[Dict[str, Any]] = None, **k: Any) -> _Exchange:
         if not self.up:
@@ -360,6 +384,10 @@ class Librespot:
 
     def says(self, *events: Dict[str, Any]) -> None:
         if self.socket is not None:
+            queue = self._queue()
+            if self.has_queue_route and queue != self.queue_listed:
+                self.queue_listed = queue
+                events = ({"type": "queue"}, *events)
             for event in events:
                 self.socket.queue.put_nowait(event)
 
