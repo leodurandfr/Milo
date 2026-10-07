@@ -18,7 +18,7 @@
             <span class="heading-3 tracklist-artist">{{ artistName }}</span>
             <span class="heading-4 tracklist-album">{{ albumTitle }}</span>
           </div>
-          <span v-if="releaseYear" class="text-mono-small tracklist-year">{{ releaseYear }}</span>
+          <span v-if="releaseYear" class="text-mono-medium tracklist-year">{{ releaseYear }}</span>
         </div>
         <div class="tracklist-scroll">
           <TrackRow v-for="track in cdStore.tracks" :key="track.number" :song="trackRecord(track)"
