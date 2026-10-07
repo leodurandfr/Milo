@@ -134,10 +134,12 @@ onUnmounted(() => {
   align-items: center;
   width: 100%;
   height: 48px;
-  padding: 0 var(--space-04);
+  padding: 0 var(--space-03) 0 var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-control);
-  gap: var(--space-02);
+  /* Filled: an inset well, edged by a hairline that takes no layout space. */
+  background: var(--color-inset);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  gap: var(--space-03);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
 }
 
@@ -157,6 +159,7 @@ onUnmounted(() => {
 /* Plain variant: the same field without its fill */
 .input-container--plain {
   background: transparent;
+  box-shadow: none;
 }
 
 input {

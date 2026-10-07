@@ -297,10 +297,12 @@ onBeforeUnmount(() => {
   height: 48px;
   padding: 0 var(--space-03) 0 var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-control);
+  /* Filled: an inset well, edged by a hairline, as InputText's. */
+  background: var(--color-inset);
+  box-shadow: inset 0 0 0 1px var(--color-border);
   cursor: pointer;
   outline: none;
-  gap: var(--space-01);
+  gap: var(--space-03);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
 }
 
@@ -318,6 +320,7 @@ onBeforeUnmount(() => {
 
 .dropdown-trigger--plain {
   background: transparent;
+  box-shadow: none;
 }
 
 .dropdown-trigger:disabled {
