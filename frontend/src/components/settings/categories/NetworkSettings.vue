@@ -47,7 +47,7 @@
       @change="handleWifiToggle"
     >
       <div ref="wifiContentRef" class="wifi-content">
-        <span class="text-mono-medium wifi-content__description">{{ t('network.wifiDescription') }}</span>
+        <span class="text-body wifi-content__description">{{ t('network.wifiDescription') }}</span>
 
         <!-- Preferred network -->
         <div v-if="preferredNetwork" class="wifi-group">

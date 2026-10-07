@@ -44,16 +44,14 @@
       <!-- Auth step -->
       <template v-if="phase === 'auth'">
         <div class="wb-form">
-          <p class="text-mono-medium wb-note">{{ t('musicLibrary.shares.wizard.authPrompt') }}</p>
-          <div class="wb-group">
-            <label class="text-mono-medium">{{ t('musicLibrary.shares.username') }}</label>
+          <p class="text-body wb-note">{{ t('musicLibrary.shares.wizard.authPrompt') }}</p>
+          <SettingItem :label="t('musicLibrary.shares.username')">
             <InputText v-model="creds.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
-          </div>
-          <div class="wb-group">
-            <label class="text-mono-medium">{{ t('musicLibrary.shares.password') }}</label>
+          </SettingItem>
+          <SettingItem :label="t('musicLibrary.shares.password')">
             <InputText v-model="creds.password" type="password" :maxlength="256"
               :placeholder="t('musicLibrary.shares.passwordPlaceholder')" />
-          </div>
+          </SettingItem>
           <p v-if="authError" class="wb-error text-mono-medium">{{ authError }}</p>
           <Button variant="brand" size="medium" :loading="connecting" @click="connect">
             {{ t('musicLibrary.shares.wizard.connect') }}
@@ -128,6 +126,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
@@ -353,16 +352,6 @@ load('');
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-.wb-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.wb-group label {
-  color: var(--color-text-secondary);
 }
 
 .wb-note {

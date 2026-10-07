@@ -8,15 +8,13 @@
   <SettingsContainer>
     <SystemInfoSection />
 
-    <SettingsSection>
+    <SettingsSection :description="t('system.ssh.description')">
       <template #header>
         <div class="system-header">
           <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
           <Toggle :model-value="ssh.enabled" :disabled="sshBusy" @change="handleSshToggle" />
         </div>
       </template>
-
-      <span class="text-mono-medium system-description">{{ t('system.ssh.description') }}</span>
 
       <!-- Wraps: the button drops under the command when the row is too
            narrow for both, rather than squeezing the command into a scroll.
@@ -37,9 +35,7 @@
       <span v-if="sshError" class="system-error text-mono-small">{{ sshError }}</span>
     </SettingsSection>
 
-    <SettingsSection :title="t('system.diagnostic.title')">
-      <span class="text-mono-medium system-description">{{ t('system.diagnostic.description') }}</span>
-
+    <SettingsSection :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
       <Button variant="tinted" :loading="generating" :disabled="generating"
         @click="generateReport">
         {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
@@ -76,9 +72,7 @@
       </template>
     </SettingsSection>
 
-    <SettingsSection :title="t('system.reset.title')">
-      <span class="text-mono-medium system-description">{{ t('system.reset.description') }}</span>
-
+    <SettingsSection :title="t('system.reset.title')" :description="t('system.reset.description')">
       <!-- Red from the first press, not only once armed: the action is
            destructive whether or not it is confirmed yet, and the two-step is
            carried by the label. -->
@@ -236,10 +230,6 @@ onMounted(systemStore.loadSsh);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-03);
-}
-
-.system-description {
-  color: var(--color-text-secondary);
 }
 
 .system-notice {

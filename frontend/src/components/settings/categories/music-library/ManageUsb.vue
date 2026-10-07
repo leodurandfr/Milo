@@ -18,25 +18,20 @@
   <SettingsContainer>
     <form class="usb-form" @submit.prevent="handleSubmit">
       <SettingsSection>
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('musicLibrary.usb.name') }}</label>
+        <SettingItem :label="t('musicLibrary.usb.name')"
+          :hint="t('musicLibrary.usb.nameHint', { label: device?.label || '' })">
           <InputText v-model="name" :placeholder="device?.label || t('musicLibrary.usb.namePlaceholder')"
             :maxlength="128" />
-          <span class="text-mono-medium usb-form__hint">
-            {{ t('musicLibrary.usb.nameHint', { label: device?.label || '' }) }}
-          </span>
-        </div>
+        </SettingItem>
 
         <div v-if="errorMessage" class="usb-form__error text-mono-medium">{{ errorMessage }}</div>
       </SettingsSection>
 
-      <SettingsSection v-if="device && !device.mounted">
+      <SettingsSection v-if="device && !device.mounted"
+        :description="t('musicLibrary.usb.forgetDescription', { count: device.track_count || 0 })">
         <template #header>
           <SectionHeader :title="t('musicLibrary.usb.forgetTitle')" />
         </template>
-        <p class="text-mono-medium usb-form__note">
-          {{ t('musicLibrary.usb.forgetDescription', { count: device.track_count || 0 }) }}
-        </p>
         <Button variant="important" size="medium" type="button" :loading="isForgetting"
           :disabled="isSubmitting || isForgetting" @click="handleForget">
           {{ confirmForget ? t('musicLibrary.usb.confirmForget') : t('musicLibrary.usb.forget') }}
@@ -57,6 +52,7 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
@@ -117,24 +113,6 @@ async function handleForget() {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.form-group label {
-  color: var(--color-text-secondary);
-}
-
-.usb-form__hint {
-  color: var(--color-text-tertiary);
-}
-
-.usb-form__note {
-  color: var(--color-text-secondary);
 }
 
 .usb-form__error {

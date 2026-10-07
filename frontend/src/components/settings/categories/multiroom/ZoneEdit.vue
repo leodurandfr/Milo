@@ -13,9 +13,7 @@
     </SettingsSection>
 
     <!-- Client Selection -->
-    <SettingsSection :title="t('equalizer.zones.selectClients')">
-      <p class="text-mono-medium zone-hint">{{ t('equalizer.zones.minimumClients') }}</p>
-      <div class="clients-list">
+    <SettingsSection :title="t('equalizer.zones.selectClients')" :description="t('equalizer.zones.minimumClients')">      <div class="clients-list">
         <SystemListItem
           v-for="target in availableTargets"
           :key="target.id"
@@ -232,10 +230,6 @@ async function handleDelete() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-.zone-hint {
-  color: var(--color-text-secondary);
 }
 
 /* Sticky action button */

@@ -15,15 +15,14 @@
   so the list of networks before and after a change is not the same list.
 -->
 <template>
-  <div class="country-row">
-    <span class="country-row__label text-mono-medium">{{ t('network.wifiCountry') }}</span>
+  <SettingItem :label="t('network.wifiCountry')" inline>
     <Dropdown
       :model-value="country"
       :options="countryOptions"
       :placeholder="t('network.selectCountry')"
       @change="onCountryChange"
     />
-  </div>
+  </SettingItem>
 </template>
 
 <script setup>
@@ -32,6 +31,7 @@ import { useI18n } from '@/services/i18n';
 import { useNetwork } from '@/composables/useNetwork';
 import { wifiCountryOptions } from '@/constants/wifiCountries';
 import Dropdown from '@/components/ui/Dropdown.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const { t, getCurrentLanguage } = useI18n();
 const { country, scanNetworks, setCountry } = useNetwork();
@@ -47,32 +47,3 @@ async function onCountryChange(code) {
   }
 }
 </script>
-
-<style scoped>
-.country-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-03);
-}
-
-.country-row__label {
-  color: var(--color-text-secondary);
-  width: 33%;
-  flex-shrink: 0;
-}
-
-.country-row :deep(.dropdown) {
-  flex: 1;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .country-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .country-row__label {
-    width: auto;
-  }
-}
-</style>

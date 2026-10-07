@@ -18,7 +18,7 @@
 -->
 <template>
   <SettingsContainer>
-    <SettingsSection>
+    <SettingsSection :description="t('musicLibrary.shares.description')">
       <template #header>
         <SectionHeader :title="t('musicLibrary.shares.title')">
           <template #actions>
@@ -28,8 +28,6 @@
           </template>
         </SectionHeader>
       </template>
-
-      <p class="text-mono-medium ml-desc">{{ t('musicLibrary.shares.description') }}</p>
 
       <!-- 2-up on desktop (NAS/shares left, USB right, wrapping as rows fill);
            single column on mobile. -->
@@ -97,12 +95,10 @@
       :description="t('musicLibrary.storage.separateDescription')"
       :enabled="separateStorages" @change="handleSeparateToggle" />
 
-    <SettingsSection>
+    <SettingsSection :description="t('musicLibrary.maintenance.description')">
       <template #header>
         <SectionHeader :title="t('musicLibrary.maintenance.title')" />
       </template>
-
-      <p class="text-mono-medium ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
       <ProgressStrip :open="busy" :has-bar="busy" :label="scanLabel" />
 
@@ -225,10 +221,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ml-desc {
-  color: var(--color-text-secondary);
-}
-
 /* 2 columns on desktop (shares/NAS placeholder wrap against USB); a single
    column on mobile, where two half-width rows would be too cramped to read. */
 .ml-list {

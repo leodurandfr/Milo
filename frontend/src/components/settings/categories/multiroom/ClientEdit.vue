@@ -33,8 +33,7 @@
 
       <!-- Audio Card Selection (remote clients only) -->
       <SettingsSection v-if="!client?.is_local && (isLoadingAudio || audioCardOptions.length > 0)" :title="t('multiroom.pending.audioCard')">
-        <div class="hardware-row">
-          <span class="hardware-row__label text-mono-medium">{{ t('hardwareSettings.audioCardModel') }}</span>
+        <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
           <div v-if="isLoadingAudio" class="skeleton-dropdown">
             <span class="skeleton-dropdown__text shimmer"></span>
           </div>
@@ -45,7 +44,7 @@
             :disabled="isApplying"
             @change="selectAudioCard"
           />
-        </div>
+        </SettingItem>
         <!-- Volume management toggle (DAC cards only) -->
         <ListItemButton
           v-if="isDacCard"
@@ -183,6 +182,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
   macId: {
@@ -613,22 +613,6 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.hardware-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-03);
-}
-
-.hardware-row__label {
-  color: var(--color-text-secondary);
-  width: 33%;
-  flex-shrink: 0;
-}
-
-.hardware-row :deep(.dropdown) {
-  flex: 1;
-}
-
 .skeleton-dropdown {
   flex: 1;
   display: flex;
@@ -724,15 +708,6 @@ onMounted(async () => {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .hardware-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .hardware-row__label {
-    width: auto;
-  }
-
   .speaker-types {
     grid-template-columns: 1fr;
   }

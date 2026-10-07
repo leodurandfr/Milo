@@ -26,18 +26,16 @@
     <SettingsSection :title="t('timezone.title')">
       <!-- Area then Location: ~490 zones in one dropdown is unusable with a
            finger, and every zone the backend returns has both halves. -->
-      <div class="timezone-row">
-        <span class="timezone-row__label text-mono-medium">{{ t('timezone.area') }}</span>
+      <SettingItem :label="t('timezone.area')" inline>
         <Dropdown :model-value="selectedArea" :options="areaOptions"
           :placeholder="t('timezone.selectArea')" :disabled="saving" @change="selectArea" />
-      </div>
+      </SettingItem>
 
-      <div class="timezone-row">
-        <span class="timezone-row__label text-mono-medium">{{ t('timezone.location') }}</span>
+      <SettingItem :label="t('timezone.location')" inline>
         <Dropdown :model-value="selectedLocation" :options="locationOptions"
           :placeholder="t('timezone.selectLocation')" :disabled="saving || !selectedArea"
           @change="selectLocation" />
-      </div>
+      </SettingItem>
 
       <span v-if="timezoneError" class="timezone-error text-mono-small">{{ timezoneError }}</span>
     </SettingsSection>
@@ -53,6 +51,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 import franceIcon from '@/assets/flags-icons/france.svg';
 import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
@@ -161,23 +160,6 @@ onMounted(loadTimezone);
   gap: var(--space-01);
 }
 
-/* Label + control, matching the country-row pattern in NetworkSettings */
-.timezone-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-03);
-}
-
-.timezone-row__label {
-  color: var(--color-text-secondary);
-  width: 33%;
-  flex-shrink: 0;
-}
-
-.timezone-row :deep(.dropdown) {
-  flex: 1;
-}
-
 .timezone-error {
   color: var(--color-error);
 }
@@ -185,15 +167,6 @@ onMounted(loadTimezone);
 @media (max-aspect-ratio: 4/3) {
   .language-grid {
     grid-template-columns: 1fr;
-  }
-
-  .timezone-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .timezone-row__label {
-    width: auto;
   }
 }
 </style>

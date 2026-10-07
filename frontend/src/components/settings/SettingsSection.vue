@@ -4,6 +4,7 @@
     <slot name="header">
       <h2 v-if="title" class="heading-2">{{ title }}</h2>
     </slot>
+    <p v-if="description" class="settings-section__description text-body">{{ description }}</p>
     <slot />
   </section>
 </template>
@@ -11,6 +12,10 @@
 <script setup>
 defineProps({
   title: {
+    type: String,
+    default: ''
+  },
+  description: {
     type: String,
     default: ''
   }
@@ -25,6 +30,11 @@ defineProps({
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
+}
+
+.settings-section__description {
+  color: var(--color-text-secondary);
+  margin: 0;
 }
 
 @media (max-aspect-ratio: 4/3) {

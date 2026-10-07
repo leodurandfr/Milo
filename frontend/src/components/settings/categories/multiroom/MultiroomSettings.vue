@@ -130,7 +130,7 @@
               :label="calibration.running ? stageLabel : ''"
               :hint="calibration.running ? t('multiroomSettings.remaining', { time: formatUnit(remainingSeconds, 's') }) : ''" />
 
-            <p v-if="!calibration.running && analysisNote" class="text-mono-medium analysis-note">
+            <p v-if="!calibration.running && analysisNote" class="text-body analysis-note">
               {{ analysisNote }}
             </p>
 

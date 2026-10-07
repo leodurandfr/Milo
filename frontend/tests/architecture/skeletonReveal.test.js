@@ -76,7 +76,7 @@ describe('the end of a skeleton', () => {
     // A template or style pattern that stopped matching would leave every
     // check below looking at nothing, and passing.
     expect(DRAWING.length).toBeGreaterThan(15);
-    expect(DRAWING.flatMap(({ style }) => rules(style)).length).toBeGreaterThan(300);
+    expect(DRAWING.flatMap(({ style }) => rules(style)).length).toBeGreaterThan(250);
     expect(DRAWING.flatMap(({ template }) => transitionsAroundShimmers(template)).length).toBeGreaterThan(8);
   });
 

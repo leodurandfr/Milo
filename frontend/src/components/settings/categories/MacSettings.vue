@@ -21,9 +21,7 @@
 
       <!-- The half each Mac runs: its roc-vad device, rebuilt by the Milō app
            for Mac when this changes. -->
-      <SettingsSection :title="t('macSettings.sender')">
-        <p class="text-mono-medium section-note">{{ t('macSettings.senderNote') }}</p>
-
+      <SettingsSection :title="t('macSettings.sender')" :description="t('macSettings.senderNote')">
         <SettingItem :label="t('macSettings.packetLength')">
           <ButtonGroup :model-value="draft.packet_length_ms" :options="msOptions(caps.packet_lengths)"
             :disabled="busy" mobile-layout="grid-3" @change="set('packet_length_ms', $event)" />
@@ -38,7 +36,7 @@
           @update:model-value="set('fec_block_repair', $event)" />
 
         <div class="toggle-row">
-          <span class="text-mono-medium toggle-row__label">{{ t('macSettings.interleaving') }}</span>
+          <span class="text-body toggle-row__label">{{ t('macSettings.interleaving') }}</span>
           <Toggle :model-value="draft.packet_interleaving" :disabled="busy"
             @change="set('packet_interleaving', $event)" />
         </div>
@@ -56,7 +54,7 @@
           :label="calibration.running ? stageLabel : ''"
           :hint="calibration.running ? t('macSettings.remaining', { time: formatUnit(remainingSeconds, 's') }) : ''" />
 
-        <p v-if="!calibration.running && analysisNote" class="text-mono-medium analysis-note">
+        <p v-if="!calibration.running && analysisNote" class="text-body analysis-note">
           {{ analysisNote }}
         </p>
 
@@ -101,7 +99,7 @@
       </SettingsSection>
     </template>
 
-    <p v-else-if="macLinkStore.capabilitiesFailed" class="text-mono-medium section-note">
+    <p v-else-if="macLinkStore.capabilitiesFailed" class="text-body section-note">
       {{ t('macSettings.unavailable') }}
     </p>
 

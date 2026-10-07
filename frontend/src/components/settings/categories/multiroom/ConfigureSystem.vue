@@ -50,7 +50,7 @@
 
         <!-- Manual entry via NetworkSelector -->
         <template v-else>
-          <p v-if="!canUseServerWifi" class="text-mono-medium adopt-hint">
+          <p v-if="!canUseServerWifi" class="text-body adopt-hint">
             {{ t('multiroom.adopt.enterCredentials') }}
           </p>
           <NetworkSelector

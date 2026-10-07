@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/ToggleSection.vue -->
 <!-- Reusable settings section with toggle in header and optional expand/collapse content -->
 <template>
-  <SettingsSection :class="{ 'toggle-section--has-content': hasContent }">
+  <SettingsSection :description="description" :class="{ 'toggle-section--has-content': hasContent }">
     <template #header>
       <div class="toggle-section-header">
         <component :is="`h${heading}`" :class="`heading-${heading}`">
@@ -13,8 +13,6 @@
         <Toggle :model-value="enabled" @change="handleToggle" />
       </div>
     </template>
-
-    <p v-if="description" class="text-mono-medium toggle-section-description">{{ description }}</p>
 
     <div v-if="hasContent" ref="expandRef" class="toggle-section-expand" :class="{ 'is-open': enabled, 'no-transition': skipInitialTransition }">
       <div class="toggle-section-expand__inner">
@@ -102,10 +100,6 @@ function handleToggle(newEnabled) {
 .toggle-section-header > .heading-3 {
   margin-right: auto;
   min-width: 0;
-}
-
-.toggle-section-description {
-  color: var(--color-text-secondary);
 }
 
 .toggle-section-header__actions {

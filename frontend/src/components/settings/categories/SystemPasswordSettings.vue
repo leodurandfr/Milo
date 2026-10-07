@@ -4,9 +4,7 @@
      when it mounts again, and that read waits for a save still in flight. -->
 <template>
   <SettingsContainer>
-    <SettingsSection>
-      <span class="text-mono-medium password-description">{{ t('system.password.description') }}</span>
-
+    <SettingsSection :description="t('system.password.description')">
       <InputText v-model="newPassword" type="password" :maxlength="128"
         :placeholder="t('system.password.newPlaceholder')" />
       <InputText v-model="confirmPassword" type="password" :maxlength="128"
@@ -74,10 +72,6 @@ async function savePassword() {
 </script>
 
 <style scoped>
-.password-description {
-  color: var(--color-text-secondary);
-}
-
 .password-error {
   color: var(--color-error);
 }

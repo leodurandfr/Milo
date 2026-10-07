@@ -1132,7 +1132,7 @@ export const REGISTRY = {
 
   SettingsSection: {
     component: SettingsSection,
-    args: { title: 'Volume', class: 'canvas-column' },
+    args: { title: 'Volume', description: 'Applied when the unit starts.', class: 'canvas-column' },
     slots: {
       // The header slot replaces the built-in <h2>, so with a choice made the
       // `title` prop above stops showing — which is the thing worth seeing.
@@ -1157,7 +1157,7 @@ export const REGISTRY = {
 
   SettingItem: {
     component: SettingItem,
-    args: { label: 'Startup volume', class: 'canvas-column' },
+    args: { label: 'Startup volume', hint: 'Applied when the unit starts.', inline: false, class: 'canvas-column' },
     slots: { default: { 'A control': { component: ControlSample } } }
   },
 

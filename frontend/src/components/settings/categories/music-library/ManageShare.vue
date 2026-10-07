@@ -17,47 +17,37 @@
     <form class="share-form" @submit.prevent="handleSubmit">
       <SettingsSection>
         <!-- Type: SMB / NFS -->
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('musicLibrary.shares.type') }}</label>
+        <SettingItem :label="t('musicLibrary.shares.type')">
           <ButtonGroup v-model="form.type" :options="typeOptions" @change="applyType" />
-        </div>
+        </SettingItem>
 
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('musicLibrary.shares.name') }} *</label>
+        <SettingItem :label="`${t('musicLibrary.shares.name')} *`" :hint="t('musicLibrary.shares.nameHint')">
           <InputText v-model="form.name" :placeholder="t('musicLibrary.shares.namePlaceholder')" :maxlength="128" />
-          <span class="text-mono-medium share-form__hint">{{ t('musicLibrary.shares.nameHint') }}</span>
-        </div>
+        </SettingItem>
 
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('musicLibrary.shares.host') }} *</label>
+        <SettingItem :label="`${t('musicLibrary.shares.host')} *`">
           <InputText v-model="form.host" :placeholder="t('musicLibrary.shares.hostPlaceholder')" :maxlength="255" />
-        </div>
+        </SettingItem>
 
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('musicLibrary.shares.pathLabel') }} *</label>
+        <SettingItem :label="`${t('musicLibrary.shares.pathLabel')} *`" :hint="pathHint">
           <InputText v-model="form.path" :placeholder="pathPlaceholder" :maxlength="1024" />
-          <span class="text-mono-medium share-form__hint">{{ pathHint }}</span>
-        </div>
+        </SettingItem>
 
         <!-- Credentials (SMB only) -->
         <template v-if="form.type === 'cifs'">
-          <div class="form-group">
-            <label class="text-mono-medium">{{ t('musicLibrary.shares.username') }}</label>
+          <SettingItem :label="t('musicLibrary.shares.username')">
             <InputText v-model="form.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
-          </div>
+          </SettingItem>
 
-          <div class="form-group">
-            <label class="text-mono-medium">{{ t('musicLibrary.shares.password') }}</label>
+          <SettingItem :label="t('musicLibrary.shares.password')"
+            :hint="isEditMode && share?.has_credentials ? t('musicLibrary.shares.passwordKeepHint') : ''">
             <InputText v-model="form.password" type="password" :maxlength="256"
               :placeholder="passwordPlaceholder" />
-            <span v-if="isEditMode && share?.has_credentials" class="text-mono-medium share-form__hint">
-              {{ t('musicLibrary.shares.passwordKeepHint') }}
-            </span>
-          </div>
+          </SettingItem>
         </template>
 
         <!-- NFS help note -->
-        <p v-else class="text-mono-medium share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
+        <p v-else class="text-body share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
 
         <!-- Error -->
         <div v-if="errorMessage" class="share-form__error text-mono-medium">{{ errorMessage }}</div>
@@ -84,6 +74,7 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Button from '@/components/ui/Button.vue';
@@ -256,20 +247,6 @@ async function handleRemove() {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.form-group label {
-  color: var(--color-text-secondary);
-}
-
-.share-form__hint {
-  color: var(--color-text-tertiary);
 }
 
 .share-form__note {

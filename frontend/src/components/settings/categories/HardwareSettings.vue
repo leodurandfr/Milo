@@ -10,8 +10,7 @@
       <div class="hardware-groups">
         <div class="hardware-group">
           <h3 class="heading-3">{{ t('hardwareSettings.audioCard') }}</h3>
-          <div class="hardware-row">
-            <span class="hardware-row__label text-mono-medium">{{ t('hardwareSettings.audioCardModel') }}</span>
+          <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
             <Dropdown
               :model-value="config.audio_id"
               :options="audioCardOptions"
@@ -19,7 +18,7 @@
               :placeholder="t('common.selectOption')"
               @change="onAudioChange"
             />
-          </div>
+          </SettingItem>
 
           <!-- Volume management toggle (DAC cards only) -->
           <ListItemButton
@@ -38,8 +37,7 @@
             <h3 class="heading-3">{{ t('hardwareSettings.screen') }}</h3>
             <Toggle :model-value="hasScreen" :disabled="isRebooting" @change="toggleScreen" />
           </div>
-          <div v-if="hasScreen" class="hardware-row">
-            <span class="hardware-row__label text-mono-medium">{{ t('hardwareSettings.screenModel') }}</span>
+          <SettingItem v-if="hasScreen" :label="t('hardwareSettings.screenModel')" inline>
             <Dropdown
               :model-value="config.screen_type"
               :options="screenOptionsFiltered"
@@ -47,7 +45,7 @@
               placeholder=""
               @change="onScreenChange"
             />
-          </div>
+          </SettingItem>
         </div>
 
         <div class="hardware-divider"></div>
@@ -137,7 +135,7 @@
               <Toggle :model-value="config.power_button_enabled" :disabled="isRebooting"
                 @change="togglePowerButton" />
             </div>
-            <span class="hardware-description text-mono-medium">
+            <span class="hardware-description text-body">
               {{ t('hardwareSettings.powerButtonDescription') }}
             </span>
             <div v-if="config.power_button_enabled" class="encoder-pins">
@@ -470,23 +468,6 @@ onMounted(async () => {
   background: var(--color-border);
 }
 
-/* Desktop: label left (33%), control right */
-.hardware-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-03);
-}
-
-.hardware-row__label {
-  color: var(--color-text-secondary);
-  width: 33%;
-  flex-shrink: 0;
-}
-
-.hardware-row :deep(.dropdown) {
-  flex: 1;
-}
-
 .encoder-pins {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -508,17 +489,7 @@ onMounted(async () => {
   z-index: 10;
 }
 
-/* Mobile: stack label/control vertically */
 @media (max-aspect-ratio: 4/3) {
-  .hardware-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .hardware-row__label {
-    width: auto;
-  }
-
   .encoder-pins {
     grid-template-columns: 1fr;
   }

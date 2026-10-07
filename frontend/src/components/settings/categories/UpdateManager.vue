@@ -25,7 +25,7 @@
                    it does: one Milō update carries the whole validated set, and the
                    satellites with it — but only say so where there are any. -->
               <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
-                class="text-mono-medium section-note">
+                class="text-body section-note">
                 {{ t('updates.dependenciesHint') }}
                 <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
               </p>
@@ -327,7 +327,7 @@
               <!-- Snapcast still sees it, its own API does not answer. Said in
                    words: a skeleton here waits for a fetch nobody will make. -->
               <div v-else key="unreachable" class="programs-list">
-                <p class="text-mono-medium section-note">{{ t('multiroom.offline') }}</p>
+                <p class="text-body section-note">{{ t('multiroom.offline') }}</p>
               </div>
             </Transition>
           </div>

@@ -19,18 +19,16 @@
     <form @submit.prevent="handleFormSubmit" class="station-form">
       <!-- Station Name and Image Section (horizontal on desktop, stacked on mobile) -->
       <div class="station-header-row">
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('radio.manageStation.name') }} *</label>
+        <SettingItem :label="`${t('radio.manageStation.name')} *`">
           <InputText v-model="formData.name" type="text" :placeholder="t('radio.manageStation.namePlaceholder')" />
-        </div>
+        </SettingItem>
 
         <div class="image-upload-group">
-          <div class="form-group">
-            <label class="text-mono-medium">{{ t('radio.manageStation.image') }}</label>
+          <SettingItem :label="t('radio.manageStation.image')" class="image-upload-field">
             <Button variant="tinted" size="medium" class="full-width-btn" @click="$refs.fileInput.click()">
               {{ t('radio.manageStation.chooseImage') }}
             </Button>
-          </div>
+          </SettingItem>
           <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
             @change="handleFileSelect" class="file-input" />
 
@@ -45,39 +43,34 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="text-mono-medium">{{ t('radio.manageStation.url') }} *</label>
+      <SettingItem :label="`${t('radio.manageStation.url')} *`">
         <InputText v-model="formData.url" type="url"
           :placeholder="t('radio.manageStation.urlPlaceholder')" />
-      </div>
+      </SettingItem>
 
       <!-- Country + Genre (horizontal on desktop, stacked on mobile) -->
       <div class="form-row">
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('radio.manageStation.country') }}</label>
+        <SettingItem :label="t('radio.manageStation.country')">
           <Dropdown v-model="formData.countrycode" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
-        </div>
+        </SettingItem>
 
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('radio.manageStation.genre') }}</label>
+        <SettingItem :label="t('radio.manageStation.genre')">
           <InputText v-model="formData.genre" type="text"
             :placeholder="t('radio.manageStation.genrePlaceholder')" />
-        </div>
+        </SettingItem>
       </div>
 
       <!-- Codec + Bitrate (horizontal on desktop, stacked on mobile) -->
       <div class="form-row">
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('radio.manageStation.codec') }}</label>
+        <SettingItem :label="t('radio.manageStation.codec')">
           <InputText v-model="formData.codec" type="text"
             :placeholder="t('radio.manageStation.codecPlaceholder')" />
-        </div>
+        </SettingItem>
 
-        <div class="form-group">
-          <label class="text-mono-medium">{{ t('radio.manageStation.bitrate') }}</label>
+        <SettingItem :label="t('radio.manageStation.bitrate')">
           <InputText v-model="formData.bitrate" type="number"
             :placeholder="t('radio.manageStation.bitratePlaceholder')" />
-        </div>
+        </SettingItem>
       </div>
 
       <!-- Shazam per-station toggle -->
@@ -122,6 +115,7 @@ import LazyImage from '@/components/ui/LazyImage.vue';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { apiCall } from '@/services/apiCall';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
   mode: {
@@ -495,16 +489,6 @@ async function handleAddSubmit() {
   gap: var(--space-04);
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.form-group label {
-  color: var(--color-text-secondary);
-}
-
 .shazam-toggle {
   margin-top: var(--space-04);
   margin-bottom: var(--space-02);
@@ -530,7 +514,7 @@ async function handleAddSubmit() {
   justify-content: space-between;
 }
 
-.image-upload-group .form-group {
+.image-upload-field {
   flex: 1;
 }
 
