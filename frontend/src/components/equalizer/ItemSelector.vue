@@ -1,26 +1,8 @@
 <!-- frontend/src/components/equalizer/ItemSelector.vue -->
 <!-- Zone/Client selector (tabs only - volume controls moved to MultiroomControl) -->
 <template>
-  <div v-show="zoneTabs.length > 1" class="item-selector">
-    <section class="settings-section tabs-section">
-      <div class="tabs-container">
-        <button
-          v-for="tab in zoneTabs"
-          :key="tab.value"
-          type="button"
-          class="tab-button heading-4"
-          :class="{
-            'tab-button--active': tab === activeTab,
-            'tab-button--disabled': tab.disabled
-          }"
-          :disabled="tab.disabled"
-          @click="handleTargetChange(tab)"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-    </section>
-  </div>
+  <ButtonGroup v-show="zoneTabs.length > 1" :model-value="activeTab?.value ?? null" :options="zoneTabs"
+    mobile-layout="scroll" @change="handleTargetChange" />
 </template>
 
 <script setup>
@@ -28,6 +10,7 @@ import { computed, watch } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 
 const equalizerStore = useEqualizerStore();
 const multiroomStore = useMultiroomStore();
@@ -128,8 +111,8 @@ const selectedZoneName = computed(() => activeTab.value?.label ?? '');
 const selectedClientIds = computed(() => activeTab.value?.memberIds ?? []);
 
 // === HANDLERS ===
-async function handleTargetChange(tab) {
-  await equalizerStore.selectTarget(tab.value);
+async function handleTargetChange(value) {
+  await equalizerStore.selectTarget(value);
 }
 
 // Nothing is lit when the store's target is not on the strip: a remote client
@@ -137,7 +120,7 @@ async function handleTargetChange(tab) {
 // immediate: true so that first render is covered too.
 watch(zoneTabs, (tabs) => {
   if (tabs.length > 0 && !activeTab.value) {
-    handleTargetChange(tabs[0]);
+    handleTargetChange(tabs[0].value);
   }
 }, { immediate: true });
 
@@ -145,87 +128,3 @@ watch(zoneTabs, (tabs) => {
 defineExpose({ selectedZoneName, selectedClientIds });
 </script>
 
-<style scoped>
-.item-selector {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.settings-section {
-  background: var(--color-panel);
-  border-radius: var(--radius-06);
-  padding: var(--space-05-fixed) var(--space-05);
-}
-.settings-section.tabs-section{
-  border-radius: var(--radius-05);
-}
-
-/* === TABS SECTION === */
-.tabs-section {
-  padding: var(--space-02);
-}
-
-.tabs-container {
-  display: flex;
-  gap: var(--space-02);
-  overflow-x: auto;
-}
-
-.tabs-container::-webkit-scrollbar {
-  height: 4px;
-}
-
-.tabs-container::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
-}
-
-.tab-button {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-02);
-  height: 40px;
-  padding: 10px 16px;
-  border: none;
-  border-radius: var(--radius-03);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-  /* Inactive state - outline */
-  background-color: var(--color-panel);
-  color: var(--color-brand);
-  box-shadow: inset 0 0 0 2px var(--color-brand);
-}
-
-.tab-button--active {
-  background-color: var(--color-brand);
-  color: var(--color-text-on-brand);
-  box-shadow: none;
-}
-
-.tab-button--disabled {
-  background-color: var(--color-inset);
-  color: var(--color-text-tertiary);
-  box-shadow: none;
-  cursor: not-allowed;
-}
-
-/* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
-  .settings-section {
-    border-radius: var(--radius-05);
-  }
-
-  .tabs-container {
-    gap: var(--space-01);
-  }
-
-  .tab-button {
-    height: 38px;
-    padding: 8px 14px;
-  }
-}
-</style>
