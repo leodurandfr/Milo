@@ -80,6 +80,7 @@ import VolumeBar from '@/components/ui/VolumeBar.vue';
 import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
+import ArtistNames from '@/components/audio/ArtistNames.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
@@ -195,7 +196,7 @@ const NOW_PLAYING = {
       context_name: 'Chill appart',
       track_uri: 'spotify:track:says',
       album_uri: 'spotify:album:spaces',
-      artist_uri: 'spotify:artist:nils',
+      artists: [{ name: 'Nils Frahm', uri: 'spotify:artist:nils' }],
       shuffle: true,
       repeat: 'context',
       remote: null
@@ -776,26 +777,56 @@ export const REGISTRY = {
     overrides: { source: { kind: 'enum', options: [...ALL_AUDIO_SOURCES] } }
   },
 
+  ArtistNames: {
+    component: ArtistNames,
+    args: { class: 'canvas-column' },
+    presets: {
+      artists: {
+        'Two artists, each a link': [{ name: 'Nils Frahm', link: true }, { name: 'Ólafur Arnalds', link: true }],
+        'Three, the middle one with no page': [
+          { name: 'Moderat', link: true }, { name: 'Local', link: false }, { name: 'Apparat', link: true }
+        ]
+      }
+    }
+  },
+
   PlayerInfoText: {
     component: PlayerInfoText,
     args: {
       title: 'Ainsi parlait Zarathoustra',
       secondary: 'Alain Bashung',
       class: 'canvas-column'
+    },
+    // PlayerBody draws the line in parts there: ArtistNames, each name a link.
+    slots: {
+      secondary: {
+        'none — the secondary prop shows': null,
+        'text override': { text: 'Alain Bashung, Chloé Mons' }
+      }
     }
   },
 
   TrackRow: {
     component: TrackRow,
-    args: { number: 4, showArtist: true, showMenu: true, coverUrl: musicPlaceholder, class: 'canvas-column' },
+    args: {
+      number: 4, showArtist: true, showMenu: true, coverUrl: musicPlaceholder, class: 'canvas-column'
+    },
     notes: {
       playing: 'Swaps the number for the equaliser bars, so it is only read on the current row.'
     },
     // `duration` is seconds here, unlike ProgressBar's milliseconds — the row
     // formats what the catalogue hands it, and Subsonic reports seconds.
     presets: {
+      // The line name by name, as the Spotify browser hands it (song's
+      // `artist` is still what is drawn while no name links).
+      artists: {
+        'none — the plain line': [],
+        'Two artists, each a link': [{ name: 'Nils Frahm', link: true }, { name: 'Ólafur Arnalds', link: true }],
+        'On the first one\'s page': [{ name: 'Nils Frahm', link: false }, { name: 'Ólafur Arnalds', link: true }]
+      },
       song: {
         'Track': { title: 'Says', artist: 'Nils Frahm', duration: 511 },
+        'Two artists': { title: 'Loon', artist: 'Nils Frahm, Ólafur Arnalds', duration: 412 },
         'Long title': {
           title: 'Ambre — a very long track title that has to elide before it reaches the duration',
           artist: 'Nils Frahm',

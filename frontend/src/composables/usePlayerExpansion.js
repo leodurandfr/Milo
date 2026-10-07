@@ -72,9 +72,9 @@ export function useExpandedView(source) {
 
 /**
  * Provided by BrowserSourceViews to the players it mounts: the way back to the
- * navigation (the full player's cover), and whether the title (the album) and
- * the artist line have a page to open there. A full player with nothing
- * provided has neither — it is the only view of its source. `{ back, canOpenAlbum, canOpenArtist }`, the two flags
- * as refs.
+ * navigation (the full player's cover), whether the title (the album) has a
+ * page to open there, and the artist line's names (`{ name, link }`). A full
+ * player with nothing provided has neither — it is the only view of its
+ * source. `{ back, canOpenAlbum, artists }`, the last two as refs.
  */
 export const PLAYER_NAVIGATION = Symbol('playerNavigation');

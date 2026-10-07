@@ -459,7 +459,7 @@ function spotifyDetails(overrides = {}) {
     context_name: null,
     track_uri: null,
     album_uri: null,
-    artist_uri: null,
+    artists: [],
     shuffle: false,
     repeat: 'off',
     remote: null,
@@ -732,7 +732,7 @@ export const SOURCE_PAGES = [
           details: spotifyDetails({
             context_uri: 'spotify:playlist:chill', context_name: 'Chill appart',
             track_uri: 'spotify:track:says', album_uri: 'spotify:album:spaces',
-            artist_uri: 'spotify:artist:nils', shuffle: true, repeat: 'context'
+            artists: [{ name: 'Nils Frahm', uri: 'spotify:artist:nils' }], shuffle: true, repeat: 'context'
           })
         },
         ...spotifySetup(),

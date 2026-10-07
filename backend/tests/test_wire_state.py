@@ -163,7 +163,7 @@ def _spotify_details(**fields):
     return {
         "kind": "spotify", "account": ACCOUNT, "signing_in": False,
         "context_uri": None, "context_name": None, "track_uri": None, "album_uri": None,
-        "artist_uri": None, "shuffle": False, "repeat": "off", "remote": None, **fields,
+        "artists": [], "shuffle": False, "repeat": "off", "remote": None, **fields,
     }
 
 
@@ -329,7 +329,7 @@ SCENARIOS: List[Scenario] = [
     # in `details`, where the browser reads whose library it shows.
     Scenario("spotify playing", _spotify, expect={
         "controls": ["pause", "seek", "skip", "next", "prev", "set_shuffle", "set_repeat"],
-        "details": _spotify_details(track_uri=PARAPLUIE["uri"]),
+        "details": _spotify_details(track_uri=PARAPLUIE["uri"], artists=[{"name": "Kery James", "uri": None}]),
     }, session_has={"phase": "playing", "senders": [], "title": "Parapluie"}),
     Scenario("spotify paused", lambda mp, t: _spotify(mp, t, pause=True),
              expect={"controls": ["resume", "seek", "skip", "next", "prev", "set_shuffle", "set_repeat"]},

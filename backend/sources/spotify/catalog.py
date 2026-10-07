@@ -89,21 +89,28 @@ def normalize_playlist(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def artists_of(track: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
+    """A go-librespot track's artists, each name paired with its uri: the two
+    lists come in the same order, and an artist given no uri (an episode's
+    show) has none rather than its neighbour's."""
+    names = track.get("artist_names") or []
+    uris = track.get("artist_uris") or []
+    return [
+        {"name": name, "uri": uris[i] if i < len(uris) and uris[i] else None}
+        for i, name in enumerate(names)
+    ]
+
+
 def normalize_track(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """One /context/tracks entry; None while its metadata is not cached yet."""
     track = entry.get("track")
     if not track:
         return None
-    names = track.get("artist_names") or []
-    uris = track.get("artist_uris") or []
     artwork = track.get("album_cover_url") or None
     return {
         "uri": track.get("uri") or entry.get("uri"),
         "title": track.get("name"),
-        "artists": [
-            {"name": name, "uri": uris[i] if i < len(uris) and uris[i] else None}
-            for i, name in enumerate(names)
-        ],
+        "artists": artists_of(track),
         "album": {"name": track.get("album_name") or None, "uri": track.get("album_uri") or None},
         "artwork": artwork,
         "thumbnail": thumbnail_url(artwork),

@@ -92,7 +92,7 @@
           <!-- The lines, the bar and the transport: the body both players
                share, centred here. -->
           <PlayerBody v-if="!hideContent" key="player-info" class="player-info" :source="source"
-            surface="full" @title-click="emit('title-click')" @secondary-click="emit('secondary-click')">
+            surface="full" @title-click="emit('title-click')" @secondary-click="emit('secondary-click', $event)">
             <template v-if="$slots['transport-end']" #transport-end="slotProps">
               <slot name="transport-end" v-bind="slotProps" />
             </template>

@@ -35,13 +35,13 @@
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
-              :artist-link="!!track.artists[0]?.uri"
+              :artists="track.artists.map((artist) => ({ name: artist.name, link: !!artist.uri }))"
               @play="play({ skipToUri: track.uri })"
-              @artist="$emit('select-artist', track.artists[0])"
+              @artist="$emit('select-artist', track.artists[$event])"
             >
               <template #menu>
                 <SpotifyTrackMenu :track="track" :kind="kind"
-                  @artist="$emit('select-artist', track.artists[0])"
+                  @artist="$emit('select-artist', $event)"
                   @album="$emit('select-album', track.album)"
                   @radio="$emit('select-radio', $event)" />
               </template>

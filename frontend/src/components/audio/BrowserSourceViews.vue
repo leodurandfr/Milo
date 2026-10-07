@@ -17,7 +17,7 @@
     <Transition name="audio-content">
       <AudioPlayerFull v-if="playerShown" class="browser-view" :source="source"
         @title-click="openInNavigation('title-click')"
-        @secondary-click="openInNavigation('secondary-click')">
+        @secondary-click="openInNavigation('secondary-click', $event)">
         <template v-if="$slots['transport-end']" #transport-end="slotProps">
           <slot name="transport-end" v-bind="slotProps" />
         </template>
@@ -54,10 +54,15 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** The playing track names an artist to open (the artist line's link). */
-  canOpenArtist: {
-    type: Boolean,
-    default: false
+  /**
+   * The artist line's names, in its order: the source's own entries, each
+   * `{ name, link }` (+ whatever the source needs to open it), `link` where it
+   * has a page to open. `secondary-click` hands back the entry pressed. Empty:
+   * the line opens nothing.
+   */
+  artists: {
+    type: Array,
+    default: () => []
   }
 });
 
@@ -71,7 +76,7 @@ const { isMobile } = useIsMobile();
 provide(PLAYER_NAVIGATION, {
   back: collapse,
   canOpenAlbum: computed(() => props.canOpenAlbum),
-  canOpenArtist: computed(() => props.canOpenArtist)
+  artists: computed(() => props.artists)
 });
 
 const hasSomethingToShow = computed(() => props.playback?.shouldShowPlayer.value ?? true);
@@ -99,10 +104,10 @@ watch(hasSomethingToShow, (present) => {
 // From the player: back to the navigation, then the page — once the navigation
 // is drawn again, so the page left behind keeps its scroll for back(). The
 // player emits a link only when the flag above says there is one to open.
-async function openInNavigation(event) {
+async function openInNavigation(event, payload) {
   collapse();
   await nextTick();
-  emit(event);
+  emit(event, payload);
 }
 </script>
 

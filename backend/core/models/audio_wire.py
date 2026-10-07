@@ -202,6 +202,11 @@ class SpotifyRemote(BaseModel):
     position: PositionAnchor
 
 
+class SpotifyArtist(BaseModel):
+    name: str
+    uri: Optional[str]              # null where Spotify names no page (an episode's show)
+
+
 class SpotifyDetails(BaseModel):
     kind: Literal["spotify"] = "spotify"
     # The account go-librespot is signed in as, or about to be: its stored
@@ -215,7 +220,8 @@ class SpotifyDetails(BaseModel):
     context_name: Optional[str]
     track_uri: Optional[str]
     album_uri: Optional[str]
-    artist_uri: Optional[str]       # the first artist: the player's artist line opens it
+    # The names of the artist line, in its order: each one opens its page.
+    artists: List[SpotifyArtist]
     shuffle: bool
     repeat: RepeatMode
     # Null while Milō holds a session, or when no other device is active.

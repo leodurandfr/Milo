@@ -10,7 +10,7 @@ import pytest
 from backend.tests.golden.harness import settle
 
 from backend.core.models.ws_events import SourceErrorReason
-from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld
+from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld, track
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 
@@ -65,6 +65,20 @@ async def test_a_skip_is_loading_until_the_next_track_plays(world):
     await world._says({"type": "metadata"}, {"type": "playing"})
     assert world.playing() and not world.buffering()
     assert world.session()["title"] == "Trois Neuf Trois"
+
+
+async def test_every_artist_of_the_track_is_published_with_its_uri(world):
+    """The player draws each name of the artist line as a link to its own page
+    (SpotifySource.vue): a track by two artists must name both, in the line's
+    order, each with its own uri — not the first one's."""
+    duet = {**track("Breathe", artists=("Télépopmusik", "Angela McCluskey")),
+            "artist_uris": ["spotify:artist:tele", "spotify:artist:angela"]}
+    await world.phone_plays(duet)
+    assert world.session()["artist"] == "Télépopmusik, Angela McCluskey"
+    assert world.state()["details"]["artists"] == [
+        {"name": "Télépopmusik", "uri": "spotify:artist:tele"},
+        {"name": "Angela McCluskey", "uri": "spotify:artist:angela"},
+    ]
 
 
 async def test_a_seek_moves_the_published_position(world):

@@ -35,7 +35,7 @@
           <!-- The source bar, the lines, the bar and the transport: the body
                both players share, ranged left on this card. -->
           <PlayerBody ref="body" :source="source" surface="card"
-            @title-click="$emit('title-click')" @secondary-click="$emit('secondary-click')">
+            @title-click="$emit('title-click')" @secondary-click="$emit('secondary-click', $event)">
             <template v-if="$slots['transport-end']" #transport-end="slotProps">
               <slot name="transport-end" v-bind="slotProps" />
             </template>

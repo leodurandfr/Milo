@@ -2,8 +2,8 @@
   <!-- The navigation, and the full player it expands into: BrowserSourceViews
        swaps the two. -->
   <BrowserSourceViews source="spotify" :playback="playback"
-    :can-open-album="!!nowPlaying?.albumUri" :can-open-artist="!!nowPlaying?.artistUri"
-    @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
+    :can-open-album="!!nowPlaying?.albumUri" :artists="playerArtists"
+    @title-click="openPlayerAlbum" @secondary-click="openArtist">
     <template #navigation="{ bar }">
       <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
         :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView) && currentView !== 'section'"
@@ -47,7 +47,7 @@
              and the artist it emits open here, in the navigation. -->
         <template #player>
           <AudioPlayer v-bind="bar" source="spotify"
-            @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist" />
+            @title-click="openPlayerAlbum" @secondary-click="openArtist" />
         </template>
       </AudioSourceLayout>
     </template>
@@ -145,10 +145,10 @@ function openPlayerAlbum() {
   const uri = nowPlaying.value?.albumUri;
   if (uri) openAlbum({ uri, name: nowPlaying.value.album });
 }
-function openPlayerArtist() {
-  const uri = nowPlaying.value?.artistUri;
-  if (uri) openArtist({ uri, name: '' });
-}
+// The artist line's names, each a link where Spotify names its page (an
+// episode's show has none).
+const playerArtists = computed(() =>
+  (nowPlaying.value?.artists ?? []).map((artist) => ({ ...artist, link: !!artist.uri })));
 // One of Spotify's sections whole (its "Show all"), under its own title.
 function openSection(section) {
   push('section', { id: section.id, title: section.title || '', items: section.items });

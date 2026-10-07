@@ -3,7 +3,7 @@
     <!-- The navigation, and the full player it expands into: BrowserSourceViews
          swaps the two. -->
     <BrowserSourceViews source="music_library" :playback="playback"
-      :can-open-album="!!nowPlaying?.albumId" :can-open-artist="!!nowPlaying?.artistId"
+      :can-open-album="!!nowPlaying?.albumId" :artists="playerArtists"
       @title-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
       <template #navigation="{ bar }">
         <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
@@ -170,9 +170,13 @@ function openPlayerAlbum() {
   const albumId = nowPlaying.value?.albumId;
   if (albumId) openAlbum({ id: albumId, name: nowPlaying.value.album });
 }
-function openPlayerArtist() {
+// The artist line, one link: the track's artist, where Navidrome names one.
+const playerArtists = computed(() => {
   const artistId = nowPlaying.value?.artistId;
-  if (artistId) openArtist({ id: artistId, name: nowPlaying.value.artist });
+  return artistId ? [{ id: artistId, name: nowPlaying.value.artist, link: true }] : [];
+});
+function openPlayerArtist(artist) {
+  openArtist({ id: artist.id, name: artist.name });
 }
 function goToSearch() {
   push('search');

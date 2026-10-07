@@ -82,6 +82,7 @@ from backend.core.models.session import (
     Session,
 )
 from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams, skip_target
+from backend.sources.spotify.catalog import artists_of
 from backend.sources.spotify.library import SpotifyLibrary
 from backend.sources.spotify.models import (
     NextPrevParams, PlayContextParams, SeekParams,
@@ -191,7 +192,7 @@ class SpotifySession(Session):
     context_uri: Optional[str] = None
     context_name: Optional[str] = None
     album_uri: Optional[str] = None
-    artist_uri: Optional[str] = None
+    artists: List[Dict[str, Optional[str]]] = field(default_factory=list)
 
 
 class SpotifySource(BaseAudioSource):
@@ -1061,7 +1062,7 @@ class SpotifySource(BaseAudioSource):
             new_track = uri != session.uri
             session.track, session.uri = content, uri
             session.album_uri = status.track.get("album_uri") or None
-            session.artist_uri = next(iter(status.track.get("artist_uris") or []), None) or None
+            session.artists = artists_of(status.track)
             if new_track:
                 self._anchor_position(position)
             else:
@@ -1627,7 +1628,7 @@ class SpotifySource(BaseAudioSource):
             context_name=session.context_name if session else None,
             track_uri=session.uri if session else None,
             album_uri=session.album_uri if session else None,
-            artist_uri=session.artist_uri if session else None,
+            artists=session.artists if session else [],
             shuffle=self._shuffle,
             repeat=self._repeat,
             remote=self._remote_view(),

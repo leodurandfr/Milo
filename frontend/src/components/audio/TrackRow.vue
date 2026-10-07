@@ -18,10 +18,12 @@
         <p class="track-title text-body">{{ displayTitle }}</p>
         <span v-if="feat" class="track-feat text-mono-small">{{ t('musicLibrary.featuring', { artists: feat }) }}</span>
       </div>
-      <button v-if="showArtist && song.artist && artistLink" v-press type="button"
-        class="track-artist track-artist-link text-mono-medium"
-        @pointerdown.stop @click.stop="$emit('artist')">{{ song.artist }}</button>
-      <p v-else-if="showArtist && song.artist" class="track-artist text-mono-medium">{{ song.artist }}</p>
+      <!-- Name by name where one opens its page; the separators and a name
+           with none are the row, which plays. -->
+      <p v-if="showArtist && song.artist" class="track-artist text-mono-medium">
+        <ArtistNames v-if="hasArtistLink" :artists="artists" @open="$emit('artist', $event)" />
+        <template v-else>{{ song.artist }}</template>
+      </p>
     </div>
 
     <div v-if="editing" class="track-edit">
@@ -55,6 +57,7 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import ArtistNames from './ArtistNames.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
@@ -105,10 +108,12 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  // The artist line opens the artist's page (emits `artist`).
-  artistLink: {
-    type: Boolean,
-    default: false,
+  // The artist line name by name, `{ name, link }`, where a name opens its
+  // page (emits `artist` with the name's index); `song.artist` is drawn
+  // instead while none does.
+  artists: {
+    type: Array,
+    default: () => [],
   },
 });
 
@@ -117,6 +122,7 @@ const emit = defineEmits(['play', 'menu', 'remove', 'grip-down', 'artist']);
 const { t } = useI18n();
 
 const displayTitle = computed(() => props.song.title || props.song.name || props.fallbackTitle);
+const hasArtistLink = computed(() => props.artists.some((artist) => artist.link));
 
 function onRowClick(event) {
   if (event.target.closest('.track-menu-slot')) return;
@@ -256,16 +262,6 @@ function formatDuration(totalSeconds) {
 .track-menu-slot {
   flex-shrink: 0;
   display: flex;
-}
-
-.track-artist-link {
-  align-self: flex-start;
-  max-width: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
 }
 
 .track-edit {

@@ -6,7 +6,7 @@
  * album offered as a page of one track.
  */
 import { describe, it, expect } from 'vitest';
-import { trackMenuActions, albumKnownToHoldMore, canHaveRadio } from '@/utils/spotifyTrackMenu';
+import { trackMenuActions, menuArtists, albumKnownToHoldMore, canHaveRadio } from '@/utils/spotifyTrackMenu';
 
 const TRACK = {
   uri: 'spotify:track:0yNttAVwMr39qyODHNIkrY',
@@ -24,7 +24,8 @@ describe('trackMenuActions', () => {
 
   it('leaves out the page the row is already on', () => {
     expect(trackMenuActions(TRACK, 'album', { albumLength: 36, radioUri: RADIO })).toEqual(['radio', 'artist']);
-    expect(trackMenuActions(TRACK, 'artist', { albumLength: 36, radioUri: RADIO })).toEqual(['radio', 'album']);
+    const pageUri = TRACK.artists[0].uri;
+    expect(trackMenuActions(TRACK, 'artist', { albumLength: 36, radioUri: RADIO, pageUri })).toEqual(['radio', 'album']);
   });
 
   it("leaves out a single's album, and an album whose length is not known", () => {
@@ -44,6 +45,26 @@ describe('trackMenuActions', () => {
   it('leaves out a page the track names no uri for', () => {
     const bare = { ...TRACK, artists: [], album: {} };
     expect(trackMenuActions(bare, 'playlist', { albumLength: 36, radioUri: RADIO })).toEqual(['radio']);
+  });
+});
+
+describe('menuArtists', () => {
+  const DUET = {
+    ...TRACK,
+    artists: [
+      { name: 'Nils Frahm', uri: 'spotify:artist:nils' },
+      { name: 'Local', uri: null },
+      { name: 'Ólafur Arnalds', uri: 'spotify:artist:olafur' },
+    ],
+  };
+
+  it('leads to every artist Spotify names a page for, in the line\'s order', () => {
+    expect(menuArtists(DUET).map((artist) => artist.name)).toEqual(['Nils Frahm', 'Ólafur Arnalds']);
+  });
+
+  it("still offers a featured artist on the page of the track's first one", () => {
+    expect(menuArtists(DUET, 'spotify:artist:nils').map((artist) => artist.name)).toEqual(['Ólafur Arnalds']);
+    expect(trackMenuActions(DUET, 'artist', { pageUri: 'spotify:artist:nils' })).toEqual(['artist']);
   });
 });
 

@@ -62,7 +62,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -159,7 +159,7 @@
      "context_name": null,
      "track_uri": null,
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -232,7 +232,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -295,7 +295,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -358,7 +367,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -515,7 +533,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -573,7 +600,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -646,7 +682,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -709,7 +745,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -772,7 +817,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -835,7 +889,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -898,7 +961,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -961,7 +1033,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1024,7 +1105,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1153,7 +1243,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -1211,7 +1310,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -1284,7 +1392,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1347,7 +1455,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1410,7 +1527,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1487,7 +1613,12 @@
       "context_name": null,
       "track_uri": "spotify:track:holocene",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Bon Iver",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1550,7 +1681,12 @@
       "context_name": null,
       "track_uri": "spotify:track:holocene",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Bon Iver",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1613,7 +1749,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1676,7 +1821,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1805,7 +1959,12 @@
      "context_name": null,
      "track_uri": "spotify:track:holocene",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Bon Iver",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -1863,7 +2022,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -1936,7 +2104,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -1999,7 +2167,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2062,7 +2239,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2125,7 +2311,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2176,7 +2371,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2295,7 +2490,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -2331,7 +2535,7 @@
      "context_name": null,
      "track_uri": null,
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -2404,7 +2608,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2467,7 +2671,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2518,7 +2731,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2615,7 +2828,7 @@
      "context_name": null,
      "track_uri": null,
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -2688,7 +2901,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2751,7 +2964,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2814,7 +3036,16 @@
       "context_name": null,
       "track_uri": "spotify:track:breathe",
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [
+       {
+        "name": "Telepopmusik",
+        "uri": null
+       },
+       {
+        "name": "Angela McCluskey",
+        "uri": null
+       }
+      ],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2879,7 +3110,7 @@
       "context_name": null,
       "track_uri": null,
       "album_uri": null,
-      "artist_uri": null,
+      "artists": [],
       "shuffle": false,
       "repeat": "off",
       "remote": null
@@ -2998,7 +3229,16 @@
      "context_name": null,
      "track_uri": "spotify:track:breathe",
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [
+      {
+       "name": "Telepopmusik",
+       "uri": null
+      },
+      {
+       "name": "Angela McCluskey",
+       "uri": null
+      }
+     ],
      "shuffle": false,
      "repeat": "off",
      "remote": null
@@ -3034,7 +3274,7 @@
      "context_name": null,
      "track_uri": null,
      "album_uri": null,
-     "artist_uri": null,
+     "artists": [],
      "shuffle": false,
      "repeat": "off",
      "remote": null

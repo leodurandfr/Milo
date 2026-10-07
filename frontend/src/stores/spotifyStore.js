@@ -56,7 +56,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
       artwork: live.artwork ?? null,
       trackUri: d.track_uri,
       albumUri: d.album_uri,
-      artistUri: d.artist_uri,
+      artists: d.artists,
       contextUri: d.context_uri,
       contextName: d.context_name,
     };

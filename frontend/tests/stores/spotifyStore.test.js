@@ -32,7 +32,7 @@ const homeLocales = () =>
 function details(overrides = {}) {
   return {
     kind: 'spotify', account: 'owner', signing_in: false,
-    context_uri: null, context_name: null, track_uri: null, album_uri: null, artist_uri: null,
+    context_uri: null, context_name: null, track_uri: null, album_uri: null, artists: [],
     shuffle: false, repeat: 'off', ...overrides,
   };
 }
@@ -64,12 +64,12 @@ describe('spotifyStore', () => {
   it('describes the playing track from the session and the details', () => {
     publish({
       session: makeSession({ title: 'Says', artist: 'Nils Frahm' }),
-      details: details({ context_uri: PLAYLIST, track_uri: TRACK, album_uri: 'spotify:album:spaces', artist_uri: 'spotify:artist:nils' }),
+      details: details({ context_uri: PLAYLIST, track_uri: TRACK, album_uri: 'spotify:album:spaces', artists: [{ name: 'Nils Frahm', uri: 'spotify:artist:nils' }] }),
     });
 
     expect(store.nowPlaying).toMatchObject({
       title: 'Says', artist: 'Nils Frahm', trackUri: TRACK, contextUri: PLAYLIST,
-      albumUri: 'spotify:album:spaces', artistUri: 'spotify:artist:nils',
+      albumUri: 'spotify:album:spaces', artists: [{ name: 'Nils Frahm', uri: 'spotify:artist:nils' }],
     });
   });
 

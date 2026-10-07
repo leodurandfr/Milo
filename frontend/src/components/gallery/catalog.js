@@ -296,6 +296,12 @@ export const ENTRIES = [
     summary: 'The one playback bar, in five surfaces. Positions and durations are always milliseconds — the wire convention — and seek is emitted in ms too. It self-hides when duration is 0 or isReady is false, which is how a source that reports no duration (radio, Qobuz) shows no bar rather than an empty one.',
   },
   {
+    id: 'ArtistNames',
+    group: 'player',
+    file: 'components/audio/ArtistNames.vue',
+    summary: 'An artist line drawn name by name: a name with a page to open is its own link (`open` with its index), the ", " between names and a name with none are text. Inline, so the line it sits in keeps its one-line ellipsis — and a pressed name dims rather than shrinks. Drawn by PlayerBody, when a line names several artists, and by TrackRow.',
+  },
+  {
     id: 'PlayerInfoText',
     group: 'player',
     file: 'components/audio/PlayerInfoText.vue',
@@ -305,7 +311,7 @@ export const ENTRIES = [
     id: 'TrackRow',
     group: 'player',
     file: 'components/audio/TrackRow.vue',
-    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 7 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, showArtist adds the second line, and artistLink makes it open the artist. A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio).',
+    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 6 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, and showArtist adds the second line, which `artists` draws name by name where a name opens its artist (ArtistNames). A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio).',
   },
   {
     id: 'DetailHeader',

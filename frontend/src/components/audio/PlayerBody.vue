@@ -12,7 +12,10 @@
 
      The title opens the album and the artist line the artist, where the
      navigation around the player says there is one to open (PLAYER_NAVIGATION)
-     — emitted, never followed. -->
+     — emitted, never followed. A line naming several artists is one link per
+     name (ArtistNames); `secondary-click` carries the navigation's own entry
+     for the name, so what opens is what was drawn even if the track moved on
+     meanwhile. -->
 <template>
   <div class="player-body" :class="`player-body--${surface}`">
     <div class="player-body-info" :class="{ 'no-controls': !hasTransport }">
@@ -39,12 +42,19 @@
           <template v-if="surface === 'full'">
             <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
               @click="onTitleClick">{{ title }}</h1>
-            <p v-if="secondaryLine" v-press="artistLink" class="body-secondary heading-2"
-              :class="{ 'is-link': artistLink }" @click="onSecondaryClick">{{ secondaryLine }}</p>
+            <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2"
+              :class="{ 'is-link': lineLink }" @click="onSecondaryClick">
+              <ArtistNames v-if="nameLinks" :artists="artists" @open="openArtist" />
+              <template v-else>{{ secondaryLine }}</template>
+            </p>
           </template>
           <PlayerInfoText v-else class="card-lines"
-            :class="{ 'has-album-link': albumLink, 'has-artist-link': artistLink }"
-            :title="title" :secondary="secondaryLine || null" @click="onCardLinesClick" />
+            :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }"
+            :title="title" :secondary="secondaryLine || null" @click="onCardLinesClick">
+            <template v-if="nameLinks" #secondary>
+              <ArtistNames :artists="artists" @open="openArtist" />
+            </template>
+          </PlayerInfoText>
         </div>
         <!-- The phone's mini-bar: one line each, as the swipe carousel's cells. -->
         <PlayerInfoText v-if="surface === 'card'" variant="line" class="body-mini-lines"
@@ -85,6 +95,7 @@ import ProgressBar from './ProgressBar.vue';
 import PlayerInfoText from './PlayerInfoText.vue';
 import PlayerTransport from './PlayerTransport.vue';
 import SourceBar from './SourceBar.vue';
+import ArtistNames from './ArtistNames.vue';
 
 const props = defineProps({
   source: {
@@ -122,17 +133,26 @@ const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.v
 const navigation = inject(PLAYER_NAVIGATION, null);
 const linksShown = computed(() => !(props.surface === 'card' && isMobile.value));
 const albumLink = computed(() => !!navigation?.canOpenAlbum.value && linksShown.value);
-const artistLink = computed(() => !!navigation?.canOpenArtist.value && linksShown.value);
+// The artist line's names, those with a page to open marked `link`. One name:
+// the line itself is the link, whatever it reads. Several: each name is its own.
+const artists = computed(() => (linksShown.value && navigation?.artists.value) || []);
+const lineLink = computed(() => artists.value.length === 1 && !!artists.value[0].link);
+const nameLinks = computed(() => artists.value.length > 1 && artists.value.some((artist) => artist.link));
 
 function onTitleClick() {
   if (albumLink.value) emit('title-click');
 }
 
 function onSecondaryClick() {
-  if (artistLink.value) emit('secondary-click');
+  if (lineLink.value) emit('secondary-click', artists.value[0]);
 }
 
-// PlayerInfoText draws the card's two lines; caught by their class.
+function openArtist(index) {
+  emit('secondary-click', artists.value[index]);
+}
+
+// PlayerInfoText draws the card's two lines; caught by their class. A name of
+// several is caught by ArtistNames, which stops its click.
 function onCardLinesClick(event) {
   if (event.target.closest('.player-info-title')) onTitleClick();
   else if (event.target.closest('.player-info-secondary')) onSecondaryClick();

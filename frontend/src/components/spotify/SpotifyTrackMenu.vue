@@ -20,7 +20,7 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useTimer } from '@/composables/useTimer';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import { albumKnownToHoldMore, canHaveRadio, trackMenuActions } from '@/utils/spotifyTrackMenu';
+import { albumKnownToHoldMore, canHaveRadio, menuArtists, trackMenuActions } from '@/utils/spotifyTrackMenu';
 
 // How long a press waits for Spotify before the menu opens with what is known.
 const ANSWER_WAIT_MS = 1500;
@@ -41,6 +41,11 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  // On an artist's page, its uri: that artist is not offered again.
+  pageUri: {
+    type: String,
+    default: null,
+  },
 });
 
 const emit = defineEmits(['artist', 'album', 'radio']);
@@ -53,6 +58,7 @@ const timer = useTimer();
 const mayLead = computed(() => trackMenuActions(props.track, props.kind, {
   albumLength: Infinity,
   radioUri: canHaveRadio(props.track) ? 'not asked yet' : null,
+  pageUri: props.pageUri,
 }).length > 0);
 
 // What the menu holds, settled before it opens: an entry arriving under the
@@ -63,11 +69,18 @@ const asking = ref(false);
 let alive = true;
 onBeforeUnmount(() => { alive = false; });
 
-const options = computed(() => shown.value.map((action) => ({
-  value: action,
-  label: t(ENTRIES[action].label),
-  icon: ENTRIES[action].icon,
-})));
+// The artists the menu leads to. "Go to artist" where the track has only the
+// one; otherwise each is named — on an artist's page, the one left is not the
+// artist on screen.
+const artists = computed(() => menuArtists(props.track, props.pageUri));
+
+const options = computed(() => shown.value.flatMap((action) => {
+  const { label, icon } = ENTRIES[action];
+  if (action === 'artist' && props.track.artists.length > 1) {
+    return artists.value.map((artist, index) => ({ value: `artist:${index}`, label: artist.name, icon }));
+  }
+  return [{ value: action, label: t(label), icon }];
+}));
 
 async function press(toggle, isOpen) {
   if (isOpen) {
@@ -89,12 +102,14 @@ async function press(toggle, isOpen) {
   asking.value = false;
   if (!alive) return;
   radioUri.value = answers.radioUri;
-  shown.value = trackMenuActions(track, props.kind, { ...answers });
+  shown.value = trackMenuActions(track, props.kind, { ...answers, pageUri: props.pageUri });
   if (shown.value.length) toggle();
 }
 
 function choose(action) {
   if (action === 'radio') emit('radio', { uri: radioUri.value, track: props.track });
+  else if (action === 'artist') emit('artist', artists.value[0]);
+  else if (action.startsWith('artist:')) emit('artist', artists.value[Number(action.slice('artist:'.length))]);
   else emit(action, props.track);
 }
 </script>

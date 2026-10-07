@@ -26,7 +26,7 @@ const PAUSED = { ...PLAYING, phase: 'paused' };
 
 const spotifyDetails = (overrides = {}) => ({
   kind: 'spotify', account: 'owner', signing_in: false,
-  context_uri: null, context_name: null, track_uri: null, album_uri: null, artist_uri: null,
+  context_uri: null, context_name: null, track_uri: null, album_uri: null, artists: [],
   shuffle: false, repeat: 'off', remote: null, ...overrides,
 });
 
