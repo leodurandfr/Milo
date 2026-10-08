@@ -9,7 +9,7 @@
      the navigation this player was expanded out of; the album (the title) and
      artist links are emitted, never followed. -->
 <template>
-  <div class="connect-player" :class="{ 'connect-player--backdrop': isDark }" :style="sheetStyle"
+  <div class="connect-player" :class="{ 'connect-player--backdrop': isDark, 'connect-player--sheet': !!navigation }" :style="sheetStyle"
     @touchstart="pull.onTouchStart" @touchmove="pull.onTouchMove" @touchend="pull.onTouchEnd"
     @touchcancel="pull.onTouchEnd" @click.capture="pull.onClickCapture">
     <!-- The dark theme's ground: the cover again, blurred edge to edge and
@@ -232,6 +232,18 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 /* Simple staggered delays */
 .connect-player .stagger-1 { animation-delay: 0ms; }
 .connect-player .stagger-2 { animation-delay: 0ms; }
+
+/* Expanded over a navigation, the panel's fade is the only one
+   (BrowserSourceViews): the cover and the lines rise without fading on their
+   own. Multiplied into the panel's, their fade left them at 1 % and 0 % 60 ms
+   after the tap and under a third at 150 ms — the tap looked unanswered. The
+   !important is what outranks an animation's opacity, PlayerBody's included. */
+.connect-player--sheet .stagger-1,
+.connect-player--sheet .stagger-2,
+.connect-player--sheet :deep(.player-body--full > .player-body-info),
+.connect-player--sheet :deep(.player-body--full > .player-body-bottom) {
+  opacity: 1 !important;
+}
 
 /* Spring animation for transform */
 @keyframes stagger-transform {

@@ -1,25 +1,24 @@
 <!-- BrowserSourceViews.vue - The two views of a browser source (radio, podcast,
      music library, Spotify): its navigation, and the full player it expands
-     into (usePlayerExpansion). The navigation stays mounted under the player
-     (v-show), so going back finds the same page at the same scroll; the two
-     cross-fade with the same `audio-content` swap a source change uses. -->
+     into (usePlayerExpansion). The player is a sheet over the navigation, which
+     stays mounted and drawn under it (useCover), so going back finds the same
+     page at the same scroll and rebuilds nothing; the player comes and goes
+     with the same `audio-content` fade a source change uses. -->
 <template>
   <div class="browser-source">
-    <Transition name="audio-content">
-      <div v-show="!playerShown || pullState" class="browser-view browser-nav"
-        :class="{ 'browser-nav--under': playerShown }">
-        <!-- bar: the one thing the source binds on its AudioPlayer
-             (v-bind="bar") — when it shows, what expands it, what releases the
-             source's latch once it has left. -->
-        <slot name="navigation" :bar="bar" />
-      </div>
-    </Transition>
+    <div ref="navEl" class="browser-view browser-nav"
+      :class="{ 'browser-nav--under': playerOnScreen, 'is-covered': covered }">
+      <!-- bar: the one thing the source binds on its AudioPlayer
+           (v-bind="bar") — when it shows, what expands it, what releases the
+           source's latch once it has left. -->
+      <slot name="navigation" :bar="bar" />
+    </div>
 
     <!-- The veil between the navigation and the player being pulled down: as
          dark as a modal's at rest, clear once the player is out. -->
     <div v-if="pullState" class="browser-view browser-veil" aria-hidden="true" :style="veilStyle" />
 
-    <Transition name="audio-content">
+    <Transition name="audio-content" @after-enter="onOverlayEntered" @after-leave="playerOnScreen = false">
       <AudioPlayerFull v-if="playerShown" class="browser-view browser-player" :source="source"
         @title-click="openInNavigation('title-click')"
         @secondary-click="openInNavigation('secondary-click', $event)">
@@ -32,7 +31,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, provide, ref, watch } from 'vue';
+import { computed, inject, nextTick, provide, ref, watch } from 'vue';
+import { UNDER_OVERLAY, useCover } from '@/composables/useCover';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { PLAYER_NAVIGATION, useExpandedView, usePlayerExpansion } from '@/composables/usePlayerExpansion';
 import { BROWSER_SOURCES } from '@/constants/audioSources';
@@ -86,6 +86,24 @@ watch(playerShown, (shown) => {
   if (!shown) pullState.value = null;
 });
 
+// Covered once the player is in, drawn again for the pull and from the moment
+// the player starts leaving, rising as it goes.
+// The player is drawn from its expansion to the end of its leave, and the
+// navigation stays a layer under it all that time (`browser-nav--under`).
+const playerOnScreen = ref(playerShown.value);
+watch(playerShown, (shown) => {
+  if (shown) playerOnScreen.value = true;
+});
+
+const navEl = ref(null);
+const { covered, onOverlayEntered } = useCover(playerShown, {
+  peek: computed(() => !!pullState.value),
+  reveal: navEl
+});
+
+// Lyrics, laid over this source by AudioSourceView (none on a stage).
+const underOverlay = inject(UNDER_OVERLAY, ref(false));
+
 const veilStyle = computed(() => {
   const { progress, timing } = pullState.value;
   return { opacity: 1 - progress, transition: timing ? `opacity ${timing}` : 'none' };
@@ -100,11 +118,11 @@ provide(PLAYER_NAVIGATION, {
 
 const hasSomethingToShow = computed(() => props.playback?.shouldShowPlayer.value ?? true);
 
-// The bar has to leave under the player only on the phone, where it is
-// teleported to <body> out of reach of the v-show; the kiosk's sidebar card is
-// hidden with the navigation and is just there again on the way back.
+// The bar has to leave under the player — or Lyrics — only on the phone, where
+// it is teleported to <body> out of reach of the cover; the kiosk's sidebar
+// card is covered with the navigation and is just there again on the way back.
 const bar = computed(() => ({
-  visible: hasSomethingToShow.value && !(playerShown.value && isMobile.value),
+  visible: hasSomethingToShow.value && !(isMobile.value && (playerShown.value || underOverlay.value)),
   onExpand: expand,
   onAfterHide: () => props.playback?.onAfterHide()
 }));
@@ -162,12 +180,17 @@ async function openInNavigation(event, payload) {
 }
 
 /* The player is a sheet over the navigation and stays over it in every phase:
-   the audio-content swap ranks the entering view above the leaving one, which
-   would slide the navigation over the player as it leaves — or over it while
-   the phone's pull down draws the navigation under it. Two classes here outrank
-   the swap's one. */
+   the audio-content swap ranks a leaving view at 0, which would drop the player
+   under the navigation as it leaves. Two classes here outrank the swap's one. */
 .browser-source > .browser-player {
   z-index: 2;
+}
+
+/* The sheet comes in on a short ease-out rather than the swap's 400 ms: it is
+   an answer to a tap, and the navigation does not fade out under it. The
+   transform only declares the envelope of the rise inside (.source-motion). */
+.browser-source > .browser-player.audio-content-enter-active {
+  transition: opacity var(--transition-fast), transform var(--transition-spring);
 }
 
 /* The navigation's own box, which the source's layout fills. */

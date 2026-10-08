@@ -824,6 +824,14 @@
 }
 
 
+/* === COVERED VIEW === */
+/* A view under an overlay it will be found under again (useCover): skipped by
+   rendering, its style and layout kept — never `display: none`, which drops
+   them and makes uncovering a rebuild. */
+.is-covered {
+    content-visibility: hidden;
+}
+
 /* === INTERACTIVE PRESS EFFECTS === */
 /* Pixel-based: all elements shrink by 4px regardless of size */
 
@@ -1083,8 +1091,13 @@
     --source-motion-duration: var(--transition-fast-leave);
 }
 
+/* Also where an uncovered view rises from (useCover), read from JS. */
+:root {
+    --source-rise-from: translateY(var(--space-06)) scale(0.98);
+}
+
 .audio-content-enter-from .source-motion {
-    transform: translateY(var(--space-06)) scale(0.98);
+    transform: var(--source-rise-from);
 }
 
 .audio-content-leave-to .source-motion {

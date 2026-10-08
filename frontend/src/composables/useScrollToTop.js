@@ -37,7 +37,13 @@ export function useScrollToTop(scrollElRef, { screens = 2 } = {}) {
     if (!root || !sentinelRef.value) return;
 
     observer = new IntersectionObserver(
-      ([entry]) => { isVisible.value = !entry.isIntersecting; },
+      ([entry]) => {
+        // Not drawn at all — its view covered (useCover) — is not scrolled
+        // away: the button stays as it was, rather than mounting under the
+        // cover and playing its exit in front of the view uncovered.
+        if (entry.target.checkVisibility?.() === false) return;
+        isVisible.value = !entry.isIntersecting;
+      },
       { root, rootMargin: `${screens * 100}% 0px 0px 0px`, threshold: 0 }
     );
     observer.observe(sentinelRef.value);

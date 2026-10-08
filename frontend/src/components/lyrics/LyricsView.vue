@@ -1,5 +1,5 @@
-<!-- LyricsView.vue — Lyrics app, rendered by AudioSourceView as one more slot in
-     its source-switching Transition, instead of overlaying a modal. The slot
+<!-- LyricsView.vue — Lyrics app, laid by AudioSourceView over the source, which
+     stays mounted under it, instead of overlaying a modal. The slot
      only fades, both ways; on opening, the body (not the backdrop) also rises
      with the shared source-switch spring, through its .source-motion marker
      (see the .lyrics-slot override in AudioSourceView.vue). Mounted only while

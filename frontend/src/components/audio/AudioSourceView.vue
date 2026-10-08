@@ -1,59 +1,66 @@
 <template>
   <div class="audio-source-view">
-    <Transition name="audio-content" appear>
-      <div v-if="lyricsStore.isOpen" key="lyrics" class="audio-source-slot lyrics-slot">
+    <!-- The source, under Lyrics while they are open: covered, never unmounted
+         (useCover), so closing them finds the source as it was left. -->
+    <div ref="layerEl" class="audio-source-layer" :class="{ 'is-covered': covered }">
+      <Transition name="audio-content" appear>
+        <div v-if="shouldShowSpotify" :key="contentKey" class="audio-source-slot">
+          <SpotifySource />
+        </div>
+
+        <div v-else-if="shouldShowRadio" :key="contentKey" class="audio-source-slot">
+          <RadioSource />
+        </div>
+
+        <div v-else-if="shouldShowPodcast" :key="contentKey" class="audio-source-slot">
+          <PodcastSource />
+        </div>
+
+        <div v-else-if="shouldShowCD" :key="contentKey" class="audio-source-slot">
+          <CDSource />
+        </div>
+
+        <div v-else-if="shouldShowMusicLibrary" :key="contentKey" class="audio-source-slot">
+          <MusicLibrarySource />
+        </div>
+
+        <div v-else-if="shouldShowAirPlay" :key="contentKey" class="audio-source-slot">
+          <AirPlaySource />
+        </div>
+
+        <div v-else-if="shouldShowQobuz" :key="contentKey" class="audio-source-slot">
+          <QobuzSource />
+        </div>
+
+        <div v-else-if="shouldShowTidal" :key="contentKey" class="audio-source-slot">
+          <TidalSource />
+        </div>
+
+        <div v-else-if="shouldShowBluetooth" :key="contentKey" class="audio-source-slot">
+          <BluetoothSource />
+        </div>
+
+        <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
+          <AudioSourceStatus :source-type="currentSourceType" :display-state="displayState"
+            :unavailable-reason="unavailableReason" :device-name="currentDeviceName"
+            :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" @connect="handleConnect"
+            @retry="handleRetry" @eject="handleEject" @open-network-settings="handleOpenNetworkSettings" />
+        </div>
+
+      </Transition>
+    </div>
+
+    <Transition name="audio-content" @after-enter="onOverlayEntered">
+      <div v-if="lyricsStore.isOpen" class="audio-source-slot lyrics-slot">
         <LyricsView />
       </div>
-
-      <div v-else-if="shouldShowSpotify" :key="contentKey" class="audio-source-slot">
-        <SpotifySource />
-      </div>
-
-      <div v-else-if="shouldShowRadio" :key="contentKey" class="audio-source-slot">
-        <RadioSource />
-      </div>
-
-      <div v-else-if="shouldShowPodcast" :key="contentKey" class="audio-source-slot">
-        <PodcastSource />
-      </div>
-
-      <div v-else-if="shouldShowCD" :key="contentKey" class="audio-source-slot">
-        <CDSource />
-      </div>
-
-      <div v-else-if="shouldShowMusicLibrary" :key="contentKey" class="audio-source-slot">
-        <MusicLibrarySource />
-      </div>
-
-      <div v-else-if="shouldShowAirPlay" :key="contentKey" class="audio-source-slot">
-        <AirPlaySource />
-      </div>
-
-      <div v-else-if="shouldShowQobuz" :key="contentKey" class="audio-source-slot">
-        <QobuzSource />
-      </div>
-
-      <div v-else-if="shouldShowTidal" :key="contentKey" class="audio-source-slot">
-        <TidalSource />
-      </div>
-
-      <div v-else-if="shouldShowBluetooth" :key="contentKey" class="audio-source-slot">
-        <BluetoothSource />
-      </div>
-
-      <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
-        <AudioSourceStatus :source-type="currentSourceType" :display-state="displayState"
-          :unavailable-reason="unavailableReason" :device-name="currentDeviceName"
-          :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" @connect="handleConnect"
-          @retry="handleRetry" @eject="handleEject" @open-network-settings="handleOpenNetworkSettings" />
-      </div>
-
     </Transition>
   </div>
 </template>
 
 <script setup>
-import { computed, inject, defineAsyncComponent } from 'vue';
+import { computed, inject, provide, ref, defineAsyncComponent } from 'vue';
+import { UNDER_OVERLAY, useCover } from '@/composables/useCover';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useRichDisplay } from '@/composables/useRichDisplay';
@@ -93,6 +100,11 @@ import AudioSourceStatus from './AudioSourceStatus.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
+
+const lyricsOpen = computed(() => lyricsStore.isOpen);
+const layerEl = ref(null);
+const { covered, onOverlayEntered } = useCover(lyricsOpen, { reveal: layerEl });
+provide(UNDER_OVERLAY, lyricsOpen);
 
 const activeSource = computed(() => unifiedStore.systemState.source);
 const switching = computed(() => unifiedStore.systemState.switching);
@@ -203,6 +215,14 @@ const contentKey = computed(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* The box the source slots fill; isolated, so the swap's z-indices stay among
+   them and Lyrics, drawn after it, stays over every one. */
+.audio-source-layer {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+}
+
 .source-status-container {
   display: flex;
   align-items: center;
@@ -217,8 +237,8 @@ const contentKey = computed(() => {
    a second thing to keep true. Only the lyrics exception is local — being
    scoped, it outranks the shared rules it overrides. */
 
-/* Lyrics fades in/out on one symmetric curve rather than the shared
-   normal-in/fast-out pair. On opening, LyricsView's body — marked
+/* Lyrics fades in/out over the source on one symmetric curve rather than the
+   shared normal-in/fast-out pair. On opening, LyricsView's body — marked
    `.source-motion`, unlike its blurred backdrop — rises with the shared spring;
    the transform here only declares that envelope, so Vue keeps the enter
    classes until the rise ends. Closing stays a plain fade: the leave rise is
