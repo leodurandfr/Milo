@@ -158,8 +158,7 @@ useSwipeVisibility({
 // Tapping the hint toggles the bar. Its bar-hidden resting spot sits inside
 // the swipe band, so an upward swipe started on the arrow drives
 // useSwipeVisibility AND ends in a native click — that click has to be
-// dropped or the bar would flip straight back. Same travel budget the v-press
-// directive uses to tell a tap from a drag.
+// dropped or the bar would flip straight back.
 const TAP_SLOP_PX = 10;
 let pressY = null;
 

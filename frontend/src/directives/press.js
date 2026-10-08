@@ -3,14 +3,12 @@
 // Usage:
 //   <button v-press>             → standard press (4px shrink)
 //   <button v-press="condition"> → conditional (active if truthy)
+//
+// Purely visual: activation is the browser's own click, so a scroll, a fling or
+// the tap that stops one never activates anything the native rules would not.
 
 const PRESS_SHRINK_PX = 4
-
-// Past this travel, the gesture is a scroll, not a press. Lower on the vertical
-// axis since our scrollers pan vertically — cancel the press before a small
-// downward drift becomes a synthesized click.
-const PRESS_MOVE_CANCEL_PX = 10
-const PRESS_MOVE_CANCEL_CROSS_PX = 7
+const PRESS_MIN_VISIBLE_MS = 150
 
 function updateScale(el) {
   const rect = el.getBoundingClientRect()
@@ -39,77 +37,49 @@ function setupPress(el) {
 
   el.classList.add('interactive-press')
 
-  el._pressHandler = (e) => {
-    if (el.disabled) return
-    // Capture pointer to ensure click fires even after scale transform shrinks hit area
-    el.setPointerCapture(e.pointerId)
-    el._pressPointerId = e.pointerId
-    el._pressStartX = e.clientX
-    el._pressStartY = e.clientY
-    el._pressStart = performance.now()
-    el.classList.add('pressed')
-  }
-
-  // Held until release, with a 150ms minimum so quick taps still show feedback.
+  // Held until release, with a minimum so quick taps still show feedback.
   // Raw window timer (window.* prefix): a directive has no component lifecycle,
   // so useTimer() can't be used here. Fire-and-forget CSS-class removal,
   // harmless if the element is already gone.
-  const releasePressed = () => {
-    const remaining = 150 - (performance.now() - el._pressStart)
+  const release = () => {
+    if (el._pressPointerId == null) return
+    el._pressPointerId = null
+    document.removeEventListener('scroll', el._pressScrollHandler, true)
+    const remaining = PRESS_MIN_VISIBLE_MS - (performance.now() - el._pressStart)
     if (remaining <= 0) {
       el.classList.remove('pressed')
     } else {
-      window.setTimeout(() => el.classList.remove('pressed'), remaining)
+      el._pressReleaseTimer = window.setTimeout(() => el.classList.remove('pressed'), remaining)
     }
   }
 
-  el._pressClickHandler = () => {
-    el._pressNativeClick = true
+  // Any scroller moving during the press means the gesture is a scroll (or the
+  // tail of a fling under the finger): drop the visual at once. Scroll events
+  // don't bubble, hence the capture phase on document.
+  el._pressScrollHandler = () => {
+    release()
+    el.classList.remove('pressed')
   }
 
-  // On touch, the browser suppresses the native click when the finger is
-  // released outside the element, even with pointer capture. A press started
-  // on the button should still activate it, so replay the click ourselves —
-  // unless a pointercancel fired (scroll took over the gesture).
-  el._pressUpHandler = (e) => {
-    if (e.pointerId !== el._pressPointerId) return
-    el._pressPointerId = null
-    releasePressed()
-    const rect = el.getBoundingClientRect()
-    const inside = e.clientX >= rect.left && e.clientX <= rect.right
-      && e.clientY >= rect.top && e.clientY <= rect.bottom
-    if (inside) return // native click will fire
-    el._pressNativeClick = false
-    // Browsers where click follows pointer capture fire it right after
-    // pointerup, before this timeout — only synthesize if it never came.
-    window.setTimeout(() => {
-      if (!el._pressNativeClick && !el.disabled) el.click()
-    }, 0)
+  el._pressHandler = (e) => {
+    if (el.disabled || !e.isPrimary) return
+    // A quick second tap must not lose its state to the first one's timer.
+    window.clearTimeout(el._pressReleaseTimer)
+    el._pressPointerId = e.pointerId
+    el._pressStart = performance.now()
+    el.classList.add('pressed')
+    document.addEventListener('scroll', el._pressScrollHandler, { capture: true, passive: true })
   }
 
-  el._pressCancelHandler = (e) => {
-    if (e.pointerId !== el._pressPointerId) return
-    el._pressPointerId = null
-    releasePressed()
-  }
-
-  // A captured touch pointer doesn't reliably fire pointercancel when a scroll
-  // starts, so detect the scroll ourselves: once the finger travels past the
-  // threshold, drop the press (no synthesized click) and release the pointer.
-  el._pressMoveHandler = (e) => {
-    if (e.pointerId !== el._pressPointerId) return
-    if (Math.abs(e.clientX - el._pressStartX) <= PRESS_MOVE_CANCEL_PX
-      && Math.abs(e.clientY - el._pressStartY) <= PRESS_MOVE_CANCEL_CROSS_PX) return
-    el._pressPointerId = null
-    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
-    releasePressed()
+  el._pressEndHandler = (e) => {
+    if (e.pointerId === el._pressPointerId) release()
   }
 
   el.addEventListener('pointerdown', el._pressHandler, { passive: true })
-  el.addEventListener('pointermove', el._pressMoveHandler, { passive: true })
-  el.addEventListener('pointerup', el._pressUpHandler, { passive: true })
-  el.addEventListener('pointercancel', el._pressCancelHandler, { passive: true })
-  el.addEventListener('click', el._pressClickHandler, { passive: true })
+  el.addEventListener('pointerup', el._pressEndHandler, { passive: true })
+  el.addEventListener('pointercancel', el._pressEndHandler, { passive: true })
+  // A mouse leaving the element releases it, as :active does.
+  el.addEventListener('pointerleave', el._pressEndHandler, { passive: true })
 }
 
 function cleanupPress(el) {
@@ -119,20 +89,17 @@ function cleanupPress(el) {
   }
   if (el._pressHandler) {
     el.removeEventListener('pointerdown', el._pressHandler)
-    el.removeEventListener('pointermove', el._pressMoveHandler)
-    el.removeEventListener('pointerup', el._pressUpHandler)
-    el.removeEventListener('pointercancel', el._pressCancelHandler)
-    el.removeEventListener('click', el._pressClickHandler)
+    el.removeEventListener('pointerup', el._pressEndHandler)
+    el.removeEventListener('pointercancel', el._pressEndHandler)
+    el.removeEventListener('pointerleave', el._pressEndHandler)
+    document.removeEventListener('scroll', el._pressScrollHandler, true)
+    window.clearTimeout(el._pressReleaseTimer)
     delete el._pressHandler
-    delete el._pressMoveHandler
-    delete el._pressUpHandler
-    delete el._pressCancelHandler
-    delete el._pressClickHandler
+    delete el._pressEndHandler
+    delete el._pressScrollHandler
     delete el._pressPointerId
-    delete el._pressNativeClick
     delete el._pressStart
-    delete el._pressStartX
-    delete el._pressStartY
+    delete el._pressReleaseTimer
   }
   el.classList.remove('interactive-press', 'pressed')
   el.style.removeProperty('--press-scale')

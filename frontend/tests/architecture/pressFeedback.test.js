@@ -4,11 +4,11 @@
  *
  * Milō is driven by finger on a kiosk, and `v-press` is the only thing that
  * tells the user a tap registered: it shrinks the element, holds the state for
- * 150 ms so a quick tap is still visible, cancels once the finger travels far
- * enough to be a scroll, and replays the click when the finger lifts outside the
- * shrunken box. Every `ui/` component applies it internally, so a feature that
- * builds its tap target out of a native `<button>` or `<div>` is the only way to
- * end up with a control that does nothing when pressed. That is how the podcast
+ * 150 ms so a quick tap is still visible, and drops it as soon as anything
+ * scrolls; activation is left to the browser's native click. Every `ui/`
+ * component applies it internally, so a feature that builds its tap target out
+ * of a native `<button>` or `<div>` is the only way to end up with a control
+ * that does nothing when pressed. That is how the podcast
  * grid ended up as the one grid in the app whose tiles stayed still, while
  * `AlbumCard`, `MediaRow`, `StationCard` and `EpisodeCard` all pressed.
  *
