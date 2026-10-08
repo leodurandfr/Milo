@@ -30,8 +30,10 @@
         @change="handleStartupModeChange"
       />
 
-      <RangeSlider v-if="!config.restore_last_volume" :label="t('volumeSettings.fixedStartup')" v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" unit="dB"
-        @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
+      <Collapse :open="!config.restore_last_volume">
+        <RangeSlider :label="t('volumeSettings.fixedStartup')" v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" unit="dB"
+          @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
+      </Collapse>
     </SettingsSection>
   </SettingsContainer>
 </template>
@@ -44,6 +46,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import Collapse from '@/components/ui/Collapse.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
@@ -65,10 +68,13 @@ const startupModeOptions = computed(() => [
 ]);
 
 function handleStartupModeChange(restoreLast) {
+  if (restoreLast === config.value.restore_last_volume) return;
+  // Flipped here, not on the store's round trip: the slider moves on the tap.
+  config.value.restore_last_volume = restoreLast;
   updateSetting('volume-startup', {
     startup_volume_db: config.value.startup_volume_db,
     restore_last_volume: restoreLast
-  });
+  }).catch(syncFromStore);
 }
 
 function fromStore() {

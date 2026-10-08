@@ -60,6 +60,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
+import Collapse from '@/components/ui/Collapse.vue';
 import Radio from '@/components/ui/Radio.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
@@ -444,6 +445,12 @@ export const REGISTRY = {
   Toggle: {
     component: Toggle,
     args: { modelValue: true, title: 'Labelled toggle' }
+  },
+
+  Collapse: {
+    component: Collapse,
+    args: { open: true },
+    slots: { default: 'Content that expands and collapses.' }
   },
 
   ToggleSection: {

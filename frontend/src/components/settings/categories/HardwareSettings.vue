@@ -4,166 +4,133 @@
     <!-- Live, outside isDirty: the fan never waits for Apply & Reboot. -->
     <FanSection v-if="fanStore.available" />
 
-    <!-- What is wired to the board, one card: groups apart by a rule.
-         Not four ToggleSections — nested, each would draw a card in a card. -->
-    <SettingsSection>
-      <div class="hardware-groups">
-        <div class="hardware-group">
-          <h3 class="heading-3">{{ t('hardwareSettings.audioCard') }}</h3>
-          <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
-            <Dropdown
-              :model-value="config.audio_id"
-              :options="audioCardOptions"
-              :disabled="isRebooting"
-              :placeholder="t('common.selectOption')"
-              @change="onAudioChange"
-            />
-          </SettingItem>
-
-          <!-- Volume management toggle (DAC cards only) -->
-          <ListItemButton
-            v-if="isDacCard"
-            :title="t('volumeSettings.volumeManagement')"
-            action="toggle"
-            :model-value="config.volume_control"
-            @click="toggleVolumeControl"
+    <ToggleSection :title="t('hardwareSettings.audioCard')" :enabled="hasAudioCard" :disabled="isRebooting" @change="toggleAudioCard">
+      <div class="hardware-group">
+        <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
+          <Dropdown
+            :model-value="config.audio_id"
+            :options="audioCardOptionsFiltered"
+            :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
+            @change="onAudioChange"
           />
-        </div>
+        </SettingItem>
 
-        <div class="hardware-divider"></div>
-
-        <div class="hardware-group">
-          <div class="hardware-group__header">
-            <h3 class="heading-3">{{ t('hardwareSettings.screen') }}</h3>
-            <Toggle :model-value="hasScreen" :disabled="isRebooting" @change="toggleScreen" />
-          </div>
-          <SettingItem v-if="hasScreen" :label="t('hardwareSettings.screenModel')" inline>
-            <Dropdown
-              :model-value="config.screen_type"
-              :options="screenOptionsFiltered"
-              :disabled="isRebooting"
-              placeholder=""
-              @change="onScreenChange"
-            />
-          </SettingItem>
-        </div>
-
-        <div class="hardware-divider"></div>
-
-        <div class="hardware-group">
-          <div class="hardware-group__header">
-            <h3 class="heading-3">{{ t('hardwareSettings.rotaryEncoder') }}</h3>
-            <Toggle :model-value="config.rotary_enabled" :disabled="isRebooting" @change="toggleRotary" />
-          </div>
-          <div v-if="config.rotary_enabled" class="encoder-pins">
-            <SettingItem label="CLK">
-              <Dropdown
-                :model-value="config.clk_pin"
-                :options="gpioPinOptions"
-                :disabled="isRebooting"
-                :placeholder="t('common.selectOption')"
-                @change="v => onPinChange('clk_pin', v)"
-              />
-            </SettingItem>
-            <SettingItem label="DT">
-              <Dropdown
-                :model-value="config.dt_pin"
-                :options="gpioPinOptions"
-                :disabled="isRebooting"
-                :placeholder="t('common.selectOption')"
-                @change="v => onPinChange('dt_pin', v)"
-              />
-            </SettingItem>
-            <SettingItem label="SW">
-              <Dropdown
-                :model-value="config.sw_pin"
-                :options="gpioPinOptions"
-                :disabled="isRebooting"
-                :placeholder="t('common.selectOption')"
-                @change="v => onPinChange('sw_pin', v)"
-              />
-            </SettingItem>
-          </div>
-        </div>
-
-        <div class="hardware-divider"></div>
-
-        <!-- IR Remote receiver (TSOP4838) -->
-        <div class="hardware-group">
-          <div class="hardware-group__header">
-            <h3 class="heading-3">{{ t('hardwareSettings.irRemote') }}</h3>
-            <Toggle :model-value="config.ir_enabled" :disabled="isRebooting" @change="toggleIrRemote" />
-          </div>
-          <div v-if="config.ir_enabled" class="encoder-pins">
-            <SettingItem label="OUT">
-              <Dropdown
-                :model-value="config.ir_gpio_pin"
-                :options="gpioPinOptions"
-                :disabled="isRebooting"
-                :placeholder="t('common.selectOption')"
-                @change="v => onIrPinChange(v)"
-              />
-            </SettingItem>
-            <SettingItem label="VCC">
-              <div class="fixed-pin">
-                <Dropdown
-                  :model-value="'3.3V'"
-                  :options="[{ label: '3.3V', value: '3.3V' }]"
-                  disabled
-                />
-              </div>
-            </SettingItem>
-            <SettingItem label="GND">
-              <div class="fixed-pin">
-                <Dropdown
-                  :model-value="'GND'"
-                  :options="[{ label: 'GND', value: 'GND' }]"
-                  disabled
-                />
-              </div>
-            </SettingItem>
-          </div>
-        </div>
-
-        <!-- Pi 5 only: no other board's bootloader can wait for its button. -->
-        <template v-if="powerButtonSupported">
-          <div class="hardware-divider"></div>
-
-          <div class="hardware-group">
-            <div class="hardware-group__header">
-              <h3 class="heading-3">{{ t('hardwareSettings.powerButton') }}</h3>
-              <Toggle :model-value="config.power_button_enabled" :disabled="isRebooting"
-                @change="togglePowerButton" />
-            </div>
-            <span class="hardware-description text-body">
-              {{ t('hardwareSettings.powerButtonDescription') }}
-            </span>
-            <div v-if="config.power_button_enabled" class="encoder-pins">
-              <SettingItem label="LED −">
-                <Dropdown
-                  :model-value="config.power_led_gpio_pin"
-                  :options="gpioPinOptions"
-                  :disabled="isRebooting"
-                  :placeholder="t('common.selectOption')"
-                  @change="onPowerLedPinChange"
-                />
-              </SettingItem>
-              <SettingItem label="LED +">
-                <div class="fixed-pin">
-                  <Dropdown :model-value="'5V'" :options="[{ label: '5V', value: '5V' }]" disabled />
-                </div>
-              </SettingItem>
-              <!-- J2: the PMIC's own input on the Pi 5 board, not a GPIO. -->
-              <SettingItem label="BTN">
-                <div class="fixed-pin">
-                  <Dropdown :model-value="'J2'" :options="[{ label: 'J2', value: 'J2' }]" disabled />
-                </div>
-              </SettingItem>
-            </div>
-          </div>
-        </template>
+        <!-- Volume management toggle (DAC cards only) -->
+        <ListItemButton
+          v-if="isDacCard"
+          :title="t('volumeSettings.volumeManagement')"
+          action="toggle"
+          :model-value="config.volume_control"
+          @click="toggleVolumeControl"
+        />
       </div>
-    </SettingsSection>
+    </ToggleSection>
+
+    <ToggleSection :title="t('hardwareSettings.screen')" :enabled="hasScreen" :disabled="isRebooting" @change="toggleScreen">
+      <SettingItem :label="t('hardwareSettings.screenModel')" inline>
+        <Dropdown
+          :model-value="config.screen_type"
+          :options="screenOptionsFiltered"
+          :disabled="isRebooting"
+          placeholder=""
+          @change="onScreenChange"
+        />
+      </SettingItem>
+    </ToggleSection>
+
+    <ToggleSection :title="t('hardwareSettings.rotaryEncoder')" :enabled="config.rotary_enabled" :disabled="isRebooting" @change="toggleRotary">
+      <div class="encoder-pins">
+        <SettingItem label="CLK">
+          <Dropdown
+            :model-value="config.clk_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
+            @change="v => onPinChange('clk_pin', v)"
+          />
+        </SettingItem>
+        <SettingItem label="DT">
+          <Dropdown
+            :model-value="config.dt_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
+            @change="v => onPinChange('dt_pin', v)"
+          />
+        </SettingItem>
+        <SettingItem label="SW">
+          <Dropdown
+            :model-value="config.sw_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
+            @change="v => onPinChange('sw_pin', v)"
+          />
+        </SettingItem>
+      </div>
+    </ToggleSection>
+
+    <!-- IR Remote receiver (TSOP4838) -->
+    <ToggleSection :title="t('hardwareSettings.irRemote')" :enabled="config.ir_enabled" :disabled="isRebooting" @change="toggleIrRemote">
+      <div class="encoder-pins">
+        <SettingItem label="OUT">
+          <Dropdown
+            :model-value="config.ir_gpio_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
+            @change="v => onIrPinChange(v)"
+          />
+        </SettingItem>
+        <SettingItem label="VCC">
+          <div class="fixed-pin">
+            <Dropdown
+              :model-value="'3.3V'"
+              :options="[{ label: '3.3V', value: '3.3V' }]"
+              disabled
+            />
+          </div>
+        </SettingItem>
+        <SettingItem label="GND">
+          <div class="fixed-pin">
+            <Dropdown
+              :model-value="'GND'"
+              :options="[{ label: 'GND', value: 'GND' }]"
+              disabled
+            />
+          </div>
+        </SettingItem>
+      </div>
+    </ToggleSection>
+
+    <!-- Pi 5 only: no other board's bootloader can wait for its button. -->
+    <ToggleSection v-if="powerButtonSupported" :title="t('hardwareSettings.powerButton')"
+      :description="t('hardwareSettings.powerButtonDescription')"
+      :enabled="config.power_button_enabled" :disabled="isRebooting" @change="togglePowerButton">
+      <div class="encoder-pins">
+        <SettingItem label="LED −">
+          <Dropdown
+            :model-value="config.power_led_gpio_pin"
+            :options="gpioPinOptions"
+            :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
+            @change="onPowerLedPinChange"
+          />
+        </SettingItem>
+        <SettingItem label="LED +">
+          <div class="fixed-pin">
+            <Dropdown :model-value="'5V'" :options="[{ label: '5V', value: '5V' }]" disabled />
+          </div>
+        </SettingItem>
+        <!-- J2: the PMIC's own input on the Pi 5 board, not a GPIO. -->
+        <SettingItem label="BTN">
+          <div class="fixed-pin">
+            <Dropdown :model-value="'J2'" :options="[{ label: 'J2', value: 'J2' }]" disabled />
+          </div>
+        </SettingItem>
+      </div>
+    </ToggleSection>
 
     <!-- Apply & Reboot (sticky, two-step confirm) -->
     <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky" floating
@@ -181,10 +148,9 @@ import { useTimer } from '@/composables/useTimer';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
-import Toggle from '@/components/ui/Toggle.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
 import FanSection from '@/components/settings/categories/FanSection.vue';
@@ -250,6 +216,27 @@ const isDacCard = computed(() => {
   return card?.category === 'dac';
 });
 
+// Audio card: toggle ON/OFF (replaces "none" option in dropdown); ON picks the
+// last card, else the first one listed.
+const hasAudioCard = computed(() => !!config.value.audio_id && config.value.audio_id !== 'none');
+const audioCardOptionsFiltered = computed(() => audioCardOptions.value.filter(c => c.value !== 'none'));
+const lastAudioId = ref(null);
+
+function toggleAudioCard(enabled) {
+  const saved = savedConfig.value;
+  if (enabled) {
+    const id = lastAudioId.value || audioCardOptionsFiltered.value[0]?.value;
+    if (!id) return;
+    onAudioChange(id);
+    // Back on the saved card: its saved volume management, not the category default.
+    if (saved && id === saved.audio_id) config.value.volume_control = saved.volume_control;
+  } else {
+    lastAudioId.value = config.value.audio_id;
+    // Off is spelled as saved ('' when no card was ever set), or off-and-back is dirty.
+    onAudioChange(saved && (!saved.audio_id || saved.audio_id === 'none') ? saved.audio_id : 'none');
+  }
+}
+
 // Screen: toggle ON/OFF (replaces "none" option in dropdown)
 const hasScreen = computed(() => config.value.screen_type !== 'none');
 const screenOptionsFiltered = computed(() => screenOptions.value.filter(s => s.value !== 'none'));
@@ -287,6 +274,10 @@ function syncFromData(data) {
   };
   config.value = { ...snapshot };
   savedConfig.value = { ...snapshot };
+
+  if (snapshot.audio_id && snapshot.audio_id !== 'none') {
+    lastAudioId.value = snapshot.audio_id;
+  }
 
   // Remember last non-none screen type for toggle restore
   if (snapshot.screen_type !== 'none') {
@@ -440,32 +431,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.hardware-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-}
-
 .hardware-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-.hardware-group__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-04);
-}
-
-.hardware-description {
-  color: var(--color-text-secondary);
-}
-
-.hardware-divider {
-  height: 1px;
-  background: var(--color-border);
 }
 
 .encoder-pins {

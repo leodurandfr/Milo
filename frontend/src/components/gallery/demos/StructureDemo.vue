@@ -18,9 +18,9 @@
       <NavigationHeader title="Growing content" @back="modalTallOpen = false" />
       <ToggleSection title="Expand me" :enabled="innerOpen" @change="innerOpen = $event">
         <p class="modal-copy text-body">
-          This is the path ToggleSection's inject exists for: the section animates its
-          own 0fr to 1fr grid while the modal springs its container to the measured
-          delta, so the two never fight.
+          This is the path Collapse exists for: the section animates its own height
+          on the same curve as the modal's clip, through `modalSpringHeightDelta`,
+          so the two are equal at every frame.
         </p>
       </ToggleSection>
     </Modal>

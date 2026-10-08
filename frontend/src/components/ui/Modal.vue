@@ -83,11 +83,11 @@ provide('modalContentRef', modalScroller);
 // A header drawn in a modal takes the modal's look (NavigationHeader).
 provide('inModal', true);
 
-// Accordions (ToggleSection / Network) and multiroom zones on EXPAND pre-announce
+// Accordions (Network, AddToPlaylist) on EXPAND pre-announce
 // intra-view height changes through this so the clip springs in lock-step.
 provide('modalRequestHeightDelta', requestHeightDelta);
 
-// Multiroom zone expand AND collapse: the item animates its own height 0 ↔ full on the
+// Collapse (every ToggleSection) and multiroom zones, expand AND collapse: the item animates its own height 0 ↔ full on the
 // same curve as the clip, so both stay equal at every frame while this keeps the
 // scroller matched to the live reflow. One mechanism for both directions; the curve is
 // the caller's (it springs on expand, and passes a monotone one for the collapse, which
