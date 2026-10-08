@@ -55,11 +55,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
+import { onPageReturn } from '@/composables/useNavigationStack'
 import DetailHeader from '@/components/audio/DetailHeader.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
@@ -88,6 +89,14 @@ const hasMoreEpisodes = computed(() => {
   return allEpisodes.value.length < podcast.value.total_episodes
 })
 
+// A page its KeepAlive kept is still alive once left: a fetch failing after the
+// owner went back must not pop whatever page is shown by then. Shown again with
+// nothing loaded, it asks again, and says so then.
+let shown = true
+onDeactivated(() => { shown = false })
+onActivated(() => { shown = true })
+onPageReturn(() => { if (!podcast.value && !loading.value) loadPodcast() })
+
 const { loading, execute: loadPodcast } = useAsyncData(async () => {
   currentPage.value = 1
   const result = await apiCall.get(`/api/podcast/series/${props.uuid}`, {
@@ -101,7 +110,7 @@ const { loading, execute: loadPodcast } = useAsyncData(async () => {
     // catalog could not be read, a dropped link) is passing, and saying "not
     // available" for it would tell the owner a podcast is gone over a hiccup.
     // Either way the view must not sit blank.
-    emit('unavailable', result.error?.status === 404 ? 'absent' : 'transient')
+    if (shown) emit('unavailable', result.error?.status === 404 ? 'absent' : 'transient')
     return
   }
   podcast.value = result.data

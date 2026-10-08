@@ -8,9 +8,9 @@
       <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
         :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView) && currentView !== 'section'"
         header-icon="spotify" gradient="spotify"
-        :header-actions-key="currentView" :content-key="contentKey"
+        :header-actions-key="currentView" :content-key="currentKey"
         :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
-        @header-back="back" @scroll-restored="onScrollRestored">
+        @header-back="back" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
 
         <!-- Home only: whose library this is, and the way to the others. -->
         <template v-if="currentView === 'home' && activeProfile" #header-actions>
@@ -20,26 +20,33 @@
           </button>
         </template>
 
-        <template #content>
-          <SpotifyHome v-if="currentView === 'home'" key="home" @select="openItem" @show-section="openSection" />
+        <!-- One page per stack entry, kept while the entry is on the stack. A
+             branch reads its own entry, never the current view: a kept page
+             re-renders from it. -->
+        <template #pages>
+          <KeepAlive :include="keptKeys" :max="KEPT_PAGES">
+            <component :is="currentPage" :key="currentKey" v-slot="{ entry }">
+              <SpotifyHome v-if="entry.view === 'home'" @select="openItem" @show-section="openSection" />
 
-          <SpotifyProfilesView v-else-if="currentView === 'profiles'" key="profiles" @picked="reset" />
+              <SpotifyProfilesView v-else-if="entry.view === 'profiles'" @picked="reset" />
 
-          <SpotifyContextView v-else-if="currentView === 'context'" :key="currentParams.uri"
-            :uri="currentParams.uri" :kind="currentParams.kind" :name="currentParams.name"
-            :image="currentParams.image" :owner="currentParams.owner"
-            @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
+              <SpotifyContextView v-else-if="entry.view === 'context'"
+                :uri="entry.params.uri" :kind="entry.params.kind" :name="entry.params.name"
+                :image="entry.params.image" :owner="entry.params.owner"
+                @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
 
-          <SpotifyArtistView v-else-if="currentView === 'artist'" :key="currentParams.uri"
-            :uri="currentParams.uri" :name="currentParams.name" :image="currentParams.image"
-            @select="openItem" @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio"
-            @show-discography="push('discography', $event)" @show-section="openSection" />
+              <SpotifyArtistView v-else-if="entry.view === 'artist'"
+                :uri="entry.params.uri" :name="entry.params.name" :image="entry.params.image"
+                @select="openItem" @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio"
+                @show-discography="push('discography', $event)" @show-section="openSection" />
 
-          <SpotifyDiscographyView v-else-if="currentView === 'discography'" :key="`discography:${currentParams.uri}`"
-            :uri="currentParams.uri" :group="currentParams.group" @select="openItem" />
+              <SpotifyDiscographyView v-else-if="entry.view === 'discography'"
+                :uri="entry.params.uri" :group="entry.params.group" @select="openItem" />
 
-          <SpotifySectionView v-else-if="currentView === 'section'" :key="`section:${currentParams.id}`"
-            :items="currentParams.items" @select="openItem" />
+              <SpotifySectionView v-else-if="entry.view === 'section'"
+                :items="entry.params.items" @select="openItem" />
+            </component>
+          </KeepAlive>
         </template>
 
         <!-- Docked player: it reads what it draws from the state (no queue
@@ -58,6 +65,7 @@
 import { ref, computed, watch } from 'vue';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
+import { KEPT_PAGES } from '@/constants/navigation';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
 import { useI18n } from '@/services/i18n';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
@@ -77,17 +85,12 @@ const { t } = useI18n();
 
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
-const { currentView, currentParams, canGoBack, push, back, reset, goTo, pendingScrollRestore } =
+const { currentView, currentParams, currentKey, currentPage, keptKeys, pagesSettled, canGoBack, push, back, reset, goTo, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
 // The views that are one page of something (a list, an artist, its
-// discography): two of the same view in a row are two contents.
+// discography): an account switch leaves them.
 const PAGES = ['context', 'artist', 'discography', 'section'];
-const contentKey = computed(() =>
-  PAGES.includes(currentView.value)
-    ? `${currentView.value}:${currentParams.value.uri ?? currentParams.value.id}`
-    : currentView.value
-);
 
 const playback = useSourcePlaybackVisibility('spotify', {
   // What plays here, else what another device of the account plays.

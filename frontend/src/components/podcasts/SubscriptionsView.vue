@@ -42,6 +42,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
+import { onPageReturn } from '@/composables/useNavigationStack'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -79,6 +80,8 @@ const { loading, execute: loadData } = useAsyncData(
 )
 
 onMounted(loadData)
+// Back from a page above: what a resync invalidated meanwhile, with no spinner.
+onPageReturn(() => podcastStore.loadSubscriptions())
 </script>
 
 <style scoped>

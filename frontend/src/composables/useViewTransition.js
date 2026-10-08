@@ -220,12 +220,14 @@ export function useViewTransition({
 
   /**
    * Called after the leaving view has fully left the DOM. Synchronous: clear the
-   * frozen-leaving reference (its inline offset vanished with the element) and
-   * signal restore completion so the consumer clears pendingScrollRestore.
+   * frozen offset and its reference — a page kept by a KeepAlive is this same
+   * element when it is gone back to — and signal restore completion so the
+   * consumer clears pendingScrollRestore.
    */
-  function onAfterLeave() {
+  function onAfterLeave(el) {
     const shouldSignalRestore = unref(pendingScrollRestore) !== null;
 
+    clearOffset(el);
     frozenLeavingEl = null;
     savedScrollTop = 0;
     scrubHeader(frozenHeaderEl); // release the fade-out hold (header is now off-screen)

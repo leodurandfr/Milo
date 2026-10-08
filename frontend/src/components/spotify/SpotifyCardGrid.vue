@@ -1,5 +1,6 @@
+<!-- Cards in the square-artwork grid's columns. Outside the template: a root
+     comment makes it a fragment in development, and it is a page's root. -->
 <template>
-  <!-- Cards in the square-artwork grid's columns. -->
   <div class="cards-grid">
     <SpotifyCard v-for="item in items" :key="item.uri" :item="item" @click="$emit('select', item)" />
   </div>

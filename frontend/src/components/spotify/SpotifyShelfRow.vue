@@ -29,10 +29,18 @@ let resizes = null;
 
 function measure() {
   const el = rowRef.value;
-  if (!el) return;
+  // Out of the document, a page its KeepAlive kept: no style to read, and the
+  // stops it had are the ones it gets back.
+  if (!el?.isConnected) return;
   const style = getComputedStyle(el);
-  el.style.setProperty('--shelf-bleed-start', style.paddingLeft);
-  el.style.setProperty('--shelf-bleed-end', style.paddingRight);
+  // Written only when they moved: a write makes the next row's read lay the
+  // page out again, and a page coming back reports every row at once.
+  setStop(el, '--shelf-bleed-start', style.paddingLeft);
+  setStop(el, '--shelf-bleed-end', style.paddingRight);
+}
+
+function setStop(el, name, value) {
+  if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
 }
 
 onMounted(() => {

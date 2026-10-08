@@ -10,29 +10,42 @@
 const PRESS_SHRINK_PX = 4
 const PRESS_MIN_VISIBLE_MS = 150
 
-function updateScale(el) {
-  const rect = el.getBoundingClientRect()
-  const avgDimension = (rect.width + rect.height) / 2
+// From the border box the ResizeObserver reports, never a read of the layout:
+// a page mounting or coming back holds hundreds of these, and a read between two
+// writes lays the page out again each time.
+function updateScale(el, width, height) {
+  // Out of the document (a page its KeepAlive kept) or not rendered: nothing to
+  // measure, and the scale it had is the one it will need back.
+  if (!width && !height) return
+
+  const avgDimension = (width + height) / 2
 
   // Prevent extreme scaling on tiny elements
-  if (avgDimension < 16) {
-    el.style.setProperty('--press-scale', '0.95')
-    return
+  const scale = avgDimension < 16
+    ? 0.95
+    // Clamp to reasonable range (0.85 to 0.98)
+    : Math.max(0.85, Math.min(0.98, (avgDimension - PRESS_SHRINK_PX) / avgDimension))
+
+  const value = scale.toFixed(4)
+  if (el.style.getPropertyValue('--press-scale') !== value) {
+    el.style.setProperty('--press-scale', value)
   }
-
-  const scale = (avgDimension - PRESS_SHRINK_PX) / avgDimension
-
-  // Clamp to reasonable range (0.85 to 0.98)
-  const clampedScale = Math.max(0.85, Math.min(0.98, scale))
-
-  el.style.setProperty('--press-scale', clampedScale.toFixed(4))
 }
 
 function setupPress(el) {
-  updateScale(el)
-
-  const observer = new ResizeObserver(() => updateScale(el))
-  observer.observe(el)
+  // Its first report arrives before the first paint, so no press can come
+  // before the scale.
+  const observer = new ResizeObserver(([entry]) => {
+    // borderBoxSize is Safari 15.4+; the build targets Safari 14, which measures.
+    const box = entry.borderBoxSize?.[0]
+    if (box) {
+      updateScale(el, box.inlineSize, box.blockSize)
+    } else {
+      const rect = el.getBoundingClientRect()
+      updateScale(el, rect.width, rect.height)
+    }
+  })
+  observer.observe(el, { box: 'border-box' })
   el._pressObserver = observer
 
   el.classList.add('interactive-press')

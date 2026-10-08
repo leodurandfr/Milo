@@ -9,9 +9,9 @@
         <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
           :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="detailsTitleView"
           header-icon="music_library" gradient="music_library"
-          :header-actions-key="currentView" :content-key="currentView"
+          :header-actions-key="currentView" :content-key="currentKey"
           :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
-          @header-back="goBack" @scroll-restored="onScrollRestored">
+          @header-back="goBack" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
 
           <!-- Header actions (home only): queue + search. Search is scoped on the
                selected storage space, so it goes away with it (see scopedViews
@@ -22,31 +22,37 @@
               @click="goToSearch" />
           </template>
 
-          <!-- Scrollable views -->
-          <template #content>
-            <LibraryHome v-if="currentView === 'home'" key="home"
-              @select-album="openAlbum" @select-artist="openArtist"
-              @select-genre="openGenre" @select-playlist="openPlaylist"
-              @select-liked="openLikedSongs" />
+          <!-- One page per stack entry, kept while the entry is on the stack. A
+               branch reads its own entry, never the current view: a kept page
+               re-renders from it. -->
+          <template #pages>
+            <KeepAlive :include="keptKeys" :max="KEPT_PAGES">
+              <component :is="currentPage" :key="currentKey" v-slot="{ entry }">
+                <LibraryHome v-if="entry.view === 'home'"
+                  @select-album="openAlbum" @select-artist="openArtist"
+                  @select-genre="openGenre" @select-playlist="openPlaylist"
+                  @select-liked="openLikedSongs" />
 
-            <AlbumView v-else-if="currentView === 'album'" key="album" :album-id="currentParams.albumId"
-              @select-artist="openArtist" />
+                <AlbumView v-else-if="entry.view === 'album'" :album-id="entry.params.albumId"
+                  @select-artist="openArtist" />
 
-            <ArtistView v-else-if="currentView === 'artist'" key="artist" :artist-id="currentParams.artistId"
-              @select-album="openAlbum" />
+                <ArtistView v-else-if="entry.view === 'artist'" :artist-id="entry.params.artistId"
+                  @select-album="openAlbum" />
 
-            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="currentParams.genre"
-              @select-album="openAlbum" />
+                <GenreView v-else-if="entry.view === 'genre'" :genre="entry.params.genre"
+                  @select-album="openAlbum" />
 
-            <PlaylistView v-else-if="currentView === 'playlist'" key="playlist"
-              :playlist-id="currentParams.playlistId" @deleted="goBack" />
+                <PlaylistView v-else-if="entry.view === 'playlist'"
+                  :playlist-id="entry.params.playlistId" @deleted="goBack" />
 
-            <SearchView v-else-if="currentView === 'search'" key="search"
-              @select-album="openAlbum" @select-artist="openArtist" />
+                <SearchView v-else-if="entry.view === 'search'"
+                  @select-album="openAlbum" @select-artist="openArtist" />
 
-            <QueueView v-else-if="currentView === 'queue'" key="queue" />
+                <QueueView v-else-if="entry.view === 'queue'" />
 
-            <LikedSongsView v-else-if="currentView === 'liked'" key="liked" />
+                <LikedSongsView v-else-if="entry.view === 'liked'" />
+              </component>
+            </KeepAlive>
           </template>
 
           <!-- Docked player: it reads what it draws from the state; the album
@@ -72,6 +78,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
+import { KEPT_PAGES } from '@/constants/navigation';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
 import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -103,7 +110,7 @@ store.activeTab = 'albums';
 // Scroll-aware navigation stack (save/restore across push/back).
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
-const { currentView, currentParams, canGoBack, push, back, reset, pendingScrollRestore } =
+const { currentView, currentParams, currentKey, currentPage, keptKeys, pagesSettled, canGoBack, push, back, reset, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
 // Search and Liked Songs are the two views scoped ON the selected space rather

@@ -35,6 +35,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
+import { onPageReturn } from '@/composables/useNavigationStack'
 import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
@@ -62,16 +63,24 @@ function formatQueueEpisode(queueItem) {
   }
 }
 
-const { loading, execute: loadQueue } = useAsyncData(async () => {
+// The latest read wins: a return reads the queue again, and an older answer
+// landing last would bring back an episode marked complete since.
+let lastRequest = 0
+
+async function fetchQueue() {
+  const request = ++lastRequest
   const result = await apiCall.get('/api/podcast/queue', {
     category: 'podcast',
     message: 'Error loading queue',
   })
+  if (request !== lastRequest) return
   if (result.ok) {
     episodes.value = result.data.episodes || []
     podcastStore.enrichEpisodesWithProgress(episodes.value.map(formatQueueEpisode))
   }
-})
+}
+
+const { loading, execute: loadQueue } = useAsyncData(fetchQueue)
 
 async function markComplete(episodeUuid) {
   const result = await apiCall.post(`/api/podcast/queue/${episodeUuid}/complete`, null, {
@@ -84,6 +93,9 @@ async function markComplete(episodeUuid) {
 }
 
 onMounted(loadQueue)
+// Back from an episode: the queue may have moved (one finished, one added), and
+// the list on screen stays up while it is read again.
+onPageReturn(fetchQueue)
 </script>
 
 <style scoped>

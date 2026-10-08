@@ -69,9 +69,17 @@ function measure() {
   return { height: peek.offsetTop + shown, fade: shown + FADE_LEAD_PX };
 }
 
+// Out of the document (a page its KeepAlive kept), nothing measures: owed,
+// and paid once it is back.
+let owed = false;
+
 function apply({ animate }) {
   const clip = clipRef.value;
   if (!clip || !list()) return;
+  if (!clip.isConnected) {
+    owed = true;
+    return;
+  }
   const { height, fade } = measure();
   if (!animate) clip.style.transition = 'none';
   clip.style.height = `${height}px`;
@@ -119,9 +127,16 @@ let width = 0;
 onMounted(() => {
   settle();
   resizes = new ResizeObserver(([entry]) => {
-    if (entry.contentRect.width === width) return;
-    width = entry.contentRect.width;
-    if (props.hasMore) apply({ animate: false });
+    const now = entry.contentRect.width;
+    // Zero: taken out of the document, which moved nothing.
+    if (!now || (now === width && !owed)) return;
+    width = now;
+    if (owed) {
+      owed = false;
+      settle();
+    } else if (props.hasMore) {
+      apply({ animate: false });
+    }
   });
   resizes.observe(list());
 });

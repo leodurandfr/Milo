@@ -9,9 +9,9 @@
         :header-show-back="canGoBack"
         :header-title-muted="currentView === 'podcast-details' || currentView === 'episode-details'"
         header-icon="podcast"
-        :header-actions-key="currentView" :content-key="currentView"
+        :header-actions-key="currentView" :content-key="currentKey"
         :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
-        @scroll-restored="onScrollRestored">
+        @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
         <!-- Header actions (only on home view) -->
         <template v-if="currentView === 'home'" #header-actions>
           <IconButton icon="heartOff" @click="goToSubscriptions" />
@@ -19,34 +19,34 @@
           <IconButton icon="search" @click="goToSearch" />
         </template>
 
-        <!-- Content slot: scrollable views -->
-        <template #content>
-            <!-- Home View (Discovery) -->
-            <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
-              @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
+        <!-- One page per stack entry, kept while the entry is on the stack. A
+             branch reads its own entry, never the current view: a kept page
+             re-renders from it. No comment between the branches: in
+             development it is a node of its own. -->
+        <template #pages>
+          <KeepAlive :include="keptKeys" :max="KEPT_PAGES">
+            <component :is="currentPage" :key="currentKey" v-slot="{ entry }">
+              <HomeView v-if="entry.view === 'home'" @select-podcast="openPodcastDetails"
+                @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
 
-            <!-- Subscriptions View -->
-            <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions"
-              @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+              <SubscriptionsView v-else-if="entry.view === 'subscriptions'"
+                @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-            <!-- Search View -->
-            <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails" />
+              <SearchView v-else-if="entry.view === 'search'" @select-podcast="openPodcastDetails" />
 
-            <!-- Queue View -->
-            <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
-              @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+              <QueueView v-else-if="entry.view === 'queue'" @select-episode="openEpisodeDetails"
+                @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
 
-            <!-- Genre View -->
-            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-              @select-podcast="openPodcastDetails" />
+              <GenreView v-else-if="entry.view === 'genre'" :genre="entry.params.genre"
+                @select-podcast="openPodcastDetails" />
 
-            <!-- Podcast Details (full screen overlay) -->
-            <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid"
-              @play-episode="playEpisode" @select-episode="openEpisodeDetails" @unavailable="onPodcastUnavailable" />
+              <PodcastDetails v-else-if="entry.view === 'podcast-details'" :uuid="entry.params.podcastUuid"
+                @play-episode="playEpisode" @select-episode="openEpisodeDetails" @unavailable="onPodcastUnavailable" />
 
-            <!-- Episode Details (full screen overlay) -->
-            <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid"
-              @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+              <EpisodeDetails v-else-if="entry.view === 'episode-details'" :uuid="entry.params.episodeUuid"
+                @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+            </component>
+          </KeepAlive>
         </template>
 
         <!-- The playing bar reads what it draws from the state. -->
@@ -63,6 +63,7 @@ import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
+import { KEPT_PAGES } from '@/constants/navigation'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
@@ -90,7 +91,7 @@ const audioLayoutRef = ref(null)
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null)
 
 // Navigation with stack — scrollElRef enables scroll position save on push() and restore on back()
-const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
+const { currentView, currentParams, currentKey, currentPage, keptKeys, pagesSettled, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef })
 
 // The pane follows the episode, and the episode survives a stop: an auto-stop
@@ -103,10 +104,7 @@ const playback = useSourcePlaybackVisibility('podcast', {
 const { shouldShowPlayer: shouldShowPlayerLayout } = playback
 
 // Navigation params (stored separately since composable handles view state)
-const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
 const selectedPodcastName = computed(() => currentParams.value.podcastName || '')
-const selectedEpisodeUuid = computed(() => currentParams.value.episodeUuid || '')
-const selectedGenre = computed(() => currentParams.value.genre || '')
 const selectedGenreLabel = computed(() => currentParams.value.genreLabel || '')
 
 // Computed title and subtitle based on view

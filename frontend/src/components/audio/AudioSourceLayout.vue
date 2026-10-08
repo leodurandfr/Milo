@@ -44,8 +44,15 @@
         </NavigationHeader>
 
         <div class="swap-stack">
-          <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
-            <div :key="contentKey" class="content-inner">
+          <!-- #pages: a source with a navigation stack hands in its own keyed
+               page, in a KeepAlive, so a page gone back to is shown again
+               rather than built anew — a wrapper keyed here would be rebuilt
+               with the cache inside it. Each page has one element root, the
+               transition's. #content: plain content, keyed here. -->
+          <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave"
+            @leave-cancelled="leaveEnded">
+            <slot v-if="$slots.pages" name="pages" :is-mobile="isMobile" />
+            <div v-else :key="contentKey" class="content-inner">
               <slot name="content" :is-mobile="isMobile" />
             </div>
           </Transition>
@@ -166,7 +173,8 @@ const props = defineProps({
     default: 'default'
   },
   /**
-   * Key for content transition (triggers crossfade on change)
+   * Key for content transition (triggers crossfade on change). With #pages,
+   * the key the page itself carries.
    */
   contentKey: {
     type: String,
@@ -190,7 +198,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['header-back', 'scroll-restored'])
+const emit = defineEmits(['header-back', 'scroll-restored', 'pages-settled'])
 
 // Scroll-aware view transition (shared with SettingsModal via composable)
 const pendingScrollRef = computed(() => props.pendingScrollRestore)
@@ -230,7 +238,22 @@ onBeforeUnmount(() => {
 let gradientNeedsFadeIn = false
 let gradientNeedsFadeOut = false
 
+// The leaves in flight. Unmounting a page its KeepAlive held (dropped from the
+// stack) runs the leave hooks once more, on an element already out of the
+// document: no navigation, and treating it as one wrote the scroll a back had
+// just restored to 0. Once none is in flight, the pages are settled: the
+// source's cache may drop what was popped, which mid-leave would cut it short.
+const leaving = new WeakSet()
+let leavesInFlight = 0
+
+function leaveEnded(el) {
+  if (leaving.delete(el) && --leavesInFlight === 0) emit('pages-settled')
+}
+
 function onBeforeLeave(el) {
+  if (!el.isConnected || leaving.has(el)) return
+  leaving.add(el)
+  leavesInFlight++
   const isForwardNav = pendingScrollRef.value === null
   const targetScroll = pendingScrollRef.value ?? 0
   const scrollEl = layoutRef.value
@@ -252,8 +275,9 @@ function onBeforeLeave(el) {
   baseOnBeforeLeave(el)
 }
 
-function onAfterLeave() {
-  baseOnAfterLeave()
+function onAfterLeave(el) {
+  if (!leaving.has(el)) return
+  baseOnAfterLeave(el)
 
   if (gradientNeedsFadeIn) {
     const gradientEl = gradientRef.value
@@ -279,6 +303,8 @@ function onAfterLeave() {
     }
     gradientNeedsFadeOut = false
   }
+
+  leaveEnded(el)
 }
 
 // Auto-detect navigation: onBeforeUpdate fires after props have new values

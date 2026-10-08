@@ -66,7 +66,9 @@ const shownLetters = computed(() =>
 // row is the design system's line-height plus the gap between two letters.
 function measureBand() {
   const el = railRef.value;
-  if (!el) return;
+  // Out of the document (a page its KeepAlive kept): nothing laid out to read,
+  // and the observer measures again once it is back.
+  if (!el?.isConnected) return;
   // Re-anchored here too, and only on a real change — which also keeps the
   // observer from looping, since the second pass finds it unchanged. This alone
   // does NOT heal every drift: the band's height is a calc() from this offset

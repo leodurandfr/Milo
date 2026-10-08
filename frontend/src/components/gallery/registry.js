@@ -967,6 +967,11 @@ export const REGISTRY = {
           props: { label: 'content slot', height: 240 }
         }
       },
+      // In place of #content, a source's own keyed pages in a KeepAlive: the
+      // source stages show it, with the source's real navigation.
+      pages: {
+        none: null
+      },
       player: {
         'Player-shaped block': {
           component: FillerBlock,

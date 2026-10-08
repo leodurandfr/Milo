@@ -89,6 +89,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useCardGridColumns } from '@/composables/useCardGridColumns'
+import { onPageReturn } from '@/composables/useNavigationStack'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
@@ -177,6 +178,10 @@ async function loadData() {
 onMounted(() => {
   loadData()
 })
+
+// Back from a page above: the subscriptions a resync invalidated meanwhile are
+// fetched again, with no skeleton (an answer from the cache costs nothing).
+onPageReturn(() => podcastStore.loadSubscriptions())
 </script>
 
 <style scoped>

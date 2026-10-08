@@ -135,6 +135,7 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll';
+import { onPageReturn } from '@/composables/useNavigationStack';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Button from '@/components/ui/Button.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -336,6 +337,10 @@ onMounted(async () => {
   // asks for the scan it owed the moment Navidrome answers again.
   if (store.catalogReady) store.rescan();
 });
+
+// Back from a page above, which is not opening the browser: no rescan, only the
+// tab's list again if something invalidated it meanwhile (a no-op from the cache).
+onPageReturn(() => loadTab(store.activeTab));
 </script>
 
 <style scoped>
