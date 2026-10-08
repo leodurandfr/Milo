@@ -9,6 +9,7 @@ from backend.api.route_helpers import api_error_handler
 from backend.api.responses import BulkSettingsResponse
 from backend.config.constants import (
     AUDIO_SOURCE_APPS,
+    DEFAULT_ROC_CONFIG,
     ROC_FEC_REPAIR_RANGE,
     ROC_FEC_SOURCE_RANGE,
     ROC_FRAME_LENGTHS,
@@ -809,6 +810,8 @@ def create_settings_router(
             "packet_lengths": list(get_args(ROC_PACKET_LENGTHS)),
             "fec_block_source": {"min": ROC_FEC_SOURCE_RANGE[0], "max": ROC_FEC_SOURCE_RANGE[1]},
             "fec_block_repair": {"min": ROC_FEC_REPAIR_RANGE[0], "max": ROC_FEC_REPAIR_RANGE[1]},
+            # What the panel's Reset stages, both halves of the link.
+            "defaults": dict(DEFAULT_ROC_CONFIG),
         }
 
     # Mac ROC Streaming configuration

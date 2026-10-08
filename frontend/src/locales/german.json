@@ -338,8 +338,6 @@
     "fecSource": "FEC-Quellpakete",
     "fecRepair": "FEC-Reparaturpakete",
     "interleaving": "Paket-Interleaving",
-    "analysis": "Automatische Einstellung",
-    "autoTune": "Automatisch einstellen",
     "stageMeasuring": "Verbindung zum Mac wird gemessen",
     "stageComputing": "Einstellungen werden berechnet",
     "remaining": "noch {time}",
@@ -363,7 +361,8 @@
     "proposed": "Vorgeschlagen",
     "apply": "Anwenden",
     "applying": "Wird angewendet…",
-    "unavailable": "Die Einstellungen konnten nicht geladen werden. Sie erscheinen wieder, sobald Milō antwortet."
+    "unavailable": "Die Einstellungen konnten nicht geladen werden. Sie erscheinen wieder, sobald Milō antwortet.",
+    "reset": "Zurücksetzen"
   },
   "qobuzSettings": {
     "accountTitle": "Kontoeinstellungen",
@@ -433,7 +432,6 @@
     "latencyAndQuality": "Latenz und Qualität",
     "failedStart": "Die Analyse konnte nicht gestartet werden.",
     "reset": "Zurücksetzen",
-    "autoTune": "Automatisch einstellen",
     "partlyAssumed": "Einige Werte konnten nicht gemessen werden und wurden angenommen.",
     "valuesAreMeasured": "In Ihrem Netzwerk gemessene Einstellungen",
     "remaining": "noch {time}",
@@ -441,6 +439,10 @@
     "stageComputing": "Einstellungen werden berechnet",
     "latency": "Latenz",
     "loss": "Verlust"
+  },
+  "analysis": {
+    "title": "Automatische Einstellung",
+    "start": "Starten"
   },
   "updates": {
     "osTitle": "Betriebssystem",

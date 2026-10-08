@@ -217,7 +217,9 @@ ROC_RECEIVER_KEYS = ("target_latency_ms", "latency_profile", "frame_length_ms")
 
 DEFAULT_ROC_CONFIG = {
     "target_latency_ms": 50,
-    "latency_profile": "responsive",
+    # roc's own rule (latency_tuner.cpp, 0.4.0): responsive under 30 ms only,
+    # gradual above, where it absorbs the jitter a higher target allows.
+    "latency_profile": "gradual",
     "frame_length_ms": 4,
     "packet_length_ms": 3,
     "fec_block_source": 10,

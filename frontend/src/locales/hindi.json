@@ -338,8 +338,6 @@
     "fecSource": "FEC स्रोत पैकेट",
     "fecRepair": "FEC मरम्मत पैकेट",
     "interleaving": "पैकेट इंटरलीविंग",
-    "analysis": "स्वचालित सेटिंग",
-    "autoTune": "स्वचालित रूप से सेट करें",
     "stageMeasuring": "Mac से कनेक्शन मापा जा रहा है",
     "stageComputing": "सेटिंग्स की गणना हो रही है",
     "remaining": "{time} शेष",
@@ -363,7 +361,8 @@
     "proposed": "प्रस्तावित",
     "apply": "लागू करें",
     "applying": "लागू हो रहा है…",
-    "unavailable": "सेटिंग्स लोड नहीं हो सकीं। Milō के उत्तर देते ही वे वापस आ जाएँगी।"
+    "unavailable": "सेटिंग्स लोड नहीं हो सकीं। Milō के उत्तर देते ही वे वापस आ जाएँगी।",
+    "reset": "रीसेट करें"
   },
   "qobuzSettings": {
     "accountTitle": "खाता सेटिंग्स",
@@ -433,7 +432,6 @@
     "latencyAndQuality": "विलंबता और गुणवत्ता",
     "failedStart": "विश्लेषण शुरू नहीं किया जा सका।",
     "reset": "रीसेट करें",
-    "autoTune": "स्वचालित रूप से सेट करें",
     "partlyAssumed": "कुछ मान मापे नहीं जा सके और अनुमानित हैं।",
     "valuesAreMeasured": "आपके नेटवर्क पर मापी गई सेटिंग्स",
     "remaining": "{time} शेष",
@@ -441,6 +439,10 @@
     "stageComputing": "सेटिंग्स की गणना हो रही है",
     "latency": "विलंबता",
     "loss": "हानि"
+  },
+  "analysis": {
+    "title": "स्वचालित सेटिंग",
+    "start": "शुरू करें"
   },
   "updates": {
     "osTitle": "ऑपरेटिंग सिस्टम",

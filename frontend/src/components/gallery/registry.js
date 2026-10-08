@@ -105,6 +105,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
+import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
 import TriggerSample from './samples/TriggerSample.vue';
@@ -1153,6 +1154,20 @@ export const REGISTRY = {
     // playground reads as a component that failed to render.
     args: { open: true, label: 'Measuring your network… about 12 s remaining',
             percent: 45, class: 'canvas-column' },
+  },
+
+  // Opens on its results: toggling `running` shows the two reveals hand over,
+  // the progress folding away and the results unfolding from the top.
+  AnalysisSection: {
+    component: AnalysisSection,
+    args: { title: 'Automatic setting', running: false, percent: 45,
+            label: 'Measuring the speakers', hint: '12 s remaining',
+            note: 'Some values could not be measured and were assumed.',
+            hasResults: true, class: 'canvas-column' },
+    slots: {
+      default: { 'FillerBlock — the measured speakers': {
+        component: FillerBlock, props: { label: 'measured speakers', height: 120 } } }
+    }
   },
 
   SettingItem: {

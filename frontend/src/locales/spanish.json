@@ -338,8 +338,6 @@
     "fecSource": "Paquetes fuente FEC",
     "fecRepair": "Paquetes de reparación FEC",
     "interleaving": "Entrelazado de paquetes",
-    "analysis": "Ajuste automático",
-    "autoTune": "Ajustar automáticamente",
     "stageMeasuring": "Midiendo el enlace con el Mac",
     "stageComputing": "Calculando los ajustes",
     "remaining": "quedan {time}",
@@ -363,7 +361,8 @@
     "proposed": "Propuesta",
     "apply": "Aplicar",
     "applying": "Aplicando…",
-    "unavailable": "No se pudieron cargar los ajustes. Volverán en cuanto Milō responda."
+    "unavailable": "No se pudieron cargar los ajustes. Volverán en cuanto Milō responda.",
+    "reset": "Restablecer"
   },
   "qobuzSettings": {
     "accountTitle": "Ajustes de la cuenta",
@@ -433,7 +432,6 @@
     "latencyAndQuality": "Latencia y calidad",
     "failedStart": "No se pudo iniciar el análisis.",
     "reset": "Restablecer",
-    "autoTune": "Ajustar automáticamente",
     "partlyAssumed": "Algunos valores no pudieron medirse y se han supuesto.",
     "valuesAreMeasured": "Ajustes medidos en su red",
     "remaining": "quedan {time}",
@@ -441,6 +439,10 @@
     "stageComputing": "Calculando los ajustes",
     "latency": "Latencia",
     "loss": "Pérdida"
+  },
+  "analysis": {
+    "title": "Ajuste automático",
+    "start": "Iniciar"
   },
   "updates": {
     "osTitle": "Sistema operativo",

@@ -338,8 +338,6 @@
     "fecSource": "FEC source packets",
     "fecRepair": "FEC repair packets",
     "interleaving": "Packet interleaving",
-    "analysis": "Automatic setting",
-    "autoTune": "Set automatically",
     "stageMeasuring": "Measuring the link to the Mac",
     "stageComputing": "Computing the settings",
     "remaining": "{time} left",
@@ -363,7 +361,8 @@
     "proposed": "Proposed",
     "apply": "Apply",
     "applying": "Applying…",
-    "unavailable": "The settings could not be loaded. They will return as soon as Milō answers."
+    "unavailable": "The settings could not be loaded. They will return as soon as Milō answers.",
+    "reset": "Reset"
   },
   "qobuzSettings": {
     "accountTitle": "Account settings",
@@ -433,7 +432,6 @@
     "latencyAndQuality": "Latency and quality",
     "failedStart": "The analysis could not be started.",
     "reset": "Reset",
-    "autoTune": "Set automatically",
     "partlyAssumed": "Some values could not be measured and were assumed.",
     "valuesAreMeasured": "Settings measured on your network",
     "remaining": "{time} left",
@@ -441,6 +439,10 @@
     "stageComputing": "Computing the settings",
     "latency": "Latency",
     "loss": "Loss"
+  },
+  "analysis": {
+    "title": "Automatic setting",
+    "start": "Start"
   },
   "updates": {
     "osTitle": "Operating system",

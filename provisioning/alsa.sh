@@ -30,7 +30,7 @@ EOF
 
     tee "$MILO_DATA_DIR/mac.env" > /dev/null << 'EOF'
 ROC_TARGET_LATENCY=50ms
-ROC_LATENCY_PROFILE=responsive
+ROC_LATENCY_PROFILE=gradual
 ROC_FRAME_LENGTH=4ms
 EOF
 

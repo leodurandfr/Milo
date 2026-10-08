@@ -92,7 +92,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // to its roc-vad sender.
   const macRocSettings = ref({
     target_latency_ms: 50,
-    latency_profile: 'responsive',
+    latency_profile: 'gradual',
     frame_length_ms: 4,
     packet_length_ms: 3,
     fec_block_source: 10,

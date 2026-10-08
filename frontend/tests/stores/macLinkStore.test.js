@@ -68,6 +68,22 @@ describe('macLinkStore', () => {
     expect(store.hasChanges).toBe(false);
   });
 
+  it('stages the backend defaults on Reset, writes nothing, and forgets the measurement', async () => {
+    const DEFAULTS = { ...APPLIED, target_latency_ms: 50, frame_length_ms: 4, packet_interleaving: false };
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', defaults: DEFAULTS }));
+    await store.loadCapabilities();
+    store.handleCalibrationEvent(event('mac_calibration_result', PROPOSAL));
+    expect(store.canReset).toBe(true);
+
+    await store.resetDraft();
+
+    expect(store.draft).toEqual(DEFAULTS);
+    expect(store.canReset).toBe(false);
+    expect(apiCall.put).not.toHaveBeenCalled();
+    expect(store.calibration.result).toBeNull();
+    expect(apiCall.delete.mock.calls[0][0]).toBe('/api/settings/mac-roc/calibration');
+  });
+
   it('keeps the edit when Apply is refused', async () => {
     store.setDraftValue('target_latency_ms', 40);
     apiCall.put.mockResolvedValueOnce(fail('Unprocessable', 422));

@@ -73,6 +73,25 @@ export const useMacLinkStore = defineStore('macLink', () => {
     draft.value = { ...draft.value, [key]: value };
   }
 
+  // Reset stages the backend's defaults like the analysis stages its proposal:
+  // the controls move, and Apply stays the one write.
+  const canReset = computed(() => Boolean(capabilities.value?.defaults)
+    && !sameLink(draft.value, capabilities.value.defaults));
+
+  // The measurement goes with it: kept, its card would go on advertising a
+  // proposal the controls no longer hold, and come back on reopening.
+  async function resetDraft() {
+    if (!canReset.value) return;
+    draft.value = pickLink(capabilities.value.defaults);
+    const hadResult = Boolean(calibration.value.result);
+    calibration.value = { ...calibration.value, result: null, error: null, detail: null };
+    if (!hadResult) return;
+    await apiCall.delete('/api/settings/mac-roc/calibration', {
+      category: 'mac',
+      message: 'Error clearing the Mac link analysis',
+    });
+  }
+
   async function apply() {
     if (!hasChanges.value || isApplying.value) return false;
     isApplying.value = true;
@@ -207,6 +226,8 @@ export const useMacLinkStore = defineStore('macLink', () => {
     syncDraft,
     followApplied,
     setDraftValue,
+    canReset,
+    resetDraft,
     apply,
     startCalibration,
     handleCalibrationEvent,

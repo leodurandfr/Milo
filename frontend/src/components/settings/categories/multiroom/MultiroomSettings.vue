@@ -110,74 +110,57 @@
                 :disabled="busy" @change="selectCodec" />
             </SettingItem>
 
-            <div class="section-divider"></div>
+          </SettingsSection>
 
-            <!-- The result of this button is the sliders above moving. The only
-                 thing they cannot say is which speaker held the house back, so
-                 that is the one line printed underneath. -->
-            <Button variant="tinted" size="medium" class="auto-tune"
-              :loading="calibration.running" :disabled="busy" @click="startAnalysis">
-              {{ t('multiroomSettings.autoTune') }}
-            </Button>
-
-            <!-- Thirty seconds with no feedback reads as a hang. Same strip the
-                 library scan uses: a second progress bar drawn here is how two
-                 of them come to look different in one app. It stops short of
-                 full — only the result may finish it, so a slow network never
-                 shows a completed bar over a running analysis. -->
-            <ProgressStrip :open="calibration.running" :percent="progressPercent"
-              :step-ms="PROGRESS_TICK_MS"
-              :label="calibration.running ? stageLabel : ''"
-              :hint="calibration.running ? t('multiroomSettings.remaining', { time: formatUnit(remainingSeconds, 's') }) : ''" />
-
-            <p v-if="!calibration.running && analysisNote" class="text-body analysis-note">
-              {{ analysisNote }}
-            </p>
-
+          <!-- The result of a run is the sliders above moving. The only thing
+               they cannot say is which speaker held the house back, so that is
+               what the results show. -->
+          <AnalysisSection :title="t('analysis.title')" :running="calibration.running" :disabled="busy"
+            :percent="progressPercent" :step-ms="PROGRESS_TICK_MS" :label="stageLabel"
+            :hint="t('multiroomSettings.remaining', { time: formatUnit(remainingSeconds, 's') })"
+            :note="analysisNote" :has-results="measuredLinks.length > 0" @start="startAnalysis">
             <!-- What the measurement found, and only what a person can act
                  on: which speakers were weighed, how each connects, and which
                  one held the house back. The round-trip in milliseconds is
                  gone -- it was the one figure here nobody can rank. -->
-            <template v-if="!calibration.running && measuredLinks.length">
-              <p v-if="showsMeasuredValues" class="text-mono-medium analysis-badge">
-                {{ t('multiroomSettings.valuesAreMeasured') }}
-              </p>
+            <p v-if="showsMeasuredValues" class="text-mono-medium analysis-badge">
+              {{ t('multiroomSettings.valuesAreMeasured') }}
+            </p>
 
-              <!-- One card per measured speaker, in the same grid the info
-                   panel uses for its figures: the table's headers were there
-                   to name two columns, and a label beside each value names
-                   them without a header row to align. -->
-              <div class="analysis-grid">
-                <div v-for="row in measuredLinks" :key="row.mac_id" class="analysis-item">
-                  <div class="analysis-item__head">
-                    <SvgIcon v-if="row.link === 'ethernet'" name="network" :size="20" />
-                    <WifiSignal v-else :signal="row.signal_percent ?? 100" :size="20" />
-                    <!-- The face the same speaker's name wears in the list
-                         above, where ListItemButton titles a row carrying a
-                         subtitle. -->
-                    <span class="heading-4 analysis-item__name">{{ row.name }}</span>
+            <!-- One card per measured speaker, in the same grid the info
+                 panel uses for its figures: the table's headers were there
+                 to name two columns, and a label beside each value names
+                 them without a header row to align. -->
+            <div class="analysis-grid">
+              <div v-for="row in measuredLinks" :key="row.mac_id" class="analysis-item">
+                <div class="analysis-item__head">
+                  <SvgIcon v-if="row.link === 'ethernet'" name="network" :size="20" />
+                  <WifiSignal v-else :signal="row.signal_percent ?? 100" :size="20" />
+                  <!-- The face the same speaker's name wears in the list
+                       above, where ListItemButton titles a row carrying a
+                       subtitle. -->
+                  <span class="heading-4 analysis-item__name">{{ row.name }}</span>
+                </div>
+                <div class="analysis-item__metrics">
+                  <div class="analysis-item__metric">
+                    <span class="text-mono-medium analysis-item__label">
+                      {{ t('multiroomSettings.latency') }}
+                    </span>
+                    <span class="text-mono-medium analysis-item__value">{{ formatUnit(row.rtt_max_ms, 'ms') }}</span>
                   </div>
-                  <div class="analysis-item__metrics">
-                    <div class="analysis-item__metric">
-                      <span class="text-mono-medium analysis-item__label">
-                        {{ t('multiroomSettings.latency') }}
-                      </span>
-                      <span class="text-mono-medium analysis-item__value">{{ formatUnit(row.rtt_max_ms, 'ms') }}</span>
-                    </div>
-                    <div class="analysis-item__metric">
-                      <span class="text-mono-medium analysis-item__label">
-                        {{ t('multiroomSettings.loss') }}
-                      </span>
-                      <span class="text-mono-medium analysis-item__value"
-                        :class="{ 'analysis-item__value--warn': row.loss_pct > 0 }">
-                        {{ formatUnit(row.loss_pct, '%') }}
-                      </span>
-                    </div>
+                  <div class="analysis-item__metric">
+                    <span class="text-mono-medium analysis-item__label">
+                      {{ t('multiroomSettings.loss') }}
+                    </span>
+                    <span class="text-mono-medium analysis-item__value"
+                      :class="{ 'analysis-item__value--warn': row.loss_pct > 0 }">
+                      {{ formatUnit(row.loss_pct, '%') }}
+                    </span>
                   </div>
                 </div>
               </div>
-            </template>
-          </SettingsSection>
+            </div>
+          </AnalysisSection>
 
           <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium"
             class="apply-button-sticky" floating :loading="snapcastStore.isApplyingServerConfig"
@@ -209,7 +192,7 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import ProgressStrip from '@/components/settings/ProgressStrip.vue';
+import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-system']);
 
@@ -497,11 +480,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.section-divider {
-  height: 1px;
-  background: var(--color-border);
-}
-
 .no-clients-state {
   text-align: center;
   padding: var(--space-04);
@@ -566,18 +544,9 @@ onBeforeUnmount(() => {
 }
 
 /* Automatic analysis */
-.auto-tune {
-  width: 100%;
-}
-
-.analysis-note {
-  color: var(--color-text-secondary);
-  margin: var(--space-02) 0 0;
-}
-
 .analysis-badge {
   color: var(--color-brand);
-  margin: var(--space-03) 0 0;
+  margin: 0;
 }
 
 /* Same card grid as the info panel's figures: a framed table was the one

@@ -451,6 +451,12 @@ export const ENTRIES = [
     summary: 'The progress strip the settings screens share: Navidrome\'s scan, the add-share wizard, the multiroom analysis. `percent` null sweeps, for work with no known total; a number fills. Two modes rather than two components, because a second bar drawn elsewhere is how two of them come to look different.',
   },
   {
+    id: 'AnalysisSection',
+    group: 'settings',
+    file: 'components/settings/AnalysisSection.vue',
+    summary: 'The automatic-tuning section of the multiroom and Mac panels: a title with Start beside it, then the section opens in height on the run\'s progress and, once it ends, on the note and the panel\'s own results in the slot, which stay open.',
+  },
+  {
     id: 'SettingItem',
     group: 'settings',
     file: 'components/settings/SettingItem.vue',

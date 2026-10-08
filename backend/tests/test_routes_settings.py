@@ -1076,7 +1076,7 @@ class TestBulkSettings:
     # A different value of the same type for each leaf that needs one spelled out.
     NUDGES = {
         ("language",): "french",
-        ("mac", "latency_profile"): "gradual",
+        ("mac", "latency_profile"): "intact",
         ("mac", "frame_length_ms"): 6,
         ("dock", "enabled_apps"): ["radio"],
         ("screen", "theme"): "dark",
@@ -1215,6 +1215,16 @@ class TestMacLink:
                 assert len(caps[caps_key]) >= 3, caps_key
                 for value in caps[caps_key]:
                     assert client.put("/api/settings/mac-roc", json={**MAC_ROC_BODY, key: value}).status_code == 200
+
+    def test_the_defaults_reset_stages_are_a_link_the_put_accepts(self):
+        """The Mac panel's Reset stages these whole and Apply sends them as they
+        are: a default the PUT refuses is a Reset that ends on a 422."""
+        client = self._client()
+        defaults = client.get("/api/settings/mac-roc/capabilities").json()["defaults"]
+        assert set(defaults) == set(MAC_ROC_BODY)
+
+        with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()):
+            assert client.put("/api/settings/mac-roc", json=defaults).status_code == 200
 
     def test_a_put_without_the_senders_half_is_refused_not_defaulted(self):
         """Defaulted, the four missing keys would reset the Mac's roc-vad device

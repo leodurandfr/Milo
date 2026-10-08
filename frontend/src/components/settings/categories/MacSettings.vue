@@ -3,7 +3,20 @@
   <SettingsContainer>
     <template v-if="caps">
       <!-- The half this unit runs: roc-recv. -->
-      <SettingsSection :title="t('macSettings.receiver')">
+      <!-- Reset sits on the first section and covers both: the link is one
+           record, staged here and written by Apply, like the analysis. -->
+      <SettingsSection>
+        <template #header>
+          <SectionHeader :title="t('macSettings.receiver')">
+            <template #actions>
+              <Button v-if="macLinkStore.canReset" variant="tinted" size="small" :disabled="busy"
+                @click="macLinkStore.resetDraft()">
+                {{ t('macSettings.reset') }}
+              </Button>
+            </template>
+          </SectionHeader>
+        </template>
+
         <RangeSlider :label="t('macSettings.targetLatency')" :model-value="draft.target_latency_ms" :min="caps.target_latency_ms.min"
           :max="caps.target_latency_ms.max" :step="5" unit="ms" :disabled="busy"
           @update:model-value="set('target_latency_ms', $event)" />
@@ -44,21 +57,11 @@
 
       <!-- The analysis measures and proposes; the controls above move and
            Apply stays the one write. -->
-      <SettingsSection :title="t('macSettings.analysis')">
-        <Button variant="tinted" size="medium" class="auto-tune" :loading="calibration.running"
-          :disabled="busy" @click="startAnalysis">
-          {{ t('macSettings.autoTune') }}
-        </Button>
-
-        <ProgressStrip :open="calibration.running" :percent="progressPercent" :step-ms="PROGRESS_TICK_MS"
-          :label="calibration.running ? stageLabel : ''"
-          :hint="calibration.running ? t('macSettings.remaining', { time: formatUnit(remainingSeconds, 's') }) : ''" />
-
-        <p v-if="!calibration.running && analysisNote" class="text-body analysis-note">
-          {{ analysisNote }}
-        </p>
-
-        <div v-if="!calibration.running && measured" class="analysis-grid">
+      <AnalysisSection :title="t('analysis.title')" :running="calibration.running" :disabled="busy"
+        :percent="progressPercent" :step-ms="PROGRESS_TICK_MS" :label="stageLabel"
+        :hint="t('macSettings.remaining', { time: formatUnit(remainingSeconds, 's') })"
+        :note="analysisNote" :has-results="Boolean(measured)" @start="startAnalysis">
+        <div class="analysis-grid">
           <div class="analysis-item">
             <span class="heading-4 analysis-item__name">{{ measured.mac_name }}</span>
             <div class="analysis-item__metrics">
@@ -96,7 +99,7 @@
             </div>
           </div>
         </div>
-      </SettingsSection>
+      </AnalysisSection>
     </template>
 
     <p v-else-if="macLinkStore.capabilitiesFailed" class="text-body section-note">
@@ -124,8 +127,9 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import ProgressStrip from '@/components/settings/ProgressStrip.vue';
+import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 
 const { t, formatUnit } = useI18n();
 const settingsStore = useSettingsStore();
@@ -222,15 +226,6 @@ onMounted(() => {
 
 .toggle-row__label {
   color: var(--color-text-secondary);
-}
-
-.auto-tune {
-  width: 100%;
-}
-
-.analysis-note {
-  color: var(--color-text-secondary);
-  margin: var(--space-02) 0 0;
 }
 
 .analysis-grid {
