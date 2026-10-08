@@ -50,6 +50,10 @@ const NOT_A_PRESS_SURFACE = {
     'the mini-player itself — a swipe surface (touchstart/move/end); a shrink would fight the drag',
   'components/audio/AudioPlayerFull.vue::connect-player':
     'the full player itself — a pull-down surface; its @click.capture only swallows the click a drag leaves',
+  'components/audio/AudioPlayer.vue::player-artwork-frame':
+    'the cover, a way into the full player: the view changing is the acknowledgement, and a shrink first read as a delay',
+  'components/audio/AudioPlayerFull.vue::artwork':
+    'the cover, the way back to the navigation: the view changing is the acknowledgement, and a shrink first read as a delay',
   'components/audio/ProgressBar.vue::progress-container':
     'a seek bar: the tap position is the value, and the bar must not move under the finger',
   'components/audio/DetailHeader.vue::detail-header-subtitle':
