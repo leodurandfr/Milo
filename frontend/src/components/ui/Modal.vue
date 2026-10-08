@@ -80,6 +80,9 @@ const isAnimating = ref(false);
 // The scroller is the single scroll container + the scrollElRef for navigation.
 provide('modalContentRef', modalScroller);
 
+// A header drawn in a modal takes the modal's look (NavigationHeader).
+provide('inModal', true);
+
 // Accordions (ToggleSection / Network) and multiroom zones on EXPAND pre-announce
 // intra-view height changes through this so the clip springs in lock-step.
 provide('modalRequestHeightDelta', requestHeightDelta);
@@ -407,21 +410,12 @@ onUnmounted(() => {
 
 /* Shell: chrome (radius, glass stroke, open/close scale+opacity). Does NOT scroll
    and does NOT carry the animated height — it wraps the clip and tracks its height. */
-/* The shell a modal's panels are laid on: the contextual tokens every panel
-   and header read become the modal's for everything inside it. */
 .modal-shell {
-  --color-panel: var(--color-section);
-  --color-inset: var(--color-section-inset);
-  --color-tile: var(--color-section-tile);
   /* The overlay under the shell already blurs the screen, and a
      backdrop-filter stops at the nearest ancestor that has one: the shell's
      own would only see the overlay's veil. Measured: 2/255 at most. */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  --color-header: var(--color-modal-header);
-  --color-header-control: var(--color-modal-header-control);
-  --color-header-text: var(--color-modal-header-text);
-  --color-header-text-secondary: var(--color-modal-header-text-secondary);
   position: relative;
   border-radius: var(--radius-08);
   width: 100%;

@@ -309,7 +309,7 @@ onBeforeUnmount(() => {
 
 /* Open: the trigger lifts out of its track, as the ButtonGroup's thumb does. */
 .dropdown-trigger.is-open {
-  background: var(--color-panel);
+  background: var(--color-surface);
   box-shadow: 0 0 0 1px var(--color-border), var(--shadow-thumb);
 }
 
@@ -430,12 +430,12 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-item:active {
-  background: var(--color-menu-press);
+  background: var(--color-fill-faint);
 }
 
 @media (hover: hover) {
   .dropdown-item:hover {
-    background: var(--color-menu-press);
+    background: var(--color-fill-faint);
   }
 }
 

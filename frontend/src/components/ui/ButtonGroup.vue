@@ -138,7 +138,7 @@ function selectOption(value) {
   min-width: 0;
   display: flex;
   padding: var(--space-01);
-  background: var(--color-track);
+  background: var(--color-fill-faint);
 }
 
 .button-group--medium .button-group__track {
@@ -155,7 +155,7 @@ function selectOption(value) {
   position: absolute;
   top: 0;
   left: 0;
-  background: var(--color-panel);
+  background: var(--color-surface);
   box-shadow: var(--shadow-thumb);
   pointer-events: none;
   transition: opacity var(--transition-fast);

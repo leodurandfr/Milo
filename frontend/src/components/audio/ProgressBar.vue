@@ -199,7 +199,7 @@ function onProgressClick(event) {
 /* === Variants === */
 
 .progress-bar--default .progress-container {
-  background-color: var(--color-track);
+  background-color: var(--color-fill-faint);
 }
 
 .progress-bar--default .progress {
@@ -207,7 +207,7 @@ function onProgressClick(event) {
 }
 
 .progress-bar--default .progress-container.dimmed .progress {
-  background-color: var(--color-fill-muted);
+  background-color: var(--color-text-secondary);
 }
 
 .progress-bar--default .time {
@@ -219,7 +219,7 @@ function onProgressClick(event) {
 }
 
 .progress-bar--on-contrast .progress {
-  background-color: var(--color-fill-on-contrast);
+  background-color: var(--color-text-on-contrast);
 }
 
 .progress-bar--on-contrast .time {
@@ -243,7 +243,7 @@ function onProgressClick(event) {
 }
 
 .progress-bar--default .live-line {
-  background-color: var(--color-track);
+  background-color: var(--color-fill-faint);
 }
 
 .progress-bar--on-contrast .live-line {

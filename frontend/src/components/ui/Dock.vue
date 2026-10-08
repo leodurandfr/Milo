@@ -797,7 +797,7 @@ onUnmounted(() => {
   .volume-btn,
   .dock-separator,
   .toggle-btn {
-    background: var(--color-panel);
+    background: var(--color-surface);
   }
 
   .desktop-only {

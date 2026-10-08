@@ -128,7 +128,7 @@ const volumeFillStyle = computed(() => ({
 
 .volume-bar--on-contrast {
   --volume-track: var(--color-glass);
-  --volume-fill: var(--color-fill-on-contrast);
+  --volume-fill: var(--color-text-on-contrast);
   --volume-text: var(--color-text-secondary);
   --glass-tone: var(--color-shell-on-contrast);
 }

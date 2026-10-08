@@ -372,7 +372,7 @@ const actionButton = computed(() => {
   padding: var(--space-02) var(--space-05);
   /* Le spinner se cale sur la ligne du libellé, donc sur son palier portrait. */
   --spinner-size: var(--line-height-h3);
-  background: var(--color-control);
+  background: var(--color-fill-faint);
   border: none;
   border-radius: var(--radius-04);
   color: var(--color-text-secondary);

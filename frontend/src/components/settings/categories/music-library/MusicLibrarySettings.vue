@@ -255,7 +255,7 @@ onMounted(() => {
 }
 
 .ml-dot.is-off {
-  background: var(--color-fill-off);
+  background: var(--color-text-tertiary);
 }
 
 @media (max-aspect-ratio: 4/3) {

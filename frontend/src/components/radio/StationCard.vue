@@ -157,7 +157,7 @@ const cardMetadata = computed(() => {
   width: 60px;
   height: 60px;
   border-radius: var(--radius-02);
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
 }
 
 .station-details {

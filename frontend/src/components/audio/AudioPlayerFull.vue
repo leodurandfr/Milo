@@ -447,7 +447,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
   color: var(--color-text-tertiary);
 }
 
@@ -455,7 +455,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
    cards of two different colours elsewhere — so it needs the ground the glyph
    fallback gets, or the blurred backdrop shows through it. */
 .artwork-placeholder {
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
 }
 
 /* Held cover while the next one decodes. The scale is not decoration: a blur

@@ -181,7 +181,7 @@ function formatDuration(totalSeconds) {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-02);
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
 }
 
 .track-number {

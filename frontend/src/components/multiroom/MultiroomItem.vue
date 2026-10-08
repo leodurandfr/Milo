@@ -534,7 +534,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   flex-direction: column;
   border-radius: var(--radius-06);
   padding: var(--space-04) var(--space-04) 0;
-  background: var(--color-panel);
+  background: var(--color-surface);
 }
 
 /* === ITEM HEADER (zone/client row) === */
@@ -859,7 +859,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   height: 36px;
-  background: var(--color-fill-muted);
+  background: var(--color-text-secondary);
   border-radius: var(--radius-full);
   color: var(--color-text-on-contrast);
   padding-left: var(--space-04);
@@ -886,7 +886,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 .toggle-offline-placeholder {
   width: 60px;
   height: 36px;
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   border-radius: var(--radius-full);
 }
 

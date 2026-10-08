@@ -73,7 +73,7 @@ defineProps({
 
 .scan-progress__track {
   height: 8px;
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   border-radius: var(--radius-01);
   overflow: hidden;
 }

@@ -83,15 +83,42 @@ function declarations(body) {
   return found;
 }
 
-const LIGHT_VALUES = declarations(rootBody(0));
+/**
+ * A value with every `light-dark(light, dark)` replaced by the branch `theme`
+ * paints — the one function a role's two values are written in.
+ */
+function branch(value, theme) {
+  const start = value.indexOf('light-dark(');
+  if (start === -1) return value;
+  const open = start + 'light-dark('.length;
+  let depth = 0;
+  let comma = -1;
+  let close = open;
+  for (; close < value.length; close++) {
+    const char = value[close];
+    if (char === '(') depth++;
+    else if (char === ')') {
+      if (depth === 0) break;
+      depth--;
+    } else if (char === ',' && depth === 0) comma = close;
+  }
+  const picked = theme === 'light' ? value.slice(open, comma) : value.slice(comma + 1, close);
+  return branch(value.slice(0, start) + picked.trim() + value.slice(close + 1), theme);
+}
+
+const VALUES = declarations(rootBody(0));
+const inTheme = theme => Object.fromEntries(Object.entries(VALUES).map(([name, value]) => [name, branch(value, theme)]));
+const LIGHT_VALUES = inTheme('light');
+const DARK_VALUES = inTheme('dark');
 
 /**
- * What the dark block restates, name -> value. A color token it leaves out is
- * the same in both themes on purpose (tests/architecture/darkTokens.test.js).
+ * The dark value of every token that has one, name -> value. A color token
+ * with no light-dark() is the same in both themes on purpose
+ * (tests/architecture/darkTokens.test.js).
  */
-export const DARK = declarations(rootBody(css.indexOf(':root[data-theme="dark"]')));
-
-const DARK_VALUES = { ...LIGHT_VALUES, ...DARK };
+export const DARK = Object.fromEntries(
+  Object.keys(VALUES).filter(name => VALUES[name].includes('light-dark(')).map(name => [name, DARK_VALUES[name]])
+);
 
 /**
  * A value with every `var()` replaced by what it reads in that theme, down to
@@ -176,14 +203,11 @@ const KINDS = {
   PALETTE: 'swatch',
   BRAND: 'swatch',
   SURFACES: 'swatch',
-  'TRACKS AND FILLS': 'swatch',
+  FILLS: 'swatch',
+  TEXT: 'swatch',
   GLASS: 'swatch',
   CONTRAST: 'swatch',
   'ON IMAGE': 'swatch',
-  'THEME PREVIEW': 'swatch',
-  TEXT: 'swatch',
-  BORDERS: 'swatch',
-  SKELETON: 'swatch',
   KEYBOARD: 'swatch',
   STATUS: 'swatch',
   'SOURCE GRADIENTS': 'swatch',
@@ -211,10 +235,9 @@ export const EXCLUDED_SECTIONS = {
 /** Prose a section deserves beyond its own token list. */
 const NOTES = {
   PALETTE: 'The only neutrals written as values, and private to design-system.css: a component reads a role below, never a step. Every chip on this page is drawn twice, light then dark, each half on that theme\'s --color-surface and half on its --color-contrast, so an alpha reads as what it is.',
-  SURFACES: 'From the ground up. In light a panel is white and what it holds sinks below it; in dark each layer is a step lighter than the one under it. --color-panel is --color-surface on a screen and --color-section inside a modal, where --color-inset and --color-tile also become --color-section-inset and --color-section-tile.',
+  SURFACES: 'From the ground up. In light a surface is white and what it holds sinks below it; in dark each layer is a step lighter than the one under it — on a screen and inside a modal alike.',
   CONTRAST: 'Dark in both themes, so what is drawn on it — the glint, the fill, the white text — is the same in both.',
   'ON IMAGE': 'Drawn over artwork, which does not change with the theme, so neither do these. The backdrop pair is what AudioPlayerFull draws under its blurred cover, in the dark theme only.',
-  'THEME PREVIEW': 'A picture of each theme rather than a theme: the theme picker draws a corner of the light screen while the app is dark and the reverse, so each pair repeats the two values of a role and never follows the theme.',
   'SOURCE GRADIENTS': 'The tint AudioSourceLayout washes behind a browsing source. Three one-off brand colours, which is why they are gradients here and not tokens in a ramp.',
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
@@ -231,7 +254,7 @@ function sectionBlock(title) {
     title,
     kind: KINDS[title],
     note: NOTES[title],
-    tokens: section.tokens.map(token => ({ ...token, dark: DARK[token.name], paint: paint(token.name), mobile: MOBILE[token.name] }))
+    tokens: section.tokens.map(token => ({ ...token, value: LIGHT_VALUES[token.name], dark: DARK[token.name], paint: paint(token.name), mobile: MOBILE[token.name] }))
   };
 }
 
@@ -245,8 +268,8 @@ const PAGES = [
   {
     id: 'colors',
     title: 'Colours',
-    summary: 'Every color the app is allowed to be, in both themes: the gray palette the neutrals are picked from, then the roles a component reads — surfaces, tracks, glass, contrast, what is drawn on an image, text — and the brand, status and gradient colors that belong to no ramp.',
-    sections: ['PALETTE', 'BRAND', 'SURFACES', 'TRACKS AND FILLS', 'GLASS', 'CONTRAST', 'ON IMAGE', 'THEME PREVIEW', 'TEXT', 'BORDERS', 'SKELETON', 'KEYBOARD', 'STATUS', 'SOURCE GRADIENTS'],
+    summary: 'Every color the app is allowed to be, in both themes: the gray palette the neutrals are picked from, then the roles a component reads — surfaces, fills, text, glass, contrast, what is drawn on an image — and the brand, status and gradient colors that belong to no ramp.',
+    sections: ['PALETTE', 'BRAND', 'SURFACES', 'FILLS', 'TEXT', 'GLASS', 'CONTRAST', 'ON IMAGE', 'KEYBOARD', 'STATUS', 'SOURCE GRADIENTS'],
     extras: []
   },
   {

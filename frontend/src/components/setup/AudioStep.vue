@@ -178,6 +178,6 @@ const ungroupedCards = computed(() =>
 }
 
 .audio-step__volume-control:disabled :deep(.slider) {
-  background-color: var(--color-fill-off);
+  background-color: var(--color-text-tertiary);
 }
 </style>

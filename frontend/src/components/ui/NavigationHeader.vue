@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/NavigationHeader.vue -->
 <template>
-  <div class="navigation-header" :class="{ 'has-back': showBack }">
+  <div class="navigation-header" :class="{ 'has-back': showBack, 'navigation-header--modal': inModal }">
     <!-- Content container with fixed height -->
     <div ref="headerContentRef" class="header-content">
       <Transition name="header-fade" @before-leave="pinWidth" @before-enter="unpinWidth">
@@ -43,7 +43,7 @@
 </template>
 
 <script setup>
-import { ref, onBeforeUpdate } from 'vue';
+import { ref, onBeforeUpdate, inject } from 'vue';
 import IconButton from './IconButton.vue';
 import AppIcon from './AppIcon.vue';
 
@@ -79,6 +79,8 @@ const emit = defineEmits(['back']);
 function handleBack() {
   emit('back');
 }
+
+const inModal = inject('inModal', false);
 
 // The actions gutter is reserved by the ENTERING view alone (the leaving set is
 // taken out of flow, see .actions-fade-leave-active), so .header-content reaches
@@ -117,12 +119,7 @@ function unpinWidth(el) {
 </script>
 
 <style scoped>
-/* The header of wherever it is drawn: a source's page or a modal. What it
-   holds — buttons, titles, glyphs — takes the colors that read on it. */
 .navigation-header {
-  --color-control: var(--color-header-control);
-  --color-text: var(--color-header-text);
-  --color-text-secondary: var(--color-header-text-secondary);
   position: relative;
   display: flex;
   background: var(--color-header);
@@ -131,6 +128,14 @@ function unpinWidth(el) {
   min-height: 72px;
   align-items: center;
   gap: var(--space-03);
+}
+
+/* In a modal it is dark in both themes, in its sections' gray: it takes the
+   dark scheme, so its title, buttons and glyphs take their dark values with
+   it. */
+.navigation-header--modal {
+  color-scheme: dark;
+  background: var(--color-surface);
 }
 
 .navigation-header h2 {

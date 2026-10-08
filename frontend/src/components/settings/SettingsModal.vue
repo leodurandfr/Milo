@@ -728,7 +728,7 @@ onMounted(async () => {
   place-items: center;
   width: 48px;
   height: 48px;
-  background: var(--color-control);
+  background: var(--color-fill-faint);
   border: none;
   border-radius: var(--radius-04);
   cursor: pointer;
@@ -800,7 +800,7 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   background: var(--color-tile);
-  color: var(--color-tile-glyph);
+  color: var(--color-text-secondary);
 }
 
 .settings-tile :deep(svg) {

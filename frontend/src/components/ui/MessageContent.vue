@@ -99,7 +99,7 @@ const { t } = useI18n()
 const displayTitle = computed(() => props.title || (props.loading ? t('common.loading') : null))
 
 const iconColor = computed(() =>
-  props.variant === 'on-contrast' ? 'var(--color-text-on-contrast-secondary)' : 'var(--color-text-faint)'
+  props.variant === 'on-contrast' ? 'var(--color-text-on-contrast-secondary)' : 'var(--color-fill-soft)'
 )
 
 // Delayed loading state to avoid flash of spinner
@@ -140,7 +140,7 @@ watch(() => props.loading, (isLoading) => {
   gap: var(--space-04);
   padding: var(--space-07) var(--space-06) var(--space-08) var(--space-06);
   text-align: center;
-  background: var(--color-panel);
+  background: var(--color-surface);
   border-radius: var(--radius-06);
 }
 

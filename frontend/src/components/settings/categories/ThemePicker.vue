@@ -126,27 +126,15 @@ function select(value) {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: var(--mock-ground);
+  background: var(--color-ground);
 }
 
 .mock--light {
-  --mock-ground: var(--color-preview-light-ground);
-  --mock-panel: var(--color-preview-light-panel);
-  --mock-inset: var(--color-preview-light-inset);
-  --mock-ink: var(--color-preview-light-ink);
-  --mock-ink-secondary: var(--color-preview-light-ink-secondary);
-  --mock-thumb: var(--color-preview-light-thumb);
-  --mock-shell: var(--color-preview-light-shell);
+  color-scheme: light;
 }
 
 .mock--dark {
-  --mock-ground: var(--color-preview-dark-ground);
-  --mock-panel: var(--color-preview-dark-panel);
-  --mock-inset: var(--color-preview-dark-inset);
-  --mock-ink: var(--color-preview-dark-ink);
-  --mock-ink-secondary: var(--color-preview-dark-ink-secondary);
-  --mock-thumb: var(--color-preview-dark-thumb);
-  --mock-shell: var(--color-preview-dark-shell);
+  color-scheme: dark;
 }
 
 .mock--split {
@@ -162,13 +150,13 @@ function select(value) {
   height: 62cqw;
   padding: 6cqw;
   border-radius: 5cqw;
-  background: var(--mock-panel);
+  background: var(--color-surface);
 }
 
 .mock-bar {
   height: 3cqw;
   border-radius: var(--radius-full);
-  background: var(--mock-ink);
+  background: var(--color-text);
 }
 
 .mock-bar--title {
@@ -182,7 +170,7 @@ function select(value) {
 
 .mock-bar--secondary {
   width: 15cqw;
-  background: var(--mock-ink-secondary);
+  background: var(--color-text-tertiary);
 }
 
 .mock-row {
@@ -194,7 +182,7 @@ function select(value) {
   margin-top: 3cqw;
   padding: 0 3.5cqw;
   border-radius: 3cqw;
-  background: var(--mock-inset);
+  background: var(--color-inset);
 }
 
 .mock-bar--title + .mock-row {
@@ -216,7 +204,7 @@ function select(value) {
   width: 6.6cqw;
   height: 6.6cqw;
   border-radius: var(--radius-full);
-  background: var(--mock-thumb);
+  background: var(--color-thumb);
 }
 
 /* The dock's glass running off the left edge. */
@@ -228,7 +216,7 @@ function select(value) {
   gap: 3cqw;
   padding: 3cqw;
   border-radius: var(--radius-full);
-  background: var(--mock-shell);
+  background: var(--color-shell);
   backdrop-filter: blur(3cqw);
   -webkit-backdrop-filter: blur(3cqw);
 }

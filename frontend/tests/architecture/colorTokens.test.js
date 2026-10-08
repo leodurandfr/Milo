@@ -1,16 +1,17 @@
 // frontend/tests/architecture/colorTokens.test.js
 /**
  * The color system's two tiers, held in place (design-system.css explains
- * them): a private gray palette, and role tokens picked from it in both theme
- * blocks.
+ * them): a private gray palette, and role tokens picked from it, each with
+ * its light and dark value.
  *
- * Four drifts break it, all silently. A component reading a token nobody
+ * Five drifts break it, all silently. A component reading a token nobody
  * declares — a role renamed on one side — paints nothing at all, and the
  * browser says so nowhere. A component declaring its own `--color-*` is a
- * second palette the theme blocks cannot see. A component reading a palette
- * step directly bypasses the role, so it stops following the theme. And a
- * neutral written as a hex in a theme block is a gray from outside the
- * palette, which is how the greens crept into the dark theme.
+ * second palette the roles cannot see. A component reading a palette step
+ * directly bypasses the role, so it stops following the theme. A neutral
+ * written as a hex in a role is a gray from outside the palette, which is how
+ * the greens crept into the dark theme. And a palette entry no role reads is
+ * dead weight that hides the ones that matter.
  *
  * Mounts nothing: it reads the source the browser reads.
  */
@@ -26,19 +27,6 @@ const CSS = readFileSync(DESIGN_SYSTEM, 'utf8');
 
 const ROLE = /--(?:color|stroke|gradient)-[\w-]+/;
 
-/** The contextual roles, and the one file allowed to redeclare each (see design-system.css). */
-const CONTEXTUAL = {
-  '--color-panel': ['components/ui/Modal.vue'],
-  '--color-inset': ['components/ui/Modal.vue'],
-  '--color-tile': ['components/ui/Modal.vue'],
-  '--color-header': ['components/ui/Modal.vue'],
-  '--color-header-control': ['components/ui/Modal.vue'],
-  '--color-header-text': ['components/ui/Modal.vue'],
-  '--color-header-text-secondary': ['components/ui/Modal.vue'],
-  '--color-control': ['components/ui/NavigationHeader.vue'],
-  '--color-text': ['components/ui/NavigationHeader.vue'],
-  '--color-text-secondary': ['components/ui/NavigationHeader.vue']
-};
 
 /**
  * Sections whose values are not neutrals and so are written as values: the
@@ -83,7 +71,6 @@ function sectionsOf(body) {
 const FILES = sourceFiles(SRC);
 const LIGHT_BODY = block(':root');
 const LIGHT = declarations(LIGHT_BODY);
-const DARK = declarations(block(':root[data-theme="dark"]'));
 const SECTION = sectionsOf(LIGHT_BODY);
 /** Every custom property design-system.css declares anywhere. */
 const DECLARED = new Set([...CSS.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
@@ -93,7 +80,7 @@ describe('color tokens', () => {
     // A selector or a walk that stopped matching would leave every check
     // below looking at nothing, and passing.
     expect(Object.keys(LIGHT).filter((name) => name.startsWith('--gray-')).length).toBeGreaterThan(10);
-    expect(Object.keys(DARK).length).toBeGreaterThan(20);
+    expect(Object.keys(LIGHT).filter((name) => name.startsWith('--color-')).length).toBeGreaterThan(30);
     expect(FILES.length).toBeGreaterThan(150);
     expect(new Set(Object.values(SECTION)).size).toBeGreaterThan(10);
   });
@@ -120,7 +107,7 @@ describe('color tokens', () => {
       if (file === DESIGN_SYSTEM) continue;
       const where = relative(SRC, file);
       for (const [, name] of readFileSync(file, 'utf8').matchAll(/(?:^|[\s;{])(--color-[\w-]+)\s*:/g)) {
-        if (!CONTEXTUAL[name]?.includes(where)) stray.push(`${where}: ${name}`);
+        stray.push(`${where}: ${name}`);
       }
     }
 
@@ -135,16 +122,37 @@ describe('color tokens', () => {
     expect(readers).toEqual([]);
   });
 
-  it('picks every neutral of both theme blocks from the palette', () => {
-    const written = [];
-    for (const [theme, values] of [['light', LIGHT], ['dark', DARK]]) {
-      for (const [name, value] of Object.entries(values)) {
-        if (!name.startsWith('--color-') || NOT_NEUTRAL.includes(SECTION[name])) continue;
-        if (/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(value)) written.push(`${theme} ${name}: ${value}`);
-      }
-    }
+  it('picks every neutral role from the palette', () => {
+    // Both themes at once: a role's dark value sits beside its light one in
+    // light-dark().
+    const written = Object.entries(LIGHT)
+      .filter(([name]) => name.startsWith('--color-') && !NOT_NEUTRAL.includes(SECTION[name]))
+      .filter(([, value]) => /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(value))
+      .map(([name, value]) => `${name}: ${value}`);
 
     expect(written).toEqual([]);
+  });
+
+  it('reads every palette step and tint', () => {
+    // An entry nothing reads is how the palette grew to twice what the roles
+    // needed: retuned or merged roles leave their old steps behind, unseen. A
+    // tint counts if a role or a rule reads it, a step if one does or a tint
+    // that counts is mixed from it — never a comment, never its own tint alone.
+    const code = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const palette = Object.keys(LIGHT).filter((name) => name.startsWith('--gray-'));
+    const readers = code.replace(/^\s*--gray-[\w-]+\s*:[^;]*;/gm, '');
+    const read = (name) => new RegExp(`var\\(\\s*${name}\\s*\\)`).test(readers);
+    const tints = palette.filter((name) => /-a\d+$/.test(name));
+    const liveTints = tints.filter(read);
+    const steps = palette.filter((name) => !tints.includes(name));
+    expect(tints.length).toBeGreaterThan(10);
+    expect(steps.length).toBeGreaterThan(10);
+
+    const unread = [
+      ...tints.filter((name) => !liveTints.includes(name)),
+      ...steps.filter((name) => !read(name) && !liveTints.some((tint) => tint.startsWith(`${name}-a`))),
+    ];
+    expect(unread).toEqual([]);
   });
 
   it('writes every translucent neutral as a palette tint, named for its step and alpha', () => {
@@ -163,12 +171,10 @@ describe('color tokens', () => {
       .map(([name, value]) => `${name}: ${value}`);
     expect(misnamed).toEqual([]);
 
-    const inline = [];
-    for (const [theme, values] of [['light', LIGHT], ['dark', DARK]]) {
-      for (const [name, value] of Object.entries(values)) {
-        if (name.startsWith('--color-') && /color-mix\(/.test(value)) inline.push(`${theme} ${name}: ${value}`);
-      }
-    }
+    const inline = Object.entries(LIGHT)
+      .filter(([name]) => name.startsWith('--color-') && !NOT_NEUTRAL.includes(SECTION[name]))
+      .filter(([, value]) => /color-mix\(/.test(value))
+      .map(([name, value]) => `${name}: ${value}`);
     expect(inline).toEqual([]);
   });
 });

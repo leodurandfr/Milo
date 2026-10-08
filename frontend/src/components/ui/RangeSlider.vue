@@ -259,7 +259,7 @@ function handleChange(event) {
    the left, in between in proportion — so it never eats into the track's ends,
    and the fill follows its right edge out to keep the 3px around it. */
 .slider-container {
-  --slider-accent: var(--color-fill-muted);
+  --slider-accent: var(--color-text-secondary);
   --track-thickness: 34px;
   --knob-width: 44px;
   --knob-height: 28px;
@@ -317,7 +317,7 @@ function handleChange(event) {
 .range-track {
   position: absolute;
   border-radius: var(--radius-full);
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   /* The fill's extra run past a held knob never pokes out of the track's
      rounded end, at the maximum or on the spring's overshoot. */
   overflow: hidden;
@@ -532,7 +532,7 @@ function handleChange(event) {
 }
 
 .slider-container.muted {
-  --slider-accent: color-mix(in srgb, var(--color-fill-muted) 50%, transparent);
+  --slider-accent: color-mix(in srgb, var(--color-text-secondary) 50%, transparent);
 }
 
 /* === VALUE === */
@@ -546,7 +546,7 @@ function handleChange(event) {
   min-width: 88px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   color: var(--slider-accent);
   white-space: nowrap;
 }

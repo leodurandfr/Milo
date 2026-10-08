@@ -336,7 +336,7 @@ onUnmounted(() => {
 <style scoped>
 /* Connection status card (MultiroomItem zone pattern) */
 .connection-section {
-  background: var(--color-panel);
+  background: var(--color-surface);
   border-radius: var(--radius-06);
   padding: var(--space-05);
   display: flex;

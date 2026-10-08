@@ -138,7 +138,7 @@ function handleClick(event) {
 /* Each variant names its fill and its ink; .btn paints them, and a floating
    button composes the same fill over an opaque base. */
 .btn--control {
-    --btn-fill: var(--color-control);
+    --btn-fill: var(--color-fill-faint);
     --btn-ink: var(--color-text);
 }
 
@@ -181,17 +181,17 @@ function handleClick(event) {
    panel over both rather than an opacity, which would let the content
    scrolling underneath show through. */
 .btn--floating {
-    background: linear-gradient(var(--btn-fill), var(--btn-fill)), var(--color-panel);
+    background: linear-gradient(var(--btn-fill), var(--btn-fill)), var(--color-surface);
 }
 
 .btn--floating:disabled {
-    --btn-veil: color-mix(in srgb, var(--color-panel) 60%, transparent);
+    --btn-veil: color-mix(in srgb, var(--color-surface) 60%, transparent);
     opacity: 1;
     background:
         linear-gradient(var(--btn-veil), var(--btn-veil)),
         linear-gradient(var(--btn-fill), var(--btn-fill)),
-        var(--color-panel);
-    color: color-mix(in srgb, var(--btn-ink) 40%, var(--color-panel));
+        var(--color-surface);
+    color: color-mix(in srgb, var(--btn-ink) 40%, var(--color-surface));
 }
 
 /* === RESPONSIVE (Mobile) === */

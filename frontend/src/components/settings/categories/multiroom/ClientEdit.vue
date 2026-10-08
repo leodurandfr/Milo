@@ -619,7 +619,7 @@ onMounted(async () => {
   align-items: center;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  background: var(--color-panel);
+  background: var(--color-surface);
   box-shadow: inset 0 0 0 2px var(--color-border);
 }
 

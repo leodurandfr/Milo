@@ -70,7 +70,7 @@ const store = useMusicLibraryStore();
   width: 60px;
   height: 60px;
   border-radius: var(--radius-02);
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
 }
 
 .media-cover--icon {

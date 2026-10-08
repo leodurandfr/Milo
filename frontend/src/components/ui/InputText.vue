@@ -147,7 +147,7 @@ onUnmounted(() => {
    panel, ringed by one brand pixel. */
 .input-container:focus-within,
 .input-container.keyboard-active {
-  background: var(--color-panel);
+  background: var(--color-surface);
   box-shadow: inset 0 0 0 1px var(--color-brand);
 }
 

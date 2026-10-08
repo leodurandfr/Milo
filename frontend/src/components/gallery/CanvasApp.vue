@@ -405,6 +405,6 @@ onUnmounted(() => {
   width: 180px;
   height: 180px;
   border-radius: var(--radius-04);
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
 }
 </style>

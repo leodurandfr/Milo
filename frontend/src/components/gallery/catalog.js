@@ -271,7 +271,7 @@ export const ENTRIES = [
     id: 'NavigationHeader',
     group: 'structure',
     file: 'components/ui/NavigationHeader.vue',
-    summary: 'Title bar with an optional back affordance. It is a panel of wherever it is drawn — white on a page, the section color inside a modal (--color-panel) — so it takes no variant, and its trailing IconButtons keep their default.',
+    summary: 'Title bar with an optional back affordance. It is the surface on a page (--color-header) and dark in both themes inside a modal, which gives it the dark color-scheme — so it takes no variant, and its trailing IconButtons keep their default.',
   },
   {
     id: 'Dock',

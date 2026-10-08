@@ -118,7 +118,7 @@ onMounted(() => {
 }
 
 .remote-dot--off {
-  background: var(--color-fill-off);
+  background: var(--color-text-tertiary);
 }
 
 .remote-dot--idle {

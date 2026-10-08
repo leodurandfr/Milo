@@ -38,7 +38,7 @@ defineProps({
 
 .badge--neutral {
   padding-left: 10px;
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   color: var(--color-text-secondary);
 }
 

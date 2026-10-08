@@ -140,7 +140,7 @@ function handleClick(event) {
 
 /* === VARIANTS === */
 .icon-button--control {
-  background: var(--color-control);
+  background: var(--color-fill-faint);
   color: var(--color-text);
 }
 
@@ -197,7 +197,7 @@ function handleClick(event) {
 
 /* === LOADING states (preserves variant styling) === */
 .icon-button--control.icon-button--loading {
-  background: var(--color-control);
+  background: var(--color-fill-faint);
   color: var(--color-text);
 }
 

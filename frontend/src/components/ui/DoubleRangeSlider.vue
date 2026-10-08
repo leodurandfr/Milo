@@ -178,7 +178,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
    inputs lie over the track 3px in from each end, so their thumbs travel
    where the knobs belong. */
 .double-range-slider {
-  --slider-accent: var(--color-fill-muted);
+  --slider-accent: var(--color-text-secondary);
   --track-thickness: 34px;
   --knob-width: 44px;
   --knob-height: 28px;
@@ -237,7 +237,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
   height: var(--track-thickness);
   transform: translateY(-50%);
   border-radius: var(--radius-full);
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   /* The fill's extra run past a held knob never pokes out of the track's
      rounded end, at the maximum or on the spring's overshoot. */
   overflow: hidden;
@@ -365,8 +365,8 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
   min-width: 88px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
-  background: var(--color-track);
-  color: var(--color-fill-muted);
+  background: var(--color-fill-faint);
+  color: var(--color-text-secondary);
   white-space: nowrap;
   transition: color var(--transition-fast);
 }

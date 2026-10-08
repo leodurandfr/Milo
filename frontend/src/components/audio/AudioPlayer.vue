@@ -523,7 +523,7 @@ function onTouchEnd(e) {
   height: 100%;
   border-radius: var(--radius-04);
   object-fit: cover;
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
   /* Clip the inline-SVG fallback to the rounded corners. (For <img>, content
      is clipped natively by border-radius — this matters only for the <div>
      wrapper case.) */

@@ -427,7 +427,7 @@ function preview(value) {
 .controls__action {
   padding: var(--space-01) var(--space-02);
   color: var(--color-text);
-  background: var(--color-control);
+  background: var(--color-fill-faint);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-02);
   cursor: pointer;

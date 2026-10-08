@@ -36,13 +36,13 @@ defineProps({
   flex: 1;
   height: 4px;
   border-radius: 2px;
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   transition: background 0.3s ease;
 }
 
 .step-bar--completed,
 .step-bar--active {
-  background: var(--color-fill-off);
+  background: var(--color-text-tertiary);
 }
 
 </style>

@@ -355,14 +355,14 @@ onMounted(async () => {
 .bar-container {
   width: 100%;
   height: 6px;
-  background: var(--color-track);
+  background: var(--color-fill-faint);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
-  background: var(--color-fill-muted);
+  background: var(--color-text-secondary);
   border-radius: 3px;
   transition: width var(--transition-normal);
 }

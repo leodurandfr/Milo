@@ -109,7 +109,7 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   width: 120px;
   height: 120px;
   border-radius: var(--radius-03);
-  background: var(--color-skeleton);
+  background: var(--color-fill-faint);
 }
 
 /* Same scrim and light currentColor as the design system's .card-loading-overlay,
