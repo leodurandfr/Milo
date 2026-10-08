@@ -134,9 +134,19 @@ const volumeFillStyle = computed(() => ({
 }
 
 @media (max-aspect-ratio: 4/3) {
+  /* Lands exactly on AudioSourceLayout's navigation header: same side inset,
+     same top, and the same 64px height. */
   .volume-bar {
-    width: calc(100% - 2*(var(--space-04)));
-    top: max(var(--space-05), env(safe-area-inset-top, 0px));
+    --volume-bar-top: calc(max(var(--space-05-fixed), env(safe-area-inset-top, 0px)) + var(--space-02));
+    width: calc(100% - 2 * var(--space-05));
+    top: var(--volume-bar-top);
+    /* Hidden fully above the screen edge whatever the safe-area inset adds to
+       the top — a fixed -80px left part of the bar on screen under a notch. */
+    transform: translate(-50%, calc(-100% - var(--volume-bar-top)));
+  }
+
+  .volume-bar.visible {
+    transform: translate(-50%, 0);
   }
 }
 </style>
