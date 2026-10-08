@@ -120,13 +120,13 @@ def test_one_implementation_of_the_admission_recipe(service_functions):
 def test_the_recipe_owns_the_online_flag(service_functions):
     """Nothing announces a client online *before* its volume reached the hardware.
 
-    `set_client_online(mac, True)` is legitimate in exactly two places: the sync
-    itself, once the hardware confirmed, and the readmission of an already-known
-    client at WebSocket connect, where no sync is due because the satellite never
-    stopped playing. Anywhere else is the window that left a muted speaker showing
-    as online with nothing to retry it.
+    `set_client_online(mac, True)` is legitimate in exactly one place: the sync
+    itself, once the hardware confirmed. Anywhere else is the window that left a
+    muted speaker showing as online with nothing to retry it — and, at WebSocket
+    connect, a known satellite back from a multiroom toggle shown online without
+    the mute it was given while away.
     """
-    allowed = {"_do_sync_reconnecting_client_volume", "_initialize_existing_clients"}
+    allowed = {"_do_sync_reconnecting_client_volume"}
 
     setters = set()
     for name, fn in service_functions.items():

@@ -3007,13 +3007,14 @@ class TestAdmissionPathConvergence:
         )
 
     @pytest.mark.asyncio
-    async def test_a_known_client_is_readmitted_without_a_volume_resync(self):
-        """A backend restart is not a client reconnection.
+    async def test_a_known_client_is_readmitted_through_the_sync(self):
+        """A known client gets the same admission as a new one.
 
-        The satellite kept playing across it, and the reconnection policy does
-        not restore a client's own volume — it applies the peer average or the
-        startup volume — so resyncing here would audibly reset every speaker
-        each time the backend is restarted.
+        Between two connections of the socket nobody watched it: a mute or an
+        EQ change made while it was away reaches it only through the sync, and
+        marking it online directly left a satellite back from a multiroom toggle
+        playing while it showed muted. The sync re-applies its own stored level,
+        so a speaker that kept playing across a backend restart is not reset.
         """
         service, registry, _, _ = await self._service()
         await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
@@ -3022,8 +3023,10 @@ class TestAdmissionPathConvergence:
         await service._initialize_existing_clients()
         await asyncio.sleep(0)
 
-        assert registry.get_client(self.MAC).online is True
-        service._sync_reconnecting_client_volume.assert_not_awaited()
+        assert registry.get_client(self.MAC).online is False
+        service._sync_reconnecting_client_volume.assert_awaited_once_with(
+            self.MAC, set_online_after=True, snapcast_id=self.MAC
+        )
 
     @pytest.mark.asyncio
     async def test_a_reconnect_during_a_sync_still_refreshes_the_address(self):

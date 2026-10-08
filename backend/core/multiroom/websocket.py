@@ -370,41 +370,37 @@ class SnapcastWebSocketService:
             for client in live_clients:
                 mac_id = client["mac_id"]
                 is_local = (client["ip"] == "127.0.0.1")
-                is_new_client = self.registry.get_client(mac_id) is None if self.registry else True
-
-                if is_new_client:
-                    local_marker = " LOCAL CLIENT" if is_local else ""
-                    self.logger.debug(
-                        f"[{time.time():.3f}] INIT_CLIENTS: New client {client['id']} "
-                        f"(mac_id: {mac_id}){local_marker}"
-                    )
+                local_marker = " LOCAL CLIENT" if is_local else ""
+                self.logger.debug(
+                    f"[{time.time():.3f}] INIT_CLIENTS: Client {client['id']} "
+                    f"(mac_id: {mac_id}){local_marker}"
+                )
 
                 await self._register_snapclient(
                     mac_id, client["name"] or mac_id, client["ip"], client["host"],
                     is_local=is_local,
                 )
 
-                if is_new_client:
-                    # Same admission sequence as every other path: sync first and
-                    # show the client online only once the hardware confirmed, with
-                    # retries because a satellite's API is often still booting when
-                    # its snapclient is already connected. Registering it online
-                    # here instead left a failed sync unretried — snapserver and the
-                    # registry then both read "online", so no later transition ever
-                    # re-triggered it and the speaker stayed muted (CamillaDSP
-                    # starts with -m) for as long as it was up.
-                    self._bg.spawn(
-                        self._sync_reconnecting_client_volume(
-                            mac_id, set_online_after=True, snapcast_id=client["id"]
-                        ),
-                        label=f"sync_init_client_{mac_id}",
-                    )
-                elif self.registry:
-                    # Known client: the backend restarted, the satellite did not.
-                    # Marking it online is all that is due — a resync would re-apply
-                    # a stored level, and its EQ and buffer config with it, to a
-                    # speaker that never stopped playing.
-                    await self.registry.set_client_online(mac_id, True)
+                # Same admission sequence as every other path, for a known client
+                # too: sync first and show the client online only once the
+                # hardware confirmed, with retries because a satellite's API is
+                # often still booting when its snapclient is already connected.
+                # Registering a new client online here left a failed sync
+                # unretried, and the speaker muted (CamillaDSP starts with -m) for
+                # as long as it was up. Readmitting a known one without the sync
+                # assumed it never stopped playing, but between two connections of
+                # this socket nobody watched it (direct mode, a snapserver
+                # restart): a satellite back from offline during a multiroom
+                # toggle never got the mute it was given while away, and played
+                # while every screen showed it muted. The sync re-applies the
+                # client's own stored state, so a speaker that did keep playing
+                # hears nothing change.
+                self._bg.spawn(
+                    self._sync_reconnecting_client_volume(
+                        mac_id, set_online_after=True, snapcast_id=client["id"]
+                    ),
+                    label=f"sync_init_client_{mac_id}",
+                )
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
             has_local = any(c.is_local for c in self.registry.get_all_clients().values()) if self.registry else False

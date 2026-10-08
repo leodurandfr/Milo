@@ -717,6 +717,37 @@ class TestTheRemainingAdmissionArms:
         assert registry.get_client(MAC).online is False, "shown online before the sync"
         assert synced == [(MAC, {"set_online_after": True, "snapcast_id": SNAPCAST_ID})]
 
+    async def test_a_known_client_live_at_connect_gets_the_mute_it_was_given_while_away(
+        self, service, registry, snapcast, volume_service
+    ):
+        """A mute set while a satellite is offline is stored, not sent; its
+        admission is what delivers it. A satellite that comes back during a
+        multiroom toggle reconnects to the new snapserver before the socket
+        opens, so its Client.OnConnect is never heard and the connect sweep is
+        the only path that sees it. Readmitting a known client there without the
+        sync left the speaker playing while every screen showed it muted."""
+        await registry.register_client(MAC, "Canapé", IP)
+        assert registry.get_client(MAC).online is False
+        volume_service.state_store.get_client_mute = MagicMock(return_value=True)
+        snapcast.get_server_status = AsyncMock(return_value={"server": {"groups": []}})
+        snapcast.extract_clients = MagicMock(return_value=[_snapcast_client()])
+        shown_online_when_muted = []
+
+        async def mute(mac_id, muted, force=False):
+            shown_online_when_muted.append(registry.get_client(MAC).online)
+            return True
+
+        volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(side_effect=mute)
+
+        await service._initialize_existing_clients()
+        await asyncio.gather(*list(service._bg._tasks))
+
+        volume_service.equalizer_controller.set_equalizer_mute.assert_awaited_once_with(
+            MAC, True, force=True
+        )
+        assert shown_online_when_muted == [False], "shown online before its mute landed"
+        assert registry.get_client(MAC).online is True
+
     async def test_a_retry_takes_the_level_a_move_gave_the_room_while_it_waited(
         self, service, registry, volume_service
     ):
