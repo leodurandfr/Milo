@@ -53,11 +53,22 @@ class CdIoctlReader:
         # Why the last run ended: "leadout", an errno, or None (stopped, or
         # still running). mpv sees the FIFO close the same way in every case.
         self._outcome = None
+        # The running read's end LBA, in a box of its own like the stop event:
+        # set_end() moves it while the thread reads.
+        self._end = [0]
+        # Where the last run's read ended, when it read to its end.
+        self._reached: Optional[int] = None
 
     @property
     def reached_leadout(self) -> bool:
-        """The last run read the disc to its end."""
+        """The last run read to the end it was given."""
         return self._outcome == "leadout"
+
+    @property
+    def reached_end(self) -> Optional[int]:
+        """The end LBA the last run read up to, if it read to its end: the
+        end in force when it got there, whatever set_end() says since."""
+        return self._reached if self.reached_leadout else None
 
     @property
     def failure(self) -> Optional[int]:
@@ -79,13 +90,19 @@ class CdIoctlReader:
         self._stop_event = threading.Event()
         self._ready_event.clear()
         self._outcome = None
+        self._reached = None
+        self._end = [end_lba]
         self._thread = threading.Thread(
             target=self._read_loop,
-            args=(start_lba, end_lba, self._stop_event),
+            args=(start_lba, self._end, self._stop_event),
             daemon=True,
             name="cd-ioctl-reader",
         )
         self._thread.start()
+
+    def set_end(self, end_lba: int) -> None:
+        """Move the running read's end. One already past it ends at once."""
+        self._end[0] = end_lba
 
     def wait_ready(self, timeout: float = 5.0) -> bool:
         """Wait until the reader has opened the CD device and is ready to connect FIFO."""
@@ -105,7 +122,7 @@ class CdIoctlReader:
             logger.warning("CD reader thread did not stop within timeout")
         self._thread = None
 
-    def _read_loop(self, start_lba: int, end_lba: int,
+    def _read_loop(self, start_lba: int, end: list,
                    stop_event: threading.Event) -> None:
         """Main read loop: ioctl read -> FIFO write.
 
@@ -135,7 +152,13 @@ class CdIoctlReader:
             audio_buf = ctypes.create_string_buffer(READ_CHUNK * SECTOR_SIZE)
             buf_ptr = ctypes.addressof(audio_buf)
 
-            while lba < end_lba and not stop_event.is_set():
+            while not stop_event.is_set():
+                # Read once a chunk: set_end() moves it from another thread.
+                end_lba = end[0]
+                if lba >= end_lba:
+                    self._reached = end_lba
+                    self._outcome = "leadout"
+                    break
                 nframes = min(READ_CHUNK, end_lba - lba)
 
                 # Pack struct cdrom_read_audio with native alignment:
@@ -171,9 +194,6 @@ class CdIoctlReader:
                     break
 
                 lba += nframes
-
-            if lba >= end_lba:
-                self._outcome = "leadout"
 
         except OSError as e:
             if not stop_event.is_set():

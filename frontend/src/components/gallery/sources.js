@@ -404,7 +404,7 @@ const CD_DISC = {
 
 /** `details` of the CD with the sample disc in, `current` its 1-based track. */
 function cdDetails(current, disc = CD_DISC) {
-  return { kind: 'cd', disc, current_track: current, artwork_pending: false };
+  return { kind: 'cd', disc, current_track: current, artwork_pending: false, shuffle: false, repeat: 'off' };
 }
 
 /** A CD session on track `number` of the sample disc. */
@@ -948,7 +948,7 @@ export const SOURCE_PAGES = [
       }),
       published('cd', 'Disc ready, not playing', 'Nothing in session and the player shows anyway: the resume point names track 1 at 0:00 — what a play press would start — and useSourceProgress draws that frozen bar from `position_ms`. The transport is live because `controls` lists resume, seek and the track commands with no session behind them.', {
         resume: { title: 'Keep', artist: 'Nils Frahm', album: 'Felt', artwork: musicPlaceholder, duration_ms: 312000, position_ms: 0 },
-        controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject'],
+        controls: ['resume', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
         details: cdDetails(1)
       }),
       published(
@@ -957,7 +957,7 @@ export const SOURCE_PAGES = [
         'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. The TOC alone answers: generic "Track N" titles from the real track count and durations, and no album, artist, year or cover. The player is admitted on the title alone and draws "Unknown Artist" — the honest label here — over the disc placeholder. Demanding an artist too is what once left this player on its empty seed over a tracklist that listed the tracks correctly.',
         {
           resume: { title: 'Track 1', artist: null, album: null, artwork: null, duration_ms: 312000, position_ms: 0 },
-          controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject'],
+          controls: ['resume', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
           details: cdDetails(1, {
             id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
             album: null,
@@ -970,17 +970,17 @@ export const SOURCE_PAGES = [
       ),
       published('cd', 'Loading a track', 'A play press or a track change opens a session in loading while the reader restarts: the bar snaps to 0:00 on the target track and stays there, since `seek` is not listed while loading, and the spinner replaces the glyph.', {
         session: cdSession(3, { phase: 'loading', position: anchor(0) }),
-        controls: ['pause', 'next', 'prev', 'play_track', 'eject'],
+        controls: ['pause', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
         details: cdDetails(3)
       }),
-      published('cd', 'Playing', 'AudioPlayerFull with the full transport. On the last track `next` leaves `controls`, and the button with it.', {
+      published('cd', 'Playing', 'AudioPlayerFull with the full transport. On the last track `next` leaves `controls` (unless the disc repeats), and the button with it.', {
         session: cdSession(4, { phase: 'playing', position: anchor(74000) }),
-        controls: ['pause', 'seek', 'skip', 'prev', 'play_track', 'eject'],
+        controls: ['pause', 'seek', 'skip', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
         details: cdDetails(4)
       }),
       published('cd', 'Paused', 'A paused session is still a session, and the screen says so by its transport — resume instead of pause — while the bar freezes at the anchor. Auto-stop ends it on the idle screen above, keeping the track and the second as the resume point, so the disc stays visible and play resumes where it was.', {
         session: cdSession(3, { phase: 'paused', position: anchor(74000) }),
-        controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject'],
+        controls: ['resume', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
         details: cdDetails(3)
       }),
       published('cd', 'Ejecting', 'availability ejecting outranks the disc: the display state is ejecting, a spinner, and the player gives way to the card rather than lingering over a disc that is leaving. `eject` is not listed — it is already happening.', {

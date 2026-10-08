@@ -20,6 +20,15 @@ seek restarts both at the new LBA (~0.5 s gap), and the track the playhead is
 in is mapped from mpv's time-pos. mpv sees the reader end — at the leadout or
 on a read error — as the same `eof` (measured), so the reader says which.
 
+Shuffle and repeat: the disc read to its leadout plays its tracks in their
+order, gapless, with no word from anyone at a track boundary. When what
+follows a track is not the next one on the disc (shuffle, repeat-one), the
+read stops at the track's end instead, and that end is where the next track
+is chosen — a reload, so those two modes cost the same gap a press on next
+does. Repeat-all alone keeps the gapless read and acts at the leadout. Both
+modes belong to the disc in the drive: they outlive a stop or a source switch
+and go back to off when the disc leaves.
+
 Rules:
 - NEVER start the reader without the matching mpv load (FIFO deadlock).
 - NEVER start mpv, run a MusicBrainz lookup, or begin playback while CD is not
@@ -31,6 +40,7 @@ Rules:
 import asyncio
 import errno
 import os
+import random
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Set
@@ -44,8 +54,10 @@ from backend.core.models.session import (
     CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, ResumePoint, ReroutePolicy,
     ResumePolicy,
 )
-from backend.core.models.audio_wire import CdDetails, CdDisc, CdTrack, ResumeView
-from backend.core.models.commands import SkipParams, skip_target
+from backend.core.models.audio_wire import CdDetails, CdDisc, CdTrack, RepeatMode, ResumeView
+from backend.core.models.commands import (
+    SetRepeatParams, SetShuffleParams, SkipParams, skip_target,
+)
 from backend.core.models.ws_events import SourceErrorReason
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -117,6 +129,7 @@ class CdSession(MpvSession):
     track: int = 1
     track_position: float = 0.0   # seconds into `track`
     start_lba: int = 0            # where the reader's current run began
+    end_lba: int = 0              # where it stops: the disc's end, or the track's
 
 
 class CdSource(MpvAudioSource):
@@ -149,6 +162,8 @@ class CdSource(MpvAudioSource):
         "prev": None,
         "seek": SeekParams,
         "skip": SkipParams,
+        "set_shuffle": SetShuffleParams,
+        "set_repeat": SetRepeatParams,
         "eject": None,
     }
     COMMAND_SCOPES = {
@@ -160,6 +175,9 @@ class CdSource(MpvAudioSource):
         # With nothing loaded, a seek moves the resume point (E39).
         "seek": CommandScope.RESUME,
         "skip": CommandScope.RESUME,
+        # The modes belong to the disc, session or not.
+        "set_shuffle": CommandScope.DEVICE,
+        "set_repeat": CommandScope.DEVICE,
         "eject": CommandScope.DEVICE,
     }
 
@@ -197,6 +215,11 @@ class CdSource(MpvAudioSource):
         # Set by an insertion while CD is the active source: that disc plays
         # once it is ready.
         self._play_on_ready = False
+        # The play order, for the disc in the drive: shuffle's order starts
+        # with the track that was playing when it was drawn.
+        self._shuffle = False
+        self._shuffle_order: List[int] = []
+        self._repeat: RepeatMode = "off"
         # Discs whose jacket is being fetched. Published as `artwork_pending` so
         # the player veils its placeholder instead of swapping it for the cover
         # a second later.
@@ -522,6 +545,7 @@ class CdSource(MpvAudioSource):
         self._lookup_for = None
         self._metadata_retry_pending = False
         self._play_on_ready = False
+        self._shuffle, self._shuffle_order, self._repeat = False, [], "off"
 
     def _set_disc_state(self, state: DiscState) -> None:
         self._disc_state = state
@@ -645,6 +669,7 @@ class CdSource(MpvAudioSource):
         self._publish()
 
         start_lba = self._lba_for(track, position)
+        end_lba = self._end_lba_for(track)
 
         async def load() -> Optional[int]:
             if not await self._mpv_ready():
@@ -652,7 +677,7 @@ class CdSource(MpvAudioSource):
             # mpv lets go of the FIFO before the reader is joined (_cleanup).
             await self._mpv.stop()
             await asyncio.to_thread(self._reader.stop)
-            self._reader.start(start_lba, self._toc.end_lba)
+            self._reader.start(start_lba, end_lba)
             if not await asyncio.to_thread(self._reader.wait_ready, 5.0):
                 self._logger.error("Reader not ready within timeout")
                 await asyncio.to_thread(self._reader.stop)
@@ -669,7 +694,8 @@ class CdSource(MpvAudioSource):
         if entry is None:
             await self._end_playback(EndReason.LOAD_FAILED, detail="mpv or the reader refused the load")
             return self.error_response("Failed to start playback")
-        session.entry, session.link, session.start_lba = entry, self._mpv.link, start_lba
+        session.entry, session.link = entry, self._mpv.link
+        session.start_lba, session.end_lba = start_lba, end_lba
         session.started = session.opened = False
         return self.success_response(f"Track {track}")
 
@@ -718,6 +744,10 @@ class CdSource(MpvAudioSource):
             return await self._handle_seek(params)
         if cmd == "skip":
             return await self._handle_skip(params)
+        if cmd == "set_shuffle":
+            return await self._handle_set_shuffle(params)
+        if cmd == "set_repeat":
+            return await self._handle_set_repeat(params)
         if cmd == "eject":
             return await self._handle_eject()
         return self.error_response(f"Unhandled command: {cmd}")
@@ -727,6 +757,10 @@ class CdSource(MpvAudioSource):
             return self.error_response("Disc not ready")
         if params.track_number > len(self._toc.lbas):
             return self.error_response(f"Invalid track number: {params.track_number}")
+        if self._shuffle:
+            # A track picked from the list starts a new draw, as a context
+            # picked in the library does.
+            self._shuffle_from(params.track_number)
         return await self._play(params.track_number, 0, paused=False)
 
     async def _handle_pause(self) -> Dict[str, Any]:
@@ -754,10 +788,13 @@ class CdSource(MpvAudioSource):
     async def _handle_next_track(self) -> Dict[str, Any]:
         if not self._playable():
             return self.error_response("No disc loaded")
+        if isinstance(self._session, CdSession):
+            await self._sync_position(self._session)
         track, _ = self._current_track()
-        if track >= len(self._toc.lbas):
+        following = self._following(track)
+        if following is None:
             return self.success_response("Already on last track")
-        return await self._play(track + 1, 0, paused=False)
+        return await self._play(following, 0, paused=False)
 
     async def _handle_prev_track(self) -> Dict[str, Any]:
         """Restart-then-previous, like Spotify: past the threshold prev
@@ -767,7 +804,7 @@ class CdSource(MpvAudioSource):
         if isinstance(self._session, CdSession):
             await self._sync_position(self._session)
         track, position = self._current_track()
-        target = track if position >= CD_PREV_RESTART_THRESHOLD_S else max(1, track - 1)
+        target = track if position >= CD_PREV_RESTART_THRESHOLD_S else self._preceding(track)
         return await self._play(target, 0, paused=False)
 
     async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
@@ -812,6 +849,39 @@ class CdSource(MpvAudioSource):
             int(position * 1000), params.seconds, self._track_fields(track)["duration_ms"],
         )
         return await self._handle_seek(SeekParams(position_ms=target))
+
+    async def _handle_set_shuffle(self, params: SetShuffleParams) -> Dict[str, Any]:
+        """Shuffle the disc from the track playing, or go back to the disc's
+        order after it; the track playing goes on either way."""
+        if not self._playable():
+            return self.error_response("No disc loaded")
+        if params.shuffle == self._shuffle:
+            return self.success_response("Shuffle unchanged")
+        session = self._session
+        if isinstance(session, CdSession):
+            await self._sync_position(session)
+        self._shuffle = params.shuffle
+        if self._shuffle:
+            self._shuffle_from(self._current_track()[0])
+        else:
+            self._shuffle_order = []
+        self._rebound_live_read()
+        self._publish()
+        return self.success_response("Shuffle on" if self._shuffle else "Shuffle off")
+
+    async def _handle_set_repeat(self, params: SetRepeatParams) -> Dict[str, Any]:
+        """Repeat the disc (`context`), the track, or neither."""
+        if not self._playable():
+            return self.error_response("No disc loaded")
+        if params.mode == self._repeat:
+            return self.success_response("Repeat unchanged")
+        session = self._session
+        if isinstance(session, CdSession):
+            await self._sync_position(session)
+        self._repeat = params.mode
+        self._rebound_live_read()
+        self._publish()
+        return self.success_response(f"Repeat {params.mode}")
 
     async def _handle_eject(self) -> Dict[str, Any]:
         """Eject the disc. The session ends first (the drive is released); the
@@ -870,6 +940,11 @@ class CdSource(MpvAudioSource):
         if reason == "stop":
             return
         if reason == "eof" and self._reader.reached_leadout:
+            ended = self._track_at(self._reader.reached_end - 1)
+            following = ended if self._repeat == "track" else self._following(ended)
+            if following is not None:
+                await self._play(following, 0, paused=False)
+                return
             self._logger.info("Album finished")
             await self._end_playback(EndReason.EOF, stop_mpv=False)
             return
@@ -908,12 +983,58 @@ class CdSource(MpvAudioSource):
             return False
         session.position = int(time_pos)
         lba = session.start_lba + int(float(time_pos) * SECTORS_PER_SECOND)
+        # A read that stops at its track's end never plays the next one.
+        lba = min(lba, session.end_lba - 1)
         track = self._track_at(lba)
         if track is not None and track != session.track:
             session.track = track
         session.track_position = max(0.0, (lba - self._toc.lbas[session.track - 1]) / SECTORS_PER_SECOND)
         self._observe_position(int(session.track_position * 1000))
         return True
+
+    # =========================================================================
+    # PLAY ORDER (shuffle, repeat)
+    # =========================================================================
+
+    def _play_order(self) -> List[int]:
+        if self._shuffle:
+            return self._shuffle_order
+        return list(range(1, len(self._toc.lbas) + 1))
+
+    def _shuffle_from(self, track: int) -> None:
+        rest = [n for n in range(1, len(self._toc.lbas) + 1) if n != track]
+        random.shuffle(rest)
+        self._shuffle_order = [track, *rest]
+
+    def _following(self, track: int) -> Optional[int]:
+        """The track after `track`; past the last, the first when the disc
+        repeats, else None."""
+        order = self._play_order()
+        index = order.index(track)
+        if index + 1 < len(order):
+            return order[index + 1]
+        return order[0] if self._repeat == "context" else None
+
+    def _preceding(self, track: int) -> int:
+        """The track before `track`; the first stays the first."""
+        order = self._play_order()
+        return order[max(0, order.index(track) - 1)]
+
+    def _end_lba_for(self, track: int) -> int:
+        """Where a read starting in `track` stops: at the track's end when
+        the next track on the disc is not what follows it."""
+        lbas = self._toc.lbas
+        if (self._shuffle or self._repeat == "track") and track < len(lbas):
+            return lbas[track]
+        return self._toc.end_lba
+
+    def _rebound_live_read(self) -> None:
+        """Move the running read's end to where the modes now want it. A
+        read already past it plays out the few seconds mpv holds first."""
+        session = self._session
+        if isinstance(session, CdSession) and session.end_lba:
+            session.end_lba = self._end_lba_for(session.track)
+            self._reader.set_end(session.end_lba)
 
     # =========================================================================
     # DISC GEOMETRY (kernel LBAs)
@@ -987,7 +1108,9 @@ class CdSource(MpvAudioSource):
         state = self._disc_state
         disc = self._disc
         if state is DiscState.UNREADABLE:
-            return CdDetails(disc=None, current_track=None, artwork_pending=False)
+            return CdDetails(
+                disc=None, current_track=None, artwork_pending=False, shuffle=False, repeat="off",
+            )
         if state is not DiscState.READY or disc is None:
             return None
         return CdDetails(
@@ -1001,6 +1124,8 @@ class CdSource(MpvAudioSource):
             ),
             current_track=self._current_track()[0],
             artwork_pending=disc.disc_id in self._covers_in_flight,
+            shuffle=self._shuffle,
+            repeat=self._repeat,
         )
 
     def _controls(self) -> List[str]:
@@ -1011,13 +1136,14 @@ class CdSource(MpvAudioSource):
                 DiscState.READING, DiscState.IDENTIFYING, DiscState.UNREADABLE,
             ) else []
         track, _ = self._current_track()
-        steps = ["next", "prev"] if track < len(self._toc.lbas) else ["prev"]
+        steps = ["next", "prev"] if self._following(track) is not None else ["prev"]
+        rest = [*steps, "set_shuffle", "set_repeat", "play_track", "eject"]
         session = self._session
         if session is not None and session.phase is Phase.LOADING:
-            return ["pause", *steps, "play_track", "eject"]
+            return ["pause", *rest]
         if session is not None and session.phase is Phase.PLAYING:
-            return ["pause", "seek", "skip", *steps, "play_track", "eject"]
-        return ["resume", "seek", "skip", *steps, "play_track", "eject"]
+            return ["pause", "seek", "skip", *rest]
+        return ["resume", "seek", "skip", *rest]
 
     async def refresh_metadata(self) -> bool:
         """Re-read the playhead so a (re)connecting client's state carries it."""

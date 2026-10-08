@@ -113,6 +113,16 @@ class CdWorld(WireReader):
                 self.starts.append((start_lba, end_lba))
                 world.log.append("reader.start")
 
+            @property
+            def reached_end(self) -> Optional[int]:
+                return self.starts[-1][1] if self.reached_leadout else None
+
+            def set_end(self, end_lba: int) -> None:
+                # A thread that is done reads nothing more, whatever its end.
+                if self.running:
+                    start_lba, _ = self.starts[-1]
+                    self.starts[-1] = (start_lba, end_lba)
+
             def wait_ready(self, timeout: float = 5.0) -> bool:
                 world.log.append("reader.ready")
                 return self.ready
@@ -334,8 +344,20 @@ class CdWorld(WireReader):
         await self.mpv.ends("eof")
 
     async def disc_runs_out(self) -> None:
+        """The reader reaches the end it was given: the leadout, or the end of
+        its track when the read stops there (shuffle, repeat-one)."""
         await self._reader_ends("leadout")
         await self.advance(1.1)            # a one-second poller's next look
+
+    track_runs_out = disc_runs_out
+
+    def read_reaches_its_end(self) -> None:
+        """The reader thread is done; mpv still plays what it holds."""
+        self.reader.outcome, self.reader.running = "leadout", False
+
+    async def mpv_plays_out(self) -> None:
+        await self.mpv.ends("eof")
+        await self.advance(1.1)
 
     async def read_error(self, code: int = errno.EIO) -> None:
         await self._reader_ends(code)

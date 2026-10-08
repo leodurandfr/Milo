@@ -162,6 +162,7 @@ These are shared by every source; they break for all of them at once.
 | Fallback | A disc absent from the online catalogue still plays with generic track names — no error state | targeted |
 | Transport | Play/pause, next, seek work; **previous** early in a track goes to the previous track, late in a track restarts the current one | targeted |
 | Progress | Position matches the audio and survives pause/resume | targeted |
+| Shuffle / repeat | Shuffle toggled mid-track does not interrupt it, and at its end a track other than the next one plays; repeat-one plays the track again; repeat-all goes from the last track back to the first; both survive leaving the source and coming back, and are off for a newly inserted disc | targeted |
 | Eject | The eject control releases the disc and the UI leaves the CD source cleanly | targeted |
 
 ### Music Library (C) ⚠ USB and/or share

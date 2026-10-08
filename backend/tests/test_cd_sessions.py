@@ -884,3 +884,162 @@ async def test_a_drive_change_off_screen_is_one_state_carrying_it(world):
     assert {(e["category"], e["type"]) for e in sent} == {("source", "state")}
     assert sent[-1]["data"]["source"] == "none"
     assert sent[-1]["data"]["availability"]["cd"] == "no_disc"
+
+
+# === Shuffle and repeat ===
+#
+# The disc read to its leadout plays its tracks in their order with no word at
+# a boundary; shuffle and repeat-one stop each read at its track's end, which
+# is where the next track is chosen.
+
+END_LBA = 60150 - 150
+
+
+@pytest.fixture
+def drawn(monkeypatch):
+    """The shuffle draws the remaining tracks in reverse: a known order."""
+    from backend.sources.cd import source as cd_module
+    monkeypatch.setattr(cd_module.random, "shuffle", lambda tracks: tracks.reverse())
+
+
+def _details(w):
+    details = w.state()["details"]
+    return details["shuffle"], details["repeat"]
+
+
+async def test_shuffle_plays_the_drawn_order_one_track_read_at_a_time(world, drawn):
+    """A track's end is invisible in a read to the leadout: shuffle bounds the
+    running read at once, then reads each drawn track alone."""
+    w = await world()
+    await _playing_track(w, 2, 10)
+    await w.command("set_shuffle", {"shuffle": True})
+
+    assert w.reader.starts[-1] == (kernel_lba(2), kernel_lba(3))
+    assert _details(w) == (True, "off")
+
+    await w.track_runs_out()                 # order: 2, 8, 7, 6, 5, 4, 3, 1
+    assert w.reader.starts[-1] == (kernel_lba(8), END_LBA)
+    w.playhead(1)
+    await w.advance(1.1)
+    assert w.playing() and w.track() == 8
+
+    await w.track_runs_out()
+    assert w.reader.starts[-1] == (kernel_lba(7), kernel_lba(8))
+
+
+async def test_next_and_prev_follow_the_shuffled_order(world, drawn):
+    w = await world()
+    await _playing_track(w, 2, 10)
+    await w.command("set_shuffle", {"shuffle": True})
+
+    await w.command("next")
+    assert w.reader.starts[-1][0] == kernel_lba(8)
+    await w.command("prev")                  # in its first seconds: steps back
+    assert w.reader.starts[-1][0] == kernel_lba(2)
+
+
+async def test_a_track_picked_while_shuffled_starts_a_new_draw(world, drawn):
+    w = await world()
+    await _playing_track(w, 2, 10)
+    await w.command("set_shuffle", {"shuffle": True})
+    await w.command("play_track", {"track_number": 5})
+
+    await w.command("next")                  # order: 5, 8, 7, 6, 4, 3, 2, 1
+    assert w.reader.starts[-1][0] == kernel_lba(8)
+
+
+async def test_the_end_of_a_shuffled_disc_ends_the_session(world, drawn):
+    w = await world()
+    await _playing_track(w, 1, 10)
+    await w.command("set_shuffle", {"shuffle": True})    # 1, 8, 7, …, 2
+    for _ in range(7):
+        await w.command("next")
+    assert w.reader.starts[-1] == (kernel_lba(2), kernel_lba(3))
+    assert "next" not in w.state()["controls"]
+
+    await w.track_runs_out()
+    assert not w.active()
+    assert w.session_ends()[-1] == "eof"
+
+
+async def test_shuffle_off_goes_back_to_the_disc_order_without_a_gap(world, drawn):
+    """The track playing goes on and its read runs to the leadout again, so
+    the next track on the disc follows gapless."""
+    w = await world()
+    await _playing_track(w, 2, 10)
+    await w.command("set_shuffle", {"shuffle": True})
+    loads = len(w.reader.starts)
+    await w.command("set_shuffle", {"shuffle": False})
+
+    assert len(w.reader.starts) == loads
+    assert w.reader.starts[-1] == (kernel_lba(2), END_LBA)
+    await w.command("next")
+    assert w.reader.starts[-1][0] == kernel_lba(3)
+
+
+async def test_a_mode_changed_after_the_read_ended_does_not_end_the_disc(world, drawn):
+    """The read stopped at its track's end while mpv still plays what it
+    holds: shuffle turned off then is too late for that read, and the track
+    after it on the disc follows — not the end of the album."""
+    w = await world()
+    await _playing_track(w, 3, 10)
+    await w.command("set_shuffle", {"shuffle": True})
+    w.read_reaches_its_end()
+    await w.command("set_shuffle", {"shuffle": False})
+    await w.mpv_plays_out()
+
+    assert w.active() and w.session_ends() == []
+    assert w.reader.starts[-1] == (kernel_lba(4), END_LBA)
+
+
+async def test_repeat_one_plays_the_track_again_and_next_still_moves_on(world):
+    w = await world()
+    await _playing_track(w, 4, 10)
+    await w.command("set_repeat", {"mode": "track"})
+    assert w.reader.starts[-1] == (kernel_lba(4), kernel_lba(5))
+
+    await w.track_runs_out()
+    assert w.reader.starts[-1] == (kernel_lba(4), kernel_lba(5))
+    assert w.active()
+
+    await w.command("next")
+    assert w.reader.starts[-1] == (kernel_lba(5), kernel_lba(6))
+
+
+async def test_repeat_all_keeps_the_gapless_read_and_starts_the_disc_over(world):
+    w = await world()
+    await _playing_track(w, 8, 35)
+    await w.command("set_repeat", {"mode": "context"})
+
+    assert w.reader.starts[-1] == (kernel_lba(8), END_LBA)
+    assert "next" in w.state()["controls"]
+
+    await w.disc_runs_out()
+    assert w.active() and w.session_ends() == []
+    assert w.reader.starts[-1] == (kernel_lba(1), END_LBA)
+
+
+async def test_the_modes_outlive_a_source_switch_and_leave_with_the_disc(world):
+    w = await world()
+    await _playing_track(w, 2, 10)
+    await w.command("set_shuffle", {"shuffle": True})
+    await w.command("set_repeat", {"mode": "context"})
+    await w.leave()
+    await w.select()
+    assert _details(w) == (True, "context")
+
+    await w.command("eject")
+    await w.insert()
+    assert w.disc()["id"] == DISC_ID
+    assert _details(w) == (False, "off")
+
+
+async def test_the_modes_are_offered_only_with_a_disc_to_play(world):
+    w = await world(disc=None)
+    await w.select()
+    assert "set_shuffle" not in w.state()["controls"]
+    assert (await w.command("set_shuffle", {"shuffle": True}))["success"] is False
+
+    await w.insert()
+    controls = w.state()["controls"]
+    assert "set_shuffle" in controls and "set_repeat" in controls

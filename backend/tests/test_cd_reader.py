@@ -312,6 +312,28 @@ class TestTheReadLoop:
         assert [n for _l, _f, n in drive.requests] == [READ_CHUNK, 3]
         assert len(drive.total_pcm) == (READ_CHUNK + 3) * SECTOR_SIZE
 
+    def test_an_end_moved_behind_the_read_ends_it_there(self, monkeypatch):
+        """Shuffle bounds a read already under way, and the reader may be
+        past the new end: it stops at once, as a read that reached its end
+        (the source then picks the next track), never with a read of zero or
+        fewer sectors, which the drive refuses."""
+        drive = FakeDrive().install(monkeypatch)
+        reader = CdIoctlReader()
+        installed = fcntl.ioctl
+
+        def move_the_end(fd, request, buf):
+            result = installed(fd, request, buf)
+            if fd == CD_FD and len(drive.requests) == 2:
+                reader.set_end(READ_CHUNK)
+            return result
+
+        monkeypatch.setattr(fcntl, "ioctl", move_the_end)
+        reader.start(0, READ_CHUNK * 10)
+        reader._thread.join(timeout=5)
+
+        assert [n for _l, _f, n in drive.requests] == [READ_CHUNK, READ_CHUNK]
+        assert reader.reached_leadout and reader.reached_end == READ_CHUNK
+
     def test_a_short_write_is_resumed_from_where_it_stopped(self, monkeypatch):
         """A chunk is 47040 bytes against a 64 KiB pipe buffer, so `os.write`
         returning less than it was given is the normal case. Dropping the

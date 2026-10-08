@@ -174,6 +174,8 @@ class CdDetails(BaseModel):
     disc: Optional[CdDisc]
     current_track: Optional[int]     # 1-based
     artwork_pending: bool
+    shuffle: bool
+    repeat: RepeatMode
 
 
 class AirPlayDetails(BaseModel):

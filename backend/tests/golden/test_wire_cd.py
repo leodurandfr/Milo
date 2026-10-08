@@ -40,18 +40,27 @@ class FakeReader:
         self.running = False
         self.outcome: Any = None
         self.starts: List[int] = []
+        self.end: Optional[int] = None
 
     @property
     def reached_leadout(self) -> bool:
         return self.outcome == "leadout"
 
     @property
+    def reached_end(self) -> Optional[int]:
+        return self.end if self.reached_leadout else None
+
+    @property
     def failure(self) -> Optional[int]:
         return self.outcome if isinstance(self.outcome, int) else None
 
     def start(self, start_lba: int, end_lba: int) -> None:
-        self.running, self.outcome = True, None
+        self.running, self.outcome, self.end = True, None, end_lba
         self.starts.append(start_lba)
+
+    def set_end(self, end_lba: int) -> None:
+        if self.running:
+            self.end = end_lba
 
     def wait_ready(self, timeout: float = 5.0) -> bool:
         return True
