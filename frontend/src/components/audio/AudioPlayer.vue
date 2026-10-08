@@ -22,7 +22,7 @@
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child.
              The cover is the way into the full player. -->
-          <div v-press="!isMobile" class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }"
+          <div class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }"
             role="button" :tabindex="isMobile ? undefined : 0" :aria-label="t('common.expandPlayer')"
             @click="onArtworkClick" @keydown.enter.space.prevent="onArtworkClick">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"

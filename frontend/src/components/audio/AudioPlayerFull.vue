@@ -43,7 +43,7 @@
                is its identity.
                Where there is a navigation behind the player, the cover is the
                way back to it. -->
-          <div v-press="!!navigation" class="artwork"
+          <div class="artwork"
             :class="{ 'artwork-pending': artworkPending, 'is-link': !!navigation }"
             :role="navigation ? 'button' : undefined" :tabindex="navigation ? 0 : undefined"
             :aria-label="navigation ? t('common.back') : undefined"
