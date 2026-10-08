@@ -241,7 +241,6 @@ async function press(control) {
   --step-pad: calc((var(--step-target) - var(--transport-secondary)) / 2);
   --primary-pad: calc((var(--primary-target) - var(--transport-primary)) / 2);
   --toggle-inset: var(--step-pad);
-  --labelled-width: 50%;
   /* The column, for the trio's opening below. */
   container-type: inline-size;
   color: var(--color-text);
@@ -321,10 +320,10 @@ async function press(control) {
 }
 
 /* On the plate a labelled button (a take-over) keeps to a centred share of
-   the column, wider on the phone where the column is narrow: across a wide
+   the column (on the phone it hugs its label, below): across a wide
    desktop column it would run the width of the screen. */
 .player-transport--plate .player-transport-labelled {
-  flex: 0 1 var(--labelled-width);
+  flex: 0 1 50%;
   height: var(--primary-target);
 }
 
@@ -392,13 +391,21 @@ async function press(control) {
     --toggle-target: 48px;
     --step-target: 56px;
     --primary-target: 64px;
-    --labelled-width: 75%;
   }
 
-  /* The mini-bar has no progress bar to align with: a labelled button keeps
-     only its ghost padding. */
+  /* On the phone's plate a labelled button hugs its label, centred. */
+  .player-transport--plate .player-transport-labelled {
+    flex: 0 0 auto;
+  }
+
+  .player-transport--plate .player-transport-labelled .player-button--labelled {
+    width: auto;
+  }
+
+  /* The mini-bar has no progress bar to align with: a labelled button takes
+     the main button's box, edge to edge with the bar's content. */
   .player-transport--card .player-transport-labelled {
-    padding-inline: var(--space-02);
+    padding-inline: 0;
   }
 
   /* The toggles are hidden there (`player-extra`): nothing to inset. */
