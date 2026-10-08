@@ -128,25 +128,38 @@ watch(shouldShowLoading, (loading) => {
   }
 });
 
-const displayClients = computed(() => {
-  // Force Vue to track volumeState.zones and volumeState.clients as dependencies
-  // This ensures recomputation when zone averages or client volumes change
-  void unifiedStore.volumeState.zones;
-  void unifiedStore.volumeState.clients;
+// Rows drawn before the registry has ever answered, on a browser with no
+// registry cache either.
+const FIRST_LOAD_PLACEHOLDERS = [{ isZone: false }, { isZone: false }, { isZone: false }];
 
-  // During enabling or loading, show placeholders based on last known display structure
-  if (multiroomStore.transitionState === 'enabling' || (snapcastStore.clients.length === 0 && snapcastStore.isLoading)) {
-    return snapcastStore.lastKnownDisplayItems.map((item, i) => ({
+const displayClients = computed(() => {
+  // During enabling or loading, one skeleton per row the panel will show. The
+  // registry keeps its clients and zones across a toggle (and primes them from
+  // its own cache at boot), so the rows are known already; keyed by the same
+  // mac_id, each skeleton cross-fades into its own row.
+  const loadingRows = multiroomStore.transitionState === 'enabling'
+    || (snapcastStore.clients.length === 0 && snapcastStore.isLoading);
+  if (loadingRows) {
+    const rows = snapcastStore.clients.length > 0 ? realDisplayClients.value : FIRST_LOAD_PLACEHOLDERS;
+    return rows.map((row, i) => ({
       id: `placeholder-${i}`,
-      mac_id: item.mac_id || null,
+      mac_id: row.mac_id || null,
       name: '',
       // The skeleton's slider needs a number to draw; it shows no value.
       equalizerVolume: DEFAULT_VOLUME_DB,
       equalizerMuted: false,
-      isZone: item.type === 'zone',
+      isZone: row.isZone,
       zoneClientDetails: null
     }));
   }
+  return realDisplayClients.value;
+});
+
+const realDisplayClients = computed(() => {
+  // Force Vue to track volumeState.zones and volumeState.clients as dependencies
+  // This ensures recomputation when zone averages or client volumes change
+  void unifiedStore.volumeState.zones;
+  void unifiedStore.volumeState.clients;
 
   // Add equalizerVolume and equalizerMuted from cache to each client
   // If there are linked groups, filter to show only zone primaries
@@ -237,11 +250,10 @@ const displayClients = computed(() => {
   });
 });
 
-// Which rows are shown, under which names — everything the two watchers below
-// react to. displayClients itself is rebuilt on every volume WS event (a level
-// is one of its fields), and watching it was a localStorage write plus a full
-// re-measure of the name column for each one, several times a second while a
-// slider moves.
+// Which rows are shown, under which names — everything the name-width watcher
+// below reacts to. displayClients itself is rebuilt on every volume WS event (a
+// level is one of its fields), and watching it re-measured the name column for
+// each one, several times a second while a slider moves.
 const displayStructure = computed(() => JSON.stringify(
   displayClients.value.map(client => [
     client.mac_id || client.id,
@@ -348,9 +360,6 @@ onMounted(async () => {
     multiroomStore.resetTransition();
   }
 
-  // Preload display cache for zone-aware skeletons
-  snapcastStore.preloadDisplayCache();
-
   if (isMultiroomActive.value) {
     await snapcastStore.loadClients();
   }
@@ -378,15 +387,6 @@ watch(isMultiroomActive, (newValue, oldValue) => {
 
 // Synchronize name column widths when clients load or loading finishes
 watch([displayStructure, shouldShowLoading], () => { nextTick(updateNameWidth); });
-
-// Save display cache when real clients are loaded (for zone-aware skeleton on next load)
-watch(displayStructure, () => {
-  const items = displayClients.value;
-  // Only save when we have real data (not placeholders) and not in loading state
-  if (!shouldShowLoading.value && items.length > 0 && items[0].mac_id) {
-    snapcastStore.saveDisplayCache(items);
-  }
-});
 </script>
 
 <style scoped>

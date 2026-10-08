@@ -12,8 +12,6 @@ import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { SnapcastCapabilitiesSchema, SnapcastServerConfigSchema, validateSchema } from '@/schemas/api';
 
-const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
-
 export const useSnapcastStore = defineStore('snapcast', () => {
   // === DERIVED STATE FROM MULTIROOM REGISTRY ===
   const registryStore = useMultiroomStore();
@@ -77,14 +75,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     expectedSeconds: 0, startedAt: 0,
   });
 
-  // Memorization of display items structure (for zone-aware skeletons)
-  // Each item: { type: 'zone' | 'client' }
-  const lastKnownDisplayItems = ref([
-    { type: 'client' },
-    { type: 'client' },
-    { type: 'client' }
-  ]);
-
   // === COMPUTED ===
   const hasServerConfigChanges = computed(() => {
     // Key by key, not JSON.stringify: that compares insertion order too. The
@@ -96,38 +86,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     const keys = new Set([...Object.keys(edited), ...Object.keys(applied)]);
     return [...keys].some((key) => edited[key] !== applied[key]);
   });
-
-  // === DISPLAY CACHE MANAGEMENT ===
-  function loadDisplayCache() {
-    try {
-      const cached = localStorage.getItem(DISPLAY_CACHE_KEY);
-      if (!cached) return null;
-      return JSON.parse(cached);
-    } catch (error) {
-      logger.warn('store', 'Error loading display cache', error);
-      return null;
-    }
-  }
-
-  function saveDisplayCache(displayItems) {
-    try {
-      const items = displayItems.map(item => ({
-        type: item.isZone ? 'zone' : 'client',
-        mac_id: item.mac_id || null
-      }));
-      localStorage.setItem(DISPLAY_CACHE_KEY, JSON.stringify(items));
-      lastKnownDisplayItems.value = items;
-    } catch (error) {
-      logger.error('store', 'Error saving display cache', error);
-    }
-  }
-
-  function preloadDisplayCache() {
-    const cache = loadDisplayCache();
-    if (cache && cache.length > 0) {
-      lastKnownDisplayItems.value = cache;
-    }
-  }
 
   // === API CALLS ===
 
@@ -379,17 +337,12 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     capabilities,
     calibration,
     isApplyingServerConfig,
-    lastKnownDisplayItems,
 
     // Computed
     hasServerConfigChanges,
 
     // Actions - Clients
     loadClients,
-
-    // Actions - Display Cache
-    preloadDisplayCache,
-    saveDisplayCache,
 
     // Actions - Server Config
     // fetchServerConfig is exported raw (it mutates nothing but `capabilities`)
