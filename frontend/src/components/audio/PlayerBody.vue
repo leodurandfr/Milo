@@ -42,23 +42,23 @@
           <template v-if="surface === 'full'">
             <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
               @click="onTitleClick">{{ title }}</h1>
-            <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2"
-              :class="{ 'is-link': lineLink }" @click="onSecondaryClick">
+            <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2" :class="{ 'is-link': lineLink }"
+              @click="onSecondaryClick">
               <ArtistNames v-if="nameLinks" :artists="artists" @open="openArtist" />
               <template v-else>{{ secondaryLine }}</template>
             </p>
           </template>
           <PlayerInfoText v-else class="card-lines"
-            :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }"
-            :title="title" :secondary="secondaryLine || null" @click="onCardLinesClick">
+            :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }" :title="title"
+            :secondary="secondaryLine || null" @click="onCardLinesClick">
             <template v-if="nameLinks" #secondary>
               <ArtistNames :artists="artists" @open="openArtist" />
             </template>
           </PlayerInfoText>
         </div>
         <!-- The phone's mini-bar: one line each, as the swipe carousel's cells. -->
-        <PlayerInfoText v-if="surface === 'card'" variant="line" class="body-mini-lines"
-          :title="title" :secondary="secondaryLine || null" />
+        <PlayerInfoText v-if="surface === 'card'" variant="line" class="body-mini-lines" :title="title"
+          :secondary="secondaryLine || null" />
       </slot>
     </div>
 
@@ -68,10 +68,9 @@
            one only takes it while it has a bar. The bar hides itself until the
            source has a duration and a position. -->
       <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress" @click.stop>
-        <ProgressBar :currentPosition="currentPosition" :duration="duration"
-          :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-          :interactive="canSeek" :loading="phase === 'loading'" :variant="surface === 'card' ? 'on-contrast' : 'default'"
-          :live="isLive" :onAir="phase === 'playing'"
+        <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
+          :isReady="isPositionInitialized" :interactive="canSeek" :loading="phase === 'loading'"
+          :variant="surface === 'card' ? 'on-contrast' : 'default'" :live="isLive" :onAir="phase === 'playing'"
           :animateIn="surface === 'full'" @seek="seekTo" />
       </div>
       <div v-if="hasTransport" class="body-transport" :class="{ 'transport-scale--compact': surface === 'card' }">
@@ -205,11 +204,9 @@ defineExpose({ swipe });
    centred between it and the progress bar: the block's gap above them and the
    same again as its bottom padding, so neither side is closer. */
 .player-body--full .player-body-info {
-  --body-info-gap: var(--space-06);
   flex: 1;
   text-align: center;
-  gap: var(--body-info-gap);
-  padding-block: var(--space-06) var(--body-info-gap);
+  padding: var(--space-06) 0 var(--space-06) 0;
 }
 
 .body-lines {
@@ -225,10 +222,10 @@ defineExpose({ swipe });
 }
 
 .player-body--full .player-body-bottom {
-  gap: var(--space-07);
+  gap: var(--space-06);
   align-self: center;
   width: 100%;
-  padding-bottom: var(--space-07);
+  padding-bottom: var(--space-06);
 }
 
 /* A receiver ends on its progress bar: as far from the bottom as the source
@@ -238,8 +235,8 @@ defineExpose({ swipe });
 }
 
 /* Stagger on mount (first load, and back from CD's tracklist). */
-.player-body--full > .player-body-info,
-.player-body--full > .player-body-bottom {
+.player-body--full>.player-body-info,
+.player-body--full>.player-body-bottom {
   opacity: 0;
   transform: translateY(var(--space-05));
   animation:
@@ -247,7 +244,9 @@ defineExpose({ swipe });
     body-stagger-opacity 0.4s ease forwards;
 }
 
-.player-body--full > .player-body-bottom { animation-delay: 100ms; }
+.player-body--full>.player-body-bottom {
+  animation-delay: 100ms;
+}
 
 @keyframes body-stagger-transform {
   to {
@@ -303,9 +302,7 @@ defineExpose({ swipe });
 }
 
 .player-body--card .player-body-info {
-  --body-info-gap: var(--space-04);
   flex: 1;
-  gap: var(--body-info-gap);
   padding: 0 var(--space-04);
 }
 
@@ -344,7 +341,7 @@ defineExpose({ swipe });
 .source-reveal-enter-from,
 .source-reveal-leave-to {
   grid-template-rows: 0fr;
-  margin-bottom: calc(-1 * var(--body-info-gap));
+  margin-bottom: calc(-1 * var(--space-04));
 }
 
 .source-reveal-enter-from .body-source,
