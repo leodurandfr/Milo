@@ -6,7 +6,8 @@
 <template>
   <div class="browser-source">
     <Transition name="audio-content">
-      <div v-show="!playerShown" class="browser-view browser-nav">
+      <div v-show="!playerShown || pullState" class="browser-view browser-nav"
+        :class="{ 'browser-nav--under': playerShown }">
         <!-- bar: the one thing the source binds on its AudioPlayer
              (v-bind="bar") — when it shows, what expands it, what releases the
              source's latch once it has left. -->
@@ -14,8 +15,12 @@
       </div>
     </Transition>
 
+    <!-- The veil between the navigation and the player being pulled down: as
+         dark as a modal's at rest, clear once the player is out. -->
+    <div v-if="pullState" class="browser-view browser-veil" aria-hidden="true" :style="veilStyle" />
+
     <Transition name="audio-content">
-      <AudioPlayerFull v-if="playerShown" class="browser-view" :source="source"
+      <AudioPlayerFull v-if="playerShown" class="browser-view browser-player" :source="source"
         @title-click="openInNavigation('title-click')"
         @secondary-click="openInNavigation('secondary-click', $event)">
         <template v-if="$slots['transport-end']" #transport-end="slotProps">
@@ -27,7 +32,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, provide, watch } from 'vue';
+import { computed, nextTick, provide, ref, watch } from 'vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { PLAYER_NAVIGATION, useExpandedView, usePlayerExpansion } from '@/composables/usePlayerExpansion';
 import { BROWSER_SOURCES } from '@/constants/audioSources';
@@ -73,8 +78,22 @@ const { expand, collapse } = usePlayerExpansion();
 const playerShown = useExpandedView(props.source);
 const { isMobile } = useIsMobile();
 
+// The phone's pull down on the player, as the player reports it ({ progress,
+// timing }, null when there is none): the navigation is drawn under it, so the
+// pull uncovers the page it returns to.
+const pullState = ref(null);
+watch(playerShown, (shown) => {
+  if (!shown) pullState.value = null;
+});
+
+const veilStyle = computed(() => {
+  const { progress, timing } = pullState.value;
+  return { opacity: 1 - progress, transition: timing ? `opacity ${timing}` : 'none' };
+});
+
 provide(PLAYER_NAVIGATION, {
   back: collapse,
+  pull: (state) => { pullState.value = state; },
   canOpenAlbum: computed(() => props.canOpenAlbum),
   artists: computed(() => props.artists)
 });
@@ -125,6 +144,30 @@ async function openInNavigation(event, payload) {
   grid-area: 1 / 1;
   min-width: 0;
   min-height: 0;
+}
+
+/* The navigation under the player is a stacking context of its own, so nothing
+   in it — the back-to-top button is fixed at z 3 — rises over the veil or the
+   player. Only then: on its own the navigation must leave its layers to the
+   page. */
+.browser-nav--under {
+  position: relative;
+  z-index: 0;
+}
+
+.browser-veil {
+  z-index: 1;
+  background: var(--color-overlay);
+  pointer-events: none;
+}
+
+/* The player is a sheet over the navigation and stays over it in every phase:
+   the audio-content swap ranks the entering view above the leaving one, which
+   would slide the navigation over the player as it leaves — or over it while
+   the phone's pull down draws the navigation under it. Two classes here outrank
+   the swap's one. */
+.browser-source > .browser-player {
+  z-index: 2;
 }
 
 /* The navigation's own box, which the source's layout fills. */

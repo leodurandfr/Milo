@@ -162,11 +162,11 @@
        floating chrome itself is .glass-shell. */
     --color-glass: var(--gray-500-a16);
     --color-glass-strong: var(--gray-500-a32);
-    /* The veil over the screen behind a modal: a step off the ground toward
-       the glass, so the modal's .glass-shell lands on about the tone the
-       dock has on the bare ground. A mid gray here darkened the shell well
-       below the dock. */
-    --color-overlay: var(--gray-100-a72);
+    /* The veil over the screen behind what is laid over it (a modal, the
+       full player pulled down): it dims in both themes, lighter here, so
+       what is behind recedes rather than fogs. The cost is accepted: a
+       modal's .glass-shell lands darker than the dock on the bare ground. */
+    --color-overlay: var(--gray-950-a32);
     /* The tone of the .glass-shell material (a modal, the dock): Apple's
        dock, a light gray in light and a dark one in dark at the same alpha.
        The light gray is lighter than Apple's #999 because the alpha is

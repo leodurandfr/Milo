@@ -48,6 +48,8 @@ const SRC_DIR = resolve(HERE, '../../src');
 const NOT_A_PRESS_SURFACE = {
   'components/audio/AudioPlayer.vue::audio-player':
     'the mini-player itself — a swipe surface (touchstart/move/end); a shrink would fight the drag',
+  'components/audio/AudioPlayerFull.vue::connect-player':
+    'the full player itself — a pull-down surface; its @click.capture only swallows the click a drag leaves',
   'components/audio/ProgressBar.vue::progress-container':
     'a seek bar: the tap position is the value, and the bar must not move under the finger',
   'components/audio/DetailHeader.vue::detail-header-subtitle':

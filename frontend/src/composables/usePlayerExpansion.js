@@ -6,9 +6,9 @@
 //
 // It holds only "expanded or not" and never the source it was expanded for:
 // another source opens on its own default view, so a change of source drops
-// it. Besides the full player's cover, only an ending with nothing to resume does
-// (BrowserSourceViews) — a pause or a stop that keeps something to resume
-// leaves the player on screen.
+// it. Besides the full player's cover (or its pull down on the phone), only an
+// ending with nothing to resume does (BrowserSourceViews) — a pause or a stop
+// that keeps something to resume leaves the player on screen.
 import { computed, effectScope, readonly, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
@@ -72,9 +72,11 @@ export function useExpandedView(source) {
 
 /**
  * Provided by BrowserSourceViews to the players it mounts: the way back to the
- * navigation (the full player's cover), whether the title (the album) has a
- * page to open there, and the artist line's names (`{ name, link }`). A full
- * player with nothing provided has neither — it is the only view of its
- * source. `{ back, canOpenAlbum, artists }`, the last two as refs.
+ * navigation (the full player's cover and pull down), the pull down under way
+ * (`pull({ progress, timing } | null)`, so the navigation draws itself under the
+ * player), whether the title (the album) has a page to open there, and the
+ * artist line's names (`{ name, link }`). A full player with nothing provided
+ * has none of it — it is the only view of its source.
+ * `{ back, pull, canOpenAlbum, artists }`, the last two as refs.
  */
 export const PLAYER_NAVIGATION = Symbol('playerNavigation');

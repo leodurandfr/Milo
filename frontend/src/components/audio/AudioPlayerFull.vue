@@ -5,11 +5,13 @@
      from its caller. What is not a command is the source's to put in the top
      row: `#top-start` (CD's tracklist) and `#top-end` (CD's eject, Bluetooth's
      disconnect) — or at the end of the transport, `#transport-end` (radio's
-     favorite). The cover is the way back to the navigation this player was
-     expanded out of; the album (the title) and artist links are emitted, never
-     followed. -->
+     favorite). The cover — and on the phone a pull down — is the way back to
+     the navigation this player was expanded out of; the album (the title) and
+     artist links are emitted, never followed. -->
 <template>
-  <div class="connect-player" :class="{ 'connect-player--backdrop': isDark }">
+  <div class="connect-player" :class="{ 'connect-player--backdrop': isDark }" :style="sheetStyle"
+    @touchstart="pull.onTouchStart" @touchmove="pull.onTouchMove" @touchend="pull.onTouchEnd"
+    @touchcancel="pull.onTouchEnd" @click.capture="pull.onClickCapture">
     <!-- The dark theme's ground: the cover again, blurred edge to edge and
          dimmed under a veil. Drawn only in that theme, so the light one does
          not pay for a full-screen blur it would not show. -->
@@ -113,8 +115,10 @@
 </template>
 
 <script setup>
-import { computed, inject, useSlots } from 'vue';
+import { computed, inject, useSlots, watch } from 'vue';
 import { useTheme } from '@/composables/useTheme';
+import { useIsMobile } from '@/composables/useIsMobile';
+import { usePullToDismiss } from '@/composables/usePullToDismiss';
 import { PLAYER_NAVIGATION } from '@/composables/usePlayerExpansion';
 import { useI18n } from '@/services/i18n';
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
@@ -158,6 +162,37 @@ const {
 // rather than passed, so the props stay the source's and hideContent's. Without
 // it — the only view of a source with nothing to browse — the cover is inert.
 const navigation = inject(PLAYER_NAVIGATION, null);
+
+// On the phone the player is a sheet over that navigation: pulled down, it
+// follows the finger, its top corners rounding as it goes, and slides out or
+// back. The navigation draws itself under it, behind a veil that clears as the
+// pull goes on (BrowserSourceViews), from what is reported here.
+const { isMobile } = useIsMobile();
+const pull = usePullToDismiss({
+  enabled: computed(() => !!navigation && isMobile.value),
+  onDismiss: () => navigation.back()
+});
+
+// Fully rounded within the first pixels of the pull: the corners are what say
+// the player has come loose from the screen.
+const ROUNDED_AT_PX = 32;
+
+const sheetStyle = computed(() => {
+  if (!pull.active.value) return null;
+  const timing = pull.timing.value;
+  const radius = `calc(var(--radius-06) * ${Math.min(1, pull.offset.value / ROUNDED_AT_PX)})`;
+  return {
+    transform: `translateY(${pull.offset.value}px)`,
+    borderTopLeftRadius: radius,
+    borderTopRightRadius: radius,
+    transition: timing ? `transform ${timing}, border-radius ${timing}` : 'none'
+  };
+});
+
+watch(
+  () => (pull.active.value ? { progress: pull.progress.value, timing: pull.timing.value } : null),
+  (state) => navigation?.pull(state)
+);
 
 // === ARTWORK TRANSITION ===
 // The halo behind the cover. In the dark theme a station's avatar gets one too,
