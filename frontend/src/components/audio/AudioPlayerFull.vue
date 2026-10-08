@@ -573,9 +573,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
     opacity: 0;
   }
 
-  .artwork {
-    border-radius: var(--radius-07);
-  }
   .artwork-blur {
     transform: scale(1) translateZ(0);
   }

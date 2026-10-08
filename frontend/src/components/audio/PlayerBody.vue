@@ -201,12 +201,12 @@ defineExpose({ swipe });
 }
 
 /* The source bar on top, at the block's padding; the title and its line
-   centred between it and the progress bar: the block's gap above them and the
-   same again as its bottom padding, so neither side is closer. */
+   centred between it and the progress bar, with one step more room below
+   them than above. */
 .player-body--full .player-body-info {
   flex: 1;
   text-align: center;
-  padding: var(--space-06) 0 var(--space-06) 0;
+  padding: var(--space-06) 0 var(--space-07) 0;
 }
 
 .body-lines {
@@ -222,10 +222,10 @@ defineExpose({ swipe });
 }
 
 .player-body--full .player-body-bottom {
-  gap: var(--space-06);
+  gap: var(--space-04);
   align-self: center;
   width: 100%;
-  padding-bottom: var(--space-06);
+  padding-bottom: var(--space-04);
 }
 
 /* A receiver ends on its progress bar: as far from the bottom as the source
