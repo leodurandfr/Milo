@@ -388,8 +388,8 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   background: var(--color-overlay);
-  backdrop-filter: blur(var(--blur-03));
-  -webkit-backdrop-filter: blur(var(--blur-03));
+  backdrop-filter: blur(var(--blur-04));
+  -webkit-backdrop-filter: blur(var(--blur-04));
   display: flex;
   align-items: flex-start;
   justify-content: center;
