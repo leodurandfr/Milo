@@ -153,24 +153,24 @@ function onProgressClick(event) {
 }
 
 /* Entrance when playback starts and the bar is v-if-mounted: spring rise +
-   fade, matching the tracklist-content / player stagger. */
+   fade, matching the tracklist-content / player stagger. From-only keyframes
+   and `backwards`: once risen the bar is back on its own styles, so an
+   opacity it is given later (the live bar's dim) takes effect. */
 .progress-bar--animated {
-  opacity: 0;
-  transform: translateY(var(--space-05));
   animation:
-    stagger-transform var(--transition-spring) forwards,
-    stagger-opacity 0.4s ease forwards;
+    stagger-transform var(--transition-spring) backwards,
+    stagger-opacity 0.4s ease backwards;
 }
 
 @keyframes stagger-transform {
-  to {
-    transform: none;
+  from {
+    transform: translateY(var(--space-05));
   }
 }
 
 @keyframes stagger-opacity {
-  to {
-    opacity: 1;
+  from {
+    opacity: 0;
   }
 }
 
