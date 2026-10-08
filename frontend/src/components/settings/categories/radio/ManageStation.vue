@@ -32,14 +32,12 @@
           <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
             @change="handleFileSelect" class="file-input" />
 
-          <div class="favicon-preview">
-            <LazyImage
-              :src="imagePreview || getFaviconUrl(currentImageUrl)"
-              :fallback-name="formData.name || 'Radio'"
-              :alt="t('radio.manageStation.image')"
-              class="favicon-img"
-            />
-          </div>
+          <LazyImage
+            :src="imagePreview || getFaviconUrl(currentImageUrl)"
+            :fallback-name="formData.name || 'Radio'"
+            :alt="t('radio.manageStation.image')"
+            class="favicon-img"
+          />
         </div>
       </div>
 
@@ -509,28 +507,20 @@ async function handleAddSubmit() {
 }
 
 .image-upload-group {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: var(--space-03);
-  justify-content: space-between;
-}
-
-.image-upload-field {
-  flex: 1;
 }
 
 .full-width-btn {
   width: 100%;
 }
 
-.favicon-preview {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-}
-
+/* Square, as tall as the image field beside it: a grid row is sized by the
+ * field first, then the image takes that height and derives its width. */
 .favicon-img {
-  width: 76px;
-  height: 76px;
+  height: 100%;
+  aspect-ratio: 1;
   border-radius: var(--radius-03);
   background: var(--color-inset);
 }
@@ -557,10 +547,6 @@ async function handleAddSubmit() {
   .form-row,
   .station-header-row {
     grid-template-columns: 1fr;
-  }
-
-  .favicon-preview {
-    justify-content: flex-start;
   }
 }
 </style>
