@@ -8,7 +8,7 @@
  *      missing).                                                  (NO_COLOR_FN)
  *   3. No typography redefinition in scoped CSS (font-family /
  *      font-size / line-height / letter-spacing / font-weight) —
- *      apply a utility class (heading-1..4, text-body, text-body-small,
+ *      apply a utility class (heading-1..5, text-body, text-body-small,
  *      text-mono-large/-medium/-small, display-1) on the element
  *      instead.                         (NO_TYPOGRAPHY)
  *

@@ -18,8 +18,8 @@
         :key="option.value"
         v-press
         type="button"
-        class="button-group__option heading-4"
-        :class="{ 'button-group__option--active': modelValue === option.value }"
+        class="button-group__option"
+        :class="[size === 'small' ? 'heading-5' : 'heading-4', { 'button-group__option--active': modelValue === option.value }]"
         :data-value="option.value"
         :aria-pressed="modelValue === option.value"
         :disabled="disabled || option.disabled"

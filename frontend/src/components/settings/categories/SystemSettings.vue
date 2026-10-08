@@ -36,7 +36,7 @@
     </SettingsSection>
 
     <SettingsSection :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
-      <Button variant="tinted" :loading="generating" :disabled="generating"
+      <Button variant="brand" :loading="generating" :disabled="generating"
         @click="generateReport">
         {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
       </Button>

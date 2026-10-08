@@ -55,7 +55,7 @@ const emit = defineEmits(['click'])
 
 const buttonClasses = computed(() => [
     'btn',
-    'heading-4',
+    props.size === 'small' ? 'heading-5' : 'heading-4',
     `btn--${props.variant}`,
     `btn--${props.size}`,
     {

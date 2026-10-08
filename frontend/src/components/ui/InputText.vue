@@ -177,4 +177,12 @@ input:disabled {
   color: var(--color-text-secondary);
   pointer-events: none;
 }
+
+/* Mobile: a medium Button's height, so a field and the button beside it line up. */
+@media (max-aspect-ratio: 4/3) {
+  .input-container {
+    height: 38px;
+    border-radius: var(--radius-03);
+  }
+}
 </style>

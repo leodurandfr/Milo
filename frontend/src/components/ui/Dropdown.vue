@@ -11,7 +11,7 @@
       :class="[`dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label heading-4">{{ selectedLabel }}</span>
+      <span class="dropdown-label" :class="size === 'small' ? 'heading-5' : 'heading-4'">{{ selectedLabel }}</span>
       <SvgIcon name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
     </button>
 
@@ -464,7 +464,13 @@ onBeforeUnmount(() => {
   transform: translateY(6px) scale(0.98);
 }
 
+/* Mobile: Button's heights, so a field and the button beside it line up. */
 @media (max-aspect-ratio: 4/3) {
+  .dropdown-trigger {
+    height: 38px;
+    border-radius: var(--radius-03);
+  }
+
   .dropdown-trigger--small {
     height: 34px;
   }
