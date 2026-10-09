@@ -772,7 +772,7 @@ export const SOURCE_PAGES = [
           controls: {}
         }
       }),
-      browsing('spotify', 'Profiles', 'Two accounts kept, reached from the avatar on the home\'s header. Each tile is the name and picture Spotify\'s profile service gave, the signed-in one ringed; a tap on another restarts go-librespot as that account.', {
+      browsing('spotify', 'Profiles', 'Two accounts kept, reached from the avatar on the home\'s header. Each row is the name and picture Spotify\'s profile service gave, the signed-in one badged Connected; a tap on another restarts go-librespot as that account, and the trash asks in the row before forgetting one.', {
         condition: ['profiles=2'],
         layout: { titleKey: 'spotify.profiles', showBack: true },
         view: 'spotify-profiles',

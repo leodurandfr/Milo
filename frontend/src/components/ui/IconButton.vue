@@ -41,7 +41,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'control',
-    validator: (value) => ['control', 'on-contrast', 'glass', 'glass-on-contrast', 'brand', 'ghost'].includes(value)
+    validator: (value) => ['control', 'tinted', 'on-contrast', 'glass', 'glass-on-contrast', 'brand', 'ghost'].includes(value)
   },
   size: {
     type: String,
@@ -69,6 +69,7 @@ const GLASS = ['glass', 'glass-on-contrast'];
 /** The glyph's ink per variant, unless the caller passes `color`. */
 const INKS = {
   control: 'var(--color-text)',
+  tinted: 'var(--color-brand)',
   'on-contrast': 'var(--color-text-on-contrast)',
   glass: 'var(--color-text)',
   'glass-on-contrast': 'var(--color-text-on-contrast)',
@@ -144,6 +145,12 @@ function handleClick(event) {
   color: var(--color-text);
 }
 
+/* The secondary action: brand ink on a brand tint, as Button's tinted. */
+.icon-button--tinted {
+  background: var(--color-brand-subtle);
+  color: var(--color-brand);
+}
+
 .icon-button--on-contrast {
   background: var(--color-glint);
   color: var(--color-text-on-contrast);
@@ -199,6 +206,11 @@ function handleClick(event) {
 .icon-button--control.icon-button--loading {
   background: var(--color-fill-faint);
   color: var(--color-text);
+}
+
+.icon-button--tinted.icon-button--loading {
+  background: var(--color-brand-subtle);
+  color: var(--color-brand);
 }
 
 .icon-button--on-contrast.icon-button--loading {

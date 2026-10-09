@@ -15,13 +15,8 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useTimer } from '@/composables/useTimer';
+import { useProfileDescribing } from '@/composables/useProfileDescribing';
 import LazyImage from '@/components/ui/LazyImage.vue';
-
-// How long a picture may keep the avatar a skeleton before the initial stands
-// in: Spotify describes a new profile within its 10 s request, and a picture
-// that comes later still fades in over the initial.
-const PICTURE_WAIT_MS = 4000;
 
 const props = defineProps({
   // { name, avatar_url }
@@ -43,13 +38,7 @@ const props = defineProps({
 const initial = computed(() => (props.profile.name || '?').trim().charAt(0).toUpperCase());
 
 const imageRef = ref(null);
-const waited = ref(false);
-useTimer().setTimeout(() => { waited.value = true; }, PICTURE_WAIT_MS);
-
-// Spotify has not described the profile yet: a profile kept a moment ago has
-// no Spotify name, and may still get a picture.
-const describing = computed(() =>
-  !props.profile.avatar_url && props.profile.spotify_name == null && !waited.value);
+const { describing, waited } = useProfileDescribing(() => props.profile);
 // No picture to wait for: none described, one that failed, or the wait over.
 const initialShown = computed(() => {
   if (!props.profile.avatar_url) return !describing.value;
