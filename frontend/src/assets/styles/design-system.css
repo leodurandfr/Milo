@@ -873,19 +873,21 @@
 }
 
 /* === CARD LOADING OVERLAY === */
-/* Blurred overlay centered on a card image container (position: relative parent) */
+/* Blurred overlay centered on a card image container (position: relative parent).
+   Its corners are the container's: a radius of its own left the cover's
+   corners unveiled wherever the cover was squarer than it. */
 .card-loading-overlay {
     position: absolute;
     inset: 0;
     background: var(--color-image-veil);
-    backdrop-filter: blur(var(--blur-01));
+    backdrop-filter: blur(var(--blur-02));
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 10;
     color: var(--color-text-on-contrast);
     overflow: hidden;
-    border-radius: var(--radius-03);
+    border-radius: inherit;
 }
 
 /* === SWIPE REVEAL BAND === */

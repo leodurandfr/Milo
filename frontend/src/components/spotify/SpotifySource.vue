@@ -67,6 +67,7 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { KEPT_PAGES } from '@/constants/navigation';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
+import { useSpotifyOpening } from '@/composables/useSpotifyOpening';
 import { useI18n } from '@/services/i18n';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
@@ -80,7 +81,7 @@ import SpotifySectionView from './views/SpotifySectionView.vue';
 import SpotifyProfilesView from './views/SpotifyProfilesView.vue';
 
 const store = useSpotifyStore();
-const { t } = useI18n();
+const { t, currentLanguage } = useI18n();
 
 
 const audioLayoutRef = ref(null);
@@ -115,34 +116,35 @@ const currentTitle = computed(() => {
 });
 
 // === Navigation ===
-function openContext(params) {
-  push('context', params);
-}
-function openPlaylist(playlist) {
-  openContext({ uri: playlist.uri, kind: 'playlist', name: playlist.name || '', image: playlist.image || '', owner: playlist.owner || '' });
-}
-function openLiked() {
-  const uri = store.home?.liked_songs_uri;
-  if (uri) openContext({ uri, kind: 'liked' });
-}
+// Each page's entry, from what opens it.
+const albumPage = (album) => ({ uri: album.uri, kind: 'album', name: album.name || '', image: album.image || '' });
+const artistPage = (artist) => ({ uri: artist.uri, name: artist.name || '', image: artist.image || '' });
+const playlistPage = (playlist) =>
+  ({ uri: playlist.uri, kind: 'playlist', name: playlist.name || '', image: playlist.image || '', owner: playlist.owner || '' });
+
 function openAlbum(album) {
-  if (album?.uri) openContext({ uri: album.uri, kind: 'album', name: album.name || '', image: album.image || '' });
+  if (album?.uri) push('context', albumPage(album));
 }
 function openArtist(artist) {
-  if (artist?.uri) push('artist', { uri: artist.uri, name: artist.name || '', image: artist.image || '' });
+  if (artist?.uri) push('artist', artistPage(artist));
 }
 // A track's radio: the playlist Spotify made for it, named after the track
 // (a nameless track leaves the page its untitled heading).
 function openRadio({ uri, track }) {
   const name = track.title ? t('spotify.trackRadio', { title: track.title }) : '';
-  openContext({ uri, kind: 'playlist', name, image: track.artwork || '', owner: 'spotify' });
+  push('context', { uri, kind: 'playlist', name, image: track.artwork || '', owner: 'spotify' });
 }
-// A home card or tile, by the kind of page it opens.
+// A card or a tile, by the kind of page it opens. It waits on the card for the
+// page's first answer; a page opened from anywhere else (a track's artist, the
+// player) opens at once on its own loading.
+const opening = useSpotifyOpening(push);
 function openItem(item) {
-  if (item.kind === 'liked') openLiked();
-  else if (item.kind === 'album') openAlbum(item);
-  else if (item.kind === 'artist') openArtist(item);
-  else openPlaylist(item);
+  if (item.kind === 'liked') {
+    const uri = store.home?.liked_songs_uri;
+    if (uri) opening.open(item, 'context', { uri, kind: 'liked' });
+  } else if (item.kind === 'album') opening.open(item, 'context', albumPage(item));
+  else if (item.kind === 'artist') opening.open(item, 'artist', artistPage(item));
+  else opening.open(item, 'context', playlistPage(item));
 }
 function openPlayerAlbum() {
   const uri = nowPlaying.value?.albumUri;
@@ -159,6 +161,10 @@ function openSection(section) {
 function onScrollRestored() {
   pendingScrollRestore.value = null;
 }
+
+// A card left opening behind (back, another page, another account) opens
+// nothing; nor does one whose artist page a language change dropped.
+watch([currentKey, () => store.account, currentLanguage], opening.cancel);
 
 // Another account's library: whatever page was open belonged to the last one.
 watch(() => store.account, (now, before) => {

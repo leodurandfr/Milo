@@ -27,7 +27,7 @@
         <div v-else key="loaded" class="sections">
           <section class="section">
             <div class="shortcuts-grid">
-              <SpotifyShortcutTile v-for="item in shortcuts" :key="item.uri"
+              <SpotifyShortcutTile v-for="item in shortcuts" :key="item.uri" :uri="item.uri"
                 :liked="item.kind === 'liked'"
                 :title="item.kind === 'liked' ? t('spotify.likedSongs') : item.name || t('spotify.untitledPlaylist')"
                 :image="item.image || ''" @click="$emit('select', item)" />

@@ -10,7 +10,7 @@
     </GalleryVariant>
     <GalleryVariant label="the default slot overlays the image">
       <LazyImage class="art" :src="musicPlaceholder" alt="With an overlay">
-        <div class="art__overlay">
+        <div class="card-loading-overlay">
           <LoadingSpinner :size="48" />
         </div>
       </LazyImage>
@@ -110,18 +110,6 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   height: 120px;
   border-radius: var(--radius-03);
   background: var(--color-fill-faint);
-}
-
-/* Same scrim and light currentColor as the design system's .card-loading-overlay,
-   which is what the cards actually put in this slot. */
-.art__overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-image-veil);
-  color: var(--color-text-on-contrast);
 }
 
 .icon-grid {
