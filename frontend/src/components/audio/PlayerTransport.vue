@@ -288,8 +288,8 @@ async function press(control) {
   min-width: 0;
 }
 
-/* Alone, or beside the end slot, the steps take the row: a labelled main
-   button fills it. */
+/* Alone, or beside the end slot, the steps take the row and centre what they
+   hold. */
 .player-transport-row:not(.player-transport--toggles) .player-transport-steps {
   flex: 1;
 }
@@ -308,31 +308,22 @@ async function press(control) {
   transform: scale(0.96);
 }
 
-/* A labelled button takes the row's width at its own height, on the floor of
-   the box of the main button it stands for — on the plate its target, on the
-   card its glyph and ghost padding — so the row keeps its height when the
-   transport comes back. Beside the end slot it fills what the slot leaves. */
+/* A labelled button hugs its label, centred, on the floor of the box of the
+   main button it stands for — on the plate its target, on the card its glyph
+   and ghost padding — so the row keeps its height when the transport comes
+   back. */
 .player-transport-labelled {
   display: flex;
   align-items: flex-end;
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 auto;
 }
 
-/* On the plate a labelled button (a take-over) keeps to a centred share of
-   the column (on the phone it hugs its label, below): across a wide
-   desktop column it would run the width of the screen. */
 .player-transport--plate .player-transport-labelled {
-  flex: 0 1 50%;
   height: var(--primary-target);
 }
 
 .player-transport--card .player-transport-labelled {
   height: calc(var(--transport-primary) + 2 * var(--space-02));
-}
-
-.player-transport-labelled .player-button--labelled {
-  width: 100%;
 }
 
 /* The source's own button at the row's end, in the box a toggle takes. */
@@ -370,12 +361,6 @@ async function press(control) {
   width: 100%;
 }
 
-/* A labelled button keeps its edges on the progress bar's, whose inset it
-   takes. */
-.player-transport--card .player-transport-labelled {
-  padding-inline: var(--space-04);
-}
-
 /* The spacer holds the end a missing toggle would take: a ghost button is its
    glyph plus the ghost padding on each side. */
 .player-transport--card .player-button--toggle:not(.icon-button) {
@@ -396,21 +381,6 @@ async function press(control) {
   /* On the phone a labelled button sits centred in its box. */
   .player-transport-labelled {
     align-items: center;
-  }
-
-  /* On the phone's plate a labelled button hugs its label, centred. */
-  .player-transport--plate .player-transport-labelled {
-    flex: 0 0 auto;
-  }
-
-  .player-transport--plate .player-transport-labelled .player-button--labelled {
-    width: auto;
-  }
-
-  /* The mini-bar has no progress bar to align with: a labelled button takes
-     the main button's box, edge to edge with the bar's content. */
-  .player-transport--card .player-transport-labelled {
-    padding-inline: 0;
   }
 
   /* The toggles are hidden there (`player-extra`): nothing to inset. */
