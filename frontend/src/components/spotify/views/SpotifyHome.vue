@@ -36,14 +36,15 @@
 
           <!-- Spotify's own shelves, in its order and under its titles. -->
           <section v-for="shelf in home.shelves" :key="shelf.id" class="section">
-            <SpotifySectionTitle :title="shelf.title || ''" :linked="shelf.items.length >= columns"
-              @open="$emit('show-section', shelf)" />
+            <SpotifySectionTitle :title="shelf.artist?.name || shelf.title || ''"
+              :overline="shelf.overline || ''" :image="shelf.artist?.image || ''"
+              :linked="shelf.items.length >= columns" @open="$emit('show-section', shelf)" />
             <SpotifyShelfRow :items="shelf.items" @select="$emit('select', $event)" />
           </section>
 
           <section v-for="section in librarySections" :key="section.key" class="section">
             <header class="section-header">
-              <span class="section-overline text-mono-small">{{ t('spotify.libraryOverline') }}</span>
+              <span class="section-overline text-body-small">{{ t('spotify.libraryOverline') }}</span>
               <h2 class="section-title heading-2">{{ section.title }}</h2>
             </header>
             <SpotifyPlaylistGrid :items="section.items" :state-key="`rows:${section.key}`"
@@ -146,7 +147,7 @@ watch(() => (store.signingIn ? null : store.account), (signedIn) => {
 }
 
 .shortcut-skeleton {
-  height: 56px;
+  height: 64px;
   border-radius: var(--radius-02);
 }
 

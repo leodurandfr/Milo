@@ -211,6 +211,10 @@ class Librespot:
             "total": 1, "mediaItems": [{"uri": "spotify:playlist:37i9dQZF1E8UJ1xRHXd2z2"}],
         }
         self.radio_asked: List[str] = []
+        # Spotify's artist metadata (spclient metadata/4), as measured: per
+        # hex gid, {name, portrait_group}; an unknown gid answers 503.
+        self.artist_metadata: Dict[str, Dict[str, Any]] = {}
+        self.token_reads = 0
         self.closed = False
 
     # -- aiohttp.ClientSession surface --------------------------------------
@@ -226,6 +230,9 @@ class Librespot:
         if "artistview" in url:
             self.artist_asked.append((url, k["params"]["locale"]))
             answer = self.releases_answer if url.endswith("/releases") else self.artist_answer
+            return _Exchange(_Response(503) if answer is None else _Response(200, answer))
+        if "/metadata/4/artist/" in url:
+            answer = self.artist_metadata.get(url.rsplit("/", 1)[1])
             return _Exchange(_Response(503) if answer is None else _Response(200, answer))
         if "inspiredby-mix" in url:
             self.radio_asked.append(url)
@@ -353,6 +360,7 @@ class Librespot:
                 "tracks": tracks if ready else [],
             }))
         if path == "/token":
+            self.token_reads += 1
             return _Exchange(_Response(200, {"token": "access-token"}))
         return _Exchange(_Response(404))
 

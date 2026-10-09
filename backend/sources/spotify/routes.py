@@ -18,7 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
-from backend.sources.spotify.catalog import artist_page, home_shelves, library_sections, liked_songs_uri
+from backend.sources.spotify.catalog import (
+    artist_page, artist_shelf_seeds, head_artist_shelves, home_shelves, library_sections, liked_songs_uri,
+)
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
 from backend.sources.spotify.models import ActiveProfileRequest
 from backend.sources.spotify.source import SpotifySource
@@ -64,7 +66,9 @@ async def _spotify_home(source: SpotifySource, locale: str):
     """Spotify's home, or None when its service failed: the account's own
     playlists are still worth a page."""
     try:
-        return home_shelves(await source.library.home(locale))
+        shortcuts, shelves = home_shelves(await source.library.home(locale))
+        seeds = artist_shelf_seeds(shelves)
+        return shortcuts, head_artist_shelves(shelves, seeds, await source.library.artist_summaries(seeds.values()))
     except SpotifyLibraryError as exc:
         logger.warning(f"Spotify home: {exc}; only the library is shown")
         return None

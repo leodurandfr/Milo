@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 from backend.shared.persistence import SchemaVersionMismatch
 from backend.sources.spotify import routes
+from backend.sources.spotify.catalog import spotify_gid
 from backend.sources.spotify.profiles import SpotifyProfiles
 from backend.tests.spotify_world import ACCOUNT, SpotifyWorld
 
@@ -409,6 +410,40 @@ async def test_the_home_route_answers_spotifys_home_then_the_library(world):
         ("Conçu pour Léo", ["Daily Mix 1"]),
     ]
     assert [p["name"] for p in answer["playlists"]["mine"]] == ["Chill appart"]
+
+
+def fans_of(section, title, artist_id):
+    return [
+        {"component": {"id": "glue:sectionHeader", "category": "header"}, "text": {"title": title},
+         "metadata": {"sectionId": section}},
+        {"component": {"id": "glue2:card", "category": "card"}, "text": {"title": "This Is"},
+         "images": {"main": {"uri": f"https://pickasso.spotifycdn.com/image/x/dt/v1/img/thisisv3/{artist_id}/fr"}},
+         "target": {"uri": "spotify:playlist:37i9dQZF1DZ06evO3LyCc0"}, "metadata": {"sectionId": section}},
+    ]
+
+
+async def test_shelves_about_artists_are_headed_with_one_token_and_a_failed_artist_costs_only_its_heading(
+    world, caplog,
+):
+    """Two shelves about two artists: both are asked at once under one token
+    (the daemon is on the Pi), and Spotify answering 503 for one leaves that
+    shelf a plain title, never the home an error."""
+    fka, mairo = "6nB0iY1cjSY1KyhYyuIIKH", "2bd5Yx9Q4oGSCWzEuIpZ6p"
+    world.daemon.artist_metadata = {spotify_gid(fka): {"name": "FKA twigs", "portrait_group": {"image": [
+        {"file_id": "ab6761610000f1783f6b8973be0344896d8680ab", "size": "SMALL"}]}}}
+    world.daemon.home_answer = {"body": [
+        *fans_of("spotify:section:a", "Pour les fans de FKA twigs", fka),
+        *fans_of("spotify:section:b", "Pour les fans de Mairo", mairo),
+    ]}
+    caplog.set_level(logging.WARNING)
+    before = world.daemon.token_reads
+    answer = await routes.get_home(locale="fr", source=world.source)
+
+    assert [(s["overline"], s["artist"]["name"]) if "artist" in s else s["title"] for s in answer["shelves"]] == [
+        ("Pour les fans de", "FKA twigs"), "Pour les fans de Mairo",
+    ]
+    assert world.daemon.token_reads - before == 2  # the home's, then one for both artists
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 TRACK_URI = "spotify:track:0yNttAVwMr39qyODHNIkrY"

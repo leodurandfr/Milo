@@ -2,7 +2,7 @@
   <!-- One of Spotify's shelves, scrolled sideways as in its app. It runs past
        the column into the page's side space instead of being cut at its edge. -->
   <div class="shelf">
-    <div ref="rowRef" class="shelf-row" :class="{ 'with-byline': withByline }">
+    <div ref="rowRef" class="shelf-row" :class="{ 'with-name': withName, 'with-byline': withByline }">
       <SpotifyCard v-for="item in items" :key="item.uri" :item="item"
         @click="$emit('select', item)" />
     </div>
@@ -47,7 +47,7 @@ function setStop(el, name, value) {
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { cardByline } from '@/utils/spotifyCard';
+import { cardLines } from '@/utils/spotifyCard';
 import SpotifyCard from './cards/SpotifyCard.vue';
 
 const props = defineProps({
@@ -61,8 +61,11 @@ const props = defineProps({
 defineEmits(['select']);
 
 const { t } = useI18n();
-// The row is as tall as its tallest card: with a byline line, if any has one.
-const withByline = computed(() => props.items.some((item) => cardByline(item, t)));
+// The row is as tall as its tallest card: with a heading line and a byline
+// line, if any has one.
+const lines = computed(() => props.items.map((item) => cardLines(item, t)));
+const withName = computed(() => lines.value.some((line) => line.heading));
+const withByline = computed(() => lines.value.some((line) => line.byline));
 
 const rowRef = ref(null);
 let observed = null;
@@ -111,21 +114,27 @@ onBeforeUnmount(() => {
   /* A row off screen is neither styled, laid out nor painted until it comes
      near — on the Spotify home, most of eighteen. Until it is first drawn it
      holds the height its cards will have (SpotifyCard: a square cover as wide
-     as a column, then its name), worked out from the width it is laid out in,
-     so the page below it sits where it will be. Once drawn, it keeps the
-     height it was drawn at while off screen (content-visibility: auto always
-     remembers it), and takes its new one when it comes back near. */
-  --shelf-card-height: calc(
+     as a column, then what it writes under it), worked out from the width it
+     is laid out in, so the page below it sits where it will be. Once drawn, it
+     keeps the height it was drawn at while off screen (content-visibility:
+     auto always remembers it), and takes its new one when it comes back near. */
+  --shelf-cover-height: calc(
     (100cqi - (var(--card-grid-columns) - 1) * var(--space-03)) / (var(--card-grid-columns) - var(--shelf-peek))
-    + var(--space-02) + var(--line-height-h4)
   );
   content-visibility: auto;
-  contain-intrinsic-block-size: var(--shelf-card-height);
+  contain-intrinsic-block-size: var(--shelf-cover-height);
 }
 
-/* And the byline under the name, when a card has one. */
-.shelf-row.with-byline {
-  contain-intrinsic-block-size: calc(var(--shelf-card-height) + var(--space-01) + var(--line-height-mono-medium));
+/* The heading line under the cover, when a card writes one. */
+.shelf-row.with-name {
+  contain-intrinsic-block-size: calc(var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4));
+}
+
+/* And the byline under it. */
+.shelf-row.with-name.with-byline {
+  contain-intrinsic-block-size: calc(
+    var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4) + var(--space-01) + var(--line-height-body-small)
+  );
 }
 
 .shelf-row::-webkit-scrollbar {

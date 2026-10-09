@@ -4,7 +4,7 @@
       <SvgIcon name="heart" :size="20" />
     </div>
     <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy class="tile-cover" />
-    <p class="tile-name text-body">{{ title }}</p>
+    <p class="tile-name heading-4">{{ title }}</p>
   </div>
 </template>
 
@@ -46,8 +46,8 @@ defineEmits(['click']);
 }
 
 .tile-cover {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
   background: var(--color-surface-glass);
 }

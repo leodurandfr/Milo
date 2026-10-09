@@ -9,7 +9,7 @@
 .skeleton-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-03);
   min-width: 0;
 }
 

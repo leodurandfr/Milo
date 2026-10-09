@@ -10,12 +10,13 @@ SpotifyUnavailable for the browser to retry.
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import aiohttp
 
 from backend.sources.spotify.catalog import (
-    MOSAIC_TILES, described_tracks, latest_release_uri, leading_covers, playlist_cover, release_type,
+    MOSAIC_TILES, artist_portrait, described_tracks, latest_release_uri, leading_covers, playlist_cover,
+    release_type, spotify_gid,
 )
 
 logger = logging.getLogger("source.spotify.library")
@@ -30,6 +31,9 @@ HOME_URL = "https://spclient.wg.spotify.com/homeview/v1/home"
 # list newest first (measured 2026-10-05).
 ARTIST_URL = "https://spclient.wg.spotify.com/artistview/v1/artist/{id}"
 ARTIST_RELEASES_URL = "https://spclient.wg.spotify.com/artistview/v1/artist/{id}/releases"
+# An artist's name and pictures, by its hex gid (JSON when asked for it, else
+# protobuf): ~0.07 s where its artistview page takes ~0.34 s (measured 2026-10-09).
+ARTIST_METADATA_URL = "https://spclient.wg.spotify.com/metadata/4/artist/{gid}"
 # The playlist Spotify's apps open as a track's radio ("Go to song radio").
 TRACK_RADIO_URL = "https://spclient.wg.spotify.com/inspiredby-mix/v2/seed_to_playlist/{uri}"
 PAGE = 100
@@ -161,17 +165,27 @@ class SpotifyLibrary:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
         return playlist_cover(covers)
 
-    async def _spotify_service(self, url: str, params: Dict[str, Any], what: str) -> Any:
-        """One of Spotify's own services, with the signed-in session's token:
-        only the account signed in now can be asked about."""
-        internet = self._internet
-        if internet is None or internet.closed:
-            raise SpotifyUnavailable("Spotify stopped")
+    async def _token(self) -> str:
         token = (await self._request("POST", "/token") or {}).get("token")
         if not token:
             raise SpotifyUnavailable("Spotify gave no token")
+        return token
+
+    async def _spotify_service(
+        self, url: str, params: Dict[str, Any], what: str,
+        headers: Optional[Dict[str, str]] = None, token: Optional[str] = None,
+    ) -> Any:
+        """One of Spotify's own services, with the signed-in session's token
+        (one already read, for several requests at once): only the account
+        signed in now can be asked about."""
+        internet = self._internet
+        if internet is None or internet.closed:
+            raise SpotifyUnavailable("Spotify stopped")
+        token = token or await self._token()
         try:
-            async with internet.get(url, params=params, headers={"Authorization": f"Bearer {token}"}) as resp:
+            async with internet.get(
+                url, params=params, headers={**(headers or {}), "Authorization": f"Bearer {token}"},
+            ) as resp:
                 if resp.status != 200:
                     raise SpotifyLibraryError(f"Spotify's {what} service answered {resp.status}")
                 return await resp.json(content_type=None)
@@ -231,6 +245,34 @@ class SpotifyLibrary:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
         logger.warning(f"Spotify latest release {uri}: not described in time, its kind is unknown")
         return None
+
+    async def artist_summaries(self, artist_ids: Iterable[str]) -> Dict[str, Dict[str, Optional[str]]]:
+        """Each artist's name and small photo, read at once with one token.
+        They only dress a shelf's title: one that fails is left out and its
+        shelf keeps a plain title, never costing the home."""
+        ids = list(dict.fromkeys(artist_ids))
+        if not ids:
+            return {}
+        try:
+            token = await self._token()
+        except SpotifyUnavailable as exc:
+            logger.warning(f"Spotify artists: {exc}; their shelves keep plain titles")
+            return {}
+        answers = await asyncio.gather(*(
+            self._spotify_service(ARTIST_METADATA_URL.format(gid=spotify_gid(artist_id)), {}, "artist metadata",
+                                  headers={"Accept": "application/json"}, token=token)
+            for artist_id in ids
+        ), return_exceptions=True)
+        summaries: Dict[str, Dict[str, Optional[str]]] = {}
+        for artist_id, answer in zip(ids, answers):
+            if isinstance(answer, (SpotifyLibraryError, SpotifyUnavailable)):
+                logger.warning(f"Spotify artist {artist_id}: {answer}; its shelf keeps a plain title")
+                continue
+            if isinstance(answer, BaseException):
+                raise answer
+            if isinstance(answer, dict) and answer.get("name"):
+                summaries[artist_id] = {"name": answer["name"], "image": artist_portrait(answer)}
+        return summaries
 
     async def track_radio(self, uri: str) -> Optional[str]:
         """The uri of the playlist Spotify makes as a track's radio, or None

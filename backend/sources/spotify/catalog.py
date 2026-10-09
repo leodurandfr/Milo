@@ -24,6 +24,22 @@ SHORTCUTS_SECTION = "spotify:section:0JQ5DAIiKWzVFULQfUm85Y"
 # What a home card opens, by its uri's kind. A show is left out: its episodes
 # are not something go-librespot lists.
 _CARD_KINDS = {"playlist": "playlist", "album": "album", "artist": "artist"}
+# The shelves whose covers carry each card's name, written in the picture:
+# their cards show no name under the cover. A station keeps Spotify's line
+# ("With …" the artists it plays); the other two drop theirs, a description of
+# what the cover already names. Same ids in every language (measured 2026-10-09).
+NAMED_COVER_SECTIONS = {
+    "spotify:section:0JQ5DAnM3wGh0gz1MXnu3R": True,   # Recommended Stations
+    "spotify:section:0JQ5DAnM3wGh0gz1MXnu3n": False,  # Best of artists
+    "spotify:section:0JQ5DAUnp4wcj0bCb3wh8h": False,  # Soundtrack your day
+}
+# The artist a shelf is about ("For fans of FKA twigs", "More like Prince
+# Waly"): the home names it only inside the shelf's title and draws no picture
+# of it, where the apps head the shelf with the artist's photo. The shelf's
+# station or This Is card carries the artist's id in its cover's address
+# (measured 2026-10-09 on every such shelf of the owner's home).
+_SEED_ARTIST_COVER = re.compile(r"/img/(?:radio/artist|thisisv3)/([0-9A-Za-z]{22})/")
+_BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # Liked Songs, as the home names it: the signed-in user is "@".
 _HOME_LIKED_SONGS = re.compile(r"^spotify:user:[^:]+:collection$")
 
@@ -33,6 +49,14 @@ _ALBUM_COVER = re.compile(r"^(https://i\.scdn\.co/image/ab67616d0000)(b273|1e02|
 THUMBNAIL_SIZE = "4851"
 MOSAIC_URL = "https://mosaic.scdn.co/300/{}"
 MOSAIC_TILES = 4
+
+
+def spotify_gid(base62_id: str) -> str:
+    """A Spotify id as the hex gid its metadata service is addressed by."""
+    number = 0
+    for char in base62_id:
+        number = number * 62 + _BASE62.index(char)
+    return f"{number:032x}"
 
 
 def thumbnail_url(url: Optional[str]) -> Optional[str]:
@@ -179,7 +203,7 @@ def library_sections(items: List[Dict[str, Any]], account: Optional[str]) -> Dic
     return sections
 
 
-def _home_card(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _home_card(card: Dict[str, Any], named_cover: bool, keeps_line: bool) -> Optional[Dict[str, Any]]:
     uri = (card.get("target") or {}).get("uri") or ""
     if _HOME_LIKED_SONGS.match(uri):
         kind = "liked"
@@ -193,9 +217,57 @@ def _home_card(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "uri": uri,
         "kind": kind,
         "name": text.get("title") or None,
-        "subtitle": text.get("subtitle") or None,
+        "subtitle": (text.get("subtitle") if keeps_line else None) or None,
         "image": image or None,
+        "name_in_cover": named_cover,
     }
+
+
+def artist_portrait(metadata: Dict[str, Any]) -> Optional[str]:
+    """The small (160 px) photo in an artist's metadata, else its first."""
+    images = (metadata.get("portrait_group") or {}).get("image") or []
+    small = next((image for image in images if image.get("size") == "SMALL"), images[0] if images else None)
+    return f"https://i.scdn.co/image/{small['file_id']}" if small and small.get("file_id") else None
+
+
+def artist_shelf_seeds(shelves: List[Dict[str, Any]]) -> Dict[str, str]:
+    """For each shelf that may be about an artist, the id of the artist whose
+    station or This Is it holds first. A named-cover shelf is a row of them
+    and about nobody (Recommended Stations, Best of artists)."""
+    seeds: Dict[str, str] = {}
+    for shelf in shelves:
+        if shelf["id"] in NAMED_COVER_SECTIONS:
+            continue
+        for card in shelf["items"]:
+            match = _SEED_ARTIST_COVER.search(card.get("image") or "")
+            if match:
+                seeds[shelf["id"]] = match.group(1)
+                break
+    return seeds
+
+
+def head_artist_shelves(
+    shelves: List[Dict[str, Any]], seeds: Dict[str, str], artists: Dict[str, Dict[str, Optional[str]]],
+) -> List[Dict[str, Any]]:
+    """Each shelf about an artist gets its `artist` ({name, image}) and the
+    `overline` its title says around the name ("Pour les fans de"). Only when
+    the name opens or closes the title as a whole word: a shelf whose station
+    is someone else's keeps its plain title, and so does a language that puts
+    the name mid-sentence (Chinese "与 X 相似的更多艺人")."""
+    for shelf in shelves:
+        artist = artists.get(seeds.get(shelf["id"], ""))
+        title, name = shelf["title"] or "", (artist or {}).get("name") or ""
+        if not name or len(title) <= len(name):
+            continue
+        if title.startswith(name) and title[len(name)].isspace():
+            overline = title[len(name):]
+        elif title.endswith(name) and title[-len(name) - 1].isspace():
+            overline = title[:-len(name)]
+        else:
+            continue
+        shelf["artist"] = {"name": name, "image": artist.get("image")}
+        shelf["overline"] = overline.strip()
+    return shelves
 
 
 def home_shelves(view: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -211,7 +283,7 @@ def home_shelves(view: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[
         if (entry.get("component") or {}).get("category") == "header":
             shelves[section] = {"id": section, "title": (entry.get("text") or {}).get("title") or None, "items": []}
             continue
-        card = _home_card(entry)
+        card = _home_card(entry, section in NAMED_COVER_SECTIONS, NAMED_COVER_SECTIONS.get(section, True))
         if card is not None and section in shelves:
             shelves[section]["items"].append(card)
     shortcuts = shelves.pop(SHORTCUTS_SECTION, None)

@@ -5,9 +5,9 @@ The fixtures have the shapes measured on the owner's account: its library
 artist's page with its discography (spclient artistview, 2026-10-05).
 """
 from backend.sources.spotify.catalog import (
-    ARTIST_POPULAR_RELEASES_SECTION, ARTIST_TOP_TRACKS_SECTION, SHORTCUTS_SECTION, artist_page, described_tracks,
-    release_type, home_shelves, leading_covers, library_sections, normalize_playlist,
-    normalize_track, playlist_cover, thumbnail_url,
+    ARTIST_POPULAR_RELEASES_SECTION, ARTIST_TOP_TRACKS_SECTION, SHORTCUTS_SECTION, artist_page, artist_portrait,
+    artist_shelf_seeds, described_tracks, head_artist_shelves, release_type, home_shelves, leading_covers, library_sections,
+    normalize_playlist, normalize_track, playlist_cover, spotify_gid, thumbnail_url,
 )
 
 ACCOUNT = "owner"
@@ -72,10 +72,10 @@ def header(section, title):
             "text": {"title": title, "subtitle": ""}, "metadata": {"sectionId": section}}
 
 
-def card(section, uri, title, subtitle=None):
+def card(section, uri, title, subtitle=None, image=None):
     text = {"title": title, **({"subtitle": subtitle} if subtitle else {})}
     return {"id": f"{section}_card", "component": {"id": "glue2:card", "category": "card"}, "text": text,
-            "images": {"main": {"uri": f"https://i.scdn.co/image/{title}", "placeholder": "playlist"}},
+            "images": {"main": {"uri": image or f"https://i.scdn.co/image/{title}", "placeholder": "playlist"}},
             "target": {"uri": uri}, "metadata": {"uri": uri, "sectionId": section}}
 
 
@@ -126,6 +126,95 @@ def test_a_card_the_browser_cannot_open_is_left_out_with_the_shelf_it_empties():
     podcasts shelf would be cards that open onto nothing."""
     _, shelves = home_shelves(HOME)
     assert SHOWS not in {shelf["id"] for shelf in shelves}
+
+
+def test_a_shelf_whose_covers_carry_their_names_keeps_only_a_stations_line():
+    """The cover writes "Radio Tia Gordon" and "This Is Tia Gordon": a card
+    there draws no name. A station keeps "Avec …", the artists it plays; Best
+    of artists drops "This is Tia Gordon. The essential tracks…", which says
+    nothing the cover does not."""
+    stations, best_of = "spotify:section:0JQ5DAnM3wGh0gz1MXnu3R", "spotify:section:0JQ5DAnM3wGh0gz1MXnu3n"
+    _, shelves = home_shelves({"body": [
+        header(stations, "Radios recommandées"),
+        card(stations, "spotify:playlist:37i9dQZF1E4o1TR8JkP4f2", "Radio Tia Gordon", "Avec Jamilah Barry et plus"),
+        header(best_of, "Best-of des artistes"),
+        card(best_of, "spotify:playlist:37i9dQZF1DZ06evO3cSwMP", "This Is Tia Gordon", "This is Tia Gordon. The…"),
+        header(MIXES, "Vos mix préférés"),
+        card(MIXES, "spotify:playlist:37i9dQZF1EQnqst5TRi17F", "Hip Hop Mix", "Kery James, Oxmo et plus"),
+    ]})
+
+    assert [[(c["subtitle"], c["name_in_cover"]) for c in shelf["items"]] for shelf in shelves] == [
+        [("Avec Jamilah Barry et plus", True)], [(None, True)], [("Kery James, Oxmo et plus", False)],
+    ]
+
+
+FKA_TWIGS = "6nB0iY1cjSY1KyhYyuIIKH"
+FKA_TWIGS_PHOTO = "https://i.scdn.co/image/ab6761610000f1783f6b8973be0344896d8680ab"
+
+
+def artist_shelf(title, cover):
+    section = f"spotify:section:{title}"
+    return home_shelves({"body": [
+        header(section, title),
+        card(section, "spotify:playlist:37i9dQZF1DZ06evO3LyCc0", "This Is FKA twigs", image=cover),
+        card(section, "spotify:playlist:37i9dQZF1DX873GaRGUmPl", "Alternative 10s"),
+    ]})[1]
+
+
+THIS_IS = f"https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/thisisv3/{FKA_TWIGS}/fr"
+RADIO = f"https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/artist/{FKA_TWIGS}/fr"
+ARTISTS = {FKA_TWIGS: {"name": "FKA twigs", "image": FKA_TWIGS_PHOTO}}
+
+
+def headed(shelves, artists):
+    return head_artist_shelves(shelves, artist_shelf_seeds(shelves), artists)
+
+
+def test_a_shelf_about_an_artist_is_headed_with_it_and_what_its_title_says_around_it():
+    """The apps head "Pour les fans de FKA twigs" with her photo, "Pour les
+    fans de" over her name; the home gives only the title, and her id in the
+    This Is or station cover. The name may open the title (Hindi)."""
+    for title, cover, overline in [
+        ("Pour les fans de FKA twigs", THIS_IS, "Pour les fans de"),
+        ("FKA twigs के प्रशंसकों के लिए", RADIO, "के प्रशंसकों के लिए"),
+    ]:
+        [shelf] = headed(artist_shelf(title, cover), ARTISTS)
+        assert (shelf["artist"], shelf["overline"]) == ({"name": "FKA twigs", "image": FKA_TWIGS_PHOTO}, overline)
+
+
+def test_a_shelf_whose_title_does_not_name_the_artist_as_a_word_keeps_a_plain_title():
+    """A shelf holding someone else's station; Chinese, which puts the name
+    mid-sentence; a name that only ends a word of the title; an artist whose
+    metadata failed."""
+    for title, artists in [
+        ("Réécoutez vos anciens favoris", ARTISTS), ("与 FKA twigs 相似的更多艺人", ARTISTS),
+        ("Pour les fans de FKA twigs", {FKA_TWIGS: {"name": "wigs", "image": None}}),
+        ("Pour les fans de FKA twigs", {}),
+    ]:
+        [shelf] = headed(artist_shelf(title, RADIO), artists)
+        assert "artist" not in shelf and "overline" not in shelf
+
+
+def test_a_named_cover_shelf_is_about_nobody_and_asks_for_no_artist():
+    """Recommended Stations is a row of stations, each an artist's: its title
+    never names one, and asking would cost a request per home for nothing."""
+    stations = "spotify:section:0JQ5DAnM3wGh0gz1MXnu3R"
+    _, shelves = home_shelves({"body": [
+        header(stations, "Radios recommandées"),
+        card(stations, "spotify:playlist:37i9dQZF1E4AT7kuvrVxp6", "Radio FKA twigs", image=RADIO),
+    ]})
+    assert artist_shelf_seeds(shelves) == {}
+
+
+def test_an_artists_metadata_is_addressed_by_its_hex_gid_and_read_for_its_small_photo():
+    """Measured 2026-10-09: FKA twigs answers at this gid, her portraits in
+    three sizes; the 160 px one heads a shelf."""
+    assert spotify_gid(FKA_TWIGS) == "d1a571ee170d41d48b99d934acff78bf"
+    assert artist_portrait({"portrait_group": {"image": [
+        {"file_id": "ab676161000051743f6b8973be0344896d8680ab", "size": "DEFAULT"},
+        {"file_id": "ab6761610000f1783f6b8973be0344896d8680ab", "size": "SMALL"},
+    ]}}) == FKA_TWIGS_PHOTO
+    assert artist_portrait({}) is None
 
 
 def test_a_track_whose_metadata_is_not_cached_yet_is_left_out():

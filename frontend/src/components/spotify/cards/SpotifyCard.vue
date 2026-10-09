@@ -2,9 +2,9 @@
   <div v-press class="playlist-card" @click="$emit('click')">
     <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
       class="playlist-cover" :class="{ round: item.kind === 'artist' }" />
-    <div class="playlist-info">
-      <p class="playlist-name heading-4">{{ title }}</p>
-      <p v-if="byline" class="playlist-owner text-mono-medium">{{ byline }}</p>
+    <div v-if="lines.heading" class="playlist-info">
+      <p class="playlist-name heading-4">{{ lines.heading }}</p>
+      <p v-if="lines.byline" class="playlist-owner text-body-small">{{ lines.byline }}</p>
     </div>
   </div>
 </template>
@@ -14,13 +14,14 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
-import { cardByline } from '@/utils/spotifyCard';
+import { cardLines } from '@/utils/spotifyCard';
 
 const props = defineProps({
   // A card as /api/spotify/home lists it: one of Spotify's home ({ uri, kind,
   // name, subtitle, image }) or a library playlist ({ uri, name, owner, image }).
   // No track count: the library's is wrong for every playlist Spotify
-  // regenerates.
+  // regenerates. A home card whose cover carries its name (`name_in_cover`)
+  // writes its byline in the name's place.
   item: {
     type: Object,
     required: true,
@@ -32,17 +33,17 @@ defineEmits(['click']);
 const { t } = useI18n();
 
 const title = computed(() => props.item.name || t('spotify.untitledPlaylist'));
-const byline = computed(() => cardByline(props.item, t));
+const lines = computed(() => cardLines(props.item, t));
 </script>
 
 <style scoped>
-/* The card's box — a square cover, the gap, a heading-4 name, then a
-   text-mono-medium byline — is what SpotifyShelfRow reserves for a row not
+/* The card's box — a square cover, the gap, a heading-4 line, then a
+   text-body-small byline — is what SpotifyShelfRow reserves for a row not
    drawn yet: change one, change both (tests/architecture/spotifyShelfEstimate). */
 .playlist-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-03);
   cursor: pointer;
   min-width: 0;
 }
