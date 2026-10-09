@@ -15,7 +15,6 @@
             :image-src="headerImage"
             :fallback="musicPlaceholder"
             :title="headerTitle"
-            :subtitle="t('spotify.artist')"
             :subtitle-meta="page?.listeners || ''"
             :show-play="tracks.length > 0"
             :show-shuffle="tracks.length > 0"
