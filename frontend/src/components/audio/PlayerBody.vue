@@ -206,7 +206,7 @@ defineExpose({ swipe });
 .player-body--full .player-body-info {
   flex: 1;
   text-align: center;
-  padding: var(--space-06) 0 var(--space-07) 0;
+  padding-top: var(--space-06);
 }
 
 .body-lines {
