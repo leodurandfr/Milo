@@ -176,7 +176,21 @@ const svgContent = computed(() => {
   height: var(--icon-size);
   max-width: 100%;
   max-height: 100%;
+  position: relative;
   isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
+}
+
+/* Figma's Glass Effect, which the SVG export drops. 25% is the artwork's own
+   corner (18 of 72); below 32px the tile's clip is the rounder of the two, so
+   the rim follows whichever edge is drawn. The tile's, not the artwork's: it
+   leaves while loading. */
+.app-icon:not(.app-icon--loading)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: max(25%, var(--radius-02));
+  box-shadow: var(--shadow-app-icon-rim);
+  pointer-events: none;
 }
 
 /* App icons are drawn full-bleed, so the loading state has to paint the plate

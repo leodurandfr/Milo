@@ -1,1 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" fill="none"><g clip-path="url(#a)"><path fill="#000" d="M0 0h72v72H0z"/><path fill="#f1f1f1" d="m18 24 9 9-9 9-9-9zM36 24l9 9-9 9-9-9zM54 24l9 9-9 9-9-9zM36 42l9 9-9 9-9-9z"/></g><defs><clipPath id="a"><rect width="72" height="72" fill="#fff" rx="18"/></clipPath></defs></svg>
+<svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_4_17)">
+<rect width="72" height="72" rx="18" fill="url(#paint0_linear_4_17)"/>
+<g>
+<g>
+<path d="M18 24L27 33L18 42L9 33L18 24ZM36 24L45 33L36 42L27 33L36 24ZM54 24L63 33L54 42L45 33L54 24ZM36 42L45 51L36 60L27 51L36 42Z" fill="#F1F1F1"/>
+</g>
+</g>
+</g>
+<defs>
+<linearGradient id="paint0_linear_4_17" x1="36" y1="0" x2="36" y2="72" gradientUnits="userSpaceOnUse">
+<stop stop-color="#1C1C1C"/>
+<stop offset="1"/>
+</linearGradient>
+<clipPath id="clip0_4_17">
+<rect width="72" height="72" fill="white"/>
+</clipPath>
+</defs>
+</svg>

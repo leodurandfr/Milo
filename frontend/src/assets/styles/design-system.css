@@ -347,6 +347,11 @@
         inset 0 -1.25px 0.25px rgba(255, 255, 255, 0.16),
         inset 0 10px 10px -10px rgba(255, 255, 255, 0.16),
         inset 0 -10px 10px -10px rgba(255, 255, 255, 0.16);
+    /* The same lit rim on an app icon, as Figma's Glass Effect draws it there:
+       the hairlines alone, fainter at the bottom, with no glow. */
+    --shadow-app-icon-rim:
+        inset 0 0.75px 0.5px rgba(255, 255, 255, 0.22),
+        inset 0 -0.75px 0.5px rgba(255, 255, 255, 0.14);
 
     /* === STATES === */
     /* A control that cannot be used now: the whole control, faded, keeping its
