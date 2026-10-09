@@ -20,7 +20,7 @@
       </div>
       <!-- Name by name where one opens its page; the separators and a name
            with none are the row, which plays. -->
-      <p v-if="showArtist && song.artist" class="track-artist text-mono-medium">
+      <p v-if="showArtist && song.artist" class="track-artist text-body-small">
         <ArtistNames v-if="hasArtistLink" :artists="artists" @open="$emit('artist', $event)" />
         <template v-else>{{ song.artist }}</template>
       </p>
