@@ -128,23 +128,36 @@ def test_a_card_the_browser_cannot_open_is_left_out_with_the_shelf_it_empties():
     assert SHOWS not in {shelf["id"] for shelf in shelves}
 
 
-def test_a_shelf_whose_covers_carry_their_names_keeps_only_a_stations_line():
-    """The cover writes "Radio Tia Gordon" and "This Is Tia Gordon": a card
-    there draws no name. A station keeps "Avec …", the artists it plays; Best
-    of artists drops "This is Tia Gordon. The essential tracks…", which says
-    nothing the cover does not."""
-    stations, best_of = "spotify:section:0JQ5DAnM3wGh0gz1MXnu3R", "spotify:section:0JQ5DAnM3wGh0gz1MXnu3n"
+def card_listing(section, uri, title, subtitle, label=None):
+    entry = card(section, uri, title, subtitle)
+    if label:
+        entry["metadata"]["label"] = label
+    return entry
+
+
+def test_a_shelf_whose_covers_carry_their_names_writes_one_line_in_no_language_it_cannot_trust():
+    """The cover writes "Mix Tia Gordon", "Radio Tia Gordon", "This Is Tia
+    Gordon": a card there draws no name. A mix keeps its artists; a station
+    names its artists from its own list, since its subtitle is a sentence in
+    the account's language ("Avec …" under any locale, measured); Best of
+    artists drops "This is Tia Gordon. The essential tracks…", which says
+    nothing the cover does not. Any other shelf keeps Spotify's subtitle."""
+    mixes, stations, best_of = (f"spotify:section:0JQ5DAnM3wGh0gz1MXnu{s}" for s in ("89", "3R", "3n"))
     _, shelves = home_shelves({"body": [
+        header(mixes, "Vos mix préférés"),
+        card_listing(mixes, "spotify:playlist:37i9dQZF1EIWPBxYi0Zmaa", "Mix Tia Gordon", "BETTY BROWN et Nia Smith"),
         header(stations, "Radios recommandées"),
-        card(stations, "spotify:playlist:37i9dQZF1E4o1TR8JkP4f2", "Radio Tia Gordon", "Avec Jamilah Barry et plus"),
+        card_listing(stations, "spotify:playlist:37i9dQZF1E4o1TR8JkP4f2", "Radio Tia Gordon",
+                     "Avec Jamilah Barry et bien d'autres artistes", label="Nia Smith, Tia Gordon, Jamilah Barry"),
         header(best_of, "Best-of des artistes"),
-        card(best_of, "spotify:playlist:37i9dQZF1DZ06evO3cSwMP", "This Is Tia Gordon", "This is Tia Gordon. The…"),
-        header(MIXES, "Vos mix préférés"),
-        card(MIXES, "spotify:playlist:37i9dQZF1EQnqst5TRi17F", "Hip Hop Mix", "Kery James, Oxmo et plus"),
+        card_listing(best_of, "spotify:playlist:37i9dQZF1DZ06evO3cSwMP", "This Is Tia Gordon", "This is Tia…"),
+        header(MADE_FOR, "Conçu pour Léo"),
+        card_listing(MADE_FOR, "spotify:playlist:37i9dQZF1E35HBJ2wuuMhp", "Daily Mix 1", "Kery James et plus", label="x"),
     ]})
 
     assert [[(c["subtitle"], c["name_in_cover"]) for c in shelf["items"]] for shelf in shelves] == [
-        [("Avec Jamilah Barry et plus", True)], [(None, True)], [("Kery James, Oxmo et plus", False)],
+        [("BETTY BROWN et Nia Smith", True)], [("Nia Smith, Tia Gordon, Jamilah Barry", True)], [(None, True)],
+        [("Kery James et plus", False)],
     ]
 
 

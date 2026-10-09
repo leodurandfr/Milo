@@ -25,13 +25,19 @@ SHORTCUTS_SECTION = "spotify:section:0JQ5DAIiKWzVFULQfUm85Y"
 # are not something go-librespot lists.
 _CARD_KINDS = {"playlist": "playlist", "album": "album", "artist": "artist"}
 # The shelves whose covers carry each card's name, written in the picture:
-# their cards show no name under the cover. A station keeps Spotify's line
-# ("With …" the artists it plays); the other two drop theirs, a description of
-# what the cover already names. Same ids in every language (measured 2026-10-09).
-NAMED_COVER_SECTIONS = {
-    "spotify:section:0JQ5DAnM3wGh0gz1MXnu3R": True,   # Recommended Stations
-    "spotify:section:0JQ5DAnM3wGh0gz1MXnu3n": False,  # Best of artists
-    "spotify:section:0JQ5DAUnp4wcj0bCb3wh8h": False,  # Soundtrack your day
+# their cards show no name under the cover, and each says what line it writes
+# instead. A mix keeps Spotify's subtitle (the artists it plays). A station
+# names its artists from the card's own list of them, which is in no language,
+# where its subtitle is a sentence in the account's ("Avec …" under an English
+# home). Best of artists and Soundtrack your day write nothing: their subtitle
+# describes what the cover already names. Same ids in every language (measured
+# 2026-10-09).
+_SUBTITLE, _ARTISTS = "subtitle", "artists"
+NAMED_COVER_SECTIONS: Dict[str, Optional[str]] = {
+    "spotify:section:0JQ5DAnM3wGh0gz1MXnu89": _SUBTITLE,  # Your top mixes
+    "spotify:section:0JQ5DAnM3wGh0gz1MXnu3R": _ARTISTS,   # Recommended Stations
+    "spotify:section:0JQ5DAnM3wGh0gz1MXnu3n": None,       # Best of artists
+    "spotify:section:0JQ5DAUnp4wcj0bCb3wh8h": None,       # Soundtrack your day
 }
 # The artist a shelf is about ("For fans of FKA twigs", "More like Prince
 # Waly"): the home names it only inside the shelf's title and draws no picture
@@ -203,7 +209,14 @@ def library_sections(items: List[Dict[str, Any]], account: Optional[str]) -> Dic
     return sections
 
 
-def _home_card(card: Dict[str, Any], named_cover: bool, keeps_line: bool) -> Optional[Dict[str, Any]]:
+def _card_line(card: Dict[str, Any], section: str) -> Optional[str]:
+    line = NAMED_COVER_SECTIONS.get(section, _SUBTITLE)
+    if line == _ARTISTS:
+        return (card.get("metadata") or {}).get("label")
+    return (card.get("text") or {}).get("subtitle") if line == _SUBTITLE else None
+
+
+def _home_card(card: Dict[str, Any], section: str) -> Optional[Dict[str, Any]]:
     uri = (card.get("target") or {}).get("uri") or ""
     if _HOME_LIKED_SONGS.match(uri):
         kind = "liked"
@@ -217,9 +230,9 @@ def _home_card(card: Dict[str, Any], named_cover: bool, keeps_line: bool) -> Opt
         "uri": uri,
         "kind": kind,
         "name": text.get("title") or None,
-        "subtitle": (text.get("subtitle") if keeps_line else None) or None,
+        "subtitle": _card_line(card, section) or None,
         "image": image or None,
-        "name_in_cover": named_cover,
+        "name_in_cover": section in NAMED_COVER_SECTIONS,
     }
 
 
@@ -283,7 +296,7 @@ def home_shelves(view: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[
         if (entry.get("component") or {}).get("category") == "header":
             shelves[section] = {"id": section, "title": (entry.get("text") or {}).get("title") or None, "items": []}
             continue
-        card = _home_card(entry, section in NAMED_COVER_SECTIONS, NAMED_COVER_SECTIONS.get(section, True))
+        card = _home_card(entry, section)
         if card is not None and section in shelves:
             shelves[section]["items"].append(card)
     shortcuts = shelves.pop(SHORTCUTS_SECTION, None)

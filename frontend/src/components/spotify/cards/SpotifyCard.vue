@@ -2,9 +2,9 @@
   <div v-press class="playlist-card" @click="$emit('click')">
     <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
       class="playlist-cover" :class="{ round: item.kind === 'artist' }" />
-    <div v-if="lines.heading" class="playlist-info">
-      <p class="playlist-name heading-4">{{ lines.heading }}</p>
-      <p v-if="lines.byline" class="playlist-owner text-body-small">{{ lines.byline }}</p>
+    <div v-if="lines.heading || lines.byline" class="playlist-info">
+      <p v-if="lines.heading" class="playlist-name heading-4">{{ lines.heading }}</p>
+      <p v-if="lines.byline" class="playlist-owner text-body">{{ lines.byline }}</p>
     </div>
   </div>
 </template>
@@ -21,7 +21,7 @@ const props = defineProps({
   // name, subtitle, image }) or a library playlist ({ uri, name, owner, image }).
   // No track count: the library's is wrong for every playlist Spotify
   // regenerates. A home card whose cover carries its name (`name_in_cover`)
-  // writes its byline in the name's place.
+  // writes its byline alone.
   item: {
     type: Object,
     required: true,
@@ -37,8 +37,8 @@ const lines = computed(() => cardLines(props.item, t));
 </script>
 
 <style scoped>
-/* The card's box — a square cover, the gap, a heading-4 line, then a
-   text-body-small byline — is what SpotifyShelfRow reserves for a row not
+/* The card's box — a square cover, the gap, a heading-4 name, then a
+   text-body byline — is what SpotifyShelfRow reserves for a row not
    drawn yet: change one, change both (tests/architecture/spotifyShelfEstimate). */
 .playlist-card {
   display: flex;

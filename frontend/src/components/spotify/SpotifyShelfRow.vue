@@ -61,8 +61,8 @@ const props = defineProps({
 defineEmits(['select']);
 
 const { t } = useI18n();
-// The row is as tall as its tallest card: with a heading line and a byline
-// line, if any has one.
+// The row is as tall as its tallest card: with a name line and a byline line,
+// if any has one.
 const lines = computed(() => props.items.map((item) => cardLines(item, t)));
 const withName = computed(() => lines.value.some((line) => line.heading));
 const withByline = computed(() => lines.value.some((line) => line.byline));
@@ -125,15 +125,20 @@ onBeforeUnmount(() => {
   contain-intrinsic-block-size: var(--shelf-cover-height);
 }
 
-/* The heading line under the cover, when a card writes one. */
+/* The name under the cover, when a card writes one. */
 .shelf-row.with-name {
   contain-intrinsic-block-size: calc(var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4));
+}
+
+/* The byline alone, when the cover carries the name. */
+.shelf-row.with-byline {
+  contain-intrinsic-block-size: calc(var(--shelf-cover-height) + var(--space-03) + var(--line-height-body));
 }
 
 /* And the byline under it. */
 .shelf-row.with-name.with-byline {
   contain-intrinsic-block-size: calc(
-    var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4) + var(--space-01) + var(--line-height-body-small)
+    var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4) + var(--space-01) + var(--line-height-body)
   );
 }
 
