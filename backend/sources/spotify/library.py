@@ -43,6 +43,12 @@ class SpotifyUnavailable(Exception):
     """The daemon is not running, or nobody is signed in to it right now."""
 
 
+class SpotifyNoSession(SpotifyUnavailable):
+    """The daemon holds no session (go-librespot's 204): nobody is signed in,
+    or the session is being rebuilt — a transfer to another device tears it
+    down and signs in again within a second (measured 2026-10-09)."""
+
+
 class SpotifyLibraryError(Exception):
     """The daemon answered, and refused."""
 
@@ -58,6 +64,13 @@ class SpotifyLibrary:
     # album from a single: a short release is listed and described within a
     # second (measured).
     RELEASE_WAIT_S = 2.4
+    # How long a 204 (no session) is asked again: the routes refuse at once
+    # when nobody is signed in, so here it is a session being rebuilt — a
+    # transfer to another device signs the daemon in again within a second
+    # (measured 2026-10-09), and answered at once it left an artist page
+    # without its popular tracks.
+    SESSION_WAIT_S = 2.0
+    SESSION_POLL_S = 0.2
 
     def __init__(self) -> None:
         self._http: Optional[aiohttp.ClientSession] = None
@@ -80,12 +93,22 @@ class SpotifyLibrary:
         self._http = self._internet = None
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        polls = round(self.SESSION_WAIT_S / self.SESSION_POLL_S)
+        for poll in range(polls):
+            try:
+                return await self._request_once(method, path, **kwargs)
+            except SpotifyNoSession:
+                if poll == polls - 1:
+                    raise
+                await asyncio.sleep(self.SESSION_POLL_S)
+
+    async def _request_once(self, method: str, path: str, **kwargs: Any) -> Any:
         if self._http is None or self._api_url is None:
             raise SpotifyUnavailable("Spotify is not running")
         try:
             async with self._http.request(method, f"{self._api_url}{path}", **kwargs) as resp:
                 if resp.status == 204:
-                    raise SpotifyUnavailable("Spotify is not signed in")
+                    raise SpotifyNoSession("Spotify is not signed in")
                 if resp.status >= 400:
                     raise SpotifyLibraryError(f"{method} {path.split('?')[0]} answered {resp.status}")
                 if resp.content_type == "application/json":

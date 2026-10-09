@@ -8,7 +8,7 @@
 
         <!-- Neither the page nor a track: nothing to show but a retry. -->
         <MessageContent v-else-if="pageError && !tracks.length" key="error" icon="network"
-          :title="errorTitle" :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
+          :title="errorTitle(pageError)" :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 
         <div v-else key="loaded" class="sections">
           <DetailHeader
@@ -54,8 +54,13 @@
             </ShowMoreClip>
           </section>
 
+          <!-- The page without its tracks: the popular ones are missing, said
+               with a retry rather than left out in silence. -->
+          <MessageContent v-else-if="trackError" :title="errorTitle(trackError)" :cta-label="t('spotify.retry')"
+            cta-variant="control" :cta-click="load" />
+
           <!-- The tracks without the page: what failed is said, with a retry. -->
-          <MessageContent v-if="pageError" :title="errorTitle" :cta-label="t('spotify.retry')"
+          <MessageContent v-if="pageError" :title="errorTitle(pageError)" :cta-label="t('spotify.retry')"
             cta-variant="control" :cta-click="load" />
 
           <!-- Spotify's own sections, in its order and under its titles; its
@@ -138,9 +143,7 @@ const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() =
 
 // Until the first ones are described: the listing answers within a second.
 const tracksPending = computed(() => !tracks.value.length && !listing.value?.complete && !trackError.value);
-const errorTitle = computed(() =>
-  pageError.value === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable')
-);
+const errorTitle = (error) => (error === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable'));
 
 // The ten, kept the same array while they stay the same tracks: the listing
 // is replaced at every round of its loading, which would re-measure the clip

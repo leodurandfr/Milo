@@ -121,6 +121,9 @@ async def get_context(
     browser has, and it asks again until `complete` (`cached` of `length` say
     how far the listing is). Never fewer than it has: a listing the daemon
     reads again from the start (a restart) answers nothing new."""
+    if source.account is None:
+        logger.warning("Spotify listing: nobody is signed in")
+        raise HTTPException(status_code=409, detail="Spotify is not signed in")
     async with _library_errors("Spotify listing"):
         tracks, listing = await source.library.context(uri, after)
         return {
@@ -157,6 +160,9 @@ async def get_context_cover(uri: str, source: SpotifySource = Depends(get_source
     """The picture of a playlist that has none in the library: a redirect to
     the mosaic of its first albums, as the Spotify apps draw it. 404 for an
     empty playlist, which the browser draws as its placeholder."""
+    if source.account is None:
+        logger.warning("Spotify cover: nobody is signed in")
+        raise HTTPException(status_code=409, detail="Spotify is not signed in")
     async with _library_errors("Spotify cover"):
         cover = await source.library.cover(uri)
     if cover is None:

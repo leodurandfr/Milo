@@ -754,6 +754,65 @@ async def test_a_request_cut_by_a_daemon_restart_answers_409(world, monkeypatch)
     assert answer.value.status_code == 409
 
 
+async def test_a_page_asked_while_the_session_is_rebuilt_waits_for_it(world, monkeypatch):
+    """Playback transferred to another device makes go-librespot sign in
+    again (~1 s, measured), answering 204 meanwhile — /token included: answered
+    409 at once, the artist page opened at that moment showed no popular
+    tracks."""
+    import asyncio
+
+    artist = "spotify:artist:3b5bg1k6N9u31OtzSfK2dP"
+    world.daemon.listings[artist] = [track(n) for n in "ab"]
+    world.daemon.session = world.daemon.signed_in = False
+    request, refused = world.daemon.request, []
+
+    def rebuilding(method, url, **kwargs):
+        if not world.daemon.signed_in:
+            refused.append(url)
+            world.daemon.signed_in = len(refused) >= 4
+        return request(method, url, **kwargs)
+
+    monkeypatch.setattr(world.daemon, "request", rebuilding)
+
+    listing, page = await asyncio.gather(
+        routes.get_context(artist, source=world.source),
+        routes.get_artist(artist, source=world.source),
+    )
+
+    assert [t["title"] for t in listing["tracks"]] == ["a", "b"] and listing["complete"] is True
+    assert page["status"] == "success" and world.daemon.token_reads >= 1
+    assert any("/token" in url for url in refused) and any("/context/tracks" in url for url in refused)
+
+
+async def test_a_session_that_never_comes_back_answers_409(world):
+    """Waiting for a session must end: the browser reads 'signing in'."""
+    world.daemon.listings[PLAYLIST] = [track("a")]
+    world.daemon.session = world.daemon.signed_in = False
+
+    with pytest.raises(HTTPException) as answer:
+        await routes.get_context(PLAYLIST, source=world.source)
+    assert answer.value.status_code == 409
+
+
+async def test_with_nobody_signed_in_a_listing_is_refused_without_waiting_on_the_daemon(monkeypatch, tmp_path):
+    """The daemon's 204 is waited out as a session being rebuilt: asked with
+    nobody signed in, every listing and cover would hang that long first."""
+    signed_out = SpotifyWorld(monkeypatch, tmp_path)
+    await signed_out.select()
+    await signed_out.idle()
+    asked = []
+    monkeypatch.setattr(signed_out.daemon, "request", lambda *a, **k: asked.append(a))
+    try:
+        assert signed_out.source.account is None
+        for route in (routes.get_context, routes.get_context_cover):
+            with pytest.raises(HTTPException) as answer:
+                await route(PLAYLIST, source=signed_out.source)
+            assert answer.value.status_code == 409
+        assert asked == []
+    finally:
+        await signed_out.source.shutdown()
+
+
 async def test_the_library_answers_409_when_spotify_is_not_running(world):
     await world.leave()
     with pytest.raises(HTTPException) as answer:
