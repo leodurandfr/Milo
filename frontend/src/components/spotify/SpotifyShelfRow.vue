@@ -2,50 +2,15 @@
   <!-- One of Spotify's shelves, scrolled sideways as in its app. It runs past
        the column into the page's side space instead of being cut at its edge. -->
   <div class="shelf">
-    <div ref="rowRef" class="shelf-row" :class="{ 'with-name': withName, 'with-byline': withByline }">
+    <div class="shelf-row" :class="{ 'with-name': withName, 'with-byline': withByline }">
       <SpotifyCard v-for="item in items" :key="item.uri" :item="item"
         @click="$emit('select', item)" />
     </div>
   </div>
 </template>
 
-<script>
-// The mask's stops in pixels, read off the row's side padding (the space it
-// runs into): the layout's bleed is partly a percentage, which in a mask would
-// resolve against the row's width rather than the column's.
-//
-// One observer for every row: a frame that resizes them all (a page mounting or
-// coming back, the player opening) reads every padding before writing a stop —
-// one style pass, where each row reading after the last one's write laid the
-// page out once per row. Its first report lands before the first paint. The
-// border box, because what is measured is the padding, which can move while the
-// content box does not.
-let rows = null;
-
-function measureRows(entries) {
-  // Out of the document (a page its KeepAlive kept): no style to read, and the
-  // stops it had are the ones it gets back.
-  const stops = entries
-    .map(({ target }) => target)
-    .filter((el) => el.isConnected)
-    .map((el) => {
-      const style = getComputedStyle(el);
-      return [el, style.paddingLeft, style.paddingRight];
-    });
-  for (const [el, start, end] of stops) {
-    setStop(el, '--shelf-bleed-start', start);
-    setStop(el, '--shelf-bleed-end', end);
-  }
-}
-
-// Written only when they moved: an unchanged row costs no style pass.
-function setStop(el, name, value) {
-  if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
-}
-</script>
-
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { cardLines } from '@/utils/spotifyCard';
 import SpotifyCard from './cards/SpotifyCard.vue';
@@ -66,19 +31,6 @@ const { t } = useI18n();
 const lines = computed(() => props.items.map((item) => cardLines(item, t)));
 const withName = computed(() => lines.value.some((line) => line.heading));
 const withByline = computed(() => lines.value.some((line) => line.byline));
-
-const rowRef = ref(null);
-let observed = null;
-
-onMounted(() => {
-  rows ??= new ResizeObserver(measureRows);
-  observed = rowRef.value;
-  rows.observe(observed, { box: 'border-box' });
-});
-
-onBeforeUnmount(() => {
-  rows?.unobserve(observed);
-});
 </script>
 
 <style scoped>
@@ -150,50 +102,32 @@ onBeforeUnmount(() => {
   scroll-snap-align: start;
 }
 
-/* Past the column the row recedes, so the side space shows where the row
-   goes without competing with the column: a soft fade from each of the
-   column's edges, --content-bleed-fade long, then the rest of the row at
-   --shelf-receded, to the screen's edge — under the player too, which covers
-   it. Four layers, composited: the receded level everywhere, the column solid
-   (a pixel wider each side so no seam shows), and a fade from solid to nothing
-   laid outward from each of its edges, which over the receded level reads as
-   solid down to it. The phone has no side space to speak of: the screen's
-   edge cuts the row there. */
+/* Under the player the row recedes, so a card showing there does not compete
+   with it: solid out to the layout's --content-solid-end (the column's edge),
+   a soft fade from there, --content-fade-end long, then the rest of the row
+   at --shelf-receded, to the screen's edge. Three layers, composited: the
+   receded level everywhere, the solid span (a pixel wider so no seam shows),
+   and a fade from solid to nothing laid outward from its edge, which over the
+   receded level reads as solid down to it. With no player the layout sets no
+   stop and the solid span is the whole row. The phone has no side space to
+   speak of: the player is a bar under the rows there. */
 @media not (max-aspect-ratio: 4/3) {
   .shelf-row {
     --shelf-peek: 0.5;
-    --shelf-fade: var(--content-bleed-fade, 0px);
     --shelf-receded: color-mix(in srgb, black 16%, transparent);
-    /* (1 - t)², an ease-out: it starts falling at the column's edge itself
-       and lands flat on the receded level. An S-curve held the first fifth
-       near solid, so the fade seemed to begin past the edge. */
-    --shelf-fade-curve: black,
-      color-mix(in srgb, black 81%, transparent) 10%,
-      color-mix(in srgb, black 64%, transparent) 20%,
-      color-mix(in srgb, black 49%, transparent) 30%,
-      color-mix(in srgb, black 36%, transparent) 40%,
-      color-mix(in srgb, black 25%, transparent) 50%,
-      color-mix(in srgb, black 16%, transparent) 60%,
-      color-mix(in srgb, black 9%, transparent) 70%,
-      color-mix(in srgb, black 4%, transparent) 80%,
-      color-mix(in srgb, black 1%, transparent) 90%,
-      transparent;
     --shelf-mask: linear-gradient(var(--shelf-receded), var(--shelf-receded)),
       linear-gradient(black, black),
-      linear-gradient(to left, var(--shelf-fade-curve)),
-      linear-gradient(to right, var(--shelf-fade-curve));
+      linear-gradient(to right, black, transparent);
     -webkit-mask-image: var(--shelf-mask);
     mask-image: var(--shelf-mask);
     mask-size:
       100% 100%,
-      calc(100% - var(--shelf-bleed-start, 0px) - var(--shelf-bleed-end, 0px) + 2px) 100%,
-      var(--shelf-fade) 100%,
-      var(--shelf-fade) 100%;
+      calc(100% - var(--content-solid-end, 0px) + 1px) 100%,
+      var(--content-fade-end, 0px) 100%;
     mask-position:
       0 0,
-      calc(var(--shelf-bleed-start, 0px) - 1px) 0,
-      calc(var(--shelf-bleed-start, 0px) - var(--shelf-fade)) 0,
-      right calc(var(--shelf-bleed-end, 0px) - var(--shelf-fade)) top 0;
+      0 0,
+      right calc(var(--content-solid-end, 0px) - var(--content-fade-end, 0px)) top 0;
     mask-repeat: no-repeat;
   }
 }

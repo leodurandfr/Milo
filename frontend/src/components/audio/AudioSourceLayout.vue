@@ -412,9 +412,6 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
      against the column's width, of which 8% of the frame is 8/84. */
   --content-bleed-start: calc(var(--space-07) + 100% * 8 / 84);
   --content-bleed-end: var(--content-bleed-start);
-  /* How long a row takes, past the column, to recede to what it shows out
-     there. */
-  --content-bleed-fade: var(--space-09);
   position: relative;
   z-index: 1;
   width: 84%;
@@ -443,6 +440,12 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
      edge, under the player, which paints over it. */
   --content-bleed-start: var(--space-07);
   --content-bleed-end: calc(var(--audio-player-wrapper-width) + var(--space-07));
+  /* Under the player a row recedes, from the column's edge, so a card there
+     does not compete with it. Lengths, never a percentage: a mask would
+     resolve one against the row's width. Toward the screen's edge, and with
+     no player at all, a row stays solid. */
+  --content-solid-end: var(--content-bleed-end);
+  --content-fade-end: var(--space-09);
   width: calc(100% - var(--audio-player-wrapper-width));
   transition: width var(--transition-spring);
 }
