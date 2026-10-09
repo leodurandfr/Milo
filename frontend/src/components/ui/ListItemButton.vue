@@ -173,10 +173,12 @@ function handleClick(event) {
 }
 
 /* Glass variant: a row laid straight on a modal's glass (the power menu, a
-   station's actions), not in a section — what the glass holds, like the
-   dock's keys. */
+   station's actions), not in a section — an opaque surface, like the
+   sections beside it. Not the dock's key (--color-shell-control): the
+   overlay darkens a modal's glass, so in dark that key landed lighter than
+   every row and tile of the modal, the row's own tile included. */
 .list-item-button--glass {
-  background: var(--color-shell-control);
+  background: var(--color-surface);
 }
 
 /* Left icon - base */
