@@ -10,7 +10,7 @@
       <span :class="[headingClass, { 'text-secondary': !online }]">{{ name }}</span>
     </template>
     <template #subtitle>
-      <span class="text-mono-small speaker-meta" :class="metaClass">
+      <span class="text-body-small speaker-meta" :class="metaClass">
         <SvgIcon
           v-if="discoverySource === 'ethernet'"
           name="network"

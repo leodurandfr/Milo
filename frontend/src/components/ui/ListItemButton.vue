@@ -214,6 +214,7 @@ function handleClick(event) {
 /* Text block (title + optional subtitle) */
 .list-item-button__text {
   flex: 1;
+  min-width: 0;
   min-height: 40px;
   display: flex;
   align-items: center;

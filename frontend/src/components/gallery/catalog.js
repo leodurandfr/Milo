@@ -379,7 +379,7 @@ export const ENTRIES = [
     id: 'StationCard',
     group: 'cards',
     file: 'components/radio/StationCard.vue',
-    summary: 'A radio station, in two shapes the same component serves: `card` is the horizontal row of the search and favourites lists, `image` is the bare favicon tile of the favourites grid. The `image` tile shows LazyImage\'s skeleton while a favicon loads, never the generated SVG fallback a failed one falls back to.',
+    summary: 'A radio station, in two shapes the same component serves: `card` is a ListItemButton row (inset, the favicon as its icon, a brand ring while it plays) for the search and settings lists, `image` is the bare favicon tile of the favourites grid. The `image` tile shows LazyImage\'s skeleton while a favicon loads, never the generated SVG fallback a failed one falls back to.',
   },
   {
     id: 'SkeletonStationCard',

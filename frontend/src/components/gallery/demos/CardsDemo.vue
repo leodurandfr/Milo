@@ -9,7 +9,7 @@
 -->
 <template>
   <GalleryItem id="StationCard">
-    <GalleryVariant label='variant="card" — the row of the search and favourites lists' stacked>
+    <GalleryVariant label='variant="card" — the row of the search and settings lists' stacked>
       <div class="column">
         <StationCard :station="station" variant="card" />
         <StationCard :station="stationPlain" variant="card" />
@@ -21,13 +21,9 @@
         <StationCard :station="station" variant="card" is-loading />
       </div>
     </GalleryVariant>
-    <GalleryVariant label="actions slot — 0, 1 or 2 buttons, right-aligned" stacked>
+    <GalleryVariant label='action="caret" — the row of the radio settings, which opens the edit page' stacked>
       <div class="column">
-        <StationCard :station="station" variant="card">
-          <template #actions>
-            <IconButton icon="heart" variant="control" size="small" />
-          </template>
-        </StationCard>
+        <StationCard :station="station" variant="card" action="caret" />
       </div>
     </GalleryVariant>
     <GalleryVariant label='variant="image" — the favourites grid tile'>
@@ -151,7 +147,6 @@ import { useI18n } from '@/services/i18n';
 import { PODCAST_GENRE_IDS, genreSlug } from '@/constants/podcastGenres';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
-import IconButton from '@/components/ui/IconButton.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SkeletonStationCard from '@/components/radio/SkeletonStationCard.vue';

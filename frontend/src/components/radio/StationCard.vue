@@ -17,35 +17,31 @@
     </LazyImage>
   </div>
 
-  <!-- "card" variant: Horizontal layout for lists -->
-  <div v-else-if="variant === 'card'" v-press :class="['station-card', {
-    playing: isPlaying,
-    loading: isLoading
-  }]" @click="$emit('click')">
-    <LazyImage
-      :src="getFaviconUrl(station.favicon)"
-      :fallback-name="station.name"
-      :alt="station.name"
-      lazy
-      class="station-logo"
-    >
-      <transition name="loading-fade">
-        <div v-if="isLoading" class="card-loading-overlay">
-          <LoadingSpinner :size="32" />
-        </div>
-      </transition>
-    </LazyImage>
-
-    <div class="station-details">
-      <p class="station-title heading-3">{{ station.name }}</p>
-      <p v-if="cardMetadata" class="station-subtitle text-body-small">{{ cardMetadata }}</p>
-    </div>
-
-    <!-- Custom actions (0, 1 or 2 buttons) -->
-    <div v-if="$slots.actions" class="actions-wrapper">
-      <slot name="actions"></slot>
-    </div>
-  </div>
+  <!-- "card" variant: the row of the search and settings lists -->
+  <ListItemButton v-else-if="variant === 'card'" variant="inset" icon-variant="full" :action="action"
+    :class="['station-row', { playing: isPlaying }]" @click="$emit('click')">
+    <template #icon>
+      <LazyImage
+        :src="getFaviconUrl(station.favicon)"
+        :fallback-name="station.name"
+        alt=""
+        lazy
+        class="station-logo"
+      >
+        <transition name="loading-fade">
+          <div v-if="isLoading" class="card-loading-overlay">
+            <LoadingSpinner :size="24" />
+          </div>
+        </transition>
+      </LazyImage>
+    </template>
+    <template #title="{ headingClass }">
+      <span :class="['station-row__line', headingClass]">{{ station.name }}</span>
+    </template>
+    <template v-if="cardMetadata" #subtitle>
+      <span class="station-row__line station-row__subtitle text-body-small">{{ cardMetadata }}</span>
+    </template>
+  </ListItemButton>
 
 </template>
 
@@ -56,6 +52,7 @@ import { getTranslatedCountryName } from '@/constants/countries';
 import { getTranslatedGenreName } from '@/constants/musicGenres';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 
 const { getCurrentLanguage } = useI18n();
@@ -77,6 +74,13 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
+  },
+  // "card" only: a caret where the row opens a page (the settings' edit
+  // screen), none where it plays the station.
+  action: {
+    type: String,
+    default: 'none',
+    validator: (value) => ['none', 'caret'].includes(value)
   }
 });
 
@@ -130,71 +134,33 @@ const cardMetadata = computed(() => {
   box-shadow: 0 0 0 3px var(--color-brand);
 }
 
-/* === "CARD" VARIANT: Horizontal layout === */
-.station-card {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-02);
-  padding: var(--space-02);
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-04);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  background: var(--color-surface-glass);
-  position: relative;
-  min-width: 0;
-}
+/* === "CARD" VARIANT: a ListItemButton row === */
 
-
-.station-card.playing {
-  border-color: var(--color-brand);
-  background: var(--color-inset);
+/* The station on air: the row's hairline becomes the brand ring. */
+.station-row.playing {
+  box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .station-logo {
-  flex-shrink: 0;
-  width: 60px;
-  height: 60px;
-  border-radius: var(--radius-02);
+  width: 100%;
+  height: 100%;
   background: var(--color-fill-faint);
 }
 
-.station-details {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--space-01);
-  overflow: hidden;
+/* The row sizes every svg in its icon to the icon's box; the spinner keeps its own. */
+.station-logo :deep(.loading-spinner svg) {
+  width: 100%;
+  height: 100%;
 }
 
-.station-title {
-  margin: 0;
-  color: var(--color-text);
+.station-row__line {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.station-subtitle {
-  margin: 0;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.station-row__subtitle {
+  color: var(--color-text-secondary);
 }
-
-
-.actions-wrapper {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-02);
-  align-items: center;
-  flex-shrink: 0;
-}
-
-
-
 </style>

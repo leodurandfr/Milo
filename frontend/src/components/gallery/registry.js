@@ -1036,15 +1036,6 @@ export const REGISTRY = {
           favicon: ''
         }
       }
-    },
-    slots: {
-      actions: {
-        none: null,
-        'IconButton — favourite': {
-          component: IconButton,
-          props: { icon: 'heart', variant: 'control', size: 'small' }
-        }
-      }
     }
   },
 
