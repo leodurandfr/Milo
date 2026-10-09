@@ -37,7 +37,11 @@ defineProps({
   left: 50%;
   z-index: 100;
   pointer-events: none;
-  transition: all var(--transition-spring);
+  transition:
+    top var(--transition-spring),
+    transform var(--transition-spring),
+    margin-top var(--transition-spring),
+    opacity var(--transition-normal);
 }
 
 .logo-svg {

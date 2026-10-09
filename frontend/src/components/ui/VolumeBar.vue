@@ -54,7 +54,7 @@ const volumeFillStyle = computed(() => ({
   width: 472px;
   padding: var(--space-04);
   border-radius: var(--radius-full);
-  transition: all var(--transition-spring-snappy);
+  transition: transform var(--transition-spring-snappy), opacity var(--transition-normal);
   z-index: 8000;
   /* Only intercept taps while fully shown: during the fade-out the bar lets
      clicks pass through, so re-tapping never interrupts the disappear animation. */

@@ -163,9 +163,9 @@ function selectOption(value) {
 
 .button-group__thumb--placed {
   transition:
-    transform var(--transition-spring-light),
-    width var(--transition-spring-light),
-    height var(--transition-spring-light),
+    transform var(--transition-spring-soft),
+    width var(--transition-spring-soft),
+    height var(--transition-spring-soft),
     opacity var(--transition-fast);
 }
 

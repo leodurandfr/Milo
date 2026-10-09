@@ -93,7 +93,7 @@ defineEmits(['dismiss']);
 
 /* Slide-in animation from top */
 .notification-slide-enter-active {
-  transition: transform var(--transition-spring), opacity var(--transition-spring);
+  transition: transform var(--transition-spring), opacity var(--transition-normal);
 }
 
 .notification-slide-leave-active {

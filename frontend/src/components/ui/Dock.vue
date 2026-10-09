@@ -548,7 +548,7 @@ onUnmounted(() => {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-spring-fast), transform var(--transition-spring-fast);
+  transition: opacity var(--transition-normal), transform var(--transition-spring-snappy);
   cursor: grab;
 }
 
@@ -588,7 +588,7 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
-  transition: opacity var(--transition-spring-fast), transform var(--transition-spring-fast);
+  transition: opacity var(--transition-normal), transform var(--transition-spring-snappy);
   opacity: 0;
   transform: translateY(20px) scale(0.95);
 }
@@ -643,7 +643,7 @@ onUnmounted(() => {
   width: 100%;
   opacity: 0;
   transform: translateY(20px) scale(0.8) translateZ(0);
-  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  transition: opacity var(--transition-normal), transform var(--transition-spring);
   will-change: transform, opacity;
 }
 
@@ -657,7 +657,7 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--color-text-secondary);
   padding: var(--space-02);
-  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  transition: opacity var(--transition-normal), transform var(--transition-spring);
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -677,7 +677,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8) translateZ(0);
-  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  transition: opacity var(--transition-normal), transform var(--transition-spring);
   will-change: transform, opacity;
 }
 
@@ -687,7 +687,7 @@ onUnmounted(() => {
   border: none;
   opacity: 0;
   transform: translateY(20px) scale(0.8) translateZ(0);
-  transition: opacity var(--transition-spring), transform var(--transition-spring);
+  transition: opacity var(--transition-normal), transform var(--transition-spring);
   will-change: transform, opacity;
 }
 
