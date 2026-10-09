@@ -18,7 +18,8 @@
          dark as a modal's at rest, clear once the player is out. -->
     <div v-if="pullState" class="browser-view browser-veil" aria-hidden="true" :style="veilStyle" />
 
-    <Transition name="audio-content" @after-enter="onOverlayEntered" @after-leave="playerOnScreen = false">
+    <Transition name="audio-content" @enter="swapIn" @leave="swapOut" @after-enter="onOverlayEntered"
+      @after-leave="playerOnScreen = false">
       <AudioPlayerFull v-if="playerShown" class="browser-view browser-player" :source="source"
         @title-click="openInNavigation('title-click')"
         @secondary-click="openInNavigation('secondary-click', $event)">
@@ -36,6 +37,7 @@ import { UNDER_OVERLAY, useCover } from '@/composables/useCover';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { PLAYER_NAVIGATION, useExpandedView, usePlayerExpansion } from '@/composables/usePlayerExpansion';
 import { BROWSER_SOURCES } from '@/constants/audioSources';
+import { swapIn, swapOut } from '@/utils/sourceMotion';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 
 const props = defineProps({

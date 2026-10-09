@@ -426,16 +426,10 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   gap: var(--space-06);
   flex-shrink: 0;
   touch-action: pan-y;
-  /* The transform half is the source swap's rise opting in beside this
-     element's own width animation — `transition` is a shorthand, so the shared
-     rule cannot add to it from outside. See .source-motion in
-     design-system.css, which owns the duration. */
-  transition:
-    width 0.6s cubic-bezier(0.5, 0, 0, 1),
-    transform var(--source-motion-duration, 0s);
-  /* The source swap rises this element (see .source-motion in
-     design-system.css), and its scale has to shrink towards the top rather than
-     the default centre. This column is top-anchored and taller than the screen,
+  transition: width 0.6s cubic-bezier(0.5, 0, 0, 1);
+  /* The source swap rises this element (.source-motion, utils/sourceMotion),
+     and its scale has to shrink towards the top rather than the default
+     centre. This column is top-anchored and taller than the screen,
      so a centred origin pushes the top back down by half the overshoot while the
      translate pulls it up — the header rose 19px of the 32 it was given, and the
      leave read as a zoom-out about the middle instead of a departure upwards.
@@ -450,9 +444,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   --content-bleed-start: var(--space-07);
   --content-bleed-end: calc(var(--audio-player-wrapper-width) + var(--space-07));
   width: calc(100% - var(--audio-player-wrapper-width));
-  transition:
-    width var(--transition-spring),
-    transform var(--source-motion-duration, 0s);
+  transition: width var(--transition-spring);
 }
 
 /* Inner wrapper for content transition */
@@ -477,14 +469,10 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   flex-shrink: 0;
   position: sticky;
   top: 0;
-  /* transform: the source swap's rise, opting in beside this element's own
-     animations — see .content-container above for why it has to be declared
-     here rather than by the shared rule. */
   transition:
     width 0.6s cubic-bezier(0.5, 0, 0, 1),
     padding-left 0.6s cubic-bezier(0.5, 0, 0, 1),
-    opacity 0.6s cubic-bezier(0.5, 0, 0, 1),
-    transform var(--source-motion-duration, 0s);
+    opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
   pointer-events: none;
 }
 
@@ -496,8 +484,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   transition:
     width var(--transition-spring),
     padding-left var(--transition-spring),
-    opacity 0.4s ease-out,
-    transform var(--source-motion-duration, 0s);
+    opacity 0.4s ease-out;
   pointer-events: all;
 }
 

@@ -3,7 +3,7 @@
     <!-- The source, under Lyrics while they are open: covered, never unmounted
          (useCover), so closing them finds the source as it was left. -->
     <div ref="layerEl" class="audio-source-layer" :class="{ 'is-covered': covered }">
-      <Transition name="audio-content" appear>
+      <Transition name="audio-content" appear @enter="swapIn" @leave="swapOut">
         <div v-if="shouldShowSpotify" :key="contentKey" class="audio-source-slot">
           <SpotifySource />
         </div>
@@ -50,7 +50,7 @@
       </Transition>
     </div>
 
-    <Transition name="audio-content" @after-enter="onOverlayEntered">
+    <Transition name="audio-content" @enter="swapIn" @after-enter="onOverlayEntered">
       <div v-if="lyricsStore.isOpen" class="audio-source-slot lyrics-slot">
         <LyricsView />
       </div>
@@ -65,6 +65,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useRichDisplay } from '@/composables/useRichDisplay';
 import { statusCardKey, useSourceStatusDisplay } from '@/composables/useSourceStatusDisplay';
+import { swapIn, swapOut } from '@/utils/sourceMotion';
 
 const LyricsView = defineAsyncComponent(() =>
   import('../lyrics/LyricsView.vue')
@@ -239,19 +240,17 @@ const contentKey = computed(() => {
 
 /* Lyrics fades in/out over the source on one symmetric curve rather than the
    shared normal-in/fast-out pair. On opening, LyricsView's body — marked
-   `.source-motion`, unlike its blurred backdrop — rises with the shared spring;
-   the transform here only declares that envelope, so Vue keeps the enter
-   classes until the rise ends. Closing stays a plain fade: the leave rise is
-   cancelled below. (The backdrop's own progressive reveal is a separate
-   transition, see .lyrics-bg in LyricsView.vue.) */
+   `.source-motion`, unlike its blurred backdrop — rises with the shared spring
+   (swapIn); the transform here only declares that envelope, so Vue keeps the
+   enter classes until the rise ends. Closing is a plain fade (no swapOut): a
+   rise still under way goes on to its end through it. (The backdrop's own
+   progressive reveal is a separate transition, see .lyrics-bg in
+   LyricsView.vue.) */
 .lyrics-slot.audio-content-enter-active {
   transition: opacity var(--transition-in-out), transform var(--transition-spring);
 }
 .lyrics-slot.audio-content-leave-active {
   transition: opacity var(--transition-in-out);
-}
-.lyrics-slot.audio-content-leave-to :deep(.source-motion) {
-  transform: none;
 }
 
 </style>

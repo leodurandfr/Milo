@@ -21,8 +21,7 @@
 // style, so toggling it restyled the whole page on both edges — measured, a
 // collapse 65 → 25 ms, Lyrics closing 90 → 35 ms.
 import { computed, nextTick, ref, watch } from 'vue';
-import { logger } from '@/services/logger';
-import { transitionTiming } from '@/utils/transitionTiming';
+import { riseIn } from '@/utils/sourceMotion';
 
 /**
  * Provided by a view that lays an overlay over the views it holds (a ref,
@@ -51,9 +50,12 @@ export function useCover(overlay, { peek, reveal } = {}) {
       if (reveal?.value?.contains(document.activeElement)) document.activeElement.blur();
       return;
     }
+    // Only a view that was covered rises: closed before it had fully come in,
+    // the overlay left the view on screen under it, and a rise would jump it.
+    const wasCovered = entered.value;
     entered.value = false;
-    // After the render that drops `.is-covered`, which rise() skips.
-    if (reveal?.value && !peeked) nextTick(() => rise(reveal.value));
+    // After the render that drops `.is-covered`, which riseIn() skips.
+    if (reveal?.value && !peeked && wasCovered) nextTick(() => riseIn(reveal.value));
   });
   if (peek) {
     // A pull that springs back leaves nothing on screen; one that dismisses
@@ -68,35 +70,4 @@ export function useCover(overlay, { peek, reveal } = {}) {
     if (overlay.value) entered.value = true;
   }
   return { covered, onOverlayEntered };
-}
-
-const rising = new WeakMap();
-// Read once, like the spring's timing: a token, and a read of the root's style
-// can lay the page out again.
-let riseFrom;
-
-// The rise a source swap gives the parts it marks (.source-motion), from the
-// same `--source-rise-from` on the same spring, played as one transform
-// animation per part on the compositor. The swap's own way — a class and an
-// inherited custom property switched at its root — restyled the whole page at
-// every step, which a view already built has no reason to pay. A rise still
-// under way is left to finish: restarting it from its start is a jump.
-function rise(root) {
-  const timing = transitionTiming('--transition-spring');
-  riseFrom ??= getComputedStyle(document.documentElement).getPropertyValue('--source-rise-from').trim();
-  if (!timing) return;
-  if (!riseFrom) {
-    logger.warn('ui', 'Uncovered view not risen: --source-rise-from unreadable');
-    return;
-  }
-  for (const el of root.querySelectorAll('.source-motion')) {
-    if (el.closest('.is-covered') || rising.get(el)?.playState === 'running') continue;
-    try {
-      rising.set(el, el.animate([{ transform: riseFrom }, { transform: 'none' }], timing));
-    } catch (error) {
-      // A browser without `linear()` easing: the view is simply there.
-      if (!(error instanceof TypeError)) throw error;
-      return;
-    }
-  }
 }

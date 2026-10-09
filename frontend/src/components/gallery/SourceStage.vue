@@ -38,7 +38,7 @@
       browsing animates while one browsing view → the next does not — that one
       is AudioSourceLayout's own contentKey cross-fade, exactly as in prod.
     -->
-    <Transition name="audio-content" appear>
+    <Transition name="audio-content" appear @enter="swapIn" @leave="swapOut">
       <div :key="slotKey" class="source-stage__slot">
         <!-- Store-driven: the app's dispatcher decides what this is. -->
         <AudioSourceView v-if="!browser" />
@@ -131,6 +131,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
+import { swapIn, swapOut } from '@/utils/sourceMotion';
 
 const props = defineProps({
   /**

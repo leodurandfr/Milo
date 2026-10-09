@@ -901,13 +901,16 @@
 
 /* Fade + slide: what leaves rises away, what arrives comes up from below. The
    one swap of every view and every state inside one (loading → content), in a
-   .swap-stack. */
+   .swap-stack. The two properties it moves and no other: `all` set every
+   property of the view on a curve for the length of the swap, and had the
+   engine compare each of them at every style change of a view that is often
+   a whole page. */
 .fade-slide-enter-active {
-    transition: all var(--transition-in-out);
+    transition: opacity var(--transition-in-out), transform var(--transition-in-out);
 }
 
 .fade-slide-leave-active {
-    transition: all var(--transition-fast-leave);
+    transition: opacity var(--transition-fast-leave), transform var(--transition-fast-leave);
 }
 
 .fade-slide-enter-from {
@@ -943,8 +946,7 @@
    ancestor at opacity < 1 is a Backdrop Root, so the glass would blur only
    what that ancestor paints and lose the page behind it until the fade ends.
    The swap moves --swap-fade instead, and the view sets each leaf's opacity
-   from it — the glass's own opacity leaves its blur alone. Named in the
-   transition: Chromium's `all` does not carry a custom property. */
+   from it — the glass's own opacity leaves its blur alone. */
 @property --swap-fade {
     syntax: '<number>';
     inherits: true;
@@ -952,12 +954,18 @@
 }
 
 .swap-stack > .fade-slide-enter-active:has(.swap-fades-leaves) {
-    transition: all var(--transition-in-out), --swap-fade var(--transition-in-out);
+    transition:
+        opacity var(--transition-in-out),
+        transform var(--transition-in-out),
+        --swap-fade var(--transition-in-out);
     transition-delay: 100ms;
 }
 
 .swap-stack > .fade-slide-leave-active:has(.swap-fades-leaves) {
-    transition: all var(--transition-fast-leave), --swap-fade var(--transition-fast-leave);
+    transition:
+        opacity var(--transition-fast-leave),
+        transform var(--transition-fast-leave),
+        --swap-fade var(--transition-fast-leave);
 }
 
 .swap-stack > .fade-slide-enter-from:has(.swap-fades-leaves),
@@ -1019,9 +1027,10 @@
 
    So the rise lives one level down, on whatever element the view marks
    `.source-motion` — its content, never its clipping box nor the background that
-   box is welded to. A view that marks nothing simply fades (the sticky player
-   pane, which on mobile is teleported clear of the slot anyway). Lyrics marks
-   its body and not its backdrop, and rises on opening only.
+   box is welded to — played by the swap's hooks (utils/sourceMotion: swapIn,
+   swapOut). A view that marks nothing simply fades (the sticky player pane,
+   which on mobile is teleported clear of the slot anyway). Lyrics marks its
+   body and not its backdrop, and rises on opening only.
 
    Lives here rather than in AudioSourceView because the gallery's source pages
    replay the same swap, and a transition copied into a second file is one that
@@ -1031,8 +1040,8 @@
 /* The slot never transforms — `transform` is listed below purely for its
    duration. Vue times a swap off the computed transition of the transitioned
    element itself, which is this one, and strips the classes the moment that
-   timeout expires; the rise now runs on .source-motion one level down, where
-   Vue cannot see it, so with only the 400ms fade declared here the 1.28s spring
+   timeout expires; the rise runs on .source-motion one level down, where Vue
+   cannot see it, so with only the 400ms fade declared here the 1.28s spring
    was cut a third of the way in. Declaring the envelope keeps the leaving view
    mounted, and the classes on it, until the rise has finished. */
 .audio-content-enter-active {
@@ -1059,52 +1068,12 @@
     opacity: 1;
 }
 
-/* Springy rise, and only the transform — the opacity above rides its own,
-   quicker curve. `all` on either half put the fade on the spring's 1.28s too,
-   which read as the view still arriving well after it had stopped moving.
-
-   The duration travels as a custom property rather than this rule declaring the
-   whole `transition`, because `transition` is a shorthand: one declaration
-   replaces another instead of adding to it, and two of the marked elements own
-   one already (.content-container animates its width as the player pane opens,
-   .player-wrapper its width, padding and opacity). Declaring `transition` here
-   lost that tie on specificity and the rise snapped to its end value in a single
-   frame — measured. A custom property composes instead: an element that owns a
-   shorthand opts the transform in beside its own properties, an element that
-   owns none is served by the base rule below, and the timings still live only
-   here. Adding a marker to an element that already transitions something means
-   adding `transform var(--source-motion-duration, 0s)` to its own declaration.
-
-   A keyframe animation would compose too, and was tried — but an animation
-   restarts from its `from`, so a swap interrupted mid-rise (routine: the status
-   card re-keys on its own wording) jumped 24px in one frame. A transition
-   interpolates from wherever it had got to. */
-.source-motion {
-    transition: transform var(--source-motion-duration, 0s);
-}
-
-.audio-content-enter-active .source-motion {
-    --source-motion-duration: var(--transition-spring);
-}
-
-.audio-content-leave-active .source-motion {
-    --source-motion-duration: var(--transition-fast-leave);
-}
-
-/* Also where an uncovered view rises from (useCover), read from JS. */
+/* Where the rise starts and ends, read from JS (utils/sourceMotion). It is a
+   Web Animation of the transform alone, on the compositor, on the spring in and
+   the fast leave out — the opacity above rides its own, quicker curve. It was a
+   class and an inherited custom property switched at the slot, which restyled
+   the whole page under it at every step of every swap. */
 :root {
     --source-rise-from: translateY(var(--space-06)) scale(0.98);
-}
-
-.audio-content-enter-from .source-motion {
-    transform: var(--source-rise-from);
-}
-
-.audio-content-leave-to .source-motion {
-    transform: translateY(calc(-1 * var(--space-06))) scale(0.98);
-}
-
-.audio-content-enter-to .source-motion,
-.audio-content-leave-from .source-motion {
-    transform: none;
+    --source-rise-to: translateY(calc(-1 * var(--space-06))) scale(0.98);
 }

@@ -2,9 +2,9 @@
      stays mounted under it, instead of overlaying a modal. The slot
      only fades, both ways; on opening, the body (not the backdrop) also rises
      with the shared source-switch spring, through its .source-motion marker
-     (see the .lyrics-slot override in AudioSourceView.vue). Mounted only while
-     lyricsStore.isOpen, so lyrics are fetched on open (see lyricsStore.open())
-     and refetched when the track changes while open. -->
+     (utils/sourceMotion, timed by the .lyrics-slot rule in AudioSourceView.vue).
+     Mounted only while lyricsStore.isOpen, so lyrics are fetched on open (see
+     lyricsStore.open()) and refetched when the track changes while open. -->
 
 <template>
   <div class="lyrics-view">
