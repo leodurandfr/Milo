@@ -750,19 +750,24 @@
    and the two cancel — for the muted colors a blur leaves; a vivid one clips
    at the gamut edge and stays a little louder than Apple's. mix-blend-mode
    would be exact but cannot reach the backdrop of an element that blurs it. On a contrast surface,
-   --glass-tone: var(--color-shell-on-contrast). */
+   --glass-tone: var(--color-shell-on-contrast).
+   Under a layer that already blurs the screen, --glass-backdrop: none (the
+   modal overlay sets it): a backdrop-filter stops at the nearest ancestor
+   that has one, so the glass would only see that layer's veil and paint it
+   a second time under its tone. */
 .glass-shell {
     position: relative;
+    isolation: isolate;
     background: var(--glass-tone, var(--color-shell));
-    backdrop-filter: blur(var(--blur-04));
-    -webkit-backdrop-filter: blur(var(--blur-04));
+    backdrop-filter: var(--glass-backdrop, blur(var(--blur-04)));
+    -webkit-backdrop-filter: var(--glass-backdrop, blur(var(--blur-04)));
     box-shadow: var(--shadow-glass-shell);
 }
 
 /* An inset shadow paints under the element's children, so content scrolling
-   inside the glass would cover its rim: the rim is a layer above them. A
-   backdrop-filter makes the element a stacking context, so this z-index
-   never reaches past it. */
+   inside the glass would cover its rim: the rim is a layer above them. The
+   glass is a stacking context (isolation, which holds even where the
+   backdrop-filter is off), so this z-index never reaches past it. */
 .glass-shell::after {
     content: '';
     position: absolute;

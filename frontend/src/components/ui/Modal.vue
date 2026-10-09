@@ -399,6 +399,10 @@ onUnmounted(() => {
   z-index: 5000;
   padding: var(--space-07) var(--space-04) var(--space-05) var(--space-04);
   opacity: 0;
+  /* Every glass inside (the shell, the close button, a glass row) would blur
+     only this veil and paint it twice: in Chromium, light theme, the close
+     button read 160/255 with its own blur and 179 without. */
+  --glass-backdrop: none;
 }
 
 .modal-wrapper {
@@ -411,11 +415,6 @@ onUnmounted(() => {
 /* Shell: chrome (radius, glass stroke, open/close scale+opacity). Does NOT scroll
    and does NOT carry the animated height — it wraps the clip and tracks its height. */
 .modal-shell {
-  /* The overlay under the shell already blurs the screen, and a
-     backdrop-filter stops at the nearest ancestor that has one: the shell's
-     own would only see the overlay's veil. Measured: 2/255 at most. */
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   position: relative;
   border-radius: var(--radius-08);
   width: 100%;
