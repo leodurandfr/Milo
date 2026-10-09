@@ -1,5 +1,6 @@
 <template>
-  <div v-press class="playlist-card" @click="$emit('click')">
+  <div v-press class="playlist-card" :class="{ 'byline-only': !lines.heading && lines.byline }"
+    @click="$emit('click')">
     <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
       class="playlist-cover" :class="{ round: item.kind === 'artist' }">
       <transition name="loading-fade">
@@ -55,6 +56,10 @@ const opening = useCardOpening(() => props.item.uri);
   gap: var(--space-03);
   cursor: pointer;
   min-width: 0;
+}
+
+.playlist-card.byline-only {
+  gap: var(--space-02);
 }
 
 .playlist-cover {

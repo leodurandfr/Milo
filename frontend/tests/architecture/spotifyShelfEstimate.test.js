@@ -56,9 +56,11 @@ describe('the height a Spotify shelf reserves', () => {
   it('adds the byline: alone, or under the name past the info gap', () => {
     expect(rule(card, '.playlist-info')).toMatch(/gap:\s*var\(--space-01\)/);
     expect(card).toMatch(/v-if="lines.byline" class="playlist-owner text-body"/);
+    expect(card).toMatch(/'byline-only': !lines\.heading && lines\.byline/);
+    expect(rule(card, '.playlist-card.byline-only')).toMatch(/gap:\s*var\(--space-02\)/);
     expect(row).toMatch(/withByline = computed\(\(\) => lines\.value\.some\(\(line\) => line\.byline\)\)/);
     expect(rule(row, '.shelf-row.with-byline'))
-      .toMatch(/calc\(var\(--shelf-cover-height\) \+ var\(--space-03\) \+ var\(--line-height-body\)\)/);
+      .toMatch(/calc\(var\(--shelf-cover-height\) \+ var\(--space-02\) \+ var\(--line-height-body\)\)/);
     expect(rule(row, '.shelf-row.with-name.with-byline')).toMatch(
       /calc\(\s*var\(--shelf-cover-height\) \+ var\(--space-03\) \+ var\(--line-height-h4\) \+ var\(--space-01\) \+ var\(--line-height-body\)\s*\)/,
     );
