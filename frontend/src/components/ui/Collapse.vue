@@ -10,7 +10,7 @@
 </template>
 
 <script setup>
-import { ref, watch, inject, nextTick } from 'vue';
+import { ref, watch, inject, nextTick, onMounted } from 'vue';
 
 const props = defineProps({
   open: { type: Boolean, required: true }
@@ -29,11 +29,19 @@ const springHeightDelta = inject('modalSpringHeightDelta', null);
 const wrapperRef = ref(null);
 const innerRef = ref(null);
 
+// A flag a view sets from its own onMounted (SpotifySettings reads the store
+// there) is the state the view opens with, not a change: it is drawn as is.
+// Announced, it springs the clip during the navigation that mounts the view,
+// measured against both views stacked, and the follow window then swallows the
+// shrink when the leaving view goes — the modal kept the old page's height.
+let settled = false;
+onMounted(() => requestAnimationFrame(() => { settled = true; }));
+
 // Explicit px only while animating: settled, the height is CSS's (auto or 0),
 // so content that changes size later is never cut to a stale value.
 watch(() => props.open, async (open) => {
   const el = wrapperRef.value;
-  if (!el) return;
+  if (!el || !settled) return;
   // What is on screen now, mid-animation included, so a reversal starts from
   // there rather than from a full height it never reached.
   const from = el.offsetHeight;

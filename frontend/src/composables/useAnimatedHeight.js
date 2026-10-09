@@ -49,8 +49,9 @@ export function useAnimatedHeight(contentRef, options = {}) {
   // pre-set target and must finish its curve (incl. bounce) uninterrupted. See
   // springClipDelta().
   let scrollerFollowsUntil = 0;
-  // Pending restore of the clip's CSS transition after a per-direction override.
-  let clipTransitionRestore = null;
+  // End of that window: restores the clip's CSS transition after a per-direction
+  // override, then reconciles the clip with the live content.
+  let followEnd = null;
 
   function clampPx(px) {
     let v = px;
@@ -182,18 +183,18 @@ export function useAnimatedHeight(contentRef, options = {}) {
     const clip = clipRef?.value;
     if (!clip) return;
 
-    if (clipTransitionRestore) {
-      timer.clear(clipTransitionRestore);
-      clipTransitionRestore = null;
-    }
+    if (followEnd) timer.clear(followEnd);
     // Written BEFORE the height so the new curve is the one this transition starts on.
     clip.style.transition = transition ?? '';
-    if (transition) {
-      clipTransitionRestore = timer.setTimeout(() => {
-        clipTransitionRestore = null;
-        if (clipRef?.value) clipRef.value.style.transition = '';
-      }, durationMs);
-    }
+    // The target below is a prediction, and every resize inside the window only
+    // moves the scroller — one that is not the child's (a navigation's leaving
+    // view going away) would leave the clip at a height nothing re-aims.
+    followEnd = timer.setTimeout(() => {
+      followEnd = null;
+      if (!clipRef?.value) return;
+      clipRef.value.style.transition = '';
+      if (Math.abs(clampPx(measureContentPx()) - currentTargetPx) > threshold) setTargetHeight();
+    }, durationMs);
 
     const target = clampPx(measureContentPx() + delta);
     clip.style.height = `${target}px`;
