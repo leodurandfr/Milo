@@ -190,7 +190,7 @@ const isDesktop = () => !isMobile.value;
 
 const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_ANIM_STAGGER}s`;
 
-const DOCK_VIEWPORT_MARGIN = 32;
+const DOCK_MAX_WIDTH_RATIO = 0.8;
 const fitScale = ref(1);
 const dockHeight = ref(0);
 
@@ -205,7 +205,7 @@ const getAvailableWidth = () => {
 const updateDockMetrics = () => {
   const natural = dock.value?.offsetWidth;
   if (!natural) return;
-  fitScale.value = Math.min(1, (getAvailableWidth() - DOCK_VIEWPORT_MARGIN) / natural);
+  fitScale.value = Math.min(1, (getAvailableWidth() * DOCK_MAX_WIDTH_RATIO) / natural);
   dockHeight.value = dock.value.offsetHeight;
 };
 
@@ -607,7 +607,7 @@ onUnmounted(() => {
 .dock-container {
   /* How far the open dock rides above the bottom edge — shared with the
      overflow panel, whose max-height measures the room left over the dock. */
-  --dock-raise: calc(29px + env(safe-area-inset-bottom, 0px));
+  --dock-raise: calc(24px + env(safe-area-inset-bottom, 0px));
   position: fixed;
   bottom: 0;
   left: 50%;
@@ -798,6 +798,10 @@ onUnmounted(() => {
   .dock-separator,
   .toggle-btn {
     background: var(--color-surface);
+  }
+
+  .dock-container {
+    --dock-raise: calc(20px + env(safe-area-inset-bottom, 0px));
   }
 
   .desktop-only {
