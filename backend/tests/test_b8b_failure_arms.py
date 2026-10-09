@@ -34,7 +34,6 @@ def camilladsp():
     dsp = Mock()
     dsp.set_volume = AsyncMock(return_value=True)
     dsp.set_mute = AsyncMock(return_value=True)
-    dsp.get_volume = AsyncMock(return_value={"main": -30.0, "mute": False})
     dsp.is_volume_control_available = Mock(return_value=True)
     dsp.wait_for_connection = AsyncMock(return_value=True)
     return dsp
@@ -286,28 +285,6 @@ class TestCamillaDspReadGuards:
         svc.state_machine = Mock()
         svc.state_machine.broadcast = AsyncMock()
         return svc
-
-    async def test_a_volume_read_that_fails_answers_the_last_known_value(
-        self, service
-    ):
-        """The boot push reads this to seed a client with nothing persisted.
-
-        Raising would abort that push for every client at once; answering a
-        default would hand the new speaker a level nobody chose. The cache is
-        the last value Milō itself applied, which is the right answer.
-        """
-        client = AsyncMock()
-        client.get_volume.side_effect = OSError("socket gone")
-        service._client = client
-        service._connected = True
-        service._volume = {"main": -22.0, "mute": False}
-
-        assert await service.get_volume() == {"main": -22.0, "mute": False}
-
-    async def test_a_disconnected_service_answers_its_cached_volume(self, service):
-        service._volume = {"main": -33.0, "mute": True}
-
-        assert await service.get_volume() == {"main": -33.0, "mute": True}
 
     async def test_levels_are_read_from_both_meters_at_once(self, service):
         """Input and output are two round-trips; gathered they are one wait.

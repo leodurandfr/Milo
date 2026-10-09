@@ -357,3 +357,62 @@ async def test_a_satellite_label_is_the_same_one_the_rest_of_the_report_uses(
     assert report.count("client-2") >= 3  # registry row, zone membership, EQ row
     assert "satellite client-2" in str(result["unavailable"])
     assert "zone-1" in report and "zone-uuid" not in report
+
+
+# --------------------------------------------------------------------------- #
+# CamillaDSP: the level the daemon holds, or why it could not be read
+# --------------------------------------------------------------------------- #
+
+def _camilladsp(client, tmp_path, monkeypatch):
+    """A real CamillaDSPService talking to the daemon double."""
+    from unittest.mock import AsyncMock, Mock
+
+    from backend.core.equalizer.service import CamillaDSPService
+
+    monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+    settings = Mock()
+    settings.get_setting = AsyncMock(return_value=None)
+    service = CamillaDSPService(settings_service=settings)
+    service._client = client
+    service._connected = True
+    return service
+
+
+def _field(report, name):
+    import re
+
+    match = re.search(rf"^{re.escape(name)}\s+: (.*)$", report, re.MULTILINE)
+    assert match, f"no `{name}` line in the CamillaDSP block"
+    return match.group(1)
+
+
+async def test_the_camilladsp_block_carries_the_level_and_mute_the_daemon_answered(
+    monkeypatch, tmp_path, mock_camilla_client
+):
+    """CamillaDSP is the only attenuation stage, so this line is the one place
+    the report says how loud the unit is told to be. It printed `-` for both
+    fields from the day it was written: the collector asked the service's dict
+    for keys it never carried, and `.get()` turned the mismatch into silence."""
+    mock_camilla_client.get_volume.return_value = -37.5
+    mock_camilla_client.get_mute.return_value = True
+    service = _camilladsp(mock_camilla_client, tmp_path, monkeypatch)
+
+    report = (await _generate(monkeypatch, tmp_path, camilladsp_service=service))["report"]
+
+    assert _field(report, "volume dB") == "-37.5"
+    assert _field(report, "muted") == "yes"
+
+
+async def test_a_camilladsp_level_that_cannot_be_read_says_so(
+    monkeypatch, tmp_path, mock_camilla_client
+):
+    """A failed read must not pass for a reading. What Milō last asked for is
+    not what the daemon holds — a CamillaDSP that restarted on its own comes
+    back at its startup floor — and the report is opened for exactly the
+    moment the two differ."""
+    mock_camilla_client.get_volume.side_effect = OSError("socket gone")
+    service = _camilladsp(mock_camilla_client, tmp_path, monkeypatch)
+
+    report = (await _generate(monkeypatch, tmp_path, camilladsp_service=service))["report"]
+
+    assert _field(report, "volume dB") == "(read failed: socket gone)"

@@ -91,11 +91,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
 
     # === Volume ===
 
-    @router.get("/volume")
-    async def get_volume():
-        """Get equalizer volume settings."""
-        return await equalizer_service.get_volume()
-
     @router.put("/volume")
     async def update_volume(update: VolumeUpdate):
         """Update equalizer volume."""

@@ -6,12 +6,13 @@ Replaces alsaequal with full parametric EQ capabilities.
 import asyncio
 import contextlib
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
-from backend.config.constants import LOUDNESS_REFERENCE_DB, STARTUP_GAIN_DB
+from backend.config.constants import LOUDNESS_REFERENCE_DB
 from backend.core.equalizer.camilladsp_client import CamillaDspClient
 from backend.core.equalizer.config_builder import (
     compressor_processor_def,
@@ -47,6 +48,13 @@ class CamillaDspState(str, Enum):
     INACTIVE = "inactive"  # Connected but not processing
     RUNNING = "running"    # Processing audio
     PAUSED = "paused"      # Paused (no audio flow)
+
+
+@dataclass(frozen=True)
+class DspVolume:
+    """The main fader and its mute, as the daemon answered them."""
+    db: float
+    muted: bool
 
 
 class CamillaDSPService:
@@ -141,15 +149,6 @@ class CamillaDSPService:
         # satellite keeps in milo-client/app/services/equalizer.py.
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
-        # Matches CamillaDSP's `-m --gain=STARTUP_GAIN_DB` start, because
-        # `get_volume()` answers from this cache whenever the daemon is out of
-        # reach — the equalizer status payload, EqualizerRouter.get_volume for
-        # the local client and the diagnostic collector all read it. Unity here
-        # reported a fader at full scale while it sat silent at the floor.
-        self._volume: Dict[str, Any] = {
-            "main": STARTUP_GAIN_DB,  # dB
-            "mute": True
-        }
 
         # Preset / custom-gains state (formerly in settings.json under equalizer.*)
         self._active_preset: Optional[str] = None
@@ -487,7 +486,6 @@ class CamillaDSPService:
                 "compressor": self._compressor,
                 "loudness": self._loudness,
                 "mono": self._mono,
-                "volume": await self.get_volume(),
             }
 
             # Add rate/buffer info if running
@@ -685,19 +683,18 @@ class CamillaDSPService:
 
     # === Volume Control ===
 
-    async def get_volume(self) -> Dict[str, Any]:
-        """Get current volume state. Returns cached value on error."""
-        if not self._connected:
-            return self._volume
+    async def get_volume(self) -> DspVolume:
+        """Read the fader and the mute from the daemon. Raises when it cannot answer.
 
-        try:
-            volume = await self._run(self._client.get_volume)
-            mute = await self._run(self._client.get_mute)
-            self._volume = {"main": volume, "mute": mute}
-            return self._volume
-        except Exception as e:
-            self.logger.debug(f"Error in get_volume: {e}")
-            return self._volume
+        Never a cached value: what Milō last asked for is not what the daemon
+        holds after it restarted on its own, at its startup floor.
+        """
+        if not self._connected:
+            raise RuntimeError("CamillaDSP not connected")
+        return DspVolume(
+            db=await self._run(self._client.get_volume),
+            muted=await self._run(self._client.get_mute),
+        )
 
     @handle_errors(default=False)
     async def set_volume(self, volume: float) -> bool:
@@ -706,7 +703,6 @@ class CamillaDSPService:
             self.logger.warning(f"set_volume({volume:.1f}dB) rejected: CamillaDSP not connected")
             return False
         await self._run(self._client.set_volume, volume)
-        self._volume["main"] = volume
         return True
 
     @handle_errors(default=False)
@@ -715,7 +711,6 @@ class CamillaDSPService:
             self.logger.warning(f"set_mute({muted}) rejected: CamillaDSP not connected")
             return False
         await self._run(self._client.set_mute, muted)
-        self._volume["mute"] = muted
         return True
 
     # === Pipeline Management ===

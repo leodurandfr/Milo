@@ -43,7 +43,7 @@ def camilladsp():
     dsp = Mock()
     dsp.set_volume = AsyncMock(return_value=True)
     dsp.set_mute = AsyncMock(return_value=True)
-    dsp.get_volume = AsyncMock(return_value={"main": -30.0, "mute": False})
+    dsp.get_volume = AsyncMock()
     dsp.is_volume_control_available = Mock(return_value=True)
     dsp.wait_for_connection = AsyncMock(return_value=True)
     return dsp

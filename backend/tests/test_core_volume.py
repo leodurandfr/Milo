@@ -152,7 +152,6 @@ class TestEqualizerController:
         router = Mock()
         router.set_volume = AsyncMock(return_value={"status": "success", "volume": -25.0})
         router.set_mute = AsyncMock(return_value={"status": "success", "mute": True})
-        router.get_volume = AsyncMock(return_value={"main": -30.0, "mute": False})
         return router
 
     @pytest.fixture
@@ -538,7 +537,6 @@ class TestVolumeService:
         """Create mock CamillaDSP service."""
         camilladsp_mock = Mock()
         camilladsp_mock.set_volume = AsyncMock(return_value=True)
-        camilladsp_mock.get_volume = AsyncMock(return_value=-30.0)
         camilladsp_mock.set_mute = AsyncMock(return_value=True)
         camilladsp_mock.is_volume_control_available = Mock(return_value=True)
         camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)
@@ -1300,7 +1298,6 @@ class TestStartupVolumeOnRestart:
         """Create mock CamillaDSP service."""
         camilladsp_mock = Mock()
         camilladsp_mock.set_volume = AsyncMock(return_value=True)
-        camilladsp_mock.get_volume = AsyncMock(return_value={"main": -30.0})
         camilladsp_mock.set_mute = AsyncMock(return_value=True)
         camilladsp_mock.is_volume_control_available = Mock(return_value=True)
         camilladsp_mock.wait_for_connection = AsyncMock(return_value=True)

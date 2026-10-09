@@ -866,7 +866,6 @@ class TestGetStatus:
         assert status["compressor"] == service._compressor
         assert status["loudness"] == service._loudness
         assert status["mono"] is False
-        assert status["volume"] == {"main": -20.0, "mute": False}
 
     async def test_the_sample_rate_is_read_only_while_the_daemon_is_running(
         self, service, client_factory

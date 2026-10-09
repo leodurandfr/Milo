@@ -32,7 +32,6 @@ def mock_equalizer_service():
     # Async methods
     service.get_status = AsyncMock(return_value={"available": True, "state": "running"})
     service.get_filters = AsyncMock(return_value=[])
-    service.get_volume = AsyncMock(return_value={"main": -20.0, "mute": False})
     service.get_levels = AsyncMock(return_value={"available": True, "input_peak": [-30, -30]})
     service.set_filter = AsyncMock(return_value=True)
     service.set_volume = AsyncMock(return_value=True)
@@ -245,15 +244,15 @@ class TestEqualizerRoutes:
     routes genuinely do: unwrap a request model into the service's keyword
     arguments, and forward an absent field as None.
 
-    Six of those eight routes then went too (2026-08-19): the server reads only
-    `/status`, `/volume` and `/levels` from a satellite, and each of the six was a
-    strict subset of `/status`, which stays. The list below is therefore the whole
-    satellite read surface — a route added belongs in it, a route lost turns it red.
+    Six of those eight routes then went too (2026-08-19), each a strict subset of
+    `/status`, which stays; `/volume` followed (2026-10-09), its one server caller
+    having none. The server reads only `/status` and `/levels` from a satellite, so
+    the list below is the whole satellite read surface — a route added belongs in
+    it, a route lost turns it red.
     """
 
     @pytest.mark.parametrize("path", [
         "/equalizer/status",
-        "/equalizer/volume",
         "/equalizer/levels",
     ])
     def test_every_read_route_answers(self, client, path):

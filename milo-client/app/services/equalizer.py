@@ -782,18 +782,6 @@ class EqualizerService:
             self.logger.error(f"Error setting gain: {e}")
             return False
 
-    async def get_volume(self) -> Dict[str, Any]:
-        """Get current equalizer volume settings."""
-        if self._connected and self._client:
-            try:
-                volume = await self._exec(lambda c: c.get_volume())
-                mute = await self._exec(lambda c: c.get_mute())
-                self._volume["main"] = volume
-                self._volume["mute"] = mute
-            except Exception as e:
-                self.logger.warning(f"Error getting volume from CamillaDSP: {e}")
-        return self._volume
-
     async def get_levels(self) -> Dict[str, Any]:
         """Get current audio levels (peak values for input/output)."""
         try:

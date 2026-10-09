@@ -71,14 +71,6 @@ class TestEqualizerServiceVolume:
     """Test EqualizerService volume operations."""
 
     @pytest.mark.asyncio
-    async def test_get_volume_returns_dict(self, equalizer_service):
-        """Should return volume state dict."""
-        volume = await equalizer_service.get_volume()
-        assert isinstance(volume, dict)
-        assert "main" in volume
-        assert "mute" in volume
-
-    @pytest.mark.asyncio
     async def test_set_volume_clamps_value(self, equalizer_service):
         """Should clamp volume between -80 and 0 dB."""
         await equalizer_service.set_volume(-100)

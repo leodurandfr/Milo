@@ -237,41 +237,32 @@ class TestRemoteRouting:
             getattr(camilladsp, dsp_method).assert_not_awaited()
 
 
-# (router method, the satellite path its remote closure must GET)
-REMOTE_READS = [
-    ("get_status", "/equalizer/status"),
-    ("get_volume", "/equalizer/volume"),
-]
-
-
 class TestReads:
-    """The read half of the same dispatch — status, levels and volume.
+    """The read half of the same dispatch — status and levels.
 
     What breaks when these fail: the EQ tab of a satellite shows the *server's*
-    DSP instead of the speaker's (`api/equalizer.py::get_equalizer_status`), the
-    VU meters of a satellite animate on the wrong DSP
-    (`core/equalizer/levels_monitor.py`), or `core/volume/service.py` reads back
-    a level that belongs to another machine. All three answer 200 while lying,
-    which is why the endpoint each one asks for is what is asserted.
+    DSP instead of the speaker's (`api/equalizer.py::get_equalizer_status`), or
+    the VU meters of a satellite animate on the wrong DSP
+    (`core/equalizer/levels_monitor.py`). Both answer 200 while lying, which is
+    why the endpoint each one asks for is what is asserted.
 
-    Why this class exists: measured 2026-08-25, `get_status`, `get_levels` and
-    `get_volume` had **zero** executed lines under the whole backend suite —
+    Why this class exists: measured 2026-08-25, `get_status` and `get_levels`
+    had **zero** executed lines under the whole backend suite —
     neither arm, not even the `_route` call itself. They were invisible to the
     Lot A sweep for that very reason: a method that never runs is not a mutation
     target. That is the case where reading the lines is the only instrument.
     """
 
-    @pytest.mark.parametrize("method,path", REMOTE_READS)
-    async def test_a_remote_read_asks_the_satellite_its_own_endpoint(
-        self, router, camilladsp, proxy, registry, method, path
+    async def test_a_remote_status_read_asks_the_satellite_its_own_endpoint(
+        self, router, camilladsp, proxy, registry
     ):
         registry.get_client.return_value = Client(
             mac_id=REMOTE_MAC, name="Canape", ip="192.168.1.153", online=True
         )
 
-        await getattr(router, method)(REMOTE_MAC)
+        await router.get_status(REMOTE_MAC)
 
-        proxy.request.assert_awaited_once_with("192.168.1.153", "GET", path)
+        proxy.request.assert_awaited_once_with("192.168.1.153", "GET", "/equalizer/status")
 
     async def test_a_remote_levels_read_uses_the_transport_s_own_helper(
         self, router, proxy, registry
@@ -303,33 +294,6 @@ class TestReads:
 
         assert await router.get_status(LOCAL_MAC) == {"available": True, "bypassed": False}
         assert await router.get_levels(LOCAL_MAC) == {"rms": [-12.0, -12.0]}
-        proxy.request.assert_not_awaited()
-
-    async def test_a_local_volume_read_is_reshaped_for_its_caller(
-        self, router, camilladsp, registry
-    ):
-        """`core/volume/service.py` reads `main` and `mute` — CamillaDSP's own
-        answer carries more, and the remote arm returns the satellite's body
-        verbatim, so this closure is the only place the two shapes are made to
-        agree."""
-        camilladsp.get_volume = AsyncMock(
-            return_value={"main": -22.5, "mute": True, "clipped_samples": 0})
-
-        assert await router.get_volume(LOCAL_MAC) == {"main": -22.5, "mute": True}
-
-    async def test_a_registered_local_client_without_a_dsp_answers_the_declared_default(
-        self, registry, proxy
-    ):
-        """A dev host with no CamillaDSP must answer a level, not raise into the
-        volume service's boot path — and not restate the constant either."""
-        from backend.config.constants import DEFAULT_VOLUME_DB
-
-        registry.get_client.return_value = Client(
-            mac_id=LOCAL_MAC, name="Milo", ip="127.0.0.1", online=True
-        )
-        router = EqualizerRouter(registry, None, proxy)
-
-        assert await router.get_volume(LOCAL_MAC) == {"main": DEFAULT_VOLUME_DB, "mute": False}
         proxy.request.assert_not_awaited()
 
     async def test_a_satellite_without_a_transport_never_falls_back_to_the_local_dsp(

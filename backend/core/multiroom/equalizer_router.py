@@ -13,7 +13,7 @@ Architecture:
 import logging
 from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
 
-from backend.config.constants import DEFAULT_VOLUME_DB, LOUDNESS_REFERENCE_DB, MAX_VOLUME_DB
+from backend.config.constants import LOUDNESS_REFERENCE_DB, MAX_VOLUME_DB
 
 if TYPE_CHECKING:
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
@@ -309,16 +309,3 @@ class EqualizerRouter:
             return await self._proxy_service.get_equalizer_levels(ip)
 
         return await self._route(mac_id, local, remote, "get_levels")
-
-    async def get_volume(self, mac_id: str) -> Dict[str, Any]:
-        """Get volume for a client."""
-        async def local():
-            if self._camilladsp_service:
-                vol = await self._camilladsp_service.get_volume()
-                return {"main": vol.get("main", DEFAULT_VOLUME_DB), "mute": vol.get("mute", False)}
-            return {"main": DEFAULT_VOLUME_DB, "mute": False}
-
-        async def remote(ip: str):
-            return await self._proxy_service.request(ip, "GET", "/equalizer/volume")
-
-        return await self._route(mac_id, local, remote, "get_volume")

@@ -39,7 +39,6 @@ def mock_camilladsp_service():
     """Mock Equalizer controller to avoid real hardware calls."""
     service = Mock()
     service.set_volume = AsyncMock(return_value=True)
-    service.get_volume = AsyncMock(return_value={"main": -30.0, "mute": False})
     service.set_mute = AsyncMock(return_value=True)
     service.is_volume_control_available = Mock(return_value=True)
     service.wait_for_connection = AsyncMock(return_value=True)

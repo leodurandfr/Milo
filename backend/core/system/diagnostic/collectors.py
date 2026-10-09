@@ -388,8 +388,8 @@ async def _camilladsp_lines(ctx) -> List[str]:
     if service.connected:
         try:
             volume = await service.get_volume()
-            fields["volume dB"] = volume.get("volume")
-            fields["muted"] = volume.get("muted")
+            fields["volume dB"] = volume.db
+            fields["muted"] = volume.muted
         except Exception as e:
             fields["volume dB"] = f"(read failed: {e})"
     return _kv(fields)
