@@ -117,7 +117,7 @@ export const GROUPS = [
   {
     id: 'settings',
     title: 'Settings composites',
-    blurb: 'Four wrappers, ~130 lines together, behind every settings screen in the app — and the most-reused components in the frontend. They carry a title and a gap; everything else is slot content.',
+    blurb: 'The wrappers behind every settings screen in the app — and the most-reused components in the frontend. They carry a title, a gap, at most a toggle; everything else is slot content.',
   },
 ];
 
@@ -163,18 +163,11 @@ export const ENTRIES = [
     summary: 'Boolean switch. compact is the size ListItemButton embeds.',
   },
   {
-    id: 'ToggleSection',
-    group: 'controls',
-    file: 'components/ui/ToggleSection.vue',
-    coupling: 'modal',
-    summary: 'A SettingsSection whose header toggle expands its content through Collapse.',
-  },
-  {
     id: 'Collapse',
     group: 'controls',
     file: 'components/ui/Collapse.vue',
     coupling: 'modal',
-    summary: 'Content that expands and collapses on the host Modal clip\'s own curve, through modalSpringHeightDelta — null-safe, so here it animates alone.',
+    summary: 'Content that expands and collapses on the host Modal clip\'s own curve, through modalSpringHeightDelta — null-safe, so here it animates alone. It is the last child of a settings card: it overhangs the card\'s bottom padding, so the card\'s edge is where the content is clipped.',
   },
   {
     id: 'Radio',
@@ -450,6 +443,13 @@ export const ENTRIES = [
     group: 'settings',
     file: 'components/settings/SettingsSection.vue',
     summary: 'The settings card, and the most-imported component in the frontend (30). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+  },
+  {
+    id: 'ToggleSection',
+    group: 'settings',
+    file: 'components/ui/ToggleSection.vue',
+    coupling: 'modal',
+    summary: 'A SettingsSection whose header toggle expands its content through Collapse: the card of every on/off setting that carries its own options (auto-stop, each hardware item). It only emits change, so the caller decides what off means and what on restores.',
   },
   {
     id: 'ProgressStrip',

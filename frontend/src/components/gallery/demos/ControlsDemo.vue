@@ -16,24 +16,6 @@
     </GalleryVariant>
   </GalleryItem>
 
-  <GalleryItem id="ToggleSection">
-    <GalleryVariant :label="`enabled — ${sectionOn}`" stacked>
-      <ToggleSection title="Compressor" :enabled="sectionOn" @change="sectionOn = $event">
-        <p class="text-body">
-          Content revealed by the header toggle. The 0fr to 1fr grid transition is the
-          components own; a host Modal springs its container height in parallel.
-        </p>
-      </ToggleSection>
-    </GalleryVariant>
-    <GalleryVariant label='heading="3" + actions slot, no content' stacked>
-      <ToggleSection title="Loudness" heading="3" :enabled="sectionAltOn" @change="sectionAltOn = $event">
-        <template #actions>
-          <span class="text-mono-small">40 dB</span>
-        </template>
-      </ToggleSection>
-    </GalleryVariant>
-  </GalleryItem>
-
   <GalleryItem id="Radio">
     <GalleryVariant label="a caller owns exclusivity — these three share one ref">
       <Radio :model-value="pick === 'a'" @update:model-value="pick = 'a'" />
@@ -118,7 +100,6 @@ import { useI18n } from '@/services/i18n';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Radio from '@/components/ui/Radio.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
@@ -133,8 +114,6 @@ const COUNTRY_OPTIONS = [
 
 const primaryOn = ref(true);
 const secondaryOn = ref(false);
-const sectionOn = ref(true);
-const sectionAltOn = ref(false);
 const pick = ref('a');
 const text = ref('');
 const search = ref('');

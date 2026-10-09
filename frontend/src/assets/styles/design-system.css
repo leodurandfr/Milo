@@ -377,6 +377,10 @@
 
     --transition-in-out: 250ms cubic-bezier(0.5, 0, 0.1, 1);
 
+    /* A height closing over clipped content: slow off the mark, so the content's
+       own fade (--transition-fast) is over before the clip edge reaches it. */
+    --transition-collapse: 300ms var(--easeInOutCubic);
+
     /* Content appearing where its skeleton stood, in the time and the curve
        the content of a fade-slide swap enters with: every end of a wait is
        one motion. The `reveal` transition below carries it. */

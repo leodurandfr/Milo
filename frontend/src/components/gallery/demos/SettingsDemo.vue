@@ -42,6 +42,30 @@
     </GalleryVariant>
   </GalleryItem>
 
+  <GalleryItem id="ToggleSection">
+    <GalleryVariant :label="`enabled — ${sectionOn}`" stacked>
+      <ToggleSection title="Auto-stop" :enabled="sectionOn" @change="sectionOn = $event">
+        <SettingItem label="Stop after a pause of">
+          <ControlSample />
+        </SettingItem>
+      </ToggleSection>
+    </GalleryVariant>
+    <GalleryVariant label=":description + :disabled — what Hardware shows while it reboots" stacked>
+      <ToggleSection title="Power button" description="Wakes and shuts down the unit." :enabled="true" disabled>
+        <SettingItem label="LED −">
+          <ControlSample />
+        </SettingItem>
+      </ToggleSection>
+    </GalleryVariant>
+    <GalleryVariant label='heading="3" + actions slot, no content — the toggle alone' stacked>
+      <ToggleSection title="Loudness" heading="3" :enabled="sectionAltOn" @change="sectionAltOn = $event">
+        <template #actions>
+          <span class="text-mono-small">40 dB</span>
+        </template>
+      </ToggleSection>
+    </GalleryVariant>
+  </GalleryItem>
+
   <GalleryItem id="SettingItem">
     <GalleryVariant label=":label — mono, secondary, above the control" stacked>
       <SettingItem label="Startup volume">
@@ -73,6 +97,7 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import ControlSample from '../samples/ControlSample.vue';
@@ -81,4 +106,8 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import Button from '@/components/ui/Button.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
+
+const sectionOn = ref(true);
+const sectionAltOn = ref(false);
 </script>
