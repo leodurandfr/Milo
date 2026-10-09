@@ -1,17 +1,56 @@
 <template>
   <!-- One of Spotify's shelves, scrolled sideways as in its app. It runs past
        the column into the page's side space instead of being cut at its edge. -->
-  <div ref="rowRef" class="shelf-row">
-    <SpotifyCard v-for="item in items" :key="item.uri" :item="item"
-      @click="$emit('select', item)" />
+  <div class="shelf">
+    <div ref="rowRef" class="shelf-row" :class="{ 'with-byline': withByline }">
+      <SpotifyCard v-for="item in items" :key="item.uri" :item="item"
+        @click="$emit('select', item)" />
+    </div>
   </div>
 </template>
 
+<script>
+// The mask's stops in pixels, read off the row's side padding (the space it
+// runs into): the layout's bleed is partly a percentage, which in a mask would
+// resolve against the row's width rather than the column's.
+//
+// One observer for every row: a frame that resizes them all (a page mounting or
+// coming back, the player opening) reads every padding before writing a stop —
+// one style pass, where each row reading after the last one's write laid the
+// page out once per row. Its first report lands before the first paint. The
+// border box, because what is measured is the padding, which can move while the
+// content box does not.
+let rows = null;
+
+function measureRows(entries) {
+  // Out of the document (a page its KeepAlive kept): no style to read, and the
+  // stops it had are the ones it gets back.
+  const stops = entries
+    .map(({ target }) => target)
+    .filter((el) => el.isConnected)
+    .map((el) => {
+      const style = getComputedStyle(el);
+      return [el, style.paddingLeft, style.paddingRight];
+    });
+  for (const [el, start, end] of stops) {
+    setStop(el, '--shelf-bleed-start', start);
+    setStop(el, '--shelf-bleed-end', end);
+  }
+}
+
+// Written only when they moved: an unchanged row costs no style pass.
+function setStop(el, name, value) {
+  if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
+}
+</script>
+
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { useI18n } from '@/services/i18n';
+import { cardByline } from '@/utils/spotifyCard';
 import SpotifyCard from './cards/SpotifyCard.vue';
 
-defineProps({
+const props = defineProps({
   // Cards as /api/spotify/home lists a shelf's.
   items: {
     type: Array,
@@ -21,43 +60,34 @@ defineProps({
 
 defineEmits(['select']);
 
-// The mask's stops in pixels, read off the row's side padding (the space it
-// runs into): the layout's bleed is partly a percentage, which in a mask would
-// resolve against the row's width rather than the column's.
+const { t } = useI18n();
+// The row is as tall as its tallest card: with a byline line, if any has one.
+const withByline = computed(() => props.items.some((item) => cardByline(item, t)));
+
 const rowRef = ref(null);
-let resizes = null;
-
-function measure() {
-  const el = rowRef.value;
-  // Out of the document, a page its KeepAlive kept: no style to read, and the
-  // stops it had are the ones it gets back.
-  if (!el?.isConnected) return;
-  const style = getComputedStyle(el);
-  // Written only when they moved: a write makes the next row's read lay the
-  // page out again, and a page coming back reports every row at once.
-  setStop(el, '--shelf-bleed-start', style.paddingLeft);
-  setStop(el, '--shelf-bleed-end', style.paddingRight);
-}
-
-function setStop(el, name, value) {
-  if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
-}
+let observed = null;
 
 onMounted(() => {
-  measure();
-  // The column narrows when the player appears, and the window can resize.
-  // The border box, because what is measured is the padding, which can move
-  // while the content box does not.
-  resizes = new ResizeObserver(measure);
-  resizes.observe(rowRef.value, { box: 'border-box' });
+  rows ??= new ResizeObserver(measureRows);
+  observed = rowRef.value;
+  rows.observe(observed, { box: 'border-box' });
 });
 
 onBeforeUnmount(() => {
-  resizes?.disconnect();
+  rows?.unobserve(observed);
 });
 </script>
 
 <style scoped>
+/* The width the row's cards are laid out in, for the height a row not drawn
+   yet is given (below): the row's own content box, which its negative margins
+   and its padding bring back to this one's width. A container also contains
+   layout and style: an overlay a card opens is positioned against the shelf
+   and stacked inside it, so it has to be teleported out. */
+.shelf {
+  container-type: inline-size;
+}
+
 /* The cards larger than a grid's: one column fewer, and part of the next
    one showing there is more — three quarters on the phone, half on a wider
    screen, where the cards can afford to grow. The row reaches into the space
@@ -78,6 +108,24 @@ onBeforeUnmount(() => {
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
+  /* A row off screen is neither styled, laid out nor painted until it comes
+     near — on the Spotify home, most of eighteen. Until it is first drawn it
+     holds the height its cards will have (SpotifyCard: a square cover as wide
+     as a column, then its name), worked out from the width it is laid out in,
+     so the page below it sits where it will be. Once drawn, it keeps the
+     height it was drawn at while off screen (content-visibility: auto always
+     remembers it), and takes its new one when it comes back near. */
+  --shelf-card-height: calc(
+    (100cqi - (var(--card-grid-columns) - 1) * var(--space-03)) / (var(--card-grid-columns) - var(--shelf-peek))
+    + var(--space-02) + var(--line-height-h4)
+  );
+  content-visibility: auto;
+  contain-intrinsic-block-size: var(--shelf-card-height);
+}
+
+/* And the byline under the name, when a card has one. */
+.shelf-row.with-byline {
+  contain-intrinsic-block-size: calc(var(--shelf-card-height) + var(--space-01) + var(--line-height-mono-medium));
 }
 
 .shelf-row::-webkit-scrollbar {

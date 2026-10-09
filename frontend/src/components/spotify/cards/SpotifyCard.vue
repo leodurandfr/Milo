@@ -14,6 +14,7 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { cardByline } from '@/utils/spotifyCard';
 
 const props = defineProps({
   // A card as /api/spotify/home lists it: one of Spotify's home ({ uri, kind,
@@ -31,14 +32,13 @@ defineEmits(['click']);
 const { t } = useI18n();
 
 const title = computed(() => props.item.name || t('spotify.untitledPlaylist'));
-const byline = computed(() => {
-  if (props.item.subtitle) return props.item.subtitle;
-  if (props.item.kind === 'artist') return t('spotify.artist');
-  return props.item.owner === 'spotify' ? 'Spotify' : '';
-});
+const byline = computed(() => cardByline(props.item, t));
 </script>
 
 <style scoped>
+/* The card's box — a square cover, the gap, a heading-4 name, then a
+   text-mono-medium byline — is what SpotifyShelfRow reserves for a row not
+   drawn yet: change one, change both (tests/architecture/spotifyShelfEstimate). */
 .playlist-card {
   display: flex;
   flex-direction: column;

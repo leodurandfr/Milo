@@ -19,8 +19,9 @@
     />
 
     <!-- While the image loads, in place of the placeholder: the skeleton is
-         an ink, the placeholder would show through it. -->
-    <Transition :name="instant ? 'none' : 'reveal'">
+         an ink, the placeholder would show through it. The reveal, played by
+         the hooks (see revealFade). -->
+    <Transition name="reveal" :css="false" @enter="revealIn" @leave="revealOut">
       <div v-if="skeletonShown" class="lazy-image-skeleton shimmer" />
     </Transition>
 
@@ -47,6 +48,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
+import { transitionTiming } from '@/utils/transitionTiming'
 
 const props = defineProps({
   src: {
@@ -104,6 +106,35 @@ const resolvedFallbackSvg = computed(() => {
   if (!props.fallbackName) return ''
   return generateStationAvatarSvg(props.fallbackName)
 })
+
+// The skeleton's reveal as an animation of its opacity, on the compositor: a
+// CSS <Transition> lays the whole page out to start each one, and covers arriving
+// one by one from the cache did that once each — 175 forced layouts on the
+// Spotify home. Same curve: --transition-reveal. The way out holds its end
+// until the skeleton is gone.
+let revealing = null
+
+function revealFade(el, from, to, done) {
+  const timing = !instant.value && transitionTiming('--transition-reveal')
+  if (!timing) return done()
+  // The other way still under way (the image landed while the skeleton was
+  // coming in): from where it is, not from its end.
+  if (revealing?.effect?.target === el && revealing.playState === 'running') {
+    from = Number(getComputedStyle(el).opacity)
+    revealing.cancel()
+  }
+  try {
+    revealing = el.animate([{ opacity: from }, { opacity: to }], { ...timing, fill: to ? 'none' : 'forwards' })
+    revealing.finished.then(done, done)
+  } catch (error) {
+    // An easing this browser cannot play: the skeleton simply goes.
+    if (!(error instanceof TypeError)) throw error
+    done()
+  }
+}
+
+const revealIn = (el, done) => revealFade(el, 0, 1, done)
+const revealOut = (el, done) => revealFade(el, 1, 0, done)
 
 function handleImageLoad() {
   if (imageLoaded.value) return

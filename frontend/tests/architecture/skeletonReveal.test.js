@@ -122,4 +122,23 @@ describe('the end of a skeleton', () => {
     expect(layers.map((rule) => rule.selector).sort()).toEqual(['.lazy-image-main', '.lazy-image-placeholder']);
     expect(layers.flatMap((rule) => opacityTransitions(rule.body))).toEqual([`opacity ${REVEAL}`, `opacity ${REVEAL}`]);
   });
+
+  it('plays the reveal on LazyImage\'s skeleton when its hooks animate it', () => {
+    // The skeleton's transition is named `reveal` but played by JS hooks
+    // (`:css="false"`, no forced layout per cover): the name alone proves
+    // nothing, so both hooks must be wired and the code they run must time it
+    // from the token itself — read without comments, which can name a token
+    // the code no longer reads.
+    const source = readFileSync(LAZY_IMAGE, 'utf8');
+    const { template } = parts(LAZY_IMAGE);
+    const script = stripComments(/<script setup>([\s\S]*?)<\/script>/.exec(source)?.[1] ?? '');
+    const skeletonTransition = /<Transition\b([^>]*)>\s*<div[^>]*lazy-image-skeleton/.exec(template);
+    expect(skeletonTransition).not.toBeNull();
+    const attrs = skeletonTransition[1];
+    if (!/:css="false"/.test(attrs)) return;
+    const hooks = ['enter', 'leave'].map((hook) => new RegExp(`@${hook}="(\\w+)"`).exec(attrs)?.[1]);
+    expect(hooks.every(Boolean)).toBe(true);
+    for (const hook of hooks) expect(script).toMatch(new RegExp(`\\b${hook}\\s*=\\s*\\(el, done\\) => revealFade\\(`));
+    expect(script).toMatch(/function revealFade[\s\S]*transitionTiming\('--transition-reveal'\)/);
+  });
 });
