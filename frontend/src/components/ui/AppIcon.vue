@@ -121,6 +121,8 @@ const prepareSvg = (svgString, prefix) => {
     const newId = `${prefix}-${id}`;
     result = result.replace(new RegExp(`id="${id}"`, 'g'), `id="${newId}"`);
     result = result.replace(new RegExp(`url\\(#${id}\\)`, 'g'), `url(#${newId})`);
+    // The plate is declared once and drawn twice (plate + glass rim) by <use>
+    result = result.replace(new RegExp(`href="#${id}"`, 'g'), `href="#${newId}"`);
     result = result.replace(new RegExp(`clip-path="url\\(#${id}\\)"`, 'g'), `clip-path="url(#${newId})"`);
     result = result.replace(new RegExp(`filter="url\\(#${id}\\)"`, 'g'), `filter="url(#${newId})"`);
   });
