@@ -128,3 +128,13 @@ watch(zoneTabs, (tabs) => {
 defineExpose({ selectedZoneName, selectedClientIds });
 </script>
 
+
+<style scoped>
+/* The one ButtonGroup laid straight on a modal's glass: its translucent track
+   would take whatever shows through, so it lies on a surface, as it does in a
+   settings section. On the track, not the root, which bleeds to the screen
+   edges on mobile. */
+.button-group :deep(.button-group__track) {
+  background: linear-gradient(var(--color-fill-faint) 0 0), var(--color-surface);
+}
+</style>
