@@ -18,7 +18,7 @@
               <IconButton
                 icon="threeDots"
                 :variant="editing ? 'brand' : 'on-contrast'"
-                size="small"
+                size="medium"
                 :aria-label="editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit')"
                 @click="toggleEdit"
               />

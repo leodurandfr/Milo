@@ -23,10 +23,10 @@
       <div v-if="hasActions" class="detail-header-actions">
         <!-- Extra actions (e.g. the playlist Edit/Done toggle, or podcast Subscribe/Unsubscribe). -->
         <slot name="actions"></slot>
-        <IconButton v-if="showShuffle" icon="shuffle" variant="on-contrast" size="small"
+        <IconButton v-if="showShuffle" icon="shuffle" variant="on-contrast" size="medium"
           :aria-label="t('musicLibrary.shuffle')" @click="$emit('shuffle')" />
-        <IconButton v-if="showPlay" icon="play" variant="brand" size="medium"
-          :loading="playLoading" :aria-label="t('musicLibrary.play')" @click="$emit('play')" />
+        <Button v-if="showPlay" variant="brand" size="medium" left-icon="play" :loading="playLoading"
+          @click="$emit('play')">{{ t('musicLibrary.play') }}</Button>
       </div>
     </div>
   </div>
@@ -38,6 +38,7 @@ import { useI18n } from '@/services/i18n';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import IconButton from '@/components/ui/IconButton.vue';
+import Button from '@/components/ui/Button.vue';
 
 const props = defineProps({
   imageSrc: {

@@ -872,7 +872,7 @@ export const REGISTRY = {
         none: null,
         'IconButton — the playlist Edit affordance': {
           component: IconButton,
-          props: { icon: 'threeDots', variant: 'on-contrast', size: 'small' }
+          props: { icon: 'threeDots', variant: 'on-contrast', size: 'medium' }
         }
       }
     }

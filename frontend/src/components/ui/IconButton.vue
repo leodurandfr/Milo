@@ -128,8 +128,9 @@ function handleClick(event) {
     border-radius: var(--radius-03);
   }
 
+  /* 38px, the height of a medium Button beside it. */
   .icon-button--medium {
-    padding: 8px;
+    padding: 7px;
     border-radius: var(--radius-03);
   }
 

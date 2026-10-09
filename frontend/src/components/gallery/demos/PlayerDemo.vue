@@ -62,7 +62,7 @@
       <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle="42 tracks"
         :show-shuffle="false">
         <template #actions>
-          <IconButton icon="threeDots" variant="on-contrast" size="small" />
+          <IconButton icon="threeDots" variant="on-contrast" size="medium" />
         </template>
       </DetailHeader>
     </GalleryVariant>
