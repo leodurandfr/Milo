@@ -298,7 +298,6 @@ defineExpose({ swipe });
 /* === CARD (AudioPlayer): lines ranged left on the dark card === */
 .player-body--card {
   flex: 1;
-  gap: var(--space-04);
 }
 
 .player-body--card .player-body-info {

@@ -308,13 +308,13 @@ async function press(control) {
   transform: scale(0.96);
 }
 
-/* A labelled button takes the row's width at its own height, centred in the
-   box of the main button it stands for — on the plate its target, on the
+/* A labelled button takes the row's width at its own height, on the floor of
+   the box of the main button it stands for — on the plate its target, on the
    card its glyph and ghost padding — so the row keeps its height when the
    transport comes back. Beside the end slot it fills what the slot leaves. */
 .player-transport-labelled {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   flex: 1;
   min-width: 0;
 }
@@ -391,6 +391,11 @@ async function press(control) {
     --toggle-target: 48px;
     --step-target: 56px;
     --primary-target: 64px;
+  }
+
+  /* On the phone a labelled button sits centred in its box. */
+  .player-transport-labelled {
+    align-items: center;
   }
 
   /* On the phone's plate a labelled button hugs its label, centred. */
