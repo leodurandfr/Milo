@@ -339,7 +339,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 .now-playing {
   display: flex;
   height: 100%;
-  padding: var(--space-05);
+  padding: var(--space-05) var(--space-07) var(--space-05) var(--space-05);
   gap: var(--space-06);
 }
 
