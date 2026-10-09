@@ -15,9 +15,9 @@
   plugging it in would simply index it again.
 -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <form class="usb-form" @submit.prevent="handleSubmit">
-      <SettingsSection>
+      <SectionCard>
         <SettingItem :label="t('musicLibrary.usb.name')"
           :hint="t('musicLibrary.usb.nameHint', { label: device?.label || '' })">
           <InputText v-model="name" :placeholder="device?.label || t('musicLibrary.usb.namePlaceholder')"
@@ -25,9 +25,9 @@
         </SettingItem>
 
         <div v-if="errorMessage" class="usb-form__error text-mono-medium">{{ errorMessage }}</div>
-      </SettingsSection>
+      </SectionCard>
 
-      <SettingsSection v-if="device && !device.mounted"
+      <SectionCard v-if="device && !device.mounted"
         :description="t('musicLibrary.usb.forgetDescription', { count: device.track_count || 0 })">
         <template #header>
           <SectionHeader :title="t('musicLibrary.usb.forgetTitle')" />
@@ -36,24 +36,24 @@
           :disabled="isSubmitting || isForgetting" @click="handleForget">
           {{ confirmForget ? t('musicLibrary.usb.confirmForget') : t('musicLibrary.usb.forget') }}
         </Button>
-      </SettingsSection>
+      </SectionCard>
 
       <Button v-if="hasChanged" variant="brand" size="medium" type="submit" class="apply-button-sticky" floating
         :loading="isSubmitting" :disabled="isSubmitting">
         {{ t('musicLibrary.usb.rename') }}
       </Button>
     </form>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 

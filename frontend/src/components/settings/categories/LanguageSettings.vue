@@ -5,8 +5,8 @@
      been chosen (App.vue::adoptBrowserTimezone) — so this is the correction,
      not the question. -->
 <template>
-  <SettingsContainer>
-    <SettingsSection>
+  <SectionStack>
+    <SectionCard>
       <div class="language-grid">
         <ListItemButton
           v-for="language in availableLanguages"
@@ -21,9 +21,9 @@
           </template>
         </ListItemButton>
       </div>
-    </SettingsSection>
+    </SectionCard>
 
-    <SettingsSection :title="t('timezone.title')">
+    <SectionCard :title="t('timezone.title')">
       <!-- Area then Location: ~490 zones in one dropdown is unusable with a
            finger, and every zone the backend returns has both halves. -->
       <SettingItem :label="t('timezone.area')" inline>
@@ -38,8 +38,8 @@
       </SettingItem>
 
       <span v-if="timezoneError" class="timezone-error text-mono-small">{{ timezoneError }}</span>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -49,8 +49,8 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { apiCall } from '@/services/apiCall';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 import franceIcon from '@/assets/flags-icons/france.svg';

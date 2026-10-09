@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/SystemInfoSection.vue -->
 <template>
-  <SettingsSection>
+  <SectionCard>
     <div class="info-content">
       <!-- Header: Icon + Milō OS + Version -->
       <div class="info-header">
@@ -115,14 +115,14 @@
         <span class="info-value text-mono-medium">leodurand.com</span>
       </div>
     </div>
-  </SettingsSection>
+  </SectionCard>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import { useTimer } from '@/composables/useTimer';
 
 const { t, formatNumber, formatUnit } = useI18n();

@@ -5,24 +5,24 @@
     <span class="text-mono-medium">{{ t('volumeSettings.volumeNotManaged') }}</span>
   </div>
 
-  <SettingsContainer v-else>
+  <SectionStack v-else>
     <!-- Volume controls -->
-    <SettingsSection :title="t('volumeSettings.controls')">
+    <SectionCard :title="t('volumeSettings.controls')">
       <RangeSlider v-if="rotaryEnabled" :label="t('volumeSettings.rotaryStep')" v-model="config.step_rotary_db" :min="1" :max="6" :step="1" ticks unit="dB"
         @change="updateSetting('rotary-steps', { step_rotary_db: $event })" />
 
       <RangeSlider :label="t('volumeSettings.mobileStep')" v-model="config.step_mobile_db" :min="1" :max="6" :step="1" ticks unit="dB"
         @change="updateSetting('volume-steps', { step_mobile_db: $event })" />
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Volume limits -->
-    <SettingsSection :title="t('volumeSettings.limits')">
+    <SectionCard :title="t('volumeSettings.limits')">
       <DoubleRangeSlider :label="t('volumeSettings.minMax')" v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" unit="dB"
         @change="updateVolumeLimits" />
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Startup volume -->
-    <SettingsSection :title="t('volumeSettings.startup')">
+    <SectionCard :title="t('volumeSettings.startup')">
       <ButtonGroup
         :model-value="config.restore_last_volume"
         :options="startupModeOptions"
@@ -34,8 +34,8 @@
         <RangeSlider :label="t('volumeSettings.fixedStartup')" v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" unit="dB"
           @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
       </Collapse>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -49,8 +49,8 @@ import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Collapse from '@/components/ui/Collapse.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 
 const { t } = useI18n();
 const { updateSetting } = useSettingsAPI();

@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/multiroom/ClientEdit.vue -->
 <!-- Form for editing a single client's settings -->
 <template>
-  <div class="client-edit">
+  <SectionStack>
     <!-- Rebooting State (after audio card change) -->
     <MessageContent
       v-if="isRebooting"
@@ -26,13 +26,13 @@
     <!-- Online State - Settings -->
     <template v-else>
       <!-- Speaker Name Input -->
-      <SettingsSection :title="t(client?.is_local ? 'multiroom.systemNameMain' : 'multiroom.systemNameRemote')">
+      <SectionCard :title="t(client?.is_local ? 'multiroom.systemNameMain' : 'multiroom.systemNameRemote')">
         <InputText v-model="clientName" :placeholder="client?.host" :maxlength="16"
           @blur="saveClientName" />
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Audio Card Selection (remote clients only) -->
-      <SettingsSection v-if="!client?.is_local && (isLoadingAudio || audioCardOptions.length > 0)" :title="t('multiroom.pending.audioCard')">
+      <SectionCard v-if="!client?.is_local && (isLoadingAudio || audioCardOptions.length > 0)" :title="t('multiroom.pending.audioCard')">
         <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
           <div v-if="isLoadingAudio" class="skeleton-dropdown">
             <span class="skeleton-dropdown__text shimmer"></span>
@@ -55,10 +55,10 @@
         />
 
         <p v-if="audioError" class="audio-error text-mono-medium">{{ audioError }}</p>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Speaker Type Selection -->
-      <SettingsSection :title="t('multiroom.systemType')">
+      <SectionCard :title="t('multiroom.systemType')">
         <div class="speaker-types">
           <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label"
             action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
@@ -97,7 +97,7 @@
             <p class="text-mono-medium">{{ t('multiroom.crossover.highpassDescription', { frequency: formatUnit(zoneCrossoverFrequency, 'Hz') }) }}</p>
           </template>
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Multiroom tuning (multiroom only): independent EQ + level trim + playback delay -->
       <template v-if="multiroomEnabled">
@@ -133,7 +133,7 @@
       </template>
 
       <!-- Client Info -->
-      <SettingsSection :title="t('multiroom.systemInfo')">
+      <SectionCard :title="t('multiroom.systemInfo')">
         <div class="info-grid">
           <div class="info-item">
             <span class="info-label text-mono-medium">{{ t('clientDetails.hostname') }}</span>
@@ -144,7 +144,7 @@
             <span class="info-value text-mono-medium">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Apply & Reboot (two-step confirm, only when audio card changed) -->
       <Button
@@ -160,7 +160,7 @@
       </Button>
     </template>
 
-  </div>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -181,7 +181,8 @@ import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({
@@ -607,12 +608,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.client-edit {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
 .skeleton-dropdown {
   flex: 1;
   display: flex;

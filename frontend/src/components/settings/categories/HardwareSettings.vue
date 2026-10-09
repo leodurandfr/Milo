@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/HardwareSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Live, outside isDirty: the fan never waits for Apply & Reboot. -->
     <FanSection v-if="fanStore.available" />
 
@@ -137,7 +137,7 @@
       :loading="isApplying || isRebooting" :disabled="isApplying || isRebooting" @click="handleApply">
       {{ applyButtonLabel }}
     </Button>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -147,7 +147,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';

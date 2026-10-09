@@ -3,7 +3,7 @@
     <div class="playlist-name-modal">
       <NavigationHeader :title="title" />
 
-      <SettingsSection>
+      <SectionCard>
         <div class="playlist-name-modal__field">
           <InputText
             v-model="name"
@@ -15,7 +15,7 @@
             {{ submitLabel }}
           </Button>
         </div>
-      </SettingsSection>
+      </SectionCard>
     </div>
   </Modal>
 </template>
@@ -27,7 +27,7 @@ import Modal from '@/components/ui/Modal.vue';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 
 const props = defineProps({
   isOpen: {

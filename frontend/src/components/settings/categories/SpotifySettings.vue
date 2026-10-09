@@ -10,7 +10,7 @@
   while a sticky button offers the restart that makes them audible right now.
 -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Off is stored as a 0 duration, like the auto-stop delay: one value, the
          toggle and the slider being two views of it. -->
     <ToggleSection
@@ -51,7 +51,7 @@
     >
       {{ isApplying ? t('spotifySettings.restarting') : t('spotifySettings.restartToApply') }}
     </Button>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -62,7 +62,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t } = useI18n();

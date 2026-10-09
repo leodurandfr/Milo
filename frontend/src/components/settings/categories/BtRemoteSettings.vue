@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/BtRemoteSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Disabled: invite the user to enable the feature from the header toggle. -->
     <MessageContent
       v-if="!settingsStore.btRemote.enabled"
@@ -33,7 +33,7 @@
         :title="settingsStore.btRemote.battery_percentage < 20 ? t('btRemoteSettings.batteryLow') : undefined"
       > · {{ formatUnit(settingsStore.btRemote.battery_percentage, '%') }}</span></template>
     </RemoteStatusSection>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -41,7 +41,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
 

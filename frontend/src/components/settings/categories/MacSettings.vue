@@ -1,11 +1,11 @@
 <!-- frontend/src/components/settings/categories/MacSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <template v-if="caps">
       <!-- The half this unit runs: roc-recv. -->
       <!-- Reset sits on the first section and covers both: the link is one
            record, staged here and written by Apply, like the analysis. -->
-      <SettingsSection>
+      <SectionCard>
         <template #header>
           <SectionHeader :title="t('macSettings.receiver')">
             <template #actions>
@@ -30,11 +30,11 @@
           <ButtonGroup :model-value="draft.frame_length_ms" :options="msOptions(caps.frame_lengths)"
             :disabled="busy" mobile-layout="grid-3" @change="set('frame_length_ms', $event)" />
         </SettingItem>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- The half each Mac runs: its roc-vad device, rebuilt by the Milō app
            for Mac when this changes. -->
-      <SettingsSection :title="t('macSettings.sender')" :description="t('macSettings.senderNote')">
+      <SectionCard :title="t('macSettings.sender')" :description="t('macSettings.senderNote')">
         <SettingItem :label="t('macSettings.packetLength')">
           <ButtonGroup :model-value="draft.packet_length_ms" :options="msOptions(caps.packet_lengths)"
             :disabled="busy" mobile-layout="grid-3" @change="set('packet_length_ms', $event)" />
@@ -53,7 +53,7 @@
           <Toggle :model-value="draft.packet_interleaving" :disabled="busy"
             @change="set('packet_interleaving', $event)" />
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- The analysis measures and proposes; the controls above move and
            Apply stays the one write. -->
@@ -112,7 +112,7 @@
       :loading="macLinkStore.isApplying" :disabled="busy" @click="macLinkStore.apply()">
       {{ macLinkStore.isApplying ? t('macSettings.applying') : t('macSettings.apply') }}
     </Button>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -125,9 +125,9 @@ import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 

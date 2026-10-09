@@ -1,19 +1,19 @@
 <!-- frontend/src/components/settings/categories/multiroom/ZoneEdit.vue -->
 <!-- Form for creating or editing a multiroom zone -->
 <template>
-  <div class="zone-edit">
+  <SectionStack>
     <!-- Zone Name Input -->
-    <SettingsSection :title="t('equalizer.zones.zoneName')">
+    <SectionCard :title="t('equalizer.zones.zoneName')">
       <InputText
         v-model="zoneName"
         :placeholder="t('equalizer.zones.zoneNamePlaceholder')"
         :maxlength="16"
         @blur="saveZoneName"
       />
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Client Selection -->
-    <SettingsSection :title="t('equalizer.zones.selectClients')" :description="t('equalizer.zones.minimumClients')">      <div class="clients-list">
+    <SectionCard :title="t('equalizer.zones.selectClients')" :description="t('equalizer.zones.minimumClients')">      <div class="clients-list">
         <SystemListItem
           v-for="target in availableTargets"
           :key="target.id"
@@ -27,7 +27,7 @@
         />
       </div>
 
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Create Zone Button (only when creating new zone) -->
     <Button
@@ -52,7 +52,7 @@
     >
       {{ deleteLabel }}
     </Button>
-  </div>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -63,7 +63,8 @@ import { logger } from '@/services/logger';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 
 const props = defineProps({
   // Group ID if editing an existing zone, null for creating new
@@ -220,12 +221,6 @@ async function handleDelete() {
 </script>
 
 <style scoped>
-.zone-edit {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
 .clients-list {
   display: grid;
   grid-template-columns: 1fr 1fr;

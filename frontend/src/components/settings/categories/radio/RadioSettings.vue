@@ -1,5 +1,5 @@
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Track Recognition Toggle -->
     <ToggleSection
       :title="t('radioSettings.trackRecognition')"
@@ -9,7 +9,7 @@
     />
 
     <!-- Stations Management -->
-    <SettingsSection>
+    <SectionCard>
     <!-- Section 1: Unmodified Favorites -->
     <template v-if="unmodifiedFavorites.length > 0">
       <h2 class="heading-2">{{ t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
@@ -41,8 +41,8 @@
     <Button variant="brand" @click="$emit('go-to-add-station')">
       {{ t('radioSettings.addStation') }}
     </Button>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -54,8 +54,8 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import Button from '@/components/ui/Button.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import { isCustomStation } from '@/utils/radioStation';
 
 defineEmits(['go-to-add-station', 'edit-station']);

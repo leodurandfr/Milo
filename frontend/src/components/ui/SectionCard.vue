@@ -1,10 +1,10 @@
-<!-- Shared settings card section - replaces duplicated .settings-section + .xxx-group pattern -->
+<!-- The card a settings screen or a modal panel is built from: a title (or a header slot), an optional description, content -->
 <template>
-  <section class="settings-section">
+  <section class="section-card">
     <slot name="header">
       <h2 v-if="title" class="heading-2">{{ title }}</h2>
     </slot>
-    <p v-if="description" class="settings-section__description text-body">{{ description }}</p>
+    <p v-if="description" class="section-card__description text-body">{{ description }}</p>
     <slot />
   </section>
 </template>
@@ -23,7 +23,7 @@ defineProps({
 </script>
 
 <style scoped>
-.settings-section {
+.section-card {
   background: var(--color-surface);
   border-radius: var(--radius-06);
   padding: var(--space-05);
@@ -32,13 +32,13 @@ defineProps({
   gap: var(--space-04);
 }
 
-.settings-section__description {
+.section-card__description {
   color: var(--color-text-secondary);
   margin: 0;
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .settings-section {
+  .section-card {
     border-radius: var(--radius-05);
   }
 }

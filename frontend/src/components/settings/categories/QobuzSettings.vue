@@ -28,8 +28,8 @@
   />
 
   <!-- Connected -->
-  <SettingsContainer v-else>
-    <SettingsSection>
+  <SectionStack v-else>
+    <SectionCard>
       <template #header>
         <SectionHeader :title="t('qobuzSettings.accountTitle')" :subtitle="account.email">
           <template #actions>
@@ -44,7 +44,7 @@
           </template>
         </SectionHeader>
       </template>
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Allow the Qobuz mobile app to control volume. Off (default) keeps
          qobuz-proxy at unity so CamillaDSP is the only volume authority. -->
@@ -54,7 +54,7 @@
       :enabled="allowAppVolume"
       @change="handleAppVolumeToggle"
     />
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -65,9 +65,9 @@ import { useTimer } from '@/composables/useTimer';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';

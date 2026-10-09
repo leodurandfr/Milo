@@ -1,7 +1,7 @@
 <!-- frontend/src/components/equalizer/LevelMeters.vue -->
 <!-- Stereo output level meters with real-time monitoring -->
 <template>
-  <SettingsSection :title="t('equalizer.meters.title')">
+  <SectionCard :title="t('equalizer.meters.title')">
     <!-- Output meters -->
     <div class="stereo-meters">
       <LevelMeter
@@ -19,7 +19,7 @@
         :show-peak="true"
       />
     </div>
-  </SettingsSection>
+  </SectionCard>
 </template>
 
 <script setup>
@@ -27,7 +27,7 @@ import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import LevelMeter from './LevelMeter.vue';
 import { useTimer } from '@/composables/useTimer';
 

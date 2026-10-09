@@ -101,11 +101,11 @@ import SkeletonEpisodeCard from '@/components/podcasts/SkeletonEpisodeCard.vue';
 import GenreCard from '@/components/podcasts/GenreCard.vue';
 import SkeletonPodcastDetails from '@/components/podcasts/SkeletonPodcastDetails.vue';
 import SkeletonEpisodeDetails from '@/components/podcasts/SkeletonEpisodeDetails.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
@@ -1126,16 +1126,16 @@ export const REGISTRY = {
     args: { class: 'canvas-column' }
   },
 
-  SettingsContainer: {
-    component: SettingsContainer,
+  SectionStack: {
+    component: SectionStack,
     args: { class: 'canvas-column' },
     // Declares no props: the gap between children is the entire component, so
     // the sample has to be two real sections for there to be a gap to see.
     slots: { default: { 'Two settings sections': { component: SettingsSample } } }
   },
 
-  SettingsSection: {
-    component: SettingsSection,
+  SectionCard: {
+    component: SectionCard,
     args: { title: 'Volume', description: 'Applied when the unit starts.', class: 'canvas-column' },
     slots: {
       // The header slot replaces the built-in <h2>, so with a choice made the

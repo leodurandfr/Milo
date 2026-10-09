@@ -306,7 +306,7 @@ defineExpose({ swipe });
 }
 
 /* The source bar's slot opens from nothing: its row from 0 to its height,
-   so the lines glide instead of jumping. The
+   and the block's gap with it, so the lines glide instead of jumping. The
    bar itself keeps its own height and overflows the row while it opens —
    nothing of it is squeezed or cut — and comes in whole, icon and label
    together, by a short drop and a fade. */
@@ -327,7 +327,9 @@ defineExpose({ swipe });
    played backwards. */
 .source-reveal-enter-active,
 .source-reveal-leave-active {
-  transition: grid-template-rows var(--transition-spring-light);
+  transition:
+    grid-template-rows var(--transition-spring-light),
+    margin-bottom var(--transition-spring-light);
 }
 
 .source-reveal-enter-active .body-source,
@@ -338,6 +340,7 @@ defineExpose({ swipe });
 .source-reveal-enter-from,
 .source-reveal-leave-to {
   grid-template-rows: 0fr;
+  margin-bottom: calc(-1 * var(--space-04));
 }
 
 .source-reveal-enter-from .body-source,

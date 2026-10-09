@@ -42,7 +42,7 @@
               </ListItemButton>
             </div>
         </div>
-        <SettingsSection class="home-card">
+        <SectionCard class="home-card">
           <div v-for="section in visibleSections" :key="section.key" class="home-group">
             <span class="text-body settings-home-section-title">{{ t(section.titleKey) }}</span>
             <div class="settings-nav-grid">
@@ -54,7 +54,7 @@
               </ListItemButton>
             </div>
           </div>
-        </SettingsSection>
+        </SectionCard>
       </div>
 
       <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
@@ -166,7 +166,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
@@ -808,7 +808,7 @@ onMounted(async () => {
   fill: currentColor;
 }
 
-/* Override SettingsSection's default 16px gap to 24px for the denser home grid */
+/* Override SectionCard's default 16px gap to 24px for the denser home grid */
 .home-card {
   gap: var(--space-05);
 }

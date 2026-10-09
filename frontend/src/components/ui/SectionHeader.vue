@@ -1,5 +1,5 @@
 <!-- Shared section header - title with optional subtitle and action slot.
-     Every settings section with a control beside its title goes through here;
+     Every section card with a control beside its title goes through here;
      tests/architecture/sectionHeaderActions.test.js holds the actions to one style. -->
 <template>
   <div class="section-header">

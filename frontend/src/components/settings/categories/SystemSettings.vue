@@ -5,10 +5,10 @@
      precondition: nothing on the API authenticates, so refusing to open it would
      have stopped the owner and nobody else. -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <SystemInfoSection />
 
-    <SettingsSection :description="t('system.ssh.description')">
+    <SectionCard :description="t('system.ssh.description')">
       <template #header>
         <div class="system-header">
           <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
@@ -33,9 +33,9 @@
       </div>
 
       <span v-if="sshError" class="system-error text-mono-small">{{ sshError }}</span>
-    </SettingsSection>
+    </SectionCard>
 
-    <SettingsSection :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
+    <SectionCard :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
       <Button variant="brand" :loading="generating" :disabled="generating"
         @click="generateReport">
         {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
@@ -70,9 +70,9 @@
         </button>
         <pre v-if="showPreview" class="diagnostic-preview text-mono-small">{{ report }}</pre>
       </template>
-    </SettingsSection>
+    </SectionCard>
 
-    <SettingsSection :title="t('system.reset.title')" :description="t('system.reset.description')">
+    <SectionCard :title="t('system.reset.title')" :description="t('system.reset.description')">
       <!-- Red from the first press, not only once armed: the action is
            destructive whether or not it is confirmed yet, and the two-step is
            carried by the label. -->
@@ -80,8 +80,8 @@
         :disabled="resetting" @click="handleReset">
         {{ resetLabel }}
       </Button>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -91,8 +91,8 @@ import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SystemInfoSection from '@/components/settings/categories/SystemInfoSection.vue';

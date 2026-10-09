@@ -91,7 +91,7 @@ function onTransitionCancel(event) {
 <style scoped>
 /* The negative top margin cancels the parent's flex gap while closed; the
    inner padding gives it back once open, inside the animated height. The
-   bottom overhangs the card's own padding (--space-05, SettingsSection's) and
+   bottom overhangs the card's own padding (--space-05, SectionCard's) and
    pays it back the same way, so the clip edge is the card's edge: the content
    is uncovered by the card as it grows, never cut a padding short of it. That
    makes it the last child of its card, as both callers place it. Clipped

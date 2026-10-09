@@ -1,8 +1,8 @@
 <!-- frontend/src/components/settings/categories/ScreenSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Theme: every browser showing Milō follows it, the kiosk included -->
-    <SettingsSection :title="t('screenSettings.theme')">
+    <SectionCard :title="t('screenSettings.theme')">
       <SettingItem :label="t('screenSettings.themeDescription')">
         <ThemePicker
           :model-value="settingsStore.screenTheme.theme"
@@ -10,16 +10,16 @@
           @change="setTheme"
         />
       </SettingItem>
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Brightness -->
-    <SettingsSection :title="t('screenSettings.brightness')">
+    <SectionCard :title="t('screenSettings.brightness')">
       <RangeSlider :label="t('screenSettings.brightnessIntensity')" v-model="config.brightness_on" :min="1" :max="10" :step="1" ticks
         @input="handleBrightnessChange" @change="saveBrightness" />
-    </SettingsSection>
+    </SectionCard>
 
     <!-- UI Scale: the kiosk's device scale factor, applied by a kiosk restart -->
-    <SettingsSection :title="t('screenSettings.uiScale')">
+    <SectionCard :title="t('screenSettings.uiScale')">
       <SettingItem :label="t('screenSettings.uiScaleLevel')">
         <ButtonGroup
           :model-value="config.ui_scale"
@@ -28,7 +28,7 @@
           @change="setUiScale"
         />
       </SettingItem>
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Warm color filter (Night Shift-like) -->
     <ToggleSection
@@ -73,7 +73,7 @@
         @change="setScreenTimeout"
       />
     </ToggleSection>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -85,8 +85,8 @@ import { useTimer } from '@/composables/useTimer';
 import { apiCall } from '@/services/apiCall';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ThemePicker from '@/components/settings/categories/ThemePicker.vue';

@@ -14,7 +14,7 @@
         </template>
       </NavigationHeader>
 
-      <SettingsSection class="add-to-playlist__section">
+      <SectionCard class="add-to-playlist__section">
         <ListItemButton
           action="radio"
           icon-variant="standard"
@@ -59,7 +59,7 @@
             </div>
           </div>
         </div>
-      </SettingsSection>
+      </SectionCard>
     </div>
   </Modal>
 </template>
@@ -76,7 +76,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({

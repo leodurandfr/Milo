@@ -11,7 +11,7 @@
   in. The results stay open for as long as the panel holds them.
 -->
 <template>
-  <SettingsSection>
+  <SectionCard>
     <template #header>
       <SectionHeader :title="title">
         <template #actions>
@@ -39,7 +39,7 @@
         </div>
       </div>
     </Transition>
-  </SettingsSection>
+  </SectionCard>
 </template>
 
 <script setup>
@@ -47,8 +47,8 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { PROGRESS_TICK_MS } from '@/composables/useAnalysisRun';
 import Button from '@/components/ui/Button.vue';
-import SettingsSection from './SettingsSection.vue';
-import SectionHeader from './SectionHeader.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import ProgressStrip from './ProgressStrip.vue';
 
 const props = defineProps({

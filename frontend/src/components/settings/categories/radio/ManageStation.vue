@@ -15,7 +15,7 @@
       </div>
     </div>
 
-  <SettingsSection>
+  <SectionCard>
     <form @submit.prevent="handleFormSubmit" class="station-form">
       <!-- Station Name and Image Section (horizontal on desktop, stacked on mobile) -->
       <div class="station-header-row">
@@ -92,7 +92,7 @@
         {{ submitButtonText }}
       </Button>
     </form>
-  </SettingsSection>
+  </SectionCard>
   </div>
 </template>
 
@@ -112,7 +112,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { apiCall } from '@/services/apiCall';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 const props = defineProps({

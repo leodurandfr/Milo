@@ -13,7 +13,7 @@
  * v1 was `components/ui/` and nothing else, which a directory listing could
  * check in both directions. The catalogue now also carries the *shared
  * composites* — the audio parts three or more features build their screens out
- * of, and the four settings wrappers half the app is made of — and those two
+ * of, and the parts the settings screens share — and those two
  * directories cannot be globbed: `AudioSourceView.vue` is a dispatcher with no
  * appearance of its own, `SettingsModal.vue` is an application.
  *
@@ -67,7 +67,7 @@ export function isScreen(file) {
  */
 export const EXCLUDED = {
   'components/settings/SettingsModal.vue':
-    'The settings application — ~840 lines wiring a dozen stores and every category screen. Its four building blocks are catalogued instead.',
+    'The settings application — ~840 lines wiring a dozen stores and every category screen. The parts its screens are built from are catalogued instead.',
   'components/audio/BrowserSourceViews.vue':
     'A wiring shell with no look of its own: it swaps a browser source\'s navigation (AudioSourceLayout) for AudioPlayerFull, both catalogued, and is shown at work on the Radio, Podcasts, Music Library and Spotify source pages, whose bar expands into it.',
 };
@@ -117,7 +117,7 @@ export const GROUPS = [
   {
     id: 'settings',
     title: 'Settings composites',
-    blurb: 'The wrappers behind every settings screen in the app — and the most-reused components in the frontend. They carry a title, a gap, at most a toggle; everything else is slot content.',
+    blurb: 'The card, the stack and the header every settings screen and modal panel is built from — the most-reused components in the frontend — and the parts only the settings share. They carry a title, a gap, at most a toggle; everything else is slot content.',
   },
 ];
 
@@ -433,23 +433,23 @@ export const ENTRIES = [
 
   // --- Settings composites ---
   {
-    id: 'SettingsContainer',
+    id: 'SectionStack',
     group: 'settings',
-    file: 'components/settings/SettingsContainer.vue',
-    summary: '14 lines and 23 consumers: a flex column that puts one gap between settings sections. It carries nothing else, and that is the entry — the alternative was 23 copies of the same two declarations.',
+    file: 'components/ui/SectionStack.vue',
+    summary: '14 lines and 27 consumers: a flex column that puts one gap between section cards, in the settings and in the modals that stack them alike. It carries nothing else, and that is the entry — the alternative was 27 copies of the same two declarations.',
   },
   {
-    id: 'SettingsSection',
+    id: 'SectionCard',
     group: 'settings',
-    file: 'components/settings/SettingsSection.vue',
-    summary: 'The settings card, and the most-imported component in the frontend (30). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+    file: 'components/ui/SectionCard.vue',
+    summary: 'The card of every settings screen and modal panel, and the most-imported component in the frontend (31). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
     id: 'ToggleSection',
     group: 'settings',
     file: 'components/ui/ToggleSection.vue',
     coupling: 'modal',
-    summary: 'A SettingsSection whose header toggle expands its content through Collapse: the card of every on/off setting that carries its own options (auto-stop, each hardware item). It only emits change, so the caller decides what off means and what on restores.',
+    summary: 'A SectionCard whose header toggle expands its content through Collapse: the card of every on/off setting that carries its own options (auto-stop, each hardware item). It only emits change, so the caller decides what off means and what on restores.',
   },
   {
     id: 'ProgressStrip',
@@ -472,8 +472,8 @@ export const ENTRIES = [
   {
     id: 'SectionHeader',
     group: 'settings',
-    file: 'components/settings/SectionHeader.vue',
-    summary: 'Title and optional subtitle on the left, an actions slot on the right, stacking to a column below 4:3. Distinct from SettingsSection.title: this is a header placed inside a card, not the card heading.',
+    file: 'components/ui/SectionHeader.vue',
+    summary: 'Title and optional subtitle on the left, an actions slot on the right, stacking to a column below 4:3. Distinct from SectionCard.title: this is a header placed inside a card, not the card heading.',
   },
 ];
 

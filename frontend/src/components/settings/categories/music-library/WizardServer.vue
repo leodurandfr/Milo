@@ -6,8 +6,8 @@
   advertise themselves.
 -->
 <template>
-  <SettingsContainer>
-    <SettingsSection>
+  <SectionStack>
+    <SectionCard>
       <template #header>
         <div class="wiz-header">
           <h2 class="heading-2">{{ t('musicLibrary.shares.wizard.serverTitle') }}</h2>
@@ -45,16 +45,16 @@
           {{ t('musicLibrary.shares.wizard.rescan') }}
         </Button>
       </div>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';

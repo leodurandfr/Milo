@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/ToggleSection.vue -->
-<!-- Reusable settings section with toggle in header and optional expand/collapse content -->
+<!-- A SectionCard with a toggle in its header, expanding its content when on -->
 <template>
-  <SettingsSection :description="description">
+  <SectionCard :description="description">
     <template #header>
       <div class="toggle-section-header">
         <component :is="`h${heading}`" :class="`heading-${heading}`">
@@ -17,14 +17,14 @@
     <Collapse v-if="hasContent" :open="enabled">
       <slot />
     </Collapse>
-  </SettingsSection>
+  </SectionCard>
 </template>
 
 <script setup>
 import { computed, useSlots } from 'vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Collapse from '@/components/ui/Collapse.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 
 defineProps({
   title: { type: String, default: '' },

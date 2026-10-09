@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/RemoteControlsSettings.vue -->
 <template>
-  <SettingsContainer>
-    <SettingsSection>
+  <SectionStack>
+    <SectionCard>
       <div class="remote-list">
         <ListItemButton
           icon-variant="standard"
@@ -37,8 +37,8 @@
           </template>
         </ListItemButton>
       </div>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -46,8 +46,8 @@ import { computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 

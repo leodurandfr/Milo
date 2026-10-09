@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/NetworkSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Connection status card (MultiroomItem zone pattern) -->
     <div class="connection-section" :class="{ 'is-expanded': showWifiCard, 'no-transition': skipTransition }">
       <!-- Ethernet row (always visible, like zone header) -->
@@ -126,7 +126,7 @@
         </div>
       </div>
     </ToggleSection>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -135,7 +135,7 @@ import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import InputText from '@/components/ui/InputText.vue';
 import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';

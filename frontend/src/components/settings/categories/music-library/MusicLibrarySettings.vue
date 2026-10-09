@@ -17,8 +17,8 @@
   renamed, or forgotten for good.
 -->
 <template>
-  <SettingsContainer>
-    <SettingsSection :description="t('musicLibrary.shares.description')">
+  <SectionStack>
+    <SectionCard :description="t('musicLibrary.shares.description')">
       <template #header>
         <SectionHeader :title="t('musicLibrary.shares.title')">
           <template #actions>
@@ -86,7 +86,7 @@
           </template>
         </ListItemButton>
       </div>
-    </SettingsSection>
+    </SectionCard>
 
     <!-- One tab per storage space in the library view, or all of them merged.
          Only worth showing once there is more than one space to separate. -->
@@ -95,7 +95,7 @@
       :description="t('musicLibrary.storage.separateDescription')"
       :enabled="separateStorages" @change="handleSeparateToggle" />
 
-    <SettingsSection :description="t('musicLibrary.maintenance.description')">
+    <SectionCard :description="t('musicLibrary.maintenance.description')">
       <template #header>
         <SectionHeader :title="t('musicLibrary.maintenance.title')" />
       </template>
@@ -106,8 +106,8 @@
         :disabled="busy" @click="onRefresh">
         {{ busy ? t('musicLibrary.maintenance.refreshing') : t('musicLibrary.maintenance.refresh') }}
       </Button>
-    </SettingsSection>
-  </SettingsContainer>
+    </SectionCard>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -117,9 +117,9 @@ import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';

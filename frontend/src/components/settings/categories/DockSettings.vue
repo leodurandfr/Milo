@@ -1,8 +1,8 @@
 <!-- frontend/src/components/settings/categories/DockSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Audio sources -->
-    <SettingsSection class="audio-sources-section">
+    <SectionCard class="audio-sources-section">
       <template #header>
         <SectionHeader :title="t('audioSources.title')">
           <template #actions>
@@ -49,10 +49,10 @@
           </div>
         </div>
       </div>
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Features -->
-    <SettingsSection :title="t('applications.features')">
+    <SectionCard :title="t('applications.features')">
       <div class="app-list">
         <ListItemButton
           :title="t('equalizer.title')"
@@ -98,9 +98,9 @@
           </template>
         </ListItemButton>
       </div>
-    </SettingsSection>
+    </SectionCard>
 
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -113,9 +113,9 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import Button from '@/components/ui/Button.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 const { t } = useI18n();
@@ -316,7 +316,7 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-:deep(.audio-sources-section.settings-section) {
+:deep(.audio-sources-section.section-card) {
   gap: var(--space-03);
 }
 

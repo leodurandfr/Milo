@@ -19,12 +19,12 @@
           :title="t('equalizer.connecting')" />
 
         <!-- State 3: Equalizer connected - controls -->
-        <div v-else key="controls" class="controls-content">
+        <SectionStack v-else key="controls">
           <!-- Section 1: Zones (tabs) -->
           <ItemSelector ref="zoneTabsRef" />
 
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
-          <SettingsSection>
+          <SectionCard>
             <template #header>
               <SectionHeader :title="t('equalizer.equalizer.title')" :subtitle="selectedZoneName">
                 <template #actions>
@@ -42,7 +42,7 @@
             <ParametricEQ :filters="equalizerStore.filters" :filters-loaded="equalizerStore.filtersLoaded"
               :is-mobile="isMobile" @update:filter="handleFilterUpdate"
               @change="handleFilterChange" />
-          </SettingsSection>
+          </SectionCard>
 
           <!-- Section 3: Loudness -->
           <ToggleSection :title="t('equalizer.loudness.title')" :enabled="equalizerStore.loudness.enabled"
@@ -90,7 +90,7 @@
 
           <!-- Level Meters -->
           <LevelMeters :client-ids="selectedClientIds" />
-        </div>
+        </SectionStack>
       </Transition>
     </div>
   </div>
@@ -107,8 +107,9 @@ import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ItemSelector from './ItemSelector.vue';
 import ParametricEQ from './ParametricEQ.vue';
@@ -290,12 +291,6 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-.controls-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
 /* EQ section header layout */
 /* The dropdown fills its parent, and the actions slot sizes to its content: it
    needs a width of its own on desktop, and takes the rest of the row once the
@@ -309,7 +304,7 @@ onUnmounted(() => {
 .effect-controls {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-03);
+  gap: var(--space-04);
 }
 
 /* Mobile adjustments */

@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Error state -->
     <template v-if="localProgramsError">
       <div class="error-state">
@@ -16,7 +16,7 @@
     <template v-else>
       <!-- The operating system and the individual programs share one card:
            a divider tells the two groups apart. -->
-      <SettingsSection>
+      <SectionCard>
         <div class="update-groups">
           <template v-if="localProgramsLoading || localPrograms.milo">
             <div class="update-group">
@@ -166,10 +166,10 @@
             </div>
           </div>
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Section 3: Satellite Programs (error) -->
-      <SettingsSection v-if="isMultiroomEnabled && satellitesError"
+      <SectionCard v-if="isMultiroomEnabled && satellitesError"
         :title="t('updates.satelliteProgramsTitle')">
         <div class="error-state">
           <div class="error-message text-mono-medium">
@@ -179,11 +179,11 @@
             {{ t('updates.retry') }}
           </Button>
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Section 3: Satellite Programs (one section per anticipated client, crossfade skeleton → content) -->
       <template v-if="isMultiroomEnabled && !satellitesError">
-        <SettingsSection v-for="client in anticipatedSatellites" :key="client.mac_id">
+        <SectionCard v-for="client in anticipatedSatellites" :key="client.mac_id">
           <template #header>
             <h2 class="heading-2">{{ t('updates.satelliteSectionTitle') }} <span class="satellite-name">·&nbsp;{{
               client.name || client.mac_id }}</span></h2>
@@ -331,10 +331,10 @@
               </div>
             </Transition>
           </div>
-        </SettingsSection>
+        </SectionCard>
       </template>
     </template>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -349,8 +349,8 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 
 function getProgramIcon(programKey) {
   const iconMap = {

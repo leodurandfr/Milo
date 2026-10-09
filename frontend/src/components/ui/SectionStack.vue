@@ -1,12 +1,12 @@
-<!-- Shared container for multiple settings sections -->
+<!-- A column of SectionCards: the one gap between them, wherever they are stacked -->
 <template>
-  <div class="settings-container">
+  <div class="section-stack">
     <slot />
   </div>
 </template>
 
 <style scoped>
-.settings-container {
+.section-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);

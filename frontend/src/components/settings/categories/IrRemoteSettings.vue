@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/IrRemoteSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Hardware disabled: redirect to Hardware Settings -->
     <MessageContent
       v-if="!irHardwareEnabled"
@@ -46,7 +46,7 @@
       :cta-variant="primaryCtaVariant"
       :cta-click="primaryCtaClick"
     />
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -56,7 +56,7 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
 

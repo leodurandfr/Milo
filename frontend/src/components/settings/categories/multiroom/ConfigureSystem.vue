@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/multiroom/ConfigureSystem.vue -->
 <!-- Form for configuring a discovered system (ethernet pending or wifi hotspot adoption). -->
 <template>
-  <div class="configure-speaker">
+  <SectionStack>
     <!-- Rebooting State -->
     <MessageContent
       v-if="isRebooting"
@@ -25,16 +25,16 @@
     <!-- Configuration Form -->
     <template v-else>
       <!-- Speaker Name -->
-      <SettingsSection :title="t('multiroom.systemNameRemote')">
+      <SectionCard :title="t('multiroom.systemNameRemote')">
         <InputText
           v-model="speakerName"
           :placeholder="t('multiroom.pending.namePlaceholder')"
           :maxlength="16"
         />
-      </SettingsSection>
+      </SectionCard>
 
       <!-- WiFi connection (wifi mode only) -->
-      <SettingsSection v-if="mode === 'wifi'" :title="t('multiroom.adopt.networkSection')">
+      <SectionCard v-if="mode === 'wifi'" :title="t('multiroom.adopt.networkSection')">
         <!-- Auto-fill from server's active wifi -->
         <template v-if="canUseServerWifi && useServerWifi">
           <div class="server-wifi-row">
@@ -61,10 +61,10 @@
             @update:wifi="onManualWifiUpdate"
           />
         </template>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Audio Card Selection -->
-      <SettingsSection :title="t('multiroom.pending.audioCard')">
+      <SectionCard :title="t('multiroom.pending.audioCard')">
         <div class="audio-list">
           <ListItemButton
             v-for="card in audioCardOptions"
@@ -75,10 +75,10 @@
             @click="selectedAudioId = card.value; confirmReboot = false"
           />
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Speaker Type Selection -->
-      <SettingsSection :title="t('multiroom.systemType')">
+      <SectionCard :title="t('multiroom.systemType')">
         <div class="speaker-types">
           <ListItemButton
             v-for="type in speakerTypes"
@@ -94,15 +94,15 @@
             </template>
           </ListItemButton>
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Speaker Info (ethernet only — IP from pending registry) -->
-      <SettingsSection v-if="mode === 'ethernet'" :title="t('multiroom.systemInfo')">
+      <SectionCard v-if="mode === 'ethernet'" :title="t('multiroom.systemInfo')">
         <div class="info-item">
           <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
           <span class="info-value text-mono-medium">{{ pendingClient?.ip || 'Unknown' }}</span>
         </div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Apply Button (two-step confirm like HardwareSettings) -->
       <Button
@@ -115,7 +115,7 @@
         {{ applyButtonLabel }}
       </Button>
     </template>
-  </div>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -130,7 +130,8 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 
 const props = defineProps({
@@ -359,12 +360,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.configure-speaker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
 .audio-list {
   display: grid;
   grid-template-columns: 1fr 1fr;

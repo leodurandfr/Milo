@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/AudioPlaybackSettings.vue -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Auto-stop on pause (applies to every eligible source) -->
     <ToggleSection
       :title="t('audioPlayback.autoStop')"
@@ -14,7 +14,7 @@
         @change="setAutoStopDelay"
       />
     </ToggleSection>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -23,7 +23,7 @@ import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t, formatDuration } = useI18n();

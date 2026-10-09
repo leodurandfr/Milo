@@ -2,7 +2,7 @@
 <template>
   <!-- Not a ToggleSection: the telemetry and the off-note stay readable while
        the fan is off, which a collapsing section would hide. -->
-  <SettingsSection>
+  <SectionCard>
     <template #header>
       <div class="fan-header">
         <h2 class="heading-2">{{ t('settings.fan') }}</h2>
@@ -54,7 +54,7 @@
         @change="onTargetChange"
       />
     </template>
-  </SettingsSection>
+  </SectionCard>
 </template>
 
 <script setup>
@@ -62,7 +62,7 @@ import { reactive, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useFanStore } from '@/stores/fanStore';
 import { useTimer } from '@/composables/useTimer';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Toggle from '@/components/ui/Toggle.vue';

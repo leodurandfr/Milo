@@ -1,44 +1,44 @@
 <!-- frontend/src/components/gallery/demos/SettingsDemo.vue -->
 <template>
-  <GalleryItem id="SettingsContainer">
+  <GalleryItem id="SectionStack">
     <GalleryVariant label="its whole contribution: one gap between sections" stacked>
-      <SettingsContainer>
-        <SettingsSection title="Volume">
+      <SectionStack>
+        <SectionCard title="Volume">
           <SettingItem label="Startup volume">
             <ControlSample />
           </SettingItem>
-        </SettingsSection>
-        <SettingsSection title="Screen">
+        </SectionCard>
+        <SectionCard title="Screen">
           <SettingItem label="Brightness">
             <ControlSample />
           </SettingItem>
-        </SettingsSection>
-      </SettingsContainer>
+        </SectionCard>
+      </SectionStack>
     </GalleryVariant>
   </GalleryItem>
 
-  <GalleryItem id="SettingsSection">
+  <GalleryItem id="SectionCard">
     <GalleryVariant label=":title — the built-in heading" stacked>
-      <SettingsSection title="Volume">
+      <SectionCard title="Volume">
         <SettingItem label="Startup volume">
           <ControlSample />
         </SettingItem>
-      </SettingsSection>
+      </SectionCard>
     </GalleryVariant>
     <GalleryVariant label="header slot — replaces the title, which is why both are never passed" stacked>
-      <SettingsSection title="Ignored while the slot is filled">
+      <SectionCard title="Ignored while the slot is filled">
         <template #header>
           <SectionHeader title="Volume" subtitle="Startup level and limits" />
         </template>
         <SettingItem label="Startup volume">
           <ControlSample />
         </SettingItem>
-      </SettingsSection>
+      </SectionCard>
     </GalleryVariant>
     <GalleryVariant label="no title at all — a card with only its content" stacked>
-      <SettingsSection>
+      <SectionCard>
         <ControlSample />
-      </SettingsSection>
+      </SectionCard>
     </GalleryVariant>
   </GalleryItem>
 
@@ -101,10 +101,10 @@ import { ref } from 'vue';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import ControlSample from '../samples/ControlSample.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import Button from '@/components/ui/Button.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 

@@ -13,9 +13,9 @@
     bottom so it's reachable from anywhere in the form.
 -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <form class="share-form" @submit.prevent="handleSubmit">
-      <SettingsSection>
+      <SectionCard>
         <!-- Type: SMB / NFS -->
         <SettingItem :label="t('musicLibrary.shares.type')">
           <ButtonGroup v-model="form.type" :options="typeOptions" @change="applyType" />
@@ -51,7 +51,7 @@
 
         <!-- Error -->
         <div v-if="errorMessage" class="share-form__error text-mono-medium">{{ errorMessage }}</div>
-      </SettingsSection>
+      </SectionCard>
 
       <!-- Remove (edit only) — two-tap inline confirm, like the power menu. -->
       <Button v-if="isEditMode" variant="important" size="medium" type="button"
@@ -65,15 +65,15 @@
         {{ isEditMode ? t('musicLibrary.shares.save') : t('musicLibrary.shares.add') }}
       </Button>
     </form>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
 import { reactive, ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';

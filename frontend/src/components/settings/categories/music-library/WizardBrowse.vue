@@ -13,10 +13,10 @@
   the thing the plain form couldn't tell them.
 -->
 <template>
-  <SettingsContainer>
+  <SectionStack>
     <!-- Indexing settled — how many tracks this share contributed. A standalone
          card (like the rest of the app's MessageContent screens), not nested in
-         a SettingsSection, so no breadcrumb above it either. -->
+         a SectionCard, so no breadcrumb above it either. -->
     <MessageContent v-if="phase === 'indexed'" icon="check"
       :title="t('musicLibrary.shares.wizard.indexedTitle')"
       :subtitle="indexEmpty
@@ -25,7 +25,7 @@
       :cta-label="t('musicLibrary.shares.wizard.done')" :cta-variant="indexEmpty ? 'control' : 'brand'"
       :cta-click="leave" />
 
-    <SettingsSection v-else>
+    <SectionCard v-else>
       <!-- Auth step: no folder path to show yet — just the NAS being signed into. -->
       <h2 v-if="phase === 'auth'" class="heading-2">{{ server.name }}</h2>
 
@@ -108,7 +108,7 @@
 
         <p v-if="errorMsg" class="wb-error text-mono-medium">{{ errorMsg }}</p>
       </template>
-    </SettingsSection>
+    </SectionCard>
 
     <!-- Pick the current folder (SMB, once inside a share) — sticky, so it's
          reachable from anywhere in the entries list. -->
@@ -116,7 +116,7 @@
       :loading="creating" @click="useThisFolder">
       {{ t('musicLibrary.shares.wizard.useFolder', { name: currentName }) }}
     </Button>
-  </SettingsContainer>
+  </SectionStack>
 </template>
 
 <script setup>
@@ -124,8 +124,8 @@ import { ref, reactive, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';

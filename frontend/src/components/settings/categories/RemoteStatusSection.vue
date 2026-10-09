@@ -4,7 +4,7 @@
      Used by BT (both activated states) and IR (paired state only). -->
 
 <template>
-  <SettingsSection>
+  <SectionCard>
     <template #header>
       <SectionHeader>
         <template #title>
@@ -47,13 +47,13 @@
       @update:model-value="$emit('update:modelValue', $event)"
       @change="$emit('step-change', $event)"
     />
-  </SettingsSection>
+  </SectionCard>
 </template>
 
 <script setup>
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import Button from '@/components/ui/Button.vue';
 
 defineProps({

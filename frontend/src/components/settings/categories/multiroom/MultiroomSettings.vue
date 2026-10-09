@@ -5,9 +5,9 @@
         <MessageContent v-if="showMessage" :key="multiroomClientStore.transitionState" :loading="isLoading" :loading-delay="0"
           :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
         <!-- SETTINGS: Active and ready -->
-        <SettingsContainer v-else key="settings">
+        <SectionStack v-else key="settings">
           <!-- Discovered Speakers Section (pending ethernet + wifi hotspots) -->
-          <SettingsSection v-if="discoveryItems.length > 0">
+          <SectionCard v-if="discoveryItems.length > 0">
             <template #header>
               <SectionHeader :title="t('multiroom.pending.title')" />
             </template>
@@ -25,9 +25,9 @@
                 @click="handleDiscoveryClick(item)"
               />
             </div>
-          </SettingsSection>
+          </SectionCard>
 
-          <SettingsSection>
+          <SectionCard>
             <template #header>
               <SectionHeader :title="t('multiroom.zonesAndSystems')">
                 <template #actions>
@@ -78,12 +78,12 @@
                 </div>
               </template>
             </div>
-          </SettingsSection>
+          </SectionCard>
 
           <!-- No modes. The analysis is an action, not a state one sits in --
                tabs claimed otherwise, and made the codec selection invisible
                besides, because a disabled ButtonGroup drops its active mark. -->
-          <SettingsSection>
+          <SectionCard>
             <template #header>
               <SectionHeader :title="t('multiroomSettings.latencyAndQuality')">
                 <template #actions>
@@ -110,7 +110,7 @@
                 :disabled="busy" @change="selectCodec" />
             </SettingItem>
 
-          </SettingsSection>
+          </SectionCard>
 
           <!-- The result of a run is the sliders above moving. The only thing
                they cannot say is which speaker held the house back, so that is
@@ -167,7 +167,7 @@
             :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
             {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
           </Button>
-        </SettingsContainer>
+        </SectionStack>
   </Transition>
 </template>
 
@@ -188,9 +188,9 @@ import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
-import SettingsContainer from '@/components/settings/SettingsContainer.vue';
-import SettingsSection from '@/components/settings/SettingsSection.vue';
-import SectionHeader from '@/components/settings/SectionHeader.vue';
+import SectionStack from '@/components/ui/SectionStack.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
+import SectionHeader from '@/components/ui/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 

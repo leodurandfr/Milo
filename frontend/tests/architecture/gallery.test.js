@@ -497,22 +497,22 @@ describe('component gallery catalogue', () => {
     },
     { id: 'GenreCard', what: 'genre artworks', phrase: `${PODCAST_GENRE_IDS.length} artworks`, count: PODCAST_GENRE_IDS.length },
     {
-      id: 'SettingsContainer',
+      id: 'SectionStack',
       what: 'its own length',
-      phrase: `${readFileSync(join(SRC_DIR, 'components/settings/SettingsContainer.vue'), 'utf8').trimEnd().split('\n').length} lines`,
-      count: readFileSync(join(SRC_DIR, 'components/settings/SettingsContainer.vue'), 'utf8').trimEnd().split('\n').length
+      phrase: `${readFileSync(join(SRC_DIR, 'components/ui/SectionStack.vue'), 'utf8').trimEnd().split('\n').length} lines`,
+      count: readFileSync(join(SRC_DIR, 'components/ui/SectionStack.vue'), 'utf8').trimEnd().split('\n').length
     },
     {
-      id: 'SettingsContainer',
+      id: 'SectionStack',
       what: 'consumers',
-      phrase: `${importerCount('components/settings/SettingsContainer.vue')} consumers`,
-      count: importerCount('components/settings/SettingsContainer.vue')
+      phrase: `${importerCount('components/ui/SectionStack.vue')} consumers`,
+      count: importerCount('components/ui/SectionStack.vue')
     },
     {
-      id: 'SettingsSection',
+      id: 'SectionCard',
       what: 'consumers',
-      phrase: `(${importerCount('components/settings/SettingsSection.vue')})`,
-      count: importerCount('components/settings/SettingsSection.vue')
+      phrase: `(${importerCount('components/ui/SectionCard.vue')})`,
+      count: importerCount('components/ui/SectionCard.vue')
     }
   ];
 
