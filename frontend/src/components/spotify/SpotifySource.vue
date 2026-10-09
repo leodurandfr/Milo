@@ -181,4 +181,13 @@ watch(() => store.account, (now, before) => {
   background: transparent;
   cursor: pointer;
 }
+
+/* The desktop header is 72px tall, so a 40px avatar sits 16px from its top
+   and bottom: the right edge matches that. The phone's 64px header already
+   leaves 12px all round. */
+@media not (max-aspect-ratio: 4/3) {
+  .profile-button {
+    margin-right: calc(var(--space-04) - var(--space-03));
+  }
+}
 </style>
