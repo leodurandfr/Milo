@@ -1,7 +1,7 @@
 /**
- * The two images Milō draws in place of a cover it does not have: a disc for
- * anything musical (album, track, playlist, artist, CD) and a microphone for a
- * podcast episode.
+ * The images Milō draws in place of a cover it does not have: a disc for
+ * anything musical (album, track, playlist, artist, CD), a microphone for a
+ * podcast episode, and the Liked Songs cover (LikedCover.vue).
  *
  * Imported from here and nowhere else. Reaching for the asset directly is a
  * second chance to pick a different drawing for the same silence, which is how
@@ -28,8 +28,18 @@
  * captured as PNG and saved as lossless WebP. 1024 covers the kiosk's
  * 728-device-px cover; a dense phone's full player (~1200) stretches it
  * slightly, which a gradient this soft does not show.
+ *
+ * The Liked Songs cover is the brand orange under a grain in soft-light, baked
+ * into one bitmap rather than blended in CSS: --color-brand is the same in both
+ * themes, so nothing is left to recolor, and a blend mode is a compositing
+ * group the Pi's GPU re-rasters where a bitmap is one draw. Its heart is not in
+ * the bitmap — each consumer sizes it to its own tile. To change it, change the
+ * Figma component `asset/placeholder/liked` (Milo OS v3, page Images), never
+ * the bitmap: exported as PNG at scale 1.2325 — 493 px, the grain's native
+ * width — and saved as lossy WebP at quality 90.
  */
+import likedCover from '@/assets/images/liked-cover.webp';
 import musicPlaceholder from '@/assets/images/music-placeholder.webp';
 import podcastPlaceholder from '@/assets/images/podcast-placeholder.svg';
 
-export { musicPlaceholder, podcastPlaceholder };
+export { likedCover, musicPlaceholder, podcastPlaceholder };

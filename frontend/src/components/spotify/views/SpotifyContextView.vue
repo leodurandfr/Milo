@@ -16,7 +16,7 @@
           <DetailHeader
             :image-src="headerImage"
             :fallback="musicPlaceholder"
-            :icon="headerIcon"
+            :liked="kind === 'liked'"
             :title="headerTitle"
             :subtitle="headerSubtitle"
             :subtitle-artists="subtitleArtists"
@@ -144,10 +144,6 @@ function selectHeaderArtist(index) {
   const artist = albumArtists.value[index];
   if (artist?.uri) emit('select-artist', artist);
 }
-const headerIcon = computed(() => {
-  if (props.kind === 'liked') return 'heart';
-  return '';
-});
 const headerImage = computed(() => {
   if (props.kind === 'liked') return '';
   return props.image || first.value?.artwork || '';

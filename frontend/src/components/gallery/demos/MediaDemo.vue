@@ -17,6 +17,14 @@
     </GalleryVariant>
   </GalleryItem>
 
+  <GalleryItem id="LikedCover">
+    <GalleryVariant label="the heart sized by the tile — 28 on a 60–64 px tile, 48 on a header / blurred">
+      <div class="art art--small"><LikedCover :icon-size="28" /></div>
+      <div class="art"><LikedCover :icon-size="48" /></div>
+      <div class="art"><LikedCover :icon-size="48" blurred /></div>
+    </GalleryVariant>
+  </GalleryItem>
+
   <GalleryItem id="SvgIcon">
     <GalleryVariant :label="`the registry — ${UI_ICONS.length} names, size 24`">
       <div class="icon-grid">
@@ -88,6 +96,7 @@
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import LikedCover from '@/components/audio/LikedCover.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import SvgIcon, { ICON_NAMES } from '@/components/ui/SvgIcon.vue';
 import AppIcon, { APP_ICON_NAMES } from '@/components/ui/AppIcon.vue';
@@ -110,6 +119,11 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   height: 120px;
   border-radius: var(--radius-03);
   background: var(--color-fill-faint);
+}
+
+.art--small {
+  width: 64px;
+  height: 64px;
 }
 
 .icon-grid {

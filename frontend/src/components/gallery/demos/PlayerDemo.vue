@@ -54,8 +54,8 @@
       <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
         subtitle-meta="2013 · 17 tracks · 1 h 21" />
     </GalleryVariant>
-    <GalleryVariant label=":icon — a tinted tile instead of a cover (the virtual headers)" stacked>
-      <DetailHeader icon="heart" title="Liked Songs" subtitle-meta="128 tracks"
+    <GalleryVariant label="liked — the Liked Songs cover instead of cover art" stacked>
+      <DetailHeader liked title="Liked Songs" subtitle-meta="128 tracks"
         :show-shuffle="false" />
     </GalleryVariant>
     <GalleryVariant label="actions slot — renders before the built-in buttons" stacked>

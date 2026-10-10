@@ -7,7 +7,7 @@
 
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
-            icon="heart"
+            liked
             :title="t('musicLibrary.playlists.likedSongs')"
             :subtitle-meta="subtitle"
             @play="playFrom(0)"

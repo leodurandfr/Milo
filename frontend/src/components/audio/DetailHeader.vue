@@ -1,7 +1,7 @@
 <template>
   <div class="detail-header">
-    <div v-if="icon" class="detail-header-cover detail-header-cover--icon">
-      <SvgIcon :name="icon" :size="48" />
+    <div v-if="liked" class="detail-header-cover">
+      <LikedCover :icon-size="48" />
     </div>
     <LazyImage
       v-else
@@ -40,10 +40,10 @@
 import { computed, useSlots } from 'vue';
 import { useI18n } from '@/services/i18n';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Button from '@/components/ui/Button.vue';
 import ArtistNames from '@/components/audio/ArtistNames.vue';
+import LikedCover from '@/components/audio/LikedCover.vue';
 
 const props = defineProps({
   imageSrc: {
@@ -54,10 +54,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  // Icon name → tinted icon tile instead of cover art (virtual headers).
-  icon: {
-    type: String,
-    default: '',
+  // The Liked Songs header: its cover in place of cover art.
+  liked: {
+    type: Boolean,
+    default: false,
   },
   title: {
     type: String,
@@ -127,14 +127,6 @@ const hasActions = computed(
   width: 150px;
   height: 150px;
   border-radius: var(--radius-02);
-}
-
-.detail-header-cover--icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-glint);
-  color: var(--color-brand);
 }
 
 .detail-header-meta {

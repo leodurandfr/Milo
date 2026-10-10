@@ -101,7 +101,7 @@
             </Button>
           </div>
 
-          <MediaRow icon="heart" :title="t('musicLibrary.playlists.likedSongs')"
+          <MediaRow liked :title="t('musicLibrary.playlists.likedSongs')"
             :subtitle="t('musicLibrary.tracksCount', { count: store.likedSongsCount })"
             @click="$emit('select-liked')" />
 

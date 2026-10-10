@@ -1,7 +1,7 @@
 <template>
   <div v-press class="media-row" @click="$emit('click')">
-    <div v-if="icon" class="media-cover media-cover--icon">
-      <SvgIcon :name="icon" :size="28" />
+    <div v-if="liked" class="media-cover">
+      <LikedCover :icon-size="28" />
     </div>
     <LazyImage
       v-else
@@ -22,7 +22,7 @@
 <script setup>
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
+import LikedCover from '@/components/audio/LikedCover.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
@@ -41,9 +41,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  icon: {
-    type: String,
-    default: '',
+  // The Liked Songs row: its cover in place of cover art.
+  liked: {
+    type: Boolean,
+    default: false,
   },
 });
 
@@ -72,16 +73,6 @@ const store = useMusicLibraryStore();
   border-radius: var(--radius-02);
   background: var(--color-fill-faint);
 }
-
-.media-cover--icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-brand);
-}
-
-
-
 
 .media-details {
   flex: 1;

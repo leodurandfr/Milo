@@ -247,6 +247,12 @@ export const ENTRIES = [
     summary: 'Artwork with a fallback chain: src, then fallbackName (a deterministic generated avatar) or fallback (a static asset). lazy defers the fetch; skeleton draws a shimmer while it loads, which hands over to the image — or to the fallback — with the reveal; the default slot overlays the image. An image ready before the first frame is drawn at once.',
   },
   {
+    id: 'LikedCover',
+    group: 'media',
+    file: 'components/audio/LikedCover.vue',
+    summary: 'The cover of the one collection that has none, Liked Songs: the brand orange under a grain, baked into one bitmap (constants/placeholders.js says how it is made), with a white heart its caller sizes to the tile — the Spotify shortcut, the Library row and the page header. It fills its parent and clips to its radius; blurred blurs it in place under a loading overlay, as LazyImage does.',
+  },
+  {
     id: 'SvgIcon',
     group: 'media',
     file: 'components/ui/SvgIcon.vue',
@@ -323,7 +329,7 @@ export const ENTRIES = [
     id: 'DetailHeader',
     group: 'player',
     file: 'components/audio/DetailHeader.vue',
-    summary: 'The album / playlist / episode header: cover art, or a tinted icon tile when icon is set instead (the virtual headers — Liked Songs, a genre). Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons.',
+    summary: 'The album / playlist / episode header: cover art, or the Liked Songs cover (LikedCover) when liked. Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons.',
   },
 
   // --- Source layouts ---

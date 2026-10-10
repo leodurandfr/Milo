@@ -72,6 +72,7 @@ import NoticeBox from '@/components/ui/NoticeBox.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import LikedCover from '@/components/audio/LikedCover.vue';
 import SvgIcon, { ICON_NAMES } from '@/components/ui/SvgIcon.vue';
 import AppIcon, { APP_ICON_NAMES, TILE_SIZE_PX } from '@/components/ui/AppIcon.vue';
 import Logo from '@/components/ui/Logo.vue';
@@ -571,6 +572,13 @@ export const REGISTRY = {
     surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 
+  LikedCover: {
+    component: LikedCover,
+    // Sized by the class: the cover fills its parent, so on the canvas it is
+    // the parent.
+    args: { iconSize: 48, class: 'canvas-artwork' }
+  },
+
   LazyImage: {
     component: LazyImage,
     // The class goes on the component: its layers are absolutely positioned, so
@@ -864,9 +872,6 @@ export const REGISTRY = {
       subtitleMeta: '2013 · 17 tracks · 1 h 21',
       class: 'canvas-column'
     },
-    // `icon` swaps the cover for a tinted tile — the virtual headers (Liked
-    // Songs, a genre) take that branch. No validator on it, so the list is here.
-    overrides: { icon: OPTIONAL_ICON },
     presets: {
       subtitleArtists: {
         'None — the subtitle as text': [],

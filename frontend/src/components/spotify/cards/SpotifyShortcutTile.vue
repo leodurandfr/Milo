@@ -1,7 +1,7 @@
 <template>
   <div v-press class="shortcut-tile" @click="$emit('click')">
-    <div class="tile-cover" :class="{ 'liked-cover': liked }">
-      <SvgIcon v-if="liked" name="heart" :size="20" aria-hidden="true" :class="{ blurred: opening }" />
+    <div class="tile-cover">
+      <LikedCover v-if="liked" :icon-size="28" :blurred="opening" />
       <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy :blurred="opening" class="tile-image" />
       <transition name="loading-fade">
         <div v-if="opening" class="card-loading-overlay">
@@ -14,9 +14,9 @@
 </template>
 
 <script setup>
+import LikedCover from '@/components/audio/LikedCover.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useCardOpening } from '@/composables/useSpotifyOpening';
 import { musicPlaceholder } from '@/constants/placeholders';
 
@@ -34,7 +34,7 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  // The Liked Songs tile: a heart instead of a cover.
+  // The Liked Songs tile: its cover in place of the image.
   liked: {
     type: Boolean,
     default: false,
@@ -71,22 +71,6 @@ const opening = useCardOpening(() => props.uri);
 .tile-image {
   width: 100%;
   height: 100%;
-}
-
-.liked-cover {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-on-brand);
-  background: var(--color-brand);
-}
-
-.liked-cover svg {
-  transition: filter var(--transition-fast);
-}
-
-.liked-cover svg.blurred {
-  filter: blur(var(--blur-02));
 }
 
 .tile-name {
