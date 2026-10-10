@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote', { temperature: formatUnit(85, '°C') }) }}</p>
+    <NoticeBox v-if="!config.enabled" kind="warning">{{ t('fanSettings.disabledNote', { temperature: formatUnit(85, '°C') }) }}</NoticeBox>
 
     <template v-else>
       <ButtonGroup :model-value="config.mode" :options="modeOptions" @change="setMode" />
@@ -66,6 +66,7 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 
 const { t, formatNumber, formatUnit } = useI18n();
 const fanStore = useFanStore();
@@ -216,10 +217,6 @@ onMounted(() => {
   background: var(--color-text-secondary);
   border-radius: 3px;
   transition: width var(--transition-normal);
-}
-
-.fan-warning {
-  color: var(--color-warning);
 }
 
 @media (max-aspect-ratio: 4/3) {

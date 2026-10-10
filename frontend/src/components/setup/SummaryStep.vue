@@ -38,7 +38,7 @@
       </div>
     </div>
 
-    <p v-if="error" class="text-mono-medium error-message">{{ error }}</p>
+    <NoticeBox v-if="error">{{ error }}</NoticeBox>
 
     <p v-if="isRebooting" class="text-mono-medium text-secondary">
       {{ t('setup.summary.rebootingDescription') }}
@@ -49,6 +49,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 
 import franceIcon from '@/assets/flags-icons/france.svg';
 import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
@@ -158,10 +159,6 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
   padding: var(--space-03) var(--space-04);
   background: var(--color-inset);
   border-radius: var(--radius-04);
-}
-
-.error-message {
-  color: var(--color-error);
 }
 
 .text-secondary {

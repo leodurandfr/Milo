@@ -25,9 +25,7 @@
       <StationCard v-for="station in modifiedStations" :key="station.id" :station="station"
         variant="card" action="caret" @click="$emit('edit-station', { ...station, _canRestore: true })" />
     </div>
-    <div v-else class="empty-state text-mono-medium">
-      {{ t('radioSettings.noModifiedStations') }}
-    </div>
+    <NoticeBox v-else kind="empty">{{ t('radioSettings.noModifiedStations') }}</NoticeBox>
 
     <!-- Section 3: Added Stations (manually created) -->
     <template v-if="addedStations.length > 0">
@@ -56,6 +54,7 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import { isCustomStation } from '@/utils/radioStation';
 
 defineEmits(['go-to-add-station', 'edit-station']);
@@ -111,16 +110,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-}
-
-/* Empty state */
-.empty-state {
-  padding: var(--space-05);
-  text-align: center;
-  color: var(--color-text-secondary);
-  background: var(--color-inset);
-  border-radius: var(--radius-04);
-  border: 2px dashed var(--color-border);
 }
 
 /* Responsive */

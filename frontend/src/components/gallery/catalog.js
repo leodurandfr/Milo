@@ -221,6 +221,12 @@ export const ENTRIES = [
     summary: 'A short status beside a row\'s title: a pill tinted by its tone, with a dot for a state (success, warning, error, brand) and none for a plain fact (neutral). pulse makes the dot breathe while the state is in progress.',
   },
   {
+    id: 'NoticeBox',
+    group: 'feedback',
+    file: 'components/ui/NoticeBox.vue',
+    summary: 'An inline notice, in three kinds: error (a request that failed), warning (it half worked — saved but not mounted, the fan switched off) and empty (the dashed placeholder of a list with nothing in it). The text is slot content, so a list fits inside as well as a sentence.',
+  },
+  {
     id: 'NotificationBanner',
     group: 'feedback',
     file: 'components/ui/NotificationBanner.vue',

@@ -52,7 +52,7 @@
             <InputText v-model="creds.password" type="password" :maxlength="256"
               :placeholder="t('musicLibrary.shares.passwordPlaceholder')" />
           </SettingItem>
-          <p v-if="authError" class="wb-error text-mono-medium">{{ authError }}</p>
+          <NoticeBox v-if="authError">{{ authError }}</NoticeBox>
           <Button variant="brand" size="medium" :loading="connecting" @click="connect">
             {{ t('musicLibrary.shares.wizard.connect') }}
           </Button>
@@ -66,7 +66,7 @@
 
       <!-- Unreachable / error -->
       <template v-else-if="phase === 'error'">
-        <p class="wb-error text-mono-medium">{{ errorMsg }}</p>
+        <NoticeBox>{{ errorMsg }}</NoticeBox>
         <Button variant="control" size="medium" @click="load(path)">
           {{ t('musicLibrary.shares.wizard.retry') }}
         </Button>
@@ -74,7 +74,7 @@
 
       <!-- Saved but the mount didn't come up -->
       <template v-else-if="phase === 'done'">
-        <p class="wb-warn text-mono-medium">{{ t('musicLibrary.shares.wizard.savedNotMounted') }}</p>
+        <NoticeBox kind="warning">{{ t('musicLibrary.shares.wizard.savedNotMounted') }}</NoticeBox>
         <Button variant="control" size="medium" @click="$emit('success')">
           {{ t('musicLibrary.shares.wizard.done') }}
         </Button>
@@ -98,15 +98,15 @@
         <!-- Empty: a sub-folder with nothing in it, or a server that lists no
              shares as guest — offer to sign in for private shares. -->
         <template v-else>
-          <p class="wb-empty text-mono-medium">
+          <NoticeBox kind="empty">
             {{ path ? t('musicLibrary.shares.wizard.emptyFolder') : t('musicLibrary.shares.wizard.noSharesGuest') }}
-          </p>
+          </NoticeBox>
           <Button v-if="canSignIn" variant="control" size="medium" @click="startSignIn">
             {{ t('musicLibrary.shares.wizard.signIn') }}
           </Button>
         </template>
 
-        <p v-if="errorMsg" class="wb-error text-mono-medium">{{ errorMsg }}</p>
+        <NoticeBox v-if="errorMsg">{{ errorMsg }}</NoticeBox>
       </template>
     </SectionCard>
 
@@ -128,6 +128,7 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
@@ -356,26 +357,6 @@ load('');
 
 .wb-note {
   color: var(--color-text-secondary);
-}
-
-.wb-empty {
-  padding: var(--space-05);
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-.wb-error {
-  padding: var(--space-03);
-  background: var(--color-error-subtle);
-  border-radius: var(--radius-04);
-  color: var(--color-error);
-}
-
-.wb-warn {
-  padding: var(--space-03);
-  background: var(--color-warning-subtle);
-  border-radius: var(--radius-04);
-  color: var(--color-warning);
 }
 
 /* Pinned to the bottom of the scroll area (mirrors ManageShare's save button). */

@@ -54,7 +54,7 @@
           @click="toggleVolumeControl"
         />
 
-        <p v-if="audioError" class="audio-error text-mono-medium">{{ audioError }}</p>
+        <NoticeBox v-if="audioError">{{ audioError }}</NoticeBox>
       </SectionCard>
 
       <!-- Speaker Type Selection -->
@@ -184,6 +184,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 
 const props = defineProps({
   macId: {
@@ -629,11 +630,6 @@ onMounted(async () => {
   width: 60%;
   height: var(--line-height-h3);
   border-radius: var(--radius-02);
-}
-
-.audio-error {
-  color: var(--color-error);
-  margin: 0;
 }
 
 .speaker-types {

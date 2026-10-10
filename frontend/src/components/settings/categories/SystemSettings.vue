@@ -28,9 +28,9 @@
           {{ t('system.password.change') }}
         </Button>
       </div>
-      <div v-if="ssh.enabled && ssh.passwordIsDefault" class="system-notice text-mono-medium">
+      <NoticeBox v-if="ssh.enabled && ssh.passwordIsDefault" kind="warning">
         {{ t('system.ssh.factoryPassword') }}
-      </div>
+      </NoticeBox>
 
       <span v-if="sshError" class="system-error text-mono-small">{{ sshError }}</span>
     </SectionCard>
@@ -59,10 +59,12 @@
 
         <span v-if="copyError" class="system-error text-mono-small">{{ copyError }}</span>
 
-        <ul v-if="unavailable.length" class="diagnostic-missing text-mono-small">
-          <li class="diagnostic-missing__title">{{ t('system.diagnostic.notCollected') }}</li>
-          <li v-for="item in unavailable" :key="item.section">{{ item.section }} — {{ item.reason }}</li>
-        </ul>
+        <NoticeBox v-if="unavailable.length" kind="warning">
+          <ul class="diagnostic-missing text-mono-small">
+            <li class="diagnostic-missing__title">{{ t('system.diagnostic.notCollected') }}</li>
+            <li v-for="item in unavailable" :key="item.section">{{ item.section }} — {{ item.reason }}</li>
+          </ul>
+        </NoticeBox>
 
         <button v-press type="button" class="diagnostic-disclosure text-mono-medium"
           @click="showPreview = !showPreview">
@@ -93,6 +95,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SystemInfoSection from '@/components/settings/categories/SystemInfoSection.vue';
@@ -232,13 +235,6 @@ onMounted(systemStore.loadSsh);
   gap: var(--space-03);
 }
 
-.system-notice {
-  padding: var(--space-03);
-  border-radius: var(--radius-04);
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-}
-
 .diagnostic-actions {
   display: flex;
   gap: var(--space-03);
@@ -249,10 +245,7 @@ onMounted(systemStore.loadSsh);
   flex-direction: column;
   gap: var(--space-01);
   margin: 0;
-  padding: var(--space-03);
-  border-radius: var(--radius-04);
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
+  padding: 0;
   list-style: none;
 }
 

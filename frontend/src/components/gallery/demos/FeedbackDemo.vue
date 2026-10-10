@@ -24,6 +24,18 @@
     </GalleryVariant>
   </GalleryItem>
 
+  <GalleryItem id="NoticeBox">
+    <GalleryVariant label='kind="error" — the default' stacked>
+      <NoticeBox>Could not reach this server. Check that it is on and on the same network.</NoticeBox>
+    </GalleryVariant>
+    <GalleryVariant label='kind="warning"' stacked>
+      <NoticeBox kind="warning">Saved, but the server did not connect. You can retry from the list.</NoticeBox>
+    </GalleryVariant>
+    <GalleryVariant label='kind="empty" — a list with nothing in it' stacked>
+      <NoticeBox kind="empty">No server found on your network.</NoticeBox>
+    </GalleryVariant>
+  </GalleryItem>
+
   <GalleryItem id="NotificationBanner">
     <GalleryVariant label="title only" contain :contain-height="90">
       <NotificationBanner title="Snapcast client reconnected" />
@@ -86,6 +98,7 @@ import GalleryVariant from '../GalleryVariant.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 

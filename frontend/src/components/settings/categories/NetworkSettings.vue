@@ -86,9 +86,9 @@
             </template>
 
             <!-- Empty state -->
-            <div v-if="!loading && !scanning && otherNetworks.length === 0" class="network-empty text-mono-medium">
+            <NoticeBox v-if="!loading && !scanning && otherNetworks.length === 0" kind="empty">
               {{ t('network.noNetworks') }}
-            </div>
+            </NoticeBox>
 
             <!-- Network items -->
             <div v-for="network in otherNetworks" :key="'other-' + network.ssid" class="network-item"
@@ -140,6 +140,7 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import InputText from '@/components/ui/InputText.vue';
 import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
 import Badge from '@/components/ui/Badge.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
@@ -518,13 +519,6 @@ onUnmounted(() => {
 
 .network-error {
   color: var(--color-error);
-}
-
-/* Empty state */
-.network-empty {
-  color: var(--color-text-secondary);
-  text-align: center;
-  padding: var(--space-04);
 }
 
 /* Skeleton */

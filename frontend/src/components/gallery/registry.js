@@ -68,6 +68,7 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import Badge from '@/components/ui/Badge.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
@@ -532,6 +533,12 @@ export const REGISTRY = {
     component: Badge,
     args: { tone: 'success' },
     slots: { default: 'Connected' }
+  },
+
+  NoticeBox: {
+    component: NoticeBox,
+    args: { kind: 'error', class: 'canvas-column' },
+    slots: { default: 'Could not reach this server. Check that it is on and on the same network.' }
   },
 
   NotificationBanner: {

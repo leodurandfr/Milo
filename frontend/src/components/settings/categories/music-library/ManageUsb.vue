@@ -24,7 +24,7 @@
             :maxlength="128" />
         </SettingItem>
 
-        <div v-if="errorMessage" class="usb-form__error text-mono-medium">{{ errorMessage }}</div>
+        <NoticeBox v-if="errorMessage">{{ errorMessage }}</NoticeBox>
       </SectionCard>
 
       <SectionCard v-if="device && !device.mounted"
@@ -53,6 +53,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
@@ -113,13 +114,6 @@ async function handleForget() {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.usb-form__error {
-  padding: var(--space-03);
-  background: var(--color-error-subtle);
-  border-radius: var(--radius-04);
-  color: var(--color-error);
 }
 
 /* Save pinned to the bottom of the scroll area (mirrors ManageShare). */

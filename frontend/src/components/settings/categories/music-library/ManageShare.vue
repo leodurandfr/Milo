@@ -50,7 +50,7 @@
         <p v-else class="text-body-medium share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
 
         <!-- Error -->
-        <div v-if="errorMessage" class="share-form__error text-mono-medium">{{ errorMessage }}</div>
+        <NoticeBox v-if="errorMessage">{{ errorMessage }}</NoticeBox>
       </SectionCard>
 
       <!-- Remove (edit only) — two-tap inline confirm, like the power menu. -->
@@ -75,6 +75,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import Button from '@/components/ui/Button.vue';
@@ -251,13 +252,6 @@ async function handleRemove() {
 
 .share-form__note {
   color: var(--color-text-secondary);
-}
-
-.share-form__error {
-  padding: var(--space-03);
-  background: var(--color-error-subtle);
-  border-radius: var(--radius-04);
-  color: var(--color-error);
 }
 
 /* Save pinned to the bottom of the scroll area (mirrors MultiroomSettings). */

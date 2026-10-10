@@ -82,9 +82,7 @@
       />
 
       <!-- Error Message -->
-      <div v-if="errorMessage" class="error-message text-mono-medium">
-        ❌ {{ errorMessage }}
-      </div>
+      <NoticeBox v-if="errorMessage">{{ errorMessage }}</NoticeBox>
 
       <!-- Add mode: explicit "Create station" button. Edit mode auto-saves via watchers. -->
       <Button v-if="!isEditMode" variant="brand" size="medium" class="create-btn" type="submit"
@@ -114,6 +112,7 @@ import { getFaviconUrl } from '@/utils/faviconUrl';
 import { apiCall } from '@/services/apiCall';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 
 const props = defineProps({
   mode: {
@@ -527,15 +526,6 @@ async function handleAddSubmit() {
 
 .file-input {
   display: none;
-}
-
-/* Error Message */
-.error-message {
-  padding: var(--space-03);
-  background: var(--color-error-subtle);
-  border: 2px solid color-mix(in srgb, var(--color-error) 30%, transparent);
-  border-radius: var(--radius-04);
-  color: var(--color-error);
 }
 
 .create-btn {

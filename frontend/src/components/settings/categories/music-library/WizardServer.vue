@@ -34,7 +34,7 @@
         </ListItemButton>
       </div>
 
-      <p v-else class="wiz-empty text-mono-medium">{{ t('musicLibrary.shares.wizard.noServers') }}</p>
+      <NoticeBox v-else kind="empty">{{ t('musicLibrary.shares.wizard.noServers') }}</NoticeBox>
 
       <!-- Manual entry (tinted) on the left, discovery re-scan (brand) on the right. -->
       <div class="wiz-actions">
@@ -55,6 +55,7 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -114,15 +115,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-}
-
-.wiz-empty {
-  padding: var(--space-05);
-  text-align: center;
-  color: var(--color-text-secondary);
-  background: var(--color-inset);
-  border-radius: var(--radius-04);
-  border: 2px dashed var(--color-border);
 }
 
 /* Mobile rows are a touch shorter (58px) — keep the loading block at 2 rows. */

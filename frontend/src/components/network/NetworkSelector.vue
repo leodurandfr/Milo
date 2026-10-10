@@ -19,9 +19,9 @@
       </template>
 
       <!-- Empty state -->
-      <div v-else-if="visibleNetworks.length === 0" class="wifi-empty text-mono-medium">
+      <NoticeBox v-else-if="visibleNetworks.length === 0" kind="empty">
         {{ t('network.noNetworks') }}
-      </div>
+      </NoticeBox>
 
       <!-- Networks -->
       <div v-for="network in visibleNetworks" :key="network.ssid" class="network-item"
@@ -71,6 +71,7 @@ import { LANGUAGE_TO_COUNTRY } from '@/constants/wifiCountries';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -229,13 +230,6 @@ onMounted(async () => {
 
 .wifi-error {
   color: var(--color-error);
-}
-
-/* Empty state */
-.wifi-empty {
-  color: var(--color-text-secondary);
-  text-align: center;
-  padding: var(--space-04);
 }
 
 /* Skeleton */
