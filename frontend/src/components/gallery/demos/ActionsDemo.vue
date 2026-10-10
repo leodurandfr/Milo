@@ -160,6 +160,6 @@ const picked = ref('balanced');
 
 .counter {
   margin: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 </style>

@@ -211,7 +211,7 @@ function onProgressClick(event) {
 }
 
 .progress-bar--default .time {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .progress-bar--on-contrast .progress-container {

@@ -276,7 +276,7 @@ defineExpose({ swipe });
 }
 
 .body-secondary {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

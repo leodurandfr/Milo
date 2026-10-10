@@ -33,9 +33,9 @@
     --gray-100: #ebebeb;
     --gray-200: #c8c8c8;
     --gray-300: #a8a8a8;
-    --gray-400: #8e8e8e;
+    --gray-400: #9e9e9e;
     --gray-500: #777777;
-    --gray-600: #636363;
+    --gray-600: #676767;
     --gray-800: #2f2f2f;
     --gray-850: #282828;
     --gray-900: #1f1f1f;
@@ -125,9 +125,16 @@
     /* === TEXT === */
     /* Three inks, for a text and for what reads like one — a glyph, a status
        dot, a slider's value: the primary, the secondary (a muted value, a
-       settings tile's glyph), the tertiary (something that is off, dimmed). */
+       settings tile's glyph), the tertiary (something that is off, dimmed).
+       The secondary is the faintest ink text is read in, each value the
+       lightest (in dark, the darkest) that holds 4.5:1 on every ground it is
+       laid on: in light the top of the podcast wash (4.55), in dark a header
+       over the radio wash (4.57). Hence a ButtonGroup's labels are primary:
+       its fill-faint track over a wash would take the light one to 4.16.
+       The tertiary holds no such ratio and carries no text a reader needs: a
+       glyph, a track, a disabled control, a value muted on purpose. */
     --color-text: light-dark(var(--gray-950), var(--gray-100));
-    --color-text-secondary: light-dark(var(--gray-500), var(--gray-400));
+    --color-text-secondary: light-dark(var(--gray-600), var(--gray-400));
     --color-text-tertiary: light-dark(var(--gray-300), var(--gray-600));
 
     /* === GLASS === */

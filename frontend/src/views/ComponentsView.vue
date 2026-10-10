@@ -459,7 +459,7 @@ watch(selected, (id) => {
 }
 
 .gallery__path {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .gallery__summary {

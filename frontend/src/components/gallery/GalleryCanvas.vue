@@ -307,7 +307,7 @@ onUnmounted(() => {
 }
 
 .canvas-host__size {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .canvas-host__switch {

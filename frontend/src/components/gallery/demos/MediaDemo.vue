@@ -144,7 +144,7 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
 }
 
 .icon-cell__name {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   overflow-wrap: anywhere;
 }
 

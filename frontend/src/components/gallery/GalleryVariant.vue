@@ -50,7 +50,7 @@ defineProps({
 }
 
 .gallery-variant__label {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .gallery-variant__row {

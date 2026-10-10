@@ -88,7 +88,7 @@ const hasStage = computed(() => !!slots.default);
 }
 
 .gallery-item__path {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .gallery-item__summary {

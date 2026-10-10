@@ -373,13 +373,13 @@ function preview(value) {
 .controls__type,
 .controls__hint {
   margin: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 /* Reads as an annotation of the control above it, not as a second control. */
 .controls__note {
   margin: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   border-left: 2px solid var(--color-border);
   padding-left: var(--space-02);
 }

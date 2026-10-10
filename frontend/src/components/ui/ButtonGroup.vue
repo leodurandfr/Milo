@@ -187,17 +187,16 @@ function selectOption(value) {
   white-space: nowrap;
   border: none;
   background: none;
-  color: var(--color-text-secondary);
+  /* Every label in the primary ink, as iOS's segmented control: the thumb says
+     which is chosen, and the track can lie over a source's wash, where the
+     secondary falls under 4.5:1. */
+  color: var(--color-text);
   cursor: pointer;
-  transition: color var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
+  transition: opacity var(--transition-fast), var(--transition-press);
 }
 
 .button-group--hug .button-group__option {
   flex: 0 0 auto;
-}
-
-.button-group__option--active {
-  color: var(--color-text);
 }
 
 .button-group__option:disabled {

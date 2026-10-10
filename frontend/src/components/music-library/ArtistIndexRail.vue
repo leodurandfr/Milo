@@ -182,7 +182,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: center;
   width: var(--space-06);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   cursor: pointer;
   user-select: none;
   /* The drag scrubs the index; it must never pan the list it is scrolling. */

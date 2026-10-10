@@ -149,7 +149,7 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__back {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   text-decoration: none;
 }
 
@@ -160,7 +160,7 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__group-title {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
 }
 
@@ -208,6 +208,6 @@ const visibleGroups = computed(() => {
 }
 
 .sidebar__empty {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 </style>

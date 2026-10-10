@@ -118,7 +118,10 @@ const volumeFillStyle = computed(() => ({
    into a well the way the default variant's does and holds its contrast
    against a brighter backdrop; it was turned down on looks. The readout is the muted tone
    of whichever end the fill sits at, so it reads on the fill — where the value
-   spends most of its travel — exactly as it does in the other. */
+   spends most of its travel — exactly as it does in the other: the tertiary on
+   the near-black fill, and on the white fill the light secondary in both
+   themes (color-scheme: light below), the dark one being too light for it.
+   Near zero the readout leaves the fill for the track, and holds no ratio there. */
 
 .volume-bar--default {
   --volume-track: var(--color-glass-strong);
@@ -131,6 +134,10 @@ const volumeFillStyle = computed(() => ({
   --volume-fill: var(--color-text-on-contrast);
   --volume-text: var(--color-text-secondary);
   --glass-tone: var(--color-shell-on-contrast);
+}
+
+.volume-bar--on-contrast .text-mono-medium {
+  color-scheme: light;
 }
 
 @media (max-aspect-ratio: 4/3) {

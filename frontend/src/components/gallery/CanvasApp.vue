@@ -365,7 +365,7 @@ onUnmounted(() => {
 }
 
 .canvas__empty {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 /* The shared composites are block-level: a row, a card, a header fills its

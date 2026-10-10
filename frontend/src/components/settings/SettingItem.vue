@@ -37,7 +37,7 @@ defineProps({
 }
 
 .setting-item__hint {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .setting-item--inline {

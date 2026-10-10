@@ -153,7 +153,7 @@ defineProps({
 }
 
 .foundations__title {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
 }
 
@@ -222,7 +222,7 @@ defineProps({
 .foundations__value {
   margin: 0;
   overflow: hidden;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   white-space: nowrap;
   text-overflow: ellipsis;
 }

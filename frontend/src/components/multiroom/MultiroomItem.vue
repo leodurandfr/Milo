@@ -662,7 +662,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 .client-name.muted,
 .client-name.offline {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .item-name {
@@ -837,7 +837,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 .client-row-name.muted,
 .client-row-name.offline {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .client-volume {
@@ -859,6 +859,9 @@ function handleClientMuteToggle(clientMacId, muted) {
   display: flex;
   align-items: center;
   height: 36px;
+  /* White text on the light secondary in both themes: the dark one is too
+     light to carry it. */
+  color-scheme: light;
   background: var(--color-text-secondary);
   border-radius: var(--radius-full);
   color: var(--color-text-on-contrast);
