@@ -69,6 +69,59 @@ function transitionsAroundShimmers(template) {
   return found;
 }
 
+/**
+ * The states of every fade-slide swap in a .swap-stack: [{ head, body }], `head`
+ * the state's own opening tag (a self-closing state is all head), `body` all of
+ * it. A state is a child of the transition at its first indentation; a swap
+ * nested in a state is read as a swap of its own. The stack is any element
+ * whose class or :class names swap-stack, its attributes read quote-aware (an
+ * arrow function's `>` inside one does not end the tag).
+ */
+function swapStates(template) {
+  const states = [];
+  const attrs = '(?:[^>"]|"[^"]*")*';
+  const open = new RegExp(
+    `<[\\w-]+\\b${attrs}\\s:?class="[^"]*\\bswap-stack\\b[^"]*"${attrs}>\\s*`
+      + `<Transition\\b${attrs}\\sname="fade-slide"${attrs}>`,
+    'g',
+  );
+  for (const m of template.matchAll(open)) {
+    // The body up to this transition's own close, across nested ones.
+    let depth = 1;
+    let at = m.index + m[0].length;
+    const tags = /<(\/?)Transition\b[^>]*>/g;
+    tags.lastIndex = at;
+    let end = template.length;
+    for (let t = tags.exec(template); t; t = tags.exec(template)) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) { end = t.index; break; }
+    }
+    const body = template.slice(at, end);
+    const indent = /\n([ \t]*)<[\w-]/.exec(body)?.[1];
+    if (indent === undefined) continue;
+    const lines = body.split('\n');
+    let current = null;
+    for (const line of lines) {
+      if (line.startsWith(`${indent}<`) && !line.startsWith(`${indent}</`)) {
+        current = { head: [], body: [], open: true };
+        states.push(current);
+      }
+      if (!current) continue;
+      current.body.push(line);
+      // The head runs until the state's first child, one level deeper.
+      if (current.open && new RegExp(`^${indent}[ \\t]+<[\\w-]`).test(line)) current.open = false;
+      if (current.open) current.head.push(line);
+    }
+  }
+  return states.map(({ head, body }) => ({ head: head.join('\n'), body: body.join('\n') }));
+}
+
+/** The Skeleton* components whose own root already carries .swap-skeleton. */
+const SELF_SWAPPING = new Set(vueFiles(join(SRC, 'components'))
+  .filter((file) => /\/Skeleton\w+\.vue$/.test(file))
+  .filter((file) => /^\s*<\w+[^>]*\bswap-skeleton\b/.test(parts(file).template))
+  .map((file) => /\/(Skeleton\w+)\.vue$/.exec(file)[1]));
+
 const FILES = vueFiles(SRC).filter((file) => !file.includes('/gallery/'));
 const DRAWING = FILES.map((file) => ({ file, ...parts(file) })).filter(({ template }) => /\bshimmer\b/.test(template));
 
@@ -113,6 +166,32 @@ describe('the end of a skeleton', () => {
       }
     }
     expect(own).toEqual([]);
+  });
+
+  it('hands a page-sized skeleton over in place, marked .swap-skeleton', () => {
+    // A state of a fade-slide swap that is a skeleton is drawn in the place
+    // its content takes, so the two crossfade there (design-system.css:
+    // .swap-skeleton) rather than the skeleton rising away under content
+    // coming up from below. An unmarked one still swaps — with a jump only an
+    // eye catches.
+    const states = FILES.flatMap((file) => swapStates(parts(file).template).map((state) => ({ file, ...state })));
+    // A skeleton state: a Skeleton* component as the state itself, or a state
+    // keyed as the wait (`loading…`, `skeleton`) drawing skeletons. Content
+    // that ends on a load-more skeleton is not one, and a state holding a
+    // swap of its own is read through that swap.
+    const skeletons = states.filter(({ head, body }) => {
+      if (/\bswap-stack\b/.test(body)) return false;
+      if (/^\s*<Skeleton\w+/.test(head)) return true;
+      const key = /\skey="([^"]*)"/.exec(head)?.[1] ?? '';
+      return /loading|skeleton/i.test(key) && (/\bshimmer\b/.test(body) || /<Skeleton\w+/.test(body));
+    });
+    expect(new Set(states.map(({ file }) => file)).size).toBeGreaterThan(20);
+    expect(new Set(skeletons.map(({ file }) => file)).size).toBeGreaterThan(10);
+    const unmarked = skeletons
+      .filter(({ head }) => !/\bswap-skeleton\b/.test(head))
+      .filter(({ head }) => !SELF_SWAPPING.has(/^\s*<(\w+)/.exec(head)?.[1]))
+      .map(({ file, head }) => `${relative(SRC, file)}: ${head.trim().split('\n')[0]}`);
+    expect(unmarked).toEqual([]);
   });
 
   it('reveals every image with the reveal', () => {

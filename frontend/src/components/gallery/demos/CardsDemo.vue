@@ -67,19 +67,12 @@
   </GalleryItem>
 
   <GalleryItem id="SkeletonPodcastCard">
-    <GalleryVariant label='variant="card" (default) beside the PodcastCard it replaces in the home grid'>
+    <GalleryVariant label='beside the PodcastCard it replaces in the home grid'>
       <div class="tile">
-        <SkeletonPodcastCard variant="card" />
+        <SkeletonPodcastCard />
       </div>
       <div class="tile">
         <PodcastCard :podcast="podcast" />
-      </div>
-    </GalleryVariant>
-    <GalleryVariant label='variant="row" beside its real counterpart — DetailHeader, not a PodcastCard' stacked>
-      <div class="column">
-        <SkeletonPodcastCard variant="row" />
-        <DetailHeader :image-src="musicPlaceholder" title="Le Code a changé" subtitle="France Inter"
-          subtitle-meta="214 épisodes" :show-play="false" :show-shuffle="false" />
       </div>
     </GalleryVariant>
   </GalleryItem>
@@ -147,7 +140,6 @@ import { useI18n } from '@/services/i18n';
 import { PODCAST_GENRE_IDS, genreSlug } from '@/constants/podcastGenres';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
-import DetailHeader from '@/components/audio/DetailHeader.vue';
 import StationCard from '@/components/radio/StationCard.vue';
 import SkeletonStationCard from '@/components/radio/SkeletonStationCard.vue';
 import PodcastCard from '@/components/podcasts/PodcastCard.vue';

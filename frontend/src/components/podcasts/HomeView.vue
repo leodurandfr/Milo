@@ -8,7 +8,7 @@
       </header>
       <div class="swap-stack">
         <Transition name="fade-slide">
-          <div v-if="loadingSubscriptions" key="loading-sub" class="episodes-list">
+          <div v-if="loadingSubscriptions" key="loading-sub" class="episodes-list swap-skeleton">
             <SkeletonEpisodeCard v-for="i in 4" :key="`skeleton-sub-${i}`" />
           </div>
 
@@ -37,7 +37,7 @@
       </header>
       <div class="swap-stack">
         <Transition name="fade-slide">
-          <div v-if="loadingTopCharts" key="loading-podcasts" class="podcasts-grid">
+          <div v-if="loadingTopCharts" key="loading-podcasts" class="podcasts-grid swap-skeleton">
             <SkeletonPodcastCard v-for="i in columns * 2" :key="`skeleton-podcast-${i}`" />
           </div>
 

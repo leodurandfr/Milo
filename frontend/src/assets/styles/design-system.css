@@ -985,58 +985,21 @@
     transition-delay: 100ms;
 }
 
-/* A skeleton drawn in its page's own geometry (.swap-skeleton) hands over in
-   place: it fades without rising, and the content fades in over it without
-   coming up, together on the reveal's time — the crossfade of a cover over
-   its skeleton, at the size of a page. */
+/* A state drawn as a skeleton (.swap-skeleton — every one, held by
+   tests/architecture/skeletonReveal) stands where its content will: it fades
+   without rising, and the content fades in over it without coming up,
+   together on the reveal's time — the crossfade of a cover over its skeleton,
+   at the size of a view. */
 .swap-stack > .swap-skeleton.fade-slide-leave-active,
 .swap-stack:has(> .swap-skeleton.fade-slide-leave-active) > .fade-slide-enter-active {
-    transition: opacity var(--transition-reveal);
-    transition-delay: 0s;
+    /* transform too: a skeleton caught on its own way up settles rather than
+       snapping. The shorthand also clears the enter's 100 ms delay. */
+    transition: opacity var(--transition-reveal), transform var(--transition-reveal);
 }
 
 .swap-stack > .swap-skeleton.fade-slide-leave-to,
 .swap-stack:has(> .swap-skeleton.fade-slide-leave-active) > .fade-slide-enter-from {
     transform: none;
-}
-
-/* A view with glass in it (.swap-fades-leaves) is not faded as a whole: an
-   ancestor at opacity < 1 is a Backdrop Root, so the glass would blur only
-   what that ancestor paints and lose the page behind it until the fade ends.
-   The swap moves --swap-fade instead, and the view sets each leaf's opacity
-   from it — the glass's own opacity leaves its blur alone. */
-@property --swap-fade {
-    syntax: '<number>';
-    inherits: true;
-    initial-value: 1;
-}
-
-.swap-stack > .fade-slide-enter-active:has(.swap-fades-leaves) {
-    transition:
-        opacity var(--transition-in-out),
-        transform var(--transition-in-out),
-        --swap-fade var(--transition-in-out);
-    transition-delay: 100ms;
-}
-
-.swap-stack > .fade-slide-leave-active:has(.swap-fades-leaves) {
-    transition:
-        opacity var(--transition-fast-leave),
-        transform var(--transition-fast-leave),
-        --swap-fade var(--transition-fast-leave);
-}
-
-.swap-stack > .fade-slide-enter-from:has(.swap-fades-leaves),
-.swap-stack > .fade-slide-leave-to:has(.swap-fades-leaves) {
-    opacity: 1;
-    --swap-fade: 0;
-}
-
-/* A leaf's own opacity transition (a press) would chase every step of the
-   swap's and trail it: the view's transitions hold while it swaps. */
-.swap-stack > .fade-slide-enter-active .swap-fades-leaves *,
-.swap-stack > .fade-slide-leave-active .swap-fades-leaves * {
-    transition: none;
 }
 
 /* Reveal: a skeleton handing over to its content in the same place, the two

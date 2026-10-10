@@ -1,7 +1,12 @@
 <template>
   <div class="skeleton-genre-row">
-    <div class="skeleton-text-line shimmer skeleton-name"></div>
-    <div class="skeleton-text-line shimmer skeleton-count"></div>
+    <!-- Each bar in a line of the row's typography: the name, the count. -->
+    <span class="skeleton-line skeleton-name heading-3">
+      <span class="skeleton-text-line shimmer"></span>&#8203;
+    </span>
+    <span class="skeleton-line skeleton-count text-mono-medium">
+      <span class="skeleton-text-line shimmer"></span>&#8203;
+    </span>
   </div>
 </template>
 
@@ -18,6 +23,11 @@
   min-width: 0;
 }
 
+.skeleton-line {
+  display: flex;
+  align-items: center;
+}
+
 .skeleton-name {
   width: 40%;
 }
@@ -25,5 +35,9 @@
 .skeleton-count {
   flex-shrink: 0;
   width: 15%;
+}
+
+.skeleton-line .skeleton-text-line {
+  width: 100%;
 }
 </style>

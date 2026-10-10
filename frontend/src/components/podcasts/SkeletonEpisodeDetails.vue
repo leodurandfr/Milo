@@ -1,106 +1,52 @@
 <template>
+  <!-- EpisodeDetails in its own geometry: the header, then the description's
+       card — its title, then a paragraph in body-medium lines. -->
   <div class="skeleton-episode-details">
-    <div class="skeleton-header">
-      <div class="skeleton-header-image shimmer shimmer--on-contrast"></div>
-      <div class="skeleton-header-meta">
-        <div class="skeleton-text-line shimmer shimmer--on-contrast skeleton-header-title"></div>
-        <div class="skeleton-text-line shimmer shimmer--on-contrast skeleton-header-podcast"></div>
-        <div class="skeleton-text-line shimmer shimmer--on-contrast skeleton-header-status"></div>
-      </div>
-    </div>
+    <SkeletonDetailHeader subtitle action="icon" />
 
     <div class="skeleton-description-block">
-      <div class="skeleton-text-line shimmer skeleton-section-title"></div>
-      <div class="skeleton-text-line shimmer skeleton-description-line-1"></div>
-      <div class="skeleton-text-line shimmer skeleton-description-line-2"></div>
-      <div class="skeleton-text-line shimmer skeleton-description-line-3"></div>
-      <div class="skeleton-text-line shimmer skeleton-description-line-4"></div>
+      <span class="skeleton-line text-mono-medium">
+        <span class="skeleton-text-line shimmer skeleton-section-title"></span>&#8203;
+      </span>
+      <div class="skeleton-paragraph">
+        <span v-for="width in LINES" :key="width" class="skeleton-line text-body-medium">
+          <span class="skeleton-text-line shimmer" :style="{ width }"></span>&#8203;
+        </span>
+      </div>
     </div>
   </div>
 </template>
 
+<script setup>
+import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue'
+
+const LINES = ['100%', '95%', '88%', '70%']
+</script>
+
 <style scoped>
+/* EpisodeDetails' .details-content and .description-block: change one,
+   change both. */
 .skeleton-episode-details {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
-}
-
-.skeleton-header {
-  display: flex;
-  align-items: center;
   gap: var(--space-03);
-  background: var(--color-contrast);
-  border-radius: var(--radius-04);
-  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
-}
-
-.skeleton-header-image {
-  width: 150px;
-  height: 150px;
-  flex-shrink: 0;
-  border-radius: var(--radius-02);
-}
-
-.skeleton-header-meta {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.skeleton-header-title {
-  width: 70%;
-  height: 22px;
-}
-
-.skeleton-header-podcast {
-  width: 45%;
-}
-
-.skeleton-header-status {
-  width: 35%;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .skeleton-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .skeleton-header-image {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1 / 1;
-  }
 }
 
 .skeleton-description-block {
-  padding: var(--space-06);
+  background: var(--color-surface);
+  border-radius: var(--radius-04);
+  padding: var(--space-04);
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
 }
 
+.skeleton-line {
+  display: flex;
+  align-items: center;
+}
+
 .skeleton-section-title {
-  width: 150px;
-  height: 18px;
-}
-
-.skeleton-description-line-1 {
-  width: 100%;
-}
-
-.skeleton-description-line-2 {
-  width: 95%;
-}
-
-.skeleton-description-line-3 {
-  width: 88%;
-}
-
-.skeleton-description-line-4 {
-  width: 70%;
+  width: 120px;
 }
 </style>

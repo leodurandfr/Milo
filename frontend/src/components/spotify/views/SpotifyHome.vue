@@ -10,17 +10,17 @@
           :cta-label="t('spotify.retry')" cta-variant="control"
           :cta-click="() => store.loadHome({ force: true })" />
 
-        <div v-else-if="!home" key="loading" class="sections">
+        <div v-else-if="!home" key="loading" class="sections swap-skeleton">
           <section class="section">
             <div class="shortcuts-grid">
               <div v-for="i in 8" :key="`shortcut-${i}`" class="shortcut-skeleton shimmer" />
             </div>
           </section>
           <section class="section">
-            <div class="skeleton-text-line section-skeleton-title shimmer" />
-            <div class="cards-grid">
-              <SkeletonSpotifyCard v-for="i in columns" :key="`card-${i}`" />
-            </div>
+            <span class="section-skeleton-line heading-2">
+              <span class="skeleton-text-line section-skeleton-title shimmer"></span>&#8203;
+            </span>
+            <SpotifyShelfRow :items="[]" :placeholders="columns" />
           </section>
         </div>
 
@@ -66,7 +66,6 @@ import SpotifyShelfRow from '../SpotifyShelfRow.vue';
 import SpotifySectionTitle from '../SpotifySectionTitle.vue';
 import SpotifyPlaylistGrid from '../SpotifyPlaylistGrid.vue';
 import SpotifyShortcutTile from '../cards/SpotifyShortcutTile.vue';
-import SkeletonSpotifyCard from '../cards/SkeletonSpotifyCard.vue';
 
 // A card or a tile, with the kind of page it opens: playlist, album, artist or
 // liked; `show-section`: a shelf whose row shows less than it holds, to open whole.
@@ -151,14 +150,12 @@ watch(() => (store.signingIn ? null : store.account), (signedIn) => {
   border-radius: var(--radius-02);
 }
 
-.section-skeleton-title {
-  width: 40%;
+.section-skeleton-line {
+  display: flex;
+  align-items: center;
 }
 
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
-  row-gap: var(--space-05);
-  column-gap: var(--space-03);
+.section-skeleton-title {
+  width: 40%;
 }
 </style>

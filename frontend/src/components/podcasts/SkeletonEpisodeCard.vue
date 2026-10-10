@@ -1,20 +1,29 @@
 <template>
   <div class="skeleton-episode-card">
     <div class="skeleton-card-image shimmer"></div>
+    <!-- Each bar in a line of EpisodeCard's typography: the episode, its
+         show, its meta. -->
     <div class="skeleton-content">
-      <div class="skeleton-text-line shimmer skeleton-title"></div>
-      <div class="skeleton-text-line shimmer skeleton-podcast"></div>
-      <div class="skeleton-text-line shimmer skeleton-meta"></div>
+      <span class="skeleton-line heading-3">
+        <span class="skeleton-text-line shimmer skeleton-title"></span>&#8203;
+      </span>
+      <span class="skeleton-line text-mono-medium">
+        <span class="skeleton-text-line shimmer skeleton-podcast"></span>&#8203;
+      </span>
+      <span class="skeleton-line text-mono-medium">
+        <span class="skeleton-text-line shimmer skeleton-meta"></span>&#8203;
+      </span>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* EpisodeCard's box: change one, change both. */
 .skeleton-episode-card {
   display: flex;
   gap: var(--space-03);
   border-radius: var(--radius-04);
-  padding: var(--space-03);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
   background: var(--color-surface);
 }
 
@@ -30,36 +39,35 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-01);
   justify-content: center;
+}
+
+.skeleton-line {
+  display: flex;
+  align-items: center;
 }
 
 .skeleton-title {
   width: 90%;
-  height: 20px;
 }
 
 .skeleton-podcast {
-  width: 70%;
-}
-
-.skeleton-meta {
   width: 50%;
 }
 
-/* Mobile: Match EpisodeCard responsive dimensions */
+.skeleton-meta {
+  width: 35%;
+}
+
 @media (max-aspect-ratio: 4/3) {
   .skeleton-card-image {
-    width: 64px;
-    height: 64px;
+    width: 96px;
+    height: 96px;
   }
 
-  .skeleton-text-line {
-    height: 14px;
-  }
-
-  .skeleton-title {
-    height: 18px;
+  .skeleton-content {
+    gap: 0;
   }
 }
 </style>

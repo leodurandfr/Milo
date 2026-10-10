@@ -434,7 +434,7 @@ export const ENTRIES = [
     id: 'SkeletonPodcastCard',
     group: 'cards',
     file: 'components/podcasts/SkeletonPodcastCard.vue',
-    summary: 'The only skeleton with a variant, and the two stand in for different components: `card` is PodcastCard in the home grid, while `row` is used once, inside SkeletonPodcastDetails, where it covers the show page\'s DetailHeader. So its name matches one of its two jobs — pair each with what it replaces below and the mismatch is the thing to see.',
+    summary: 'PodcastCard\'s placeholder in the home grid: the cover, then the rank, name and publisher, each bar in a line of the card\'s typography, so the grid keeps its geometry when the cards arrive.',
   },
   {
     id: 'EpisodeCard',
@@ -447,7 +447,7 @@ export const ENTRIES = [
     id: 'SkeletonEpisodeCard',
     group: 'cards',
     file: 'components/podcasts/SkeletonEpisodeCard.vue',
-    summary: 'EpisodeCard\'s placeholder — cover, two text lines and the round action button, in shimmer. No props.',
+    summary: 'EpisodeCard\'s placeholder: its box and cover (96 px on the phone, as the card\'s), then the episode, its show and its meta, each bar in a line of the card\'s typography. No props.',
   },
   {
     id: 'GenreCard',
@@ -459,13 +459,13 @@ export const ENTRIES = [
     id: 'SkeletonPodcastDetails',
     group: 'cards',
     file: 'components/podcasts/SkeletonPodcastDetails.vue',
-    summary: 'The whole show page while it loads: a DetailHeader-shaped block over a run of episode rows. No props — it mimics a layout, not a component.',
+    summary: 'The whole show page while it loads, in its own geometry: SkeletonDetailHeader (subtitle, the small Subscribe button) over the episodes\' heading and a run of SkeletonEpisodeCards. No props.',
   },
   {
     id: 'SkeletonEpisodeDetails',
     group: 'cards',
     file: 'components/podcasts/SkeletonEpisodeDetails.vue',
-    summary: 'The same for a single episode page — cover, title block and the description paragraph as shimmering bars. No props.',
+    summary: 'The same for a single episode page: SkeletonDetailHeader (subtitle, the play IconButton) over the description\'s card, its bars in body-medium lines. No props.',
   },
 
   // --- Settings composites ---

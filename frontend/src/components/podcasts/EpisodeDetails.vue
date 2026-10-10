@@ -2,7 +2,7 @@
   <div class="episode-details">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <SkeletonEpisodeDetails v-if="loading" key="loading" />
+        <SkeletonEpisodeDetails v-if="loading" key="loading" class="swap-skeleton" />
 
         <div v-else-if="episode" key="loaded" class="details-content">
           <DetailHeader

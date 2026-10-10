@@ -25,7 +25,7 @@
           <div class="swap-stack">
             <Transition name="fade-slide">
               <div v-if="!store.albums.length && (store.albumsLoading || !store.albumsLoaded)" key="loading"
-                class="albums-grid">
+                class="albums-grid swap-skeleton">
                 <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.albums.length" key="empty"
@@ -46,8 +46,17 @@
           <div class="swap-stack">
             <Transition name="fade-slide">
               <div v-if="!store.displayedArtistIndex.length && (store.artistsLoading || !store.artistsLoaded)"
-                key="loading" class="rows-list">
-                <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
+                key="loading" class="artists-layout swap-skeleton">
+                <!-- One letter's bucket, beside the rail's column. -->
+                <div class="index-list">
+                  <div class="index-bucket">
+                    <span class="index-label index-label-skeleton text-mono-medium">
+                      <span class="skeleton-text-line shimmer"></span>&#8203;
+                    </span>
+                    <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
+                  </div>
+                </div>
+                <div class="index-rail-skeleton"></div>
               </div>
               <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty"
                 v-bind="emptyState('musicLibrary.noArtists')" />
@@ -76,7 +85,7 @@
           <div class="swap-stack">
             <Transition name="fade-slide">
               <div v-if="!store.genres.length && (store.genresLoading || !store.genresLoaded)" key="loading"
-                class="rows-list">
+                class="rows-list swap-skeleton">
                 <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.genres.length" key="empty"
@@ -108,7 +117,7 @@
           <div class="swap-stack">
             <Transition name="fade-slide">
               <div v-if="!store.playlists.length && (store.playlistsLoading || !store.playlistsLoaded)" key="loading"
-                class="rows-list">
+                class="rows-list swap-skeleton">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.playlists.length" key="empty"
@@ -407,6 +416,21 @@ onPageReturn(() => loadTab(store.activeTab));
   margin: 0;
   color: var(--color-text-secondary);
   padding-left: var(--space-02);
+}
+
+.index-label-skeleton {
+  display: flex;
+  align-items: center;
+}
+
+.index-label-skeleton .skeleton-text-line {
+  width: var(--space-04);
+}
+
+/* ArtistIndexRail's column, so the rows are as wide as the bucket's. */
+.index-rail-skeleton {
+  flex-shrink: 0;
+  width: var(--space-06);
 }
 
 .rows-list {

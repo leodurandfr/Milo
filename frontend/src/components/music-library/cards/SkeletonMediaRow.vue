@@ -9,12 +9,15 @@
 </template>
 
 <style scoped>
+/* MediaRow's box: change one, change both. */
 .skeleton-media-row {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: var(--space-03);
   padding: var(--space-02);
+  border-radius: var(--radius-04);
+  background: var(--color-surface-glass);
 }
 
 .skeleton-media-cover {
