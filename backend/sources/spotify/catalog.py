@@ -21,6 +21,11 @@ SPOTIFY_OWNER = "spotify"
 # The home's first shelf, drawn as the tiles above the others. Its id is the
 # same in every language and for every account (measured).
 SHORTCUTS_SECTION = "spotify:section:0JQ5DAIiKWzVFULQfUm85Y"
+# The shelves Milō does not draw, by section id (measured on the owner's
+# account 2026-10-10; an id Spotify changes brings its shelf back).
+HIDDEN_SECTIONS = frozenset({
+    "spotify:section:0JQ5DAuChZYPe9iDhh2mJz",  # Weekend playlists (editorial hits)
+})
 # What a home card opens, by its uri's kind. A show is left out: its episodes
 # are not something go-librespot lists.
 _CARD_KINDS = {"playlist": "playlist", "album": "album", "artist": "artist"}
@@ -287,11 +292,11 @@ def home_shelves(view: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[
     """Spotify's home as the shortcuts and the shelves after them, each in its
     order. The view is flat — a header, then its cards — and every card names
     its shelf. A card the browser cannot open is left out, and a shelf left
-    with nothing (the account's podcasts) with it."""
+    with nothing (the account's podcasts) with it; a hidden shelf, whole."""
     shelves: Dict[str, Dict[str, Any]] = {}
     for entry in view.get("body") or []:
         section = (entry.get("metadata") or {}).get("sectionId")
-        if not section:
+        if not section or section in HIDDEN_SECTIONS:
             continue
         if (entry.get("component") or {}).get("category") == "header":
             shelves[section] = {"id": section, "title": (entry.get("text") or {}).get("title") or None, "items": []}

@@ -128,6 +128,18 @@ def test_a_card_the_browser_cannot_open_is_left_out_with_the_shelf_it_empties():
     assert SHOWS not in {shelf["id"] for shelf in shelves}
 
 
+def test_a_hidden_shelf_is_left_out_whole():
+    """Weekend playlists is Spotify's editorial hits, not the account's: the
+    browser never draws it, header or cards."""
+    weekend = "spotify:section:0JQ5DAuChZYPe9iDhh2mJz"
+    _, shelves = home_shelves({"body": [
+        header(weekend, "Les playlists du week-end"),
+        card(weekend, "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", "Hits du Moment"),
+        *HOME["body"],
+    ]})
+    assert [shelf["title"] for shelf in shelves] == ["Vos mix préférés", "Conçu pour Léo"]
+
+
 def card_listing(section, uri, title, subtitle, label=None):
     entry = card(section, uri, title, subtitle)
     if label:
