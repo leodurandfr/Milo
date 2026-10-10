@@ -887,14 +887,16 @@
 }
 
 /* === CARD LOADING OVERLAY === */
-/* Blurred overlay centered on a card image container (position: relative parent).
+/* A veil and a spinner centered on a card image container (position: relative
+   parent). The image blurs itself under it (LazyImage `blurred`): a
+   backdrop-filter here let the sharp cover through along its edges — in Safari
+   on every cover, in Chrome on a round one.
    Its corners are the container's: a radius of its own left the cover's
    corners unveiled wherever the cover was squarer than it. */
 .card-loading-overlay {
     position: absolute;
     inset: 0;
     background: var(--color-image-veil);
-    backdrop-filter: blur(var(--blur-02));
     display: flex;
     align-items: center;
     justify-content: center;

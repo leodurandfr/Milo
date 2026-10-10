@@ -1,8 +1,8 @@
 <template>
   <div v-press class="shortcut-tile" @click="$emit('click')">
     <div class="tile-cover" :class="{ 'liked-cover': liked }">
-      <SvgIcon v-if="liked" name="heart" :size="20" aria-hidden="true" />
-      <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy class="tile-image" />
+      <SvgIcon v-if="liked" name="heart" :size="20" aria-hidden="true" :class="{ blurred: opening }" />
+      <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy :blurred="opening" class="tile-image" />
       <transition name="loading-fade">
         <div v-if="opening" class="card-loading-overlay">
           <LoadingSpinner :size="32" />
@@ -79,6 +79,14 @@ const opening = useCardOpening(() => props.uri);
   justify-content: center;
   color: var(--color-text-on-brand);
   background: var(--color-brand);
+}
+
+.liked-cover svg {
+  transition: filter var(--transition-fast);
+}
+
+.liked-cover svg.blurred {
+  filter: blur(var(--blur-02));
 }
 
 .tile-name {

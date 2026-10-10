@@ -9,7 +9,7 @@
       <LazyImage class="art" src="/does-not-exist.jpg" fallback-name="Nick Cave" alt="Falls back to an avatar" />
     </GalleryVariant>
     <GalleryVariant label="the default slot overlays the image">
-      <LazyImage class="art" :src="musicPlaceholder" alt="With an overlay">
+      <LazyImage class="art" :src="musicPlaceholder" alt="With an overlay" blurred>
         <div class="card-loading-overlay">
           <LoadingSpinner :size="48" />
         </div>

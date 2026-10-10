@@ -11,7 +11,7 @@
         <span v-else class="track-number text-mono-large">{{ number }}</span>
       </div>
       <LazyImage v-if="showCover" :src="coverUrl" :fallback="musicPlaceholder"
-        :alt="displayTitle" lazy class="track-cover">
+        :alt="displayTitle" lazy :blurred="loading" class="track-cover">
         <transition name="loading-fade">
           <div v-if="loading" class="card-loading-overlay">
             <LoadingSpinner :size="20" />

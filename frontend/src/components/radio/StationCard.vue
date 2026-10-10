@@ -7,6 +7,7 @@
       :alt="station.name"
       priority="high"
       skeleton
+      :blurred="isLoading"
       :class="['station-image', { playing: isPlaying, loading: isLoading }]"
     >
       <transition name="loading-fade">
@@ -26,6 +27,7 @@
         :fallback-name="station.name"
         alt=""
         lazy
+        :blurred="isLoading"
         class="station-logo"
       >
         <transition name="loading-fade">

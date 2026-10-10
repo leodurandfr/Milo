@@ -1,5 +1,5 @@
 <template>
-  <div class="lazy-image" :class="{ instant }">
+  <div class="lazy-image" :class="{ instant, blurred }">
     <!-- Baseline layer: SVG generated from name, or static image fallback.
          Mounted at opacity 1, then faded out once the real image loads — so a
          transparent favicon shows the card background, not this layer, through
@@ -85,6 +85,12 @@ const props = defineProps({
   // A skeleton while the image loads, which hands over to it — or to the
   // placeholder, when it fails — with the reveal.
   skeleton: {
+    type: Boolean,
+    default: false
+  },
+  // Blurred in place, under a card's loading overlay: the image is the blur,
+  // so no sharp copy of it is left under the overlay to show through.
+  blurred: {
     type: Boolean,
     default: false
   }
@@ -205,7 +211,7 @@ img.lazy-image-placeholder {
 
 .lazy-image-placeholder {
   z-index: 0;
-  transition: opacity var(--transition-reveal);
+  transition: opacity var(--transition-reveal), filter var(--transition-fast);
 }
 
 .lazy-image-placeholder.hidden {
@@ -214,7 +220,7 @@ img.lazy-image-placeholder {
 
 .lazy-image-main {
   opacity: 0;
-  transition: opacity var(--transition-reveal);
+  transition: opacity var(--transition-reveal), filter var(--transition-fast);
   z-index: 1;
 }
 
@@ -225,6 +231,11 @@ img.lazy-image-placeholder {
 /* Ready before the first frame: nothing was shown to reveal it from. */
 .lazy-image.instant .lazy-image-placeholder,
 .lazy-image.instant .lazy-image-main {
-  transition: none;
+  transition: filter var(--transition-fast);
+}
+
+.lazy-image.blurred .lazy-image-placeholder,
+.lazy-image.blurred .lazy-image-main {
+  filter: blur(var(--blur-02));
 }
 </style>

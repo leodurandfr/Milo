@@ -51,7 +51,8 @@ function rules(style) {
 /** The values of the rule's `transition` declarations that move opacity. */
 function opacityTransitions(body) {
   return [...body.matchAll(/(?:^|;|\s)transition\s*:\s*([^;]+)/g)]
-    .map((m) => m[1].trim())
+    .flatMap((m) => m[1].split(/,(?![^(]*\))/))
+    .map((value) => value.trim())
     .filter((value) => /\b(opacity|all)\b/.test(value));
 }
 

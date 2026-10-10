@@ -1,7 +1,7 @@
 <template>
   <div v-press class="playlist-card" :class="{ 'byline-only': !lines.heading && lines.byline }"
     @click="$emit('click')">
-    <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
+    <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton :blurred="opening"
       class="playlist-cover" :class="{ round: item.kind === 'artist' }">
       <transition name="loading-fade">
         <div v-if="opening" class="card-loading-overlay">
