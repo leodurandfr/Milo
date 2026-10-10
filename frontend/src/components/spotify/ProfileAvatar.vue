@@ -1,5 +1,5 @@
 <template>
-  <div class="profile-avatar" :class="{ blurred }" :style="{ '--avatar-size': `${size}px` }">
+  <div class="profile-avatar" :class="{ blurred }" :style="size != null ? { '--avatar-size': `${size}px` } : null">
     <!-- Until Spotify names the picture; the image's own skeleton takes over
          in place once it does. -->
     <Transition :name="profile.avatar_url ? 'none' : 'reveal'">
@@ -24,9 +24,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  // Unset: the parent sets --avatar-size, for a size that moves with the layout.
   size: {
     type: Number,
-    default: 96,
+    default: null,
   },
   // Set aside while its account signs in.
   blurred: {

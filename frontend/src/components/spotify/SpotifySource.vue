@@ -16,7 +16,7 @@
         <template v-if="currentView === 'home' && activeProfile" #header-actions>
           <button v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
             @click="goTo('profiles')">
-            <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" :size="40" />
+            <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" />
           </button>
         </template>
 
@@ -179,8 +179,13 @@ watch(() => store.account, (now, before) => {
 </script>
 
 <style scoped>
+/* The height of a medium IconButton (icon + padding), so the avatar fills the
+   header's actions row exactly as the buttons beside it do. */
 .profile-button {
+  --avatar-size: 48px;
   display: flex;
+  /* Set apart from the buttons: --space-04 in all, over the row's gap. */
+  margin-left: calc(var(--space-04) - var(--space-02));
   padding: 0;
   border: none;
   border-radius: var(--radius-full);
@@ -188,12 +193,9 @@ watch(() => store.account, (now, before) => {
   cursor: pointer;
 }
 
-/* The desktop header is 72px tall, so a 40px avatar sits 16px from its top
-   and bottom: the right edge matches that. The phone's 64px header already
-   leaves 12px all round. */
-@media not (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) {
   .profile-button {
-    margin-right: calc(var(--space-04) - var(--space-03));
+    --avatar-size: 38px;
   }
 }
 </style>
