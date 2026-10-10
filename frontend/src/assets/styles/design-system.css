@@ -924,8 +924,8 @@
     left: 50%;
     transform: translateX(-50%);
     bottom: env(safe-area-inset-bottom, 0px);
-    width: 33vw;
-    height: 12%;
+    width: 20vw;
+    height: 8%;
     pointer-events: none;
 }
 
