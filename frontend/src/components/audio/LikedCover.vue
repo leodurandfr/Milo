@@ -1,22 +1,13 @@
 <template>
   <div class="liked-cover">
     <img :src="likedCover" alt="" class="liked-cover-image" draggable="false" />
-    <SvgIcon name="heart" :size="iconSize" class="liked-cover-heart" aria-hidden="true" />
+    <SvgIcon name="heart" class="liked-cover-heart" aria-hidden="true" />
   </div>
 </template>
 
 <script setup>
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { likedCover } from '@/constants/placeholders';
-
-defineProps({
-  // The heart is sized by the tile, not by the bitmap: 28 on a 60–64 px tile,
-  // 48 on a page header.
-  iconSize: {
-    type: Number,
-    required: true,
-  },
-});
 </script>
 
 <style scoped>
@@ -40,7 +31,15 @@ defineProps({
   object-fit: cover;
 }
 
+/* A share of the tile, never a pixel size: the cover scales as one picture,
+   from a 60 px row to the phone's full-width header. */
 .liked-cover-heart {
   position: relative;
+  width: 32%;
+}
+
+.liked-cover-heart :deep(svg) {
+  width: 100%;
+  height: auto;
 }
 </style>

@@ -1,7 +1,7 @@
 <template>
   <div v-press class="media-row" @click="$emit('click')">
     <div v-if="liked" class="media-cover">
-      <LikedCover :icon-size="28" />
+      <LikedCover />
     </div>
     <LazyImage
       v-else

@@ -1,7 +1,7 @@
 <template>
   <div v-press class="shortcut-tile" @click="$emit('click')">
     <div class="tile-cover">
-      <LikedCover v-if="liked" :icon-size="28" />
+      <LikedCover v-if="liked" />
       <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy class="tile-image" />
     </div>
     <p class="tile-name heading-4">{{ title }}</p>

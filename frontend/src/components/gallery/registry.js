@@ -581,7 +581,7 @@ export const REGISTRY = {
     component: LikedCover,
     // Sized by the class: the cover fills its parent, so on the canvas it is
     // the parent.
-    args: { iconSize: 48, class: 'canvas-artwork' }
+    args: { class: 'canvas-artwork' }
   },
 
   LazyImage: {

@@ -1,7 +1,7 @@
 <template>
   <div class="detail-header">
     <div v-if="liked" class="detail-header-cover">
-      <LikedCover :icon-size="48" />
+      <LikedCover />
     </div>
     <LazyImage
       v-else
