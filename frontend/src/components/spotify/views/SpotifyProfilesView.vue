@@ -1,7 +1,7 @@
 <template>
   <div class="profiles-list">
     <SpotifyProfileRow v-for="profile in store.profiles" :key="profile.username" :profile="profile"
-      :state="rowState(profile)" :disabled="!!switching || !!forgetting"
+      :state="rowState(profile)" :phase="store.phase" :disabled="!!switching || !!forgetting"
       @pick="pick(profile)" @arm="arm(profile)" @cancel="armed = null" @forget="forget(profile)" />
   </div>
 </template>
@@ -25,14 +25,11 @@ const SWITCH_WAIT_MS = 15000;
 const HOME_RETRY_MS = 300;
 
 const switching = ref(null);
-// Two-tap confirm when picking another account would end what plays.
-const pending = ref(null);
 
 function rowState(profile) {
   if (switching.value === profile.username) return 'switching';
   if (forgetting.value === profile.username) return 'forgetting';
   if (armed.value === profile.username) return 'armed';
-  if (pending.value === profile.username) return 'pending';
   return 'default';
 }
 
@@ -42,11 +39,6 @@ async function pick(profile) {
     emit('picked');
     return;
   }
-  if (store.session && pending.value !== profile.username) {
-    pending.value = profile.username;
-    return;
-  }
-  pending.value = null;
   switching.value = profile.username;
   if (!(await store.switchProfile(profile.username))) {
     switching.value = null;
@@ -81,7 +73,6 @@ const armed = ref(null);
 const forgetting = ref(null);
 
 function arm(profile) {
-  pending.value = null;
   armed.value = profile.username;
 }
 

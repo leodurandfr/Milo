@@ -15,7 +15,7 @@
         <div v-else class="profile-text">
           <div class="title-line">
             <span class="profile-name heading-4">{{ profile.name }}</span>
-            <Badge v-if="profile.active" tone="success">{{ t('spotify.connected') }}</Badge>
+            <Badge v-if="profile.active" tone="success">{{ activeLabel }}</Badge>
             <Badge v-else-if="state === 'switching'" tone="brand" pulse>{{ t('spotify.connecting') }}</Badge>
           </div>
           <span v-if="message" class="profile-message text-mono-small">{{ message }}</span>
@@ -53,13 +53,19 @@ const props = defineProps({
     type: Object,
     required: true,
   },
-  // What the profiles screen is doing with this one: `pending` asks for a
-  // second tap (the switch would stop what plays), `armed` for the forget's
-  // confirmation, `forgetting` while it is done.
+  // What the profiles screen is doing with this one: `armed` asks for the
+  // forget's confirmation, `forgetting` while it is done.
   state: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'switching', 'pending', 'armed', 'forgetting'].includes(value),
+    validator: (value) => ['default', 'switching', 'armed', 'forgetting'].includes(value),
+  },
+  // The session's phase, drawn on the signed-in profile's badge: it says what
+  // plays, so a pick of another one needs no warning.
+  phase: {
+    type: String,
+    default: null,
+    validator: (value) => ['loading', 'playing', 'paused', 'connected'].includes(value),
   },
   // Another profile is switching or being forgotten.
   disabled: {
@@ -78,15 +84,15 @@ const { describing } = useProfileDescribing(() => props.profile);
 
 const confirming = computed(() => props.state === 'armed' || props.state === 'forgetting');
 
-// Only a row at rest waits for its name: one that asks something (a second
-// tap, a confirmation) or signs in draws what it asks over the skeleton.
+// Only a row at rest waits for its name: one that asks for a confirmation or
+// signs in draws what it asks over the skeleton.
 const textSkeleton = computed(() => describing.value && props.state === 'default');
 
-const message = computed(() => {
-  if (props.state === 'pending') return t('spotify.switchStopsPlayback');
-  if (confirming.value) return t('spotify.forgetQuestion');
-  return '';
-});
+const PHASE_LABELS = { playing: 'status.playing', paused: 'status.paused' };
+
+const activeLabel = computed(() => t(PHASE_LABELS[props.phase] ?? 'spotify.connected'));
+
+const message = computed(() => (confirming.value ? t('spotify.forgetQuestion') : ''));
 </script>
 
 <style scoped>
@@ -183,10 +189,6 @@ const message = computed(() => {
 
 .profile-message {
   color: var(--color-text-secondary);
-}
-
-.profile-row--pending .profile-message {
-  color: var(--color-warning);
 }
 
 .profile-actions {
