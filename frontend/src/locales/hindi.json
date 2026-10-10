@@ -361,6 +361,7 @@
     "proposed": "प्रस्तावित",
     "apply": "लागू करें",
     "applying": "लागू हो रहा है…",
+    "unavailableTitle": "सेटिंग्स उपलब्ध नहीं हैं",
     "unavailable": "सेटिंग्स लोड नहीं हो सकीं। Milō के उत्तर देते ही वे वापस आ जाएँगी।",
     "reset": "रीसेट करें"
   },
@@ -451,7 +452,8 @@
     "programsTitle": "Milō प्रोग्राम",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client प्रोग्राम",
-    "error": "अपडेट लोड करने में त्रुटि",
+    "errorTitle": "लोड करने में विफल",
+    "error": "अपडेट लोड नहीं हो सके।",
     "retry": "पुनः प्रयास करें",
     "notAvailable": "उपलब्ध नहीं",
     "update": "अपडेट करें",

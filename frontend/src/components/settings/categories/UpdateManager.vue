@@ -1,17 +1,8 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
   <SectionStack>
-    <!-- Error state -->
-    <template v-if="localProgramsError">
-      <div class="error-state">
-        <div class="error-message text-mono-medium">
-          {{ t('updates.error') }}
-        </div>
-        <Button size="small" variant="control" @click="loadLocalPrograms">
-          {{ t('updates.retry') }}
-        </Button>
-      </div>
-    </template>
+    <MessageContent v-if="localProgramsError" icon="downloadSimple" :title="t('updates.errorTitle')"
+      :details="t('updates.error')" :cta-label="t('updates.retry')" :cta-click="loadLocalPrograms" />
 
     <template v-else>
       <!-- The operating system and the individual programs share one card:
@@ -171,14 +162,8 @@
       <!-- Section 3: Satellite Programs (error) -->
       <SectionCard v-if="isMultiroomEnabled && satellitesError"
         :title="t('updates.satelliteProgramsTitle')">
-        <div class="error-state">
-          <div class="error-message text-mono-medium">
-            {{ t('updates.errorDetectingSatellites') }}
-          </div>
-          <Button size="small" variant="control" @click="loadSatellites">
-            {{ t('updates.retry') }}
-          </Button>
-        </div>
+        <NoticeBox>{{ t('updates.errorDetectingSatellites') }}</NoticeBox>
+        <Button variant="control" size="medium" @click="loadSatellites">{{ t('updates.retry') }}</Button>
       </SectionCard>
 
       <!-- Section 3: Satellite Programs (one section per anticipated client, crossfade skeleton → content) -->
@@ -351,6 +336,8 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 
 function getProgramIcon(programKey) {
   const iconMap = {
@@ -599,19 +586,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.error-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-05);
-  text-align: center;
-}
-
-.error-message {
-  color: var(--color-text-secondary);
-}
-
 /* The two groups and the line between them carry their own gap, so a single
    token spells the space above the line and below it. The section's own
    `--space-04` no longer reaches them — it sees one child — and it stays the

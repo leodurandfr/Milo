@@ -37,7 +37,7 @@
           @change="selectLocation" />
       </SettingItem>
 
-      <span v-if="timezoneError" class="timezone-error text-mono-small">{{ timezoneError }}</span>
+      <NoticeBox v-if="timezoneError">{{ timezoneError }}</NoticeBox>
     </SectionCard>
   </SectionStack>
 </template>
@@ -51,6 +51,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
 import franceIcon from '@/assets/flags-icons/france.svg';
@@ -158,10 +159,6 @@ onMounted(loadTimezone);
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-.timezone-error {
-  color: var(--color-error);
 }
 
 @media (max-aspect-ratio: 4/3) {

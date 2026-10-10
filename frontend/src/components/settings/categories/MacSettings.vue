@@ -60,7 +60,7 @@
       <AnalysisSection :title="t('analysis.title')" :running="calibration.running" :disabled="busy"
         :percent="progressPercent" :step-ms="PROGRESS_TICK_MS" :label="stageLabel"
         :hint="t('macSettings.remaining', { time: formatUnit(remainingSeconds, 's') })"
-        :note="analysisNote" :has-results="Boolean(measured)" @start="startAnalysis">
+        :error="analysisError" :note="analysisNote" :has-results="Boolean(measured)" @start="startAnalysis">
         <div class="analysis-grid">
           <div class="analysis-item">
             <span class="heading-4 analysis-item__name">{{ measured.mac_name }}</span>
@@ -102,9 +102,10 @@
       </AnalysisSection>
     </template>
 
-    <p v-else-if="macLinkStore.capabilitiesFailed" class="text-body-medium section-note">
-      {{ t('macSettings.unavailable') }}
-    </p>
+    <MessageContent v-else-if="macLinkStore.capabilitiesFailed" icon="settings"
+      :title="t('macSettings.unavailableTitle')" :details="t('macSettings.unavailable')" />
+
+    <MessageContent v-else loading />
 
     <!-- One write for both halves: mac.env and a roc-recv restart here, the
          Mac's device rebuilt by the Milō app for Mac. -->
@@ -128,6 +129,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
 
@@ -172,14 +174,13 @@ const ANALYSIS_ERROR_KEYS = {
   start_failed: 'failedStart',
 };
 
-const analysisNote = computed(() => {
-  if (calibration.value.error) {
-    return t(`macSettings.${ANALYSIS_ERROR_KEYS[calibration.value.error] || 'failedProbe'}`,
-      { detail: calibration.value.detail || '' });
-  }
-  if (calibration.value.result?.assumed?.length) return t('macSettings.partlyAssumed');
-  return null;
-});
+const analysisError = computed(() => (calibration.value.error
+  ? t(`macSettings.${ANALYSIS_ERROR_KEYS[calibration.value.error] || 'failedProbe'}`,
+    { detail: calibration.value.detail || '' })
+  : ''));
+
+const analysisNote = computed(() =>
+  (calibration.value.result?.assumed?.length ? t('macSettings.partlyAssumed') : ''));
 
 const measured = computed(() => calibration.value.result?.measurements || null);
 const predicted = computed(() => calibration.value.result?.predicted_latency_ms || {});
@@ -212,11 +213,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.section-note {
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-
 .toggle-row {
   display: flex;
   justify-content: space-between;

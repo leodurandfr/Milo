@@ -6,7 +6,7 @@
   a full-width button repeating the title, a strip, a note — and differed.
 
   Two reveals, one after the other: the progress while `running`, the results
-  (the note, then the panel's own grid in the slot) once it is not. Both open
+  (the error or note, then the panel's own grid in the slot) once it is not. Both open
   in height from the top, so the section grows rather than its content jumping
   in. The results stay open for as long as the panel holds them.
 -->
@@ -34,6 +34,7 @@
     <Transition name="analysis-results">
       <div v-if="resultsOpen" class="analysis-results">
         <div class="analysis-results__inner">
+          <NoticeBox v-if="error">{{ error }}</NoticeBox>
           <p v-if="note" class="text-body-medium analysis-results__note">{{ note }}</p>
           <slot v-if="hasResults" />
         </div>
@@ -49,6 +50,7 @@ import { PROGRESS_TICK_MS } from '@/composables/useAnalysisRun';
 import Button from '@/components/ui/Button.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import ProgressStrip from './ProgressStrip.vue';
 
 const props = defineProps({
@@ -60,7 +62,9 @@ const props = defineProps({
   label: { type: String, default: '' },
   hint: { type: String, default: '' },
   stepMs: { type: Number, default: PROGRESS_TICK_MS },
-  /** The line said once a run ended: why it failed, or what to do next. */
+  /** Why the run failed. */
+  error: { type: String, default: '' },
+  /** A caveat on what the run found. */
   note: { type: String, default: '' },
   /** Whether the slot has a measurement to show. */
   hasResults: { type: Boolean, default: false },
@@ -70,7 +74,7 @@ const emit = defineEmits(['start']);
 
 const { t } = useI18n();
 
-const resultsOpen = computed(() => !props.running && Boolean(props.note || props.hasResults));
+const resultsOpen = computed(() => !props.running && Boolean(props.error || props.note || props.hasResults));
 </script>
 
 <style scoped>

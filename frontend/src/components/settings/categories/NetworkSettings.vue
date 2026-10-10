@@ -110,7 +110,7 @@
                   @click="connectToNetwork(network, t)">
                   {{ connecting ? t('network.connecting') : t('network.connect') }}
                 </Button>
-                <span v-if="connectError" class="network-error text-mono-small">{{ connectError }}</span>
+                <NoticeBox v-if="connectError">{{ connectError }}</NoticeBox>
               </div>
             </div>
           </div>
@@ -515,10 +515,6 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-03);
   padding-top: var(--space-02);
-}
-
-.network-error {
-  color: var(--color-error);
 }
 
 /* Skeleton */

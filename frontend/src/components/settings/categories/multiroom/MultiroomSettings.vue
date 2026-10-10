@@ -42,9 +42,9 @@
               <SkeletonListItem v-for="i in 2" :key="i" subtitle="mono" />
             </div>
 
-            <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
-              <p class="text-mono-medium">{{ t('multiroom.noSystems') }}</p>
-            </div>
+            <NoticeBox v-else-if="sortedMultiroomClients.length === 0" kind="empty">
+              {{ t('multiroom.noSystems') }}
+            </NoticeBox>
 
             <div v-else class="speakers-list">
               <div v-for="zone in zones" :key="zone.id" class="zone-group">
@@ -118,7 +118,7 @@
           <AnalysisSection :title="t('analysis.title')" :running="calibration.running" :disabled="busy"
             :percent="progressPercent" :step-ms="PROGRESS_TICK_MS" :label="stageLabel"
             :hint="t('multiroomSettings.remaining', { time: formatUnit(remainingSeconds, 's') })"
-            :note="analysisNote" :has-results="measuredLinks.length > 0" @start="startAnalysis">
+            :error="analysisError" :note="analysisNote" :has-results="measuredLinks.length > 0" @start="startAnalysis">
             <!-- What the measurement found, and only what a person can act
                  on: which speakers were weighed, how each connects, and which
                  one held the house back. The round-trip in milliseconds is
@@ -186,6 +186,7 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
 import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
@@ -362,14 +363,13 @@ const ANALYSIS_ERROR_KEYS = {
 // Only a failure, or a caveat the numbers cannot carry. Progress has its own
 // bar and the result has its own table, so the line that used to name the
 // limiting speaker said less than the four figures beside it.
-const analysisNote = computed(() => {
-  if (calibration.value.error) {
-    return t(`multiroomSettings.${ANALYSIS_ERROR_KEYS[calibration.value.error] || 'failedProbe'}`,
-      { detail: calibration.value.detail || '' });
-  }
-  if (calibration.value.result?.assumed?.length) return t('multiroomSettings.partlyAssumed');
-  return null;
-});
+const analysisError = computed(() => (calibration.value.error
+  ? t(`multiroomSettings.${ANALYSIS_ERROR_KEYS[calibration.value.error] || 'failedProbe'}`,
+    { detail: calibration.value.detail || '' })
+  : ''));
+
+const analysisNote = computed(() =>
+  (calibration.value.result?.assumed?.length ? t('multiroomSettings.partlyAssumed') : ''));
 
 const measuredLinks = computed(() =>
   // The local speaker has no link to weigh: its row was three em-dashes.
@@ -480,12 +480,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.no-clients-state {
-  text-align: center;
-  padding: var(--space-04);
-  color: var(--color-text-secondary);
-}
-
 /* Speakers list */
 .speakers-list {
   display: flex;

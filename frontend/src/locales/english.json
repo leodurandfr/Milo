@@ -361,6 +361,7 @@
     "proposed": "Proposed",
     "apply": "Apply",
     "applying": "Applying…",
+    "unavailableTitle": "Settings unavailable",
     "unavailable": "The settings could not be loaded. They will return as soon as Milō answers.",
     "reset": "Reset"
   },
@@ -451,7 +452,8 @@
     "programsTitle": "Milō programs",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client programs",
-    "error": "Error loading updates",
+    "errorTitle": "Loading failed",
+    "error": "The updates could not be loaded.",
     "retry": "Retry",
     "notAvailable": "Not available",
     "update": "Update",

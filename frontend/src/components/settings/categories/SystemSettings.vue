@@ -32,7 +32,7 @@
         {{ t('system.ssh.factoryPassword') }}
       </NoticeBox>
 
-      <span v-if="sshError" class="system-error text-mono-small">{{ sshError }}</span>
+      <NoticeBox v-if="sshError">{{ sshError }}</NoticeBox>
     </SectionCard>
 
     <SectionCard :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
@@ -41,7 +41,7 @@
         {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
       </Button>
 
-      <span v-if="diagnosticError" class="system-error text-mono-small">{{ diagnosticError }}</span>
+      <NoticeBox v-if="diagnosticError">{{ diagnosticError }}</NoticeBox>
 
       <template v-if="report">
         <!-- Download and Copy are both here because neither one reaches
@@ -57,7 +57,7 @@
           </Button>
         </div>
 
-        <span v-if="copyError" class="system-error text-mono-small">{{ copyError }}</span>
+        <NoticeBox v-if="copyError">{{ copyError }}</NoticeBox>
 
         <NoticeBox v-if="unavailable.length" kind="warning">
           <ul class="diagnostic-missing text-mono-small">
@@ -288,9 +288,5 @@ onMounted(systemStore.loadSsh);
   color: var(--color-text-secondary);
   overflow-x: auto;
   white-space: nowrap;
-}
-
-.system-error {
-  color: var(--color-error);
 }
 </style>

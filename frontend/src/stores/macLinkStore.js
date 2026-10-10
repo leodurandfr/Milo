@@ -47,6 +47,7 @@ export const useMacLinkStore = defineStore('macLink', () => {
   });
 
   async function loadCapabilities() {
+    capabilitiesFailed.value = false;
     const result = await apiCall.get('/api/settings/mac-roc/capabilities', {
       category: 'mac',
       message: 'Error loading Mac link capabilities',

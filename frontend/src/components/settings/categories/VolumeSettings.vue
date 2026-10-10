@@ -1,9 +1,8 @@
 <!-- frontend/src/components/settings/categories/VolumeSettings.vue -->
 <template>
   <!-- DAC mode: volume not managed by Milō on any device -->
-  <div v-if="!unifiedStore.volumeState.any_volume_control" class="dac-notice">
-    <span class="text-mono-medium">{{ t('volumeSettings.volumeNotManaged') }}</span>
-  </div>
+  <MessageContent v-if="!unifiedStore.volumeState.any_volume_control" icon="volume"
+    :title="t('volumeSettings.volumeNotManaged')" />
 
   <SectionStack v-else>
     <!-- Volume controls -->
@@ -51,6 +50,7 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
 const { updateSetting } = useSettingsAPI();
@@ -110,14 +110,3 @@ watch(
 );
 
 </script>
-
-<style scoped>
-.dac-notice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-06) var(--space-04);
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-</style>

@@ -361,6 +361,7 @@
     "proposed": "Proposée",
     "apply": "Appliquer",
     "applying": "Application…",
+    "unavailableTitle": "Réglages indisponibles",
     "unavailable": "Les réglages n'ont pas pu être chargés. Ils reviendront dès que Milō répondra.",
     "reset": "Réinitialiser"
   },
@@ -451,7 +452,8 @@
     "programsTitle": "Programmes de Milō",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Programmes de Milō Client",
-    "error": "Erreur lors du chargement des mises à jour",
+    "errorTitle": "Échec du chargement",
+    "error": "Impossible de charger les mises à jour.",
     "retry": "Réessayer",
     "notAvailable": "Non disponible",
     "update": "Mettre à jour",

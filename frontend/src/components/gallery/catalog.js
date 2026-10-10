@@ -467,7 +467,7 @@ export const ENTRIES = [
     id: 'AnalysisSection',
     group: 'settings',
     file: 'components/settings/AnalysisSection.vue',
-    summary: 'The automatic-tuning section of the multiroom and Mac panels: a title with Start beside it, then the section opens in height on the run\'s progress and, once it ends, on the note and the panel\'s own results in the slot, which stay open.',
+    summary: 'The automatic-tuning section of the multiroom and Mac panels: a title with Start beside it, then the section opens in height on the run\'s progress and, once it ends, on what it found, which stays open: `error` (why the run failed) in a NoticeBox, `note` (a caveat on the result) as a line, then the panel\'s own results in the slot.',
   },
   {
     id: 'SettingItem',

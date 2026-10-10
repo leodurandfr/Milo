@@ -10,7 +10,7 @@
       <InputText v-model="confirmPassword" type="password" :maxlength="128"
         :placeholder="t('system.password.confirmPlaceholder')" @submit="savePassword" />
 
-      <span v-if="passwordError" class="password-error text-mono-small">{{ passwordError }}</span>
+      <NoticeBox v-if="passwordError">{{ passwordError }}</NoticeBox>
 
       <Button variant="brand" :loading="savingPassword" :disabled="!canSavePassword || savingPassword"
         @click="savePassword">
@@ -27,6 +27,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 
@@ -70,9 +71,3 @@ async function savePassword() {
   timer.setTimeout(() => { passwordSaved.value = false; }, 3000);
 }
 </script>
-
-<style scoped>
-.password-error {
-  color: var(--color-error);
-}
-</style>

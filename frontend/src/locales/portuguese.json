@@ -361,6 +361,7 @@
     "proposed": "Proposta",
     "apply": "Aplicar",
     "applying": "A aplicar…",
+    "unavailableTitle": "Definições indisponíveis",
     "unavailable": "Não foi possível carregar as definições. Voltarão assim que o Milō responder.",
     "reset": "Repor"
   },
@@ -451,7 +452,8 @@
     "programsTitle": "Programas do Milō",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Programas do Milō Client",
-    "error": "Erro ao carregar as atualizações",
+    "errorTitle": "Falha no carregamento",
+    "error": "Não foi possível carregar as atualizações.",
     "retry": "Tentar novamente",
     "notAvailable": "Não disponível",
     "update": "Atualizar",

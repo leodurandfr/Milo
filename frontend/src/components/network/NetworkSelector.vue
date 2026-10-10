@@ -49,7 +49,7 @@
             :connect="() => connectToNetwork(network, t)"
             :save="() => saveNetwork(network, t)"
           />
-          <span v-if="showConnectError && connectError" class="wifi-error text-mono-small">{{ connectError }}</span>
+          <NoticeBox v-if="showConnectError && connectError">{{ connectError }}</NoticeBox>
         </div>
       </div>
 
@@ -226,10 +226,6 @@ onMounted(async () => {
   flex-direction: column;
   gap: var(--space-03);
   padding-top: var(--space-02);
-}
-
-.wifi-error {
-  color: var(--color-error);
 }
 
 /* Skeleton */

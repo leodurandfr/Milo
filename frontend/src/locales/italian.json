@@ -361,6 +361,7 @@
     "proposed": "Proposta",
     "apply": "Applica",
     "applying": "Applicazione…",
+    "unavailableTitle": "Impostazioni non disponibili",
     "unavailable": "Non è stato possibile caricare le impostazioni. Torneranno appena Milō risponderà.",
     "reset": "Reimposta"
   },
@@ -451,7 +452,8 @@
     "programsTitle": "Programmi Milō",
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Programmi Milō Client",
-    "error": "Errore durante il caricamento degli aggiornamenti",
+    "errorTitle": "Caricamento non riuscito",
+    "error": "Non è stato possibile caricare gli aggiornamenti.",
     "retry": "Riprova",
     "notAvailable": "Non disponibile",
     "update": "Aggiorna",
