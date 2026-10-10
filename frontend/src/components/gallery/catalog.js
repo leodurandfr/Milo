@@ -326,6 +326,12 @@ export const ENTRIES = [
     summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 7 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, and showArtist adds the second line, as text: a tap anywhere on the row plays. `opening` (a page the row leads to is loading) and a tap that starts the track both blur the cover under a spinner, or spin in place of the number without one. A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio).',
   },
   {
+    id: 'TrackList',
+    group: 'player',
+    file: 'components/audio/TrackList.vue',
+    summary: 'The card a list of TrackRows sits on, in every browser view that lists tracks. It owns the surface and the dividers\' end: a row cannot tell it is the last (a playlist wraps each in its drag item), so the list drops the divider under its last row. Its vertical padding is what the rows\' own leaves to make up, so every row keeps one height — a playlist\'s drag steps by it. Its children are the rows themselves — ShowMoreClip measures them — and a render window\'s sentinel last, so the last row mounted keeps its divider while more are coming.',
+  },
+  {
     id: 'DetailHeader',
     group: 'player',
     file: 'components/audio/DetailHeader.vue',

@@ -18,7 +18,7 @@
             @select-artist="selectArtist"
           />
 
-          <div class="tracks">
+          <TrackList>
             <template v-for="group in discGroups" :key="group.disc">
               <!-- Disc separator, only for genuine multi-disc releases. -->
               <p v-if="multiDisc" class="disc-header text-mono-small">
@@ -38,7 +38,7 @@
                 @menu="store.requestAddToPlaylist([item.song.id])"
               />
             </template>
-          </div>
+          </TrackList>
         </div>
       </Transition>
     </div>
@@ -53,6 +53,7 @@ import { totalMinutes, formatAudioQuality } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
@@ -192,16 +193,15 @@ watch(() => props.albumId, async (id) => {
   gap: var(--space-05);
 }
 
-.tracks {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
 .disc-header {
   margin: 0;
-  padding: var(--space-03) var(--space-03) var(--space-01);
+  padding: var(--space-03) 0 var(--space-01);
   color: var(--color-text-secondary);
   text-transform: uppercase;
+}
+
+/* Opening the card, as far below its edge as a row's title. */
+.disc-header:first-child {
+  padding-top: var(--space-04);
 }
 </style>

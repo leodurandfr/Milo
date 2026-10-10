@@ -27,7 +27,7 @@
             <!-- Five, the sixth fading under the button, then all ten. -->
             <ShowMoreClip :peek-index="POPULAR_FIRST" :has-more="canShowMore" :items="topTracks"
               @more="state.popularExpanded = true">
-              <div class="tracks">
+              <TrackList>
                 <TrackRow
                   v-for="(track, idx) in popular"
                   :key="`${track.uri}-${idx}`"
@@ -48,7 +48,7 @@
                       @radio="$emit('select-radio', $event, rowKey(track, idx))" />
                   </template>
                 </TrackRow>
-              </div>
+              </TrackList>
             </ShowMoreClip>
           </section>
 
@@ -89,6 +89,7 @@ import { useCardGridColumns } from '@/composables/useCardGridColumns';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import SpotifyTrackMenu from '@/components/spotify/SpotifyTrackMenu.vue';
 import SpotifyShelfRow from '../SpotifyShelfRow.vue';
 import SpotifyDiscography from '../SpotifyDiscography.vue';
@@ -207,10 +208,5 @@ load();
 .section-title {
   color: var(--color-text);
   margin: 0;
-}
-
-.tracks {
-  display: flex;
-  flex-direction: column;
 }
 </style>

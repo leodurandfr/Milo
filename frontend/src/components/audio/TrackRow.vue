@@ -206,10 +206,6 @@ function formatDuration(totalSeconds) {
   transition: var(--transition-press);
 }
 
-.track-row:last-child {
-  border-bottom: none;
-}
-
 .track-row.editing {
   cursor: default;
 }

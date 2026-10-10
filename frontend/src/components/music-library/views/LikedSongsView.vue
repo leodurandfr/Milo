@@ -14,7 +14,7 @@
             @shuffle="shufflePlay"
           />
 
-          <div class="tracks">
+          <TrackList>
             <TrackRow
               v-for="(song, idx) in visibleSongs"
               :key="song.id"
@@ -30,7 +30,7 @@
               @menu="store.requestAddToPlaylist([song.id])"
             />
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
-          </div>
+          </TrackList>
         </div>
       </Transition>
     </div>
@@ -44,6 +44,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 
 const { t } = useI18n();
@@ -79,11 +80,5 @@ store.loadLikedSongs({ force: true });
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.tracks {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
 }
 </style>

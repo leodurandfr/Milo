@@ -85,6 +85,7 @@ import ProgressBar from '@/components/audio/ProgressBar.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import ArtistNames from '@/components/audio/ArtistNames.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
@@ -115,6 +116,7 @@ import TriggerSample from './samples/TriggerSample.vue';
 import FavoriteSample from './samples/FavoriteSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
 import HeaderActionSample from './samples/HeaderActionSample.vue';
+import TrackRowsSample from './samples/TrackRowsSample.vue';
 import SourceStage from './SourceStage.vue';
 import { ALL_AUDIO_SOURCES, BROWSER_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
@@ -861,6 +863,14 @@ export const REGISTRY = {
         }
       }
     }
+  },
+
+  TrackList: {
+    component: TrackList,
+    args: { class: 'canvas-column' },
+    // Declares no props: the surface and where the dividers stop are the whole
+    // component, so the sample has to be several rows.
+    slots: { default: { 'Three tracks, the second playing': { component: TrackRowsSample } } }
   },
 
   DetailHeader: {

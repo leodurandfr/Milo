@@ -45,7 +45,7 @@
           <!-- Tracks -->
           <section v-if="results.songs.length" class="section">
             <h2 class="heading-2 section-title">{{ t('musicLibrary.sections.tracks') }}</h2>
-            <div class="tracks">
+            <TrackList>
               <TrackRow
                 v-for="(song, idx) in results.songs"
                 :key="song.id"
@@ -60,7 +60,7 @@
                 @play="playSong(idx)"
                 @menu="store.requestAddToPlaylist([song.id])"
               />
-            </div>
+            </TrackList>
           </section>
         </div>
 
@@ -86,6 +86,7 @@ import InputText from '@/components/ui/InputText.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import MediaRow from '../cards/MediaRow.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 
 defineEmits(['select-album', 'select-artist']);
 
@@ -137,11 +138,5 @@ function playSong(index) {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.tracks {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
 }
 </style>

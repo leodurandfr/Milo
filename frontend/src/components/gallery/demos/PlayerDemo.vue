@@ -49,6 +49,16 @@
     </GalleryVariant>
   </GalleryItem>
 
+  <GalleryItem id="TrackList">
+    <GalleryVariant label="rows on the card — no divider under the last one" stacked>
+      <TrackList>
+        <TrackRow :song="track" :number="1" show-artist show-menu />
+        <TrackRow :song="track" :number="2" show-artist show-menu current playing />
+        <TrackRow :song="track" :number="3" show-artist show-menu />
+      </TrackList>
+    </GalleryVariant>
+  </GalleryItem>
+
   <GalleryItem id="DetailHeader">
     <GalleryVariant label="cover + three lines + the built-in shuffle / play" stacked>
       <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
@@ -88,6 +98,7 @@ import GalleryVariant from '../GalleryVariant.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import { musicPlaceholder } from '@/constants/placeholders';

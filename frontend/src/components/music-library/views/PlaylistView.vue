@@ -38,7 +38,7 @@
 
           <MessageContent v-if="!tracks.length" icon="musicNote" :title="t('musicLibrary.noTracks')" />
 
-          <div v-else class="tracks" :class="{ reordering: editing }">
+          <TrackList v-else :class="{ reordering: editing }">
             <div
               v-for="(song, idx) in visibleTracks"
               :key="song.id"
@@ -66,7 +66,7 @@
               />
             </div>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
-          </div>
+          </TrackList>
         </div>
       </Transition>
     </div>
@@ -93,6 +93,7 @@ import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
@@ -300,17 +301,11 @@ onUnmounted(removeDragListeners);
   color: var(--color-text-secondary);
 }
 
-.tracks {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
 .drag-item {
   transition: transform var(--transition-spring);
 }
 
-.tracks.reordering .drag-item {
+.reordering .drag-item {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;

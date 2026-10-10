@@ -26,7 +26,7 @@
             @select-artist="selectHeaderArtist"
           />
 
-          <div class="tracks">
+          <TrackList>
             <TrackRow
               v-for="(track, idx) in visibleTracks"
               :key="`${track.uri}-${idx}`"
@@ -48,7 +48,7 @@
               </template>
             </TrackRow>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
-          </div>
+          </TrackList>
         </div>
       </Transition>
     </div>
@@ -62,6 +62,7 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import SpotifyTrackMenu from '@/components/spotify/SpotifyTrackMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
@@ -171,10 +172,5 @@ if (!listing.value?.complete) load();
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.tracks {
-  display: flex;
-  flex-direction: column;
 }
 </style>

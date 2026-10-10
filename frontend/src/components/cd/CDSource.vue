@@ -124,6 +124,10 @@ function trackRecord(track) {
   padding-bottom: var(--space-05);
 }
 
+.tracklist-scroll > :deep(.track-row:last-child) {
+  border-bottom-color: transparent;
+}
+
 @media (max-aspect-ratio: 4/3) {
   .tracklist-scroll {
     margin-bottom: calc(-1 * max(var(--space-06), env(safe-area-inset-bottom, 0px)));

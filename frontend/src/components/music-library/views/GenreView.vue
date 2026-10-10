@@ -25,7 +25,7 @@
                   <p class="genre-count text-mono-medium">{{ t('musicLibrary.tracksCount', { count: songs.length }) }}</p>
                 </div>
 
-                <div class="tracks">
+                <TrackList>
                   <TrackRow
                     v-for="(song, idx) in visibleSongs"
                     :key="song.id"
@@ -41,7 +41,7 @@
                     @menu="store.requestAddToPlaylist([song.id])"
                   />
                   <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
-                </div>
+                </TrackList>
               </div>
             </Transition>
           </div>
@@ -72,6 +72,7 @@ import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import TrackList from '@/components/audio/TrackList.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 
@@ -151,12 +152,6 @@ watch(() => props.genre, async (genre) => {
   display: flex;
   flex-direction: row;
   gap: var(--space-02);
-}
-
-.tracks {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
 }
 
 /* Same column count and column gap as the radio favorites grid, so an album
