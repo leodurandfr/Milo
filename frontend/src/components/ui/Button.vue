@@ -159,10 +159,10 @@ function handleClick(event) {
     --btn-ink: var(--color-brand);
 }
 
-/* A destructive action: red ink on a red tint */
+/* A destructive action: white on an opaque red, as brand is on orange */
 .btn--important {
-    --btn-fill: var(--color-error-subtle);
-    --btn-ink: var(--color-error);
+    --btn-fill: var(--color-error);
+    --btn-ink: var(--color-text-on-brand);
 }
 
 /* === STATES === */
