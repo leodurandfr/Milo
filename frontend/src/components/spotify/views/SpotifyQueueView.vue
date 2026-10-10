@@ -15,18 +15,22 @@
           :title="tab === 'recent' ? t('spotify.recentlyPlayedEmpty') : t('spotify.queueEmpty')" />
 
         <TrackList v-else :key="tab">
-          <TrackRow
-            v-for="(row, idx) in visibleRows"
-            :key="row.key"
-            :song="row.song"
-            :number="idx + 1"
-            :current="row.current"
-            :playing="store.isPlaying"
-            show-artist
-            show-cover
-            :cover-url="row.track.thumbnail || ''"
-            @play="play(row)"
-          />
+          <template v-for="(row, idx) in visibleRows" :key="row.key">
+            <!-- An entry go-librespot has not described yet: named within a
+                 second (its window prefetch), it holds its place until then. -->
+            <SkeletonTrackRow v-if="!row.song.title" cover artist />
+            <TrackRow
+              v-else
+              :song="row.song"
+              :number="idx + 1"
+              :current="row.current"
+              :playing="store.isPlaying"
+              show-artist
+              show-cover
+              :cover-url="row.track.thumbnail || ''"
+              @play="play(row)"
+            />
+          </template>
           <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
         </TrackList>
       </Transition>
@@ -44,6 +48,7 @@ import { useRenderWindow } from '@/composables/useRenderWindow';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import SkeletonTrackRow from '@/components/audio/SkeletonTrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 
 const { t } = useI18n();
@@ -60,22 +65,34 @@ const options = computed(() => [
 
 const seconds = (ms) => (ms ? ms / 1000 : 0);
 
-// The queue: the track playing, then what follows.
-const queueRows = computed(() => store.upNext.map((track, idx) => ({
-  key: `${track.uri}-${idx}`,
-  track,
-  song: { title: track.title, artist: track.artist, duration: seconds(track.duration_ms) },
-  current: idx === 0,
-})));
+// The queue: the track playing, then what follows. Keyed by the entry and its
+// occurrence (a track can be queued twice), never by position: one track on,
+// every position moves, and the rows would all be built again.
+const queueRows = computed(() => {
+  const seen = new Map();
+  return store.upNext.map((track, idx) => {
+    const nth = (seen.get(track.uri) ?? 0) + 1;
+    seen.set(track.uri, nth);
+    return {
+      key: `${track.uri}#${nth}`,
+      kind: 'queue',
+      track,
+      song: { title: track.title, artist: track.artist, duration: seconds(track.duration_ms) },
+      current: idx === 0,
+    };
+  });
+});
 
 // The history lists a track as it starts: the one playing is the queue's.
 // /status names a relinked track by its own uri, the history by the one its
 // context lists, so both are compared.
-const playingNow = (track) => [track.uri, track.track_uri].includes(store.currentTrackUri);
+const playingNow = (track) =>
+  !!store.currentTrackUri && [track.uri, track.track_uri].includes(store.currentTrackUri);
 const historyRows = computed(() => store.history
   .filter((track, idx) => !(idx === 0 && playingNow(track)))
   .map((track) => ({
     key: `${track.uri}-${track.played_at}`,
+    kind: 'history',
     track,
     song: { title: track.title, artist: track.artist, duration: seconds(track.duration_ms) },
     current: false,
@@ -86,10 +103,12 @@ const rows = computed(() => (tab.value === 'recent' ? historyRows.value : queueR
 const { visible: visibleRows, hasMore, sentinelRef } = useRenderWindow(() => rows.value);
 
 // Read when the tab shows, again at each new track, the one moment the
-// history moves, and for another account signed in.
+// history moves, and for another account signed in, which is loading again
+// rather than an empty history.
 const historyRead = ref(false);
-watch([tab, () => store.currentTrackUri, () => store.account], async ([now]) => {
+watch([tab, () => store.currentTrackUri, () => store.account], async ([now], [, , accountBefore] = []) => {
   if (now !== 'recent') return;
+  if (store.account !== accountBefore) historyRead.value = false;
   await store.loadHistory();
   historyRead.value = true;
 }, { immediate: true });
@@ -99,7 +118,7 @@ watch([tab, () => store.currentTrackUri, () => store.account], async ([now]) => 
 // then through the whole context. The history plays content, as the
 // browser's lists do.
 function play(row) {
-  if (tab.value === 'recent') store.playFromHistory(row.track);
+  if (row.kind === 'history') store.playFromHistory(row.track);
   else if (!row.current) sendSourceCommand('next', { uri: row.track.uri });
   else if (!store.isPlaying) sendSourceCommand('resume');
 }

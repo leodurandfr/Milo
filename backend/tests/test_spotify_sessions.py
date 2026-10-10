@@ -870,6 +870,14 @@ async def test_a_start_keeps_its_own_track_when_status_already_names_the_next(wo
     assert [(t["uri"], t["title"]) for t in listed] == [(PARAPLUIE["uri"], "Parapluie")]
 
 
+async def test_a_start_that_names_no_track_is_not_listed(world):
+    """An entry with no uri could be neither drawn nor played again."""
+    await world.phone_plays(PARAPLUIE)
+    await world._says({"type": "metadata", "data": {}}, {"type": "playing"})
+
+    assert [t["uri"] for t in await history(world)] == [PARAPLUIE["uri"]]
+
+
 async def test_the_history_route_answers_after_the_session_ended(world):
     """The tab is drawn while nothing plays: the route reads what Milō kept,
     never the daemon."""

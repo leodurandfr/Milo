@@ -1061,9 +1061,9 @@ class SpotifySource(BaseAudioSource):
             if kind == "metadata":
                 self._loaded_track = event.get("data") or {}
             elif kind == "playing" and self._loaded_track is not None:
-                self._pending_starts.append(history_entry(
-                    self._loaded_track, event.get("data") or {}, int(audio_source.wall_time() * 1000),
-                ))
+                entry = history_entry(self._loaded_track, event.get("data") or {}, int(audio_source.wall_time() * 1000))
+                if entry["uri"]:
+                    self._pending_starts.append(entry)
                 self._loaded_track = None
             if kind == "connected" and self._unanswered:
                 # The daemon that did not answer at start does now.

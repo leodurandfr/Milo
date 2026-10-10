@@ -45,3 +45,19 @@ async def test_each_account_has_its_own_history_and_it_survives_a_restart(tmp_pa
     assert restarted.forget("first")
     await restarted.save()
     assert "first" not in json.loads(file.read_text())["accounts"]
+
+
+async def test_an_unreadable_history_costs_the_list_not_the_source(tmp_path, caplog):
+    """A history that is not JSON must not keep the Spotify source from
+    starting (its initialize carries the history's): the list starts anew,
+    and the next play writes a sound file over it."""
+    file = tmp_path / "history.json"
+    file.write_text("{not json")
+    history = SpotifyHistory(file)
+    await history.initialize()
+    assert history.tracks("someone") == []
+    assert "unreadable" in caplog.text
+
+    history.add("someone", played(1))
+    await history.save()
+    assert json.loads(file.read_text())["accounts"]["someone"] == [played(1)]
