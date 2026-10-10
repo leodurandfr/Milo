@@ -196,13 +196,13 @@ watch(() => props.albumId, async (id) => {
 
 .disc-header {
   margin: 0;
-  padding: var(--space-03) 0 var(--space-01);
+  padding: var(--space-04) 0 var(--space-01);
   color: var(--color-text-secondary);
   text-transform: uppercase;
 }
 
-/* Opening the card, as far below its edge as a row's title. */
-.disc-header:first-child {
-  padding-top: var(--space-04);
+/* A disc's last track ends it as the card's last row ends the list. */
+.track-row:has(+ .disc-header) {
+  border-bottom-color: transparent;
 }
 </style>
