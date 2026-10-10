@@ -5,14 +5,20 @@ What is asserted is what the wire says, and what Milō asked of the daemon,
 after the phone or the daemon did something. Each gap test was seen red on
 the code before phase 3b for the reason its docstring gives.
 """
+import json
+
 import pytest
 
 from backend.tests.golden.harness import settle
 
 from backend.core.models.ws_events import SourceErrorReason
+from backend.sources.spotify import routes
 from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld, track
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
+# An album cover as Spotify serves it (640 px), and the 64 px one of a row.
+COVER = "https://i.scdn.co/image/ab67616d0000b2739ebaaeba7d0b85a5761ea449"
+ROW_COVER = "https://i.scdn.co/image/ab67616d000048519ebaaeba7d0b85a5761ea449"
 
 
 @pytest.fixture
@@ -89,18 +95,24 @@ def _listed(song, known=True, uid=None, provider="context"):
 
 async def test_the_play_order_around_the_track_is_published(world):
     """The phone's mini-bar slides the neighbour titles in under the finger
-    (AudioPlayer.vue's carousel reads details.queue / queue_index): the order
-    is go-librespot's window around the track, the one playing in it."""
+    (AudioPlayer.vue's carousel reads details.queue / queue_index) and the
+    Queue page draws them as rows (SpotifyQueueView.vue): the order is
+    go-librespot's window around the track, the one playing in it."""
     d = world.daemon
-    d.prev_tracks = [_listed(LE_CHEMIN)]
+    d.prev_tracks = [_listed({**LE_CHEMIN, "album_cover_url": COVER})]
     d.next_tracks = [_listed(TROIS_NEUF_TROIS), _listed(track("Pas encore lu"), known=False)]
     await world.phone_plays(PARAPLUIE)
     details = world.state()["details"]
+    def row(song, title, thumbnail):
+        return {"uri": song["uri"], "title": title, "artist": "Kery James",
+                "thumbnail": thumbnail, "duration_ms": song["duration"]}
+
     assert details["queue"] == [
-        {"uri": LE_CHEMIN["uri"], "title": "Le Chemin", "artist": "Kery James"},
-        {"uri": PARAPLUIE["uri"], "title": "Parapluie", "artist": "Kery James"},
-        {"uri": TROIS_NEUF_TROIS["uri"], "title": "Trois Neuf Trois", "artist": "Kery James"},
-        {"uri": "spotify:track:pas-encore-lu", "title": None, "artist": None},
+        row(LE_CHEMIN, "Le Chemin", ROW_COVER),
+        # Not an album cover (the fixtures'): passed on as it is.
+        row(PARAPLUIE, "Parapluie", PARAPLUIE["album_cover_url"]),
+        row(TROIS_NEUF_TROIS, "Trois Neuf Trois", TROIS_NEUF_TROIS["album_cover_url"]),
+        {"uri": "spotify:track:pas-encore-lu", "title": None, "artist": None, "thumbnail": None, "duration_ms": None},
     ]
     assert details["queue_index"] == 1
 
@@ -763,3 +775,107 @@ async def test_a_paused_remote_is_still_shown(signed_in):
 
     assert remote(signed_in)["paused"] is True
     assert signed_in.state()["controls"] == ["take_over"]
+
+
+# === The history: what this player started, as each Spotify app keeps its own ===
+
+PLAYLIST = "spotify:playlist:37i9dQZF1EIfQlcOmZWfLS"
+
+
+async def history(world):
+    """The signed-in account's history, once its writes landed."""
+    await world.idle()
+    return world.source.history.tracks(ACCOUNT)
+
+
+async def test_a_track_started_here_is_listed_newest_first_with_the_context_it_played_in(world):
+    """The queue page's recently played tab plays a track again in the context
+    it played in, and draws its title, artists, cover and length: each entry
+    carries them, newest first, and the file holds the same."""
+    world.daemon.context = (PLAYLIST, "Mix")
+    await world.phone_plays({**LE_CHEMIN, "album_cover_url": COVER})
+    await world.phone_plays(PARAPLUIE)
+
+    listed = await history(world)
+    assert [(t["uri"], t["context_uri"], t["title"]) for t in listed] == [
+        (PARAPLUIE["uri"], PLAYLIST, "Parapluie"),
+        (LE_CHEMIN["uri"], PLAYLIST, "Le Chemin"),
+    ]
+    assert listed[1]["artist"] == "Kery James"
+    assert listed[1]["duration_ms"] == LE_CHEMIN["duration"]
+    assert listed[1]["thumbnail"] == ROW_COVER
+    kept = json.loads(world.history_file.read_text())["accounts"][ACCOUNT]
+    assert [t["uri"] for t in kept] == [PARAPLUIE["uri"], LE_CHEMIN["uri"]]
+
+
+async def test_a_pause_and_a_resume_are_one_play_and_a_transferred_track_counts_when_it_starts(world):
+    """go-librespot says `playing` on every resume; only the one after a track
+    loaded (`metadata`) is a start — and a track a phone hands over loads
+    paused, so its start is a resume."""
+    await world.phone_transfers(PARAPLUIE)
+    assert [t["uri"] for t in await history(world)] == [PARAPLUIE["uri"]]
+
+    await world.phone_pauses()
+    await world.phone_resumes()
+    assert [t["uri"] for t in await history(world)] == [PARAPLUIE["uri"]]
+
+
+async def test_a_track_played_again_is_listed_again(world):
+    """The Spotify apps keep every play, the same track twice in a row
+    included (measured on the Mac app's history)."""
+    await world.phone_plays(PARAPLUIE)
+    await world.phone_plays(PARAPLUIE)
+
+    assert [t["uri"] for t in await history(world)] == [PARAPLUIE["uri"], PARAPLUIE["uri"]]
+
+
+async def test_a_start_whose_status_read_failed_is_listed_once_the_retry_names_it(world):
+    """The start is said once, in a burst whose /status read can fail: it waits
+    for a read that confirms the account — even one already known, as a guest's
+    cast changes it — rather than being lost or listed under another."""
+    await world.phone_plays(LE_CHEMIN)
+    world.daemon.status_answers = False
+    await world.phone_plays(PARAPLUIE)
+    assert [t["uri"] for t in await history(world)] == [LE_CHEMIN["uri"]]
+
+    world.daemon.status_answers = True
+    await world.advance(2.1)                  # the retry reads it
+    assert [t["uri"] for t in await history(world)] == [PARAPLUIE["uri"], LE_CHEMIN["uri"]]
+
+
+async def test_two_starts_in_one_burst_are_two_plays(world):
+    """Two quick skips can reach Milō in one burst of events: each start is
+    listed, as the Spotify apps list every play."""
+    d = world.daemon
+    await world.phone_plays(LE_CHEMIN)
+    d.track = dict(TROIS_NEUF_TROIS)
+    first = (d.metadata(), d.playing())
+    d.track = dict(PARAPLUIE)
+    await world._says(*first, d.metadata(), d.playing())
+
+    assert [t["uri"] for t in await history(world)] == [PARAPLUIE["uri"], TROIS_NEUF_TROIS["uri"], LE_CHEMIN["uri"]]
+
+
+async def test_a_start_keeps_its_own_track_when_status_already_names_the_next(world):
+    """The entry is made from the events that said the track started, never
+    from a later /status: read after a skip, that names the next track, and
+    the tab would show the first track's uri under the second one's title."""
+    world.daemon.status_answers = False
+    await world.phone_plays(PARAPLUIE)
+    world.daemon.track = dict(LE_CHEMIN)       # skipped before the retry reads
+    world.daemon.status_answers = True
+    await world.advance(2.1)
+
+    listed = await history(world)
+    assert [(t["uri"], t["title"]) for t in listed] == [(PARAPLUIE["uri"], "Parapluie")]
+
+
+async def test_the_history_route_answers_after_the_session_ended(world):
+    """The tab is drawn while nothing plays: the route reads what Milō kept,
+    never the daemon."""
+    await world.phone_plays(PARAPLUIE)
+    await world.phone_leaves()
+    await world.idle()
+
+    answer = await routes.get_history(source=world.source)
+    assert [t["uri"] for t in answer["tracks"]] == [PARAPLUIE["uri"]]

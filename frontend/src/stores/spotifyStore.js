@@ -62,6 +62,22 @@ export const useSpotifyStore = defineStore('spotify', () => {
     };
   });
 
+  // The play order around the track, as go-librespot holds it (the user's
+  // queue and shuffling included, up to 32 tracks on either side): what plays
+  // and what follows. A track with nothing around it (one played on its own)
+  // is still what plays.
+  const queue = computed(() => details.value?.queue ?? []);
+  const queueIndex = computed(() => details.value?.queue_index ?? null);
+  const upNext = computed(() => {
+    if (queueIndex.value != null) return queue.value.slice(queueIndex.value);
+    const live = session.value;
+    if (!live || !details.value?.track_uri) return [];
+    return [{
+      uri: details.value.track_uri, title: live.title ?? null, artist: live.artist ?? null,
+      thumbnail: live.artwork ?? null, duration_ms: live.duration_ms ?? null,
+    }];
+  });
+
   // What another device of the account plays while nothing plays here, as the
   // record the players draw (utils/nowPlayingMetadata): the bar shows it, and
   // its play button (`take_over`) brings it here.
@@ -259,6 +275,29 @@ export const useSpotifyStore = defineStore('spotify', () => {
     return result.ok;
   }
 
+  // =========================================================================
+  // HISTORY — what the daemon's player played, newest first, each track with
+  // the context it played in (not the play order's previous tracks, which
+  // stop at the start of the context)
+  // =========================================================================
+  const history = ref([]);
+  const historyError = ref(false);
+  // Bumped by each read and by an account switch: only the latest read for
+  // the account shown lands.
+  let historyReads = 0;
+
+  async function loadHistory() {
+    const read = ++historyReads;
+    const result = await apiCall.get(`${BASE}/history`, {
+      category: 'spotify',
+      message: 'Error loading the Spotify history',
+      logLevel: 'warn',
+    });
+    if (read !== historyReads) return;
+    historyError.value = !result.ok;
+    if (result.ok) history.value = result.data.tracks;
+  }
+
   /** WS: source/profiles_changed — a profile kept, described or forgotten. */
   function applyProfiles(event) {
     profilePushes += 1;
@@ -300,6 +339,9 @@ export const useSpotifyStore = defineStore('spotify', () => {
     forgetArtists();
     radios = new Map();
     contextLengths = new Map();
+    historyReads += 1;
+    history.value = [];
+    historyError.value = false;
   }, { flush: 'sync' });
 
   // Another interface language: the shelves and the artist pages are titled
@@ -320,10 +362,21 @@ export const useSpotifyStore = defineStore('spotify', () => {
     return send('play_context', data);
   }
 
+  // A track of the history, in the context it played in: it is not in the
+  // play order any more. One played on its own plays on its own again.
+  function playFromHistory(track) {
+    if (!track.context_uri) return playContext(track.uri);
+    return playContext(track.context_uri, { skipToUri: track.uri });
+  }
+
   return {
     // now playing
     account, signingIn, session, phase, isPlaying,
     currentTrackUri, currentContextUri, nowPlaying, remote,
+    // play order
+    upNext,
+    // history
+    history, historyError, loadHistory,
     // home
     home, homeLoading, homeError, loadHome,
     // contexts
@@ -336,6 +389,6 @@ export const useSpotifyStore = defineStore('spotify', () => {
     profiles, loadProfiles, applyProfiles, switchProfile, forgetProfile,
     resync,
     // commands
-    playContext,
+    playContext, playFromHistory,
   };
 });

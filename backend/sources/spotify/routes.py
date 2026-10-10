@@ -110,6 +110,16 @@ async def get_home(
         }
 
 
+@router.get("/history")
+async def get_history(source: SpotifySource = Depends(get_source)):
+    """The tracks Milō played for the signed-in account, newest first, each
+    with the context it played in: the queue page's recently played tab. Kept
+    by Milō, as each Spotify app keeps its own player's, so it answers while
+    nothing plays."""
+    history, account = source.history, source.account
+    return {"status": "success", "tracks": history.tracks(account) if history and account else []}
+
+
 @router.get("/contexts/{uri}")
 async def get_context(
     uri: str,

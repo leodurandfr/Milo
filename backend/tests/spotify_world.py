@@ -321,7 +321,7 @@ class Librespot:
                 asyncio.get_running_loop().call_soon(self._resumed)
             else:
                 self.paused = False
-                self._later({"type": "playing"})
+                self._later(self.playing(resume=True))
         elif command == "seek" and self.track:
             self.track["position"] = body["position"]
             self._later({"type": "seek", "position": body["position"]})
@@ -393,10 +393,23 @@ class Librespot:
         self.context = (body["uri"], "Chill appart")
         self.track, self.paused, self.buffering = song, False, False
         self._later({"type": "will_play", "uri": uri})
-        self._later({"type": "metadata", "uri": uri})
-        self._later({"type": "playing"})
+        self._later(self.metadata())
+        self._later(self.playing())
 
     # -- the daemon's side ----------------------------------------------------
+
+    def metadata(self) -> Dict[str, Any]:
+        """`metadata`: once per track the daemon loads, carrying it."""
+        return {"type": "metadata", "data": copy.deepcopy(self.track)}
+
+    def playing(self, resume: bool = False) -> Dict[str, Any]:
+        """`playing`: a resume, or the start of the track loaded (a resume too
+        when it loaded paused, as a transfer does)."""
+        context_uri, _ = self.context or ("", None)
+        return {"type": "playing", "data": {
+            "context_uri": context_uri, "uri": self.track["uri"], "resume": resume,
+            "play_origin": "go-librespot",
+        }}
 
     def says(self, *events: Dict[str, Any]) -> None:
         if self.socket is not None:
@@ -423,11 +436,11 @@ class Librespot:
         """~0.25 s later: the track it brought, where it stood, playing."""
         self.transfer_pending = False
         self.track, self.paused, self.buffering = copy.deepcopy(self.taken_over["track"]), False, False
-        self.says({"type": "metadata", "uri": self.track["uri"]}, {"type": "playing"})
+        self.says(self.metadata(), self.playing())
 
     def _resumed(self) -> None:
         self.paused = False
-        self.says({"type": "playing"})
+        self.says(self.playing(resume=True))
 
     def _ends(self) -> None:
         self.session, self.track, self.paused, self.buffering = False, None, True, False
@@ -543,9 +556,11 @@ class SpotifyWorld(WireReader):
             "server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\nexternal_volume: true\n"
         )
         self.profiles_file = tmp_path / "spotify" / "profiles.json"
+        self.history_file = tmp_path / "spotify" / "history.json"
         self.machine, self.recorder = make_state_machine()
         self.source = SpotifySource(
-            {"config_path": str(config), "profiles_path": str(self.profiles_file)},
+            {"config_path": str(config), "profiles_path": str(self.profiles_file),
+             "history_path": str(self.history_file)},
             state_machine=self.machine,
             settings_service=make_settings(settings),
             systemd_manager=systemd,
@@ -653,10 +668,10 @@ class SpotifyWorld(WireReader):
         d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, None, True, True
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         d.track, d.buffering = {**copy.deepcopy(song), "position": at_ms}, False
-        await self._says({"type": "metadata", "uri": song["uri"]}, {"type": "paused"})
+        await self._says(d.metadata(), {"type": "paused"})
         await self.advance(1.6)
         d.paused = False
-        await self._says({"type": "playing", "resume": True})
+        await self._says(d.playing(resume=True))
 
     async def phone_plays(self, song: Dict[str, Any] = PARAPLUIE, account: str = ACCOUNT) -> None:
         """A phone starts a track here from the top."""
@@ -665,7 +680,7 @@ class SpotifyWorld(WireReader):
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         await self.advance(0.07)
         d.track, d.buffering = copy.deepcopy(song), False
-        await self._says({"type": "metadata", "uri": song["uri"]}, {"type": "playing"})
+        await self._says(d.metadata(), d.playing())
 
     async def phone_pauses(self) -> None:
         self.daemon.paused = True
@@ -673,7 +688,7 @@ class SpotifyWorld(WireReader):
 
     async def phone_resumes(self) -> None:
         self.daemon.paused = False
-        await self._says({"type": "playing", "resume": True})
+        await self._says(self.daemon.playing(resume=True))
 
     async def phone_seeks(self, position_ms: int) -> None:
         self.daemon.track["position"] = position_ms

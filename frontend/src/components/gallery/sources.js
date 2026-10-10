@@ -447,7 +447,7 @@ const RADIO_HEADER = { titleKey: 'audioSources.radioSource.favoritesTitle', acti
 const PODCAST_HEADER = { titleKey: 'podcasts.podcasts', actions: ['heartOff', 'queue', 'search'] };
 const ML_HEADER = { titleKey: 'audioSources.musicLibrary', actions: ['queue', 'search'] };
 
-const SPOTIFY_HEADER = { titleKey: 'audioSources.spotify' };
+const SPOTIFY_HEADER = { titleKey: 'audioSources.spotify', actions: ['queue'] };
 
 /** `details.spotify` (SpotifyDetails), every field present. */
 function spotifyDetails(overrides = {}) {

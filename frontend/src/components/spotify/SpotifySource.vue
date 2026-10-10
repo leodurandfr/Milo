@@ -12,9 +12,11 @@
         :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
         @header-back="back" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
 
-        <!-- Home only: whose library this is, and the way to the others. -->
-        <template v-if="currentView === 'home' && activeProfile" #header-actions>
-          <button v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
+        <!-- Home only: the play order, whose library this is, and the way to
+             the others. -->
+        <template v-if="currentView === 'home'" #header-actions>
+          <IconButton icon="queue" :aria-label="t('spotify.queue')" @click="push('queue')" />
+          <button v-if="activeProfile" v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
             @click="goTo('profiles')">
             <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" />
           </button>
@@ -45,12 +47,13 @@
 
               <SpotifySectionView v-else-if="entry.view === 'section'"
                 :items="entry.params.items" @select="openItem" />
+
+              <SpotifyQueueView v-else-if="entry.view === 'queue'" />
             </component>
           </KeepAlive>
         </template>
 
-        <!-- Docked player: it reads what it draws from the state (no queue
-             carousel: go-librespot does not say what comes next); the album
+        <!-- Docked player: it reads what it draws from the state; the album
              and the artist it emits open here, in the navigation. -->
         <template #player>
           <AudioPlayer v-bind="bar" source="spotify"
@@ -71,6 +74,7 @@ import { useI18n } from '@/services/i18n';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import ProfileAvatar from './ProfileAvatar.vue';
 import SpotifyHome from './views/SpotifyHome.vue';
 import SpotifyContextView from './views/SpotifyContextView.vue';
@@ -78,6 +82,7 @@ import SpotifyArtistView from './views/SpotifyArtistView.vue';
 import SpotifyDiscographyView from './views/SpotifyDiscographyView.vue';
 import SpotifySectionView from './views/SpotifySectionView.vue';
 import SpotifyProfilesView from './views/SpotifyProfilesView.vue';
+import SpotifyQueueView from './views/SpotifyQueueView.vue';
 
 const store = useSpotifyStore();
 const { t } = useI18n();
@@ -102,6 +107,7 @@ const activeProfile = computed(() => store.profiles.find((p) => p.active) ?? nul
 
 const currentTitle = computed(() => {
   if (currentView.value === 'profiles') return t('spotify.profiles');
+  if (currentView.value === 'queue') return t('spotify.queue');
   if (currentView.value === 'artist') return t('spotify.artist');
   if (currentView.value === 'discography') return t('spotify.discography');
   if (currentView.value === 'section') return currentParams.value.title || t('audioSources.spotify');

@@ -86,7 +86,8 @@ from backend.core.models.session import (
     Session,
 )
 from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams, skip_target
-from backend.sources.spotify.catalog import artists_of, queue_entry
+from backend.sources.spotify.catalog import artists_of, history_entry, queue_entry
+from backend.sources.spotify.history import SpotifyHistory
 from backend.sources.spotify.library import SpotifyLibrary
 from backend.sources.spotify.models import (
     NextParams, PlayContextParams, PrevParams, SeekParams,
@@ -225,7 +226,7 @@ class SpotifySession(Session):
     album_uri: Optional[str] = None
     artists: List[Dict[str, Optional[str]]] = field(default_factory=list)
     # The play order around the track (queue_entry), and the track's place in it.
-    queue: List[Dict[str, Optional[str]]] = field(default_factory=list)
+    queue: List[Dict[str, Any]] = field(default_factory=list)
     queue_index: Optional[int] = None
 
 
@@ -383,6 +384,16 @@ class SpotifySource(BaseAudioSource):
         self._order_stale = True
         self._order_route = True
         self._order_retried = False     # the one retry after a failed read is spent
+        # A track this player started, for the history: go-librespot's
+        # `metadata` comes once per track it loads and carries it, and the
+        # `playing` after it (a resume when it loaded paused, as a transfer
+        # does) is its start. The entry is made from those two events alone —
+        # /status may already name the next track — and waits here for a
+        # /status read to confirm the account to list it under (a first cast,
+        # or a guest's, names it there). Every start waits: two skips in one
+        # burst are two plays.
+        self._loaded_track: Optional[Dict[str, Any]] = None
+        self._pending_starts: List[Dict[str, Any]] = []
 
         # The browser's two services. Profiles only where a path is given
         # (dependencies.py): a source built without one keeps no account.
@@ -391,6 +402,8 @@ class SpotifySource(BaseAudioSource):
         self._profiles = SpotifyProfiles(Path(profiles_path)) if profiles_path else None
         # Accounts whose credentials were already kept in this daemon run.
         self._harvested: set = set()
+        history_path = self._config.get("history_path")
+        self._history = SpotifyHistory(Path(history_path)) if history_path else None
 
     @property
     def library(self) -> SpotifyLibrary:
@@ -401,14 +414,21 @@ class SpotifySource(BaseAudioSource):
         return self._profiles
 
     @property
+    def history(self) -> Optional[SpotifyHistory]:
+        return self._history
+
+    @property
     def account(self) -> Optional[str]:
         """The account go-librespot is signed in as, or about to be."""
         return self._account
 
     async def initialize(self) -> bool:
-        """Load the profiles, so a schema drift stops the boot with its banner."""
+        """Load the profiles and the history, so a schema drift stops the boot
+        with its banner."""
         if self._profiles is not None:
             await self._profiles.initialize()
+        if self._history is not None:
+            await self._history.initialize()
         return await super().initialize()
 
     async def _do_start(self) -> bool:
@@ -916,6 +936,7 @@ class SpotifySource(BaseAudioSource):
         if self._profiles is None or not await self._profiles.forget(username):
             return self.error_response("Unknown Spotify profile")
         self._harvested.discard(username)
+        self._forget_history(username)
         self._logger.info(f"Spotify profile forgotten ({len(self._profiles)} stored)")
         await self._profiles_changed()
         if username in (self._persisted, await self._stored_account()):
@@ -923,6 +944,12 @@ class SpotifySource(BaseAudioSource):
             # next /status would keep it again.
             await self._sign_in_successor()
         return self.success_response()
+
+    def _forget_history(self, account: str) -> None:
+        """What a forgotten profile played goes with it: kept again, it starts
+        afresh."""
+        if self._history is not None and self._history.forget(account):
+            self._bg.spawn(self._history.save(), label="spotify history")
 
     async def _sign_in_successor(self) -> None:
         """The signed-in profile is gone: the one signed in last on Milō takes
@@ -978,6 +1005,7 @@ class SpotifySource(BaseAudioSource):
             return
         if self._profiles is not None and await self._profiles.forget(account):
             self._harvested.discard(account)
+            self._forget_history(account)
             self._logger.info(f"Refused Spotify profile forgotten ({len(self._profiles)} stored)")
             await self._profiles_changed()
         await self._sign_in_successor()
@@ -1000,8 +1028,8 @@ class SpotifySource(BaseAudioSource):
     async def _on_librespot_event(self, event: Dict[str, Any]) -> None:
         """The /events callback: it runs on the client's task, so it posts.
 
-        go-librespot sends flat events (fields at root level, no "data" wrapper):
-        {"type": "seek", "position": 12345, "uri": "spotify:track:..."}
+        go-librespot wraps what an event says in `data`:
+        {"type": "playing", "data": {"context_uri": …, "uri": …, "resume": false, …}}
         """
         self._post_feed(event)
 
@@ -1030,6 +1058,13 @@ class SpotifySource(BaseAudioSource):
                 self._order_stale = True
             if kind == "remote":
                 self._announced_remote = event.get("data")
+            if kind == "metadata":
+                self._loaded_track = event.get("data") or {}
+            elif kind == "playing" and self._loaded_track is not None:
+                self._pending_starts.append(history_entry(
+                    self._loaded_track, event.get("data") or {}, int(audio_source.wall_time() * 1000),
+                ))
+                self._loaded_track = None
             if kind == "connected" and self._unanswered:
                 # The daemon that did not answer at start does now.
                 self.broadcast_error_cleared()
@@ -1080,6 +1115,19 @@ class SpotifySource(BaseAudioSource):
             await self._apply_session(status)
         await self._follow_account(status)
         self._follow_remote(status)
+        self._list_started_tracks()
+
+    def _list_started_tracks(self) -> None:
+        """List the tracks that started in the history, under the account this
+        /status read named. The list is updated here; the file is written off
+        the mailbox, and a write cut short is caught up by the next."""
+        if not self._pending_starts or not self._account:
+            return
+        starts, self._pending_starts = self._pending_starts, []
+        if self._history is not None:
+            for entry in starts:
+                self._history.add(self._account, entry)
+            self._bg.spawn(self._history.save(), label="spotify history")
 
     async def _apply_session(self, status: LibrespotStatus) -> None:
         """Make the session match a /status that names one.
@@ -1679,6 +1727,7 @@ class SpotifySource(BaseAudioSource):
         self._remote = self._announced_remote = None
         self._order, self._order_stale, self._order_route = PlayOrder(), True, True
         self._order_retried = False
+        self._loaded_track, self._pending_starts = None, []
         self._release_remote_hold()
         self._shuffle, self._repeat = False, "off"
         self._harvested.clear()

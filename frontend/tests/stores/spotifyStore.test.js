@@ -205,4 +205,62 @@ describe('spotifyStore', () => {
       { command: 'play_context', data: { uri: PLAYLIST, shuffle: true } },
     ]);
   });
+
+  it('lists the queue from the track playing: it, then what follows, never what came before', () => {
+    const entry = (name) => ({ uri: `spotify:track:${name}`, title: name, artist: null, thumbnail: null, duration_ms: null });
+    publish({
+      session: makeSession({ title: 'c' }),
+      details: details({ track_uri: 'spotify:track:c', queue: ['a', 'b', 'c', 'd', 'e'].map(entry), queue_index: 2 }),
+    });
+
+    expect(store.upNext.map((t) => t.title)).toEqual(['c', 'd', 'e']);
+
+    // A track with nothing around it (one played on its own) is still what plays.
+    publish({
+      session: makeSession({ title: 'c', artist: 'Nils Frahm' }),
+      details: details({ track_uri: 'spotify:track:c', queue: [], queue_index: null }),
+    });
+    expect(store.upNext.map((t) => [t.uri, t.title, t.artist])).toEqual([['spotify:track:c', 'c', 'Nils Frahm']]);
+
+    // No session: nothing plays.
+    publish({ details: details({ queue: [], queue_index: null }) });
+    expect(store.upNext).toEqual([]);
+  });
+
+  it("keeps the history read for one account from showing under the next", async () => {
+    publish({ details: details() });
+    const played = [{ uri: TRACK, title: 'Says', artists: [], context_uri: PLAYLIST, played_at: 1 }];
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', tracks: played }));
+    await store.loadHistory();
+    expect(store.history).toEqual(played);
+
+    // Two reads in flight: the later one is the one that lands.
+    let first;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { first = resolve; }));
+    const older = store.loadHistory();
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', tracks: [] }));
+    await store.loadHistory();
+    first(ok({ status: 'success', tracks: played }));
+    await older;
+    expect(store.history).toEqual([]);
+
+    // A guest casts while the history of the owner is in flight.
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const reading = store.loadHistory();
+    publish({ details: details({ account: 'guest' }) });
+    answer(ok({ status: 'success', tracks: played }));
+    await reading;
+    expect(store.history).toEqual([]);
+  });
+
+  it('plays a track of the history in the context it played in, or on its own', async () => {
+    await store.playFromHistory({ uri: TRACK, context_uri: PLAYLIST });
+    await store.playFromHistory({ uri: TRACK, context_uri: null });
+
+    expect(commandsSent()).toEqual([
+      { command: 'play_context', data: { uri: PLAYLIST, shuffle: false, skip_to_uri: TRACK } },
+      { command: 'play_context', data: { uri: TRACK, shuffle: false } },
+    ]);
+  });
 });

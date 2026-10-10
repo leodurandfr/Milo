@@ -262,12 +262,14 @@ REFUSED = ('level=fatal msg="daemon exited with error" error="failed authenticat
 async def test_refused_stored_credentials_forget_the_only_profile_and_free_the_daemon(world):
     """A changed password: go-librespot exits on stored credentials it cannot
     use, at every start. The profile goes, and with none left the daemon is
-    handed nobody — the card, ready for a cast."""
+    handed nobody — the card, ready for a cast. What it played goes with it."""
+    world.source.history.add(ACCOUNT, {"uri": "spotify:track:played"})
     await world.source._handle_log_line(REFUSED)
     await world.advance(2.1)
     await world.idle()
 
     assert kept(world) == {}
+    assert world.source.history.tracks(ACCOUNT) == []
     assert world.stored_state()["credentials"]["username"] == ""
     assert world.state()["details"]["account"] is None
     assert world.errors() == ["credentials_refused"]

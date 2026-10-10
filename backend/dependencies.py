@@ -10,7 +10,7 @@ import logging
 import sys
 from typing import Any, Dict, Optional
 
-from backend.config.constants import SPOTIFY_PROFILES_FILE
+from backend.config.constants import SPOTIFY_HISTORY_FILE, SPOTIFY_PROFILES_FILE
 from backend.shared.persistence import SchemaVersionMismatch
 
 logger = logging.getLogger(__name__)
@@ -237,6 +237,7 @@ def _create_service(name: str) -> Any:
             config={
                 "config_path": "/var/lib/milo/go-librespot/config.yml",
                 "profiles_path": str(SPOTIFY_PROFILES_FILE),
+                "history_path": str(SPOTIFY_HISTORY_FILE),
             },
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),

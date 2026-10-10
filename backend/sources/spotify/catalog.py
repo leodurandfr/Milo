@@ -136,15 +136,30 @@ def artists_of(track: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
     ]
 
 
-def queue_entry(uri: Optional[str], track: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
-    """One track of the play order: its uri, and its title and artist line
-    once go-librespot has its metadata (a window entry's track is null
-    until then)."""
+def queue_entry(uri: Optional[str], track: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """One track of the play order: its uri, and its title, artist line, cover
+    and duration once go-librespot has its metadata (a window entry's track is
+    null until then)."""
     track = track or {}
     return {
         "uri": uri,
         "title": track.get("name") or None,
         "artist": ", ".join(track.get("artist_names") or []) or None,
+        "thumbnail": thumbnail_url(track.get("album_cover_url")),
+        "duration_ms": track.get("duration") or None,
+    }
+
+
+def history_entry(track: Dict[str, Any], playing: Dict[str, Any], played_at: int) -> Dict[str, Any]:
+    """A history entry from go-librespot's `metadata` (the track loaded) and
+    the `playing` that started it. `uri` is the one the context lists, which
+    skip_to_uri finds there to play it again; `track_uri` is the track's own,
+    the one /status names (they differ for a relinked track)."""
+    return {
+        **queue_entry(playing.get("uri") or track.get("uri"), track),
+        "track_uri": track.get("uri") or None,
+        "context_uri": playing.get("context_uri") or None,
+        "played_at": played_at,
     }
 
 

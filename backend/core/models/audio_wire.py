@@ -211,11 +211,14 @@ class SpotifyArtist(BaseModel):
 
 class SpotifyQueueEntry(BaseModel):
     """One track of the play order around what plays: what the phone's
-    mini-bar slides in under the finger before the swipe lands on it."""
+    mini-bar slides in under the finger before the swipe lands on it, and a
+    row of the Queue page."""
     uri: str
     # Null until go-librespot has cached the track's metadata.
     title: Optional[str]
     artist: Optional[str]           # the artist line, its names joined
+    thumbnail: Optional[str]        # the 64 px album cover of a track row
+    duration_ms: Optional[int]
 
 
 class SpotifyDetails(BaseModel):
