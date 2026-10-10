@@ -14,9 +14,9 @@
 
     <div class="detail-header-meta">
       <div class="detail-header-titles">
-        <h2 class="detail-header-title heading-2">{{ title }}</h2>
-        <p v-if="subtitle || artistLinks" class="detail-header-subtitle heading-3"
-          :class="{ 'detail-header-subtitle--clickable': subtitleClickable }"
+        <h2 class="detail-header-title" :class="isMobile ? 'heading-4' : 'heading-2'">{{ title }}</h2>
+        <p v-if="subtitle || artistLinks" class="detail-header-subtitle"
+          :class="[isMobile ? 'heading-5' : 'heading-3', { 'detail-header-subtitle--clickable': subtitleClickable }]"
           @click="subtitleClickable && $emit('select-artist')">
           <ArtistNames v-if="artistLinks" :artists="subtitleArtists" @open="$emit('select-artist', $event)" />
           <template v-else>{{ subtitle }}</template>
@@ -29,8 +29,12 @@
         <slot name="actions"></slot>
         <IconButton v-if="showShuffle" icon="shuffle" variant="on-contrast" size="medium"
           :aria-label="t('musicLibrary.shuffle')" @click="$emit('shuffle')" />
-        <Button v-if="showPlay" variant="brand" size="medium" left-icon="play" :loading="playLoading"
-          @click="$emit('play')">{{ t('musicLibrary.play') }}</Button>
+        <template v-if="showPlay">
+          <IconButton v-if="isMobile" icon="play" variant="brand" size="medium" :loading="playLoading"
+            :aria-label="t('musicLibrary.play')" @click="$emit('play')" />
+          <Button v-else variant="brand" size="medium" left-icon="play" :loading="playLoading"
+            @click="$emit('play')">{{ t('musicLibrary.play') }}</Button>
+        </template>
       </div>
     </div>
   </div>
@@ -39,6 +43,7 @@
 <script setup>
 import { computed, useSlots } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { useIsMobile } from '@/composables/useIsMobile';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Button from '@/components/ui/Button.vue';
@@ -102,6 +107,7 @@ const props = defineProps({
 defineEmits(['play', 'shuffle', 'select-artist']);
 
 const { t } = useI18n();
+const { isMobile } = useIsMobile();
 const slots = useSlots();
 
 const artistLinks = computed(() => props.subtitleArtists.some((artist) => artist.link));
@@ -181,16 +187,30 @@ const hasActions = computed(
   flex-shrink: 0;
 }
 
+/* A compact row: the cover a thumbnail, the title on one line. */
 @media (max-aspect-ratio: 4/3) {
-  .detail-header {
-    flex-direction: column;
-    align-items: stretch;
+  .detail-header-cover {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-01);
   }
 
-  .detail-header-cover {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1 / 1;
+  .detail-header-meta {
+    align-items: center;
+  }
+
+  .detail-header-titles {
+    gap: var(--space-01);
+  }
+
+  .detail-header-title {
+    -webkit-line-clamp: 1;
+  }
+
+  .detail-header-metaline {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>

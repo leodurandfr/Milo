@@ -9,10 +9,10 @@
 
     <div class="skeleton-detail-header__meta">
       <div class="skeleton-detail-header__titles">
-        <span class="skeleton-detail-header__line heading-2">
+        <span class="skeleton-detail-header__line" :class="isMobile ? 'heading-4' : 'heading-2'">
           <span class="skeleton-text-line shimmer shimmer--on-contrast skeleton-detail-header__title"></span>&#8203;
         </span>
-        <span v-if="subtitle" class="skeleton-detail-header__line heading-3">
+        <span v-if="subtitle" class="skeleton-detail-header__line" :class="isMobile ? 'heading-5' : 'heading-3'">
           <span class="skeleton-text-line shimmer shimmer--on-contrast skeleton-detail-header__subtitle"></span>&#8203;
         </span>
         <span class="skeleton-detail-header__line text-mono-medium">
@@ -29,6 +29,8 @@
 </template>
 
 <script setup>
+import { useIsMobile } from '@/composables/useIsMobile';
+
 defineProps({
   // The subtitle line (an album's artists), which most headers do not draw.
   subtitle: {
@@ -41,6 +43,8 @@ defineProps({
     default: false,
   },
 });
+
+const { isMobile } = useIsMobile();
 </script>
 
 <style scoped>
@@ -107,7 +111,7 @@ defineProps({
   flex-shrink: 0;
 }
 
-/* A medium IconButton and a labelled medium Button. */
+/* A medium IconButton and a labelled medium Button (an IconButton on the phone). */
 .skeleton-detail-header__shuffle,
 .skeleton-detail-header__play {
   height: 48px;
@@ -123,15 +127,22 @@ defineProps({
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .skeleton-detail-header {
-    flex-direction: column;
-    align-items: stretch;
+  .skeleton-detail-header__cover {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-01);
   }
 
-  .skeleton-detail-header__cover {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1 / 1;
+  .skeleton-detail-header__meta {
+    align-items: center;
+  }
+
+  .skeleton-detail-header__titles {
+    gap: var(--space-01);
+  }
+
+  .skeleton-detail-header__title {
+    height: 14px;
   }
 
   .skeleton-detail-header__shuffle,
@@ -145,7 +156,7 @@ defineProps({
   }
 
   .skeleton-detail-header__play {
-    width: 88px;
+    width: 38px;
   }
 }
 </style>

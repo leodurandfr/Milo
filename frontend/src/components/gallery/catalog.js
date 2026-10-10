@@ -335,7 +335,7 @@ export const ENTRIES = [
     id: 'DetailHeader',
     group: 'player',
     file: 'components/audio/DetailHeader.vue',
-    summary: 'The album / playlist / episode header: cover art, or the Liked Songs cover (LikedCover) when liked. Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons.',
+    summary: 'The album / playlist / episode header: cover art, or the Liked Songs cover (LikedCover) when liked. Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons. On the phone it is a compact row: a thumbnail cover, the title on one line, Play an icon.',
   },
 
   {
