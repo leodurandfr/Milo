@@ -19,9 +19,11 @@
             :icon="headerIcon"
             :title="headerTitle"
             :subtitle="headerSubtitle"
+            :subtitle-artists="subtitleArtists"
             :subtitle-meta="t('spotify.tracksCount', { count: trackCount })"
             @play="play()"
             @shuffle="shufflePlay"
+            @select-artist="selectHeaderArtist"
           />
 
           <div class="tracks">
@@ -90,7 +92,7 @@ const props = defineProps({
   },
 });
 
-defineEmits(['select-artist', 'select-album', 'select-radio']);
+const emit = defineEmits(['select-artist', 'select-album', 'select-radio']);
 
 const { t } = useI18n();
 const store = useSpotifyStore();
@@ -119,11 +121,29 @@ const headerTitle = computed(() => {
   if (props.kind === 'album') return first.value?.album.name || '';
   return t('spotify.untitledPlaylist');
 });
+// An album's own artists, which the listing does not name: those credited on
+// every track, in the first one's order. A feature on one track is not the
+// album's; a compilation has none, and its line keeps the first track's names,
+// unlinked.
+const albumArtists = computed(() => {
+  if (props.kind !== 'album' || !first.value) return [];
+  const key = (artist) => artist.uri || artist.name;
+  return first.value.artists.filter((artist) =>
+    tracks.value.every((track) => track.artists.some((other) => key(other) === key(artist))));
+});
 const headerSubtitle = computed(() => {
-  if (props.kind === 'album') return first.value?.artists.map((a) => a.name).join(', ') || '';
+  if (props.kind === 'album') {
+    return (albumArtists.value.length ? albumArtists.value : first.value?.artists ?? []).map((a) => a.name).join(', ');
+  }
   if (props.kind === 'playlist' && props.owner === 'spotify') return 'Spotify';
   return '';
 });
+// Each a link to its page, where Spotify names one.
+const subtitleArtists = computed(() => albumArtists.value.map((a) => ({ name: a.name, link: !!a.uri })));
+function selectHeaderArtist(index) {
+  const artist = albumArtists.value[index];
+  if (artist?.uri) emit('select-artist', artist);
+}
 const headerIcon = computed(() => {
   if (props.kind === 'liked') return 'heart';
   return '';

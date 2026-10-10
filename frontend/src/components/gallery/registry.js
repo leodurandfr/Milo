@@ -867,6 +867,13 @@ export const REGISTRY = {
     // `icon` swaps the cover for a tinted tile — the virtual headers (Liked
     // Songs, a genre) take that branch. No validator on it, so the list is here.
     overrides: { icon: OPTIONAL_ICON },
+    presets: {
+      subtitleArtists: {
+        'None — the subtitle as text': [],
+        'One artist, a link': [{ name: 'Nils Frahm', link: true }],
+        'Two artists, each a link': [{ name: 'Nils Frahm', link: true }, { name: 'Ólafur Arnalds', link: true }]
+      }
+    },
     slots: {
       actions: {
         none: null,

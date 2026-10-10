@@ -305,7 +305,7 @@ export const ENTRIES = [
     id: 'ArtistNames',
     group: 'player',
     file: 'components/audio/ArtistNames.vue',
-    summary: 'An artist line drawn name by name: a name with a page to open is its own link (`open` with its index), the ", " between names and a name with none are text. Inline, so the line it sits in keeps its one-line ellipsis — and a pressed name dims rather than shrinks. Drawn by PlayerBody, when a line names several artists.',
+    summary: 'An artist line drawn name by name: a name with a page to open is its own link (`open` with its index), the ", " between names and a name with none are text. Inline, so the line it sits in keeps its one-line ellipsis — and a pressed name dims rather than shrinks. Drawn by PlayerBody when a line names several artists, and by DetailHeader for any artist with a page.',
   },
   {
     id: 'PlayerInfoText',
@@ -323,7 +323,7 @@ export const ENTRIES = [
     id: 'DetailHeader',
     group: 'player',
     file: 'components/audio/DetailHeader.vue',
-    summary: 'The album / playlist / episode header: cover art, or a tinted icon tile when icon is set instead (the virtual headers — Liked Songs, a genre). Up to three text lines, and an actions slot that renders before the built-in shuffle / play buttons.',
+    summary: 'The album / playlist / episode header: cover art, or a tinted icon tile when icon is set instead (the virtual headers — Liked Songs, a genre). Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons.',
   },
 
   // --- Source layouts ---

@@ -72,6 +72,12 @@
         @select-artist="artistHits++" />
       <span class="text-mono-small">select-artist: {{ artistHits }}</span>
     </GalleryVariant>
+    <GalleryVariant label=":subtitle-artists — several names, one link each (Spotify's album)" stacked>
+      <DetailHeader :image-src="musicPlaceholder" title="Trance Frendz" subtitle="Ólafur Arnalds, Nils Frahm"
+        :subtitle-artists="[{ name: 'Ólafur Arnalds', link: true }, { name: 'Nils Frahm', link: true }]"
+        :show-play="false" :show-shuffle="false" @select-artist="artistPicked = $event" />
+      <span class="text-mono-small">select-artist: {{ artistPicked ?? '—' }}</span>
+    </GalleryVariant>
   </GalleryItem>
 </template>
 
@@ -88,6 +94,7 @@ import { musicPlaceholder } from '@/constants/placeholders';
 
 const position = ref(192000);
 const artistHits = ref(0);
+const artistPicked = ref(null);
 
 // Seconds, not milliseconds — the row formats what the catalogue gives it.
 const track = { title: 'Says', artist: 'Nils Frahm', duration: 511 };

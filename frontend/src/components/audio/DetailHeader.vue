@@ -15,8 +15,12 @@
     <div class="detail-header-meta">
       <div class="detail-header-titles">
         <h2 class="detail-header-title heading-2">{{ title }}</h2>
-        <p v-if="subtitle" class="detail-header-subtitle heading-3" :class="{ 'detail-header-subtitle--clickable': subtitleClickable }"
-          @click="subtitleClickable && $emit('select-artist')">{{ subtitle }}</p>
+        <p v-if="subtitle || artistLinks" class="detail-header-subtitle heading-3"
+          :class="{ 'detail-header-subtitle--clickable': subtitleClickable }"
+          @click="subtitleClickable && $emit('select-artist')">
+          <ArtistNames v-if="artistLinks" :artists="subtitleArtists" @open="$emit('select-artist', $event)" />
+          <template v-else>{{ subtitle }}</template>
+        </p>
         <p v-if="subtitleMeta" class="detail-header-metaline text-mono-medium">{{ subtitleMeta }}</p>
       </div>
 
@@ -39,6 +43,7 @@ import LazyImage from '@/components/ui/LazyImage.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Button from '@/components/ui/Button.vue';
+import ArtistNames from '@/components/audio/ArtistNames.vue';
 
 const props = defineProps({
   imageSrc: {
@@ -66,9 +71,17 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  // The whole subtitle as one link; `select-artist` then carries nothing.
   subtitleClickable: {
     type: Boolean,
     default: false,
+  },
+  // The subtitle drawn name by name, `{ name, link }` (ArtistNames), in place
+  // of `subtitle` once one has a page: each such name is its own link, and
+  // `select-artist` carries its index.
+  subtitleArtists: {
+    type: Array,
+    default: () => [],
   },
   showPlay: {
     type: Boolean,
@@ -90,6 +103,8 @@ defineEmits(['play', 'shuffle', 'select-artist']);
 
 const { t } = useI18n();
 const slots = useSlots();
+
+const artistLinks = computed(() => props.subtitleArtists.some((artist) => artist.link));
 
 const hasActions = computed(
   () => props.showPlay || props.showShuffle || !!slots.actions
