@@ -216,6 +216,7 @@ const radioStore = useRadioStore();
 // Inject modal refs: the scroller (scroll el) and the navigation height writer.
 const modalContentRef = inject('modalContentRef', null);
 const modalSetNavHeight = inject('modalSetNavHeight', null);
+const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 // Persistent header — faded (not popped) when a scroll-reset nav crosses its height.
 const navHeaderRef = ref(null);
@@ -273,6 +274,7 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   onScrollRestored: () => { pendingScrollRestore.value = null; },
   setNavHeight: modalSetNavHeight,
   headerRef: navHeaderRef,
+  contentElRef: modalContentInnerRef,
 });
 
 // Wrap push/back to prepare the cross-fade. Called AFTER the nav mutation so

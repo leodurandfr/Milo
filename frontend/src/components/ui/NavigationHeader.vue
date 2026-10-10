@@ -128,6 +128,11 @@ function unpinWidth(el) {
   min-height: 72px;
   align-items: center;
   gap: var(--space-03);
+  /* Never the scroll anchor: a navigation reshuffles what is inside (title,
+     back button), and the browser would shift scrollTop by however far its
+     anchor moved — 30 → 21 measured, a jump of the bar a kept scroll exists
+     to prevent (useViewTransition). */
+  overflow-anchor: none;
 }
 
 /* In a modal it is dark in both themes, in its sections' gray: it takes the

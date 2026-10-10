@@ -20,6 +20,7 @@
            the scroll clip and .background-gradient hangs off the frame, so those
            two stay welded to the screen edges instead. -->
       <div
+        ref="contentRef"
         class="content-container source-motion"
         :class="{ 'has-player': showPlayer }"
       >
@@ -101,6 +102,7 @@ const { t } = useI18n()
 
 const layoutRef = ref(null)
 const headerRef = ref(null)
+const contentRef = ref(null)
 const gradientRef = ref(null)
 
 // The scroll container, for the callers that save and restore a scroll position
@@ -210,6 +212,7 @@ const { prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLea
     emit('scroll-restored')
   },
   headerRef,
+  contentElRef: contentRef,
 })
 
 // The gradient hangs off the frame, so the scroll offset it used to inherit is
@@ -259,11 +262,14 @@ function onBeforeLeave(el) {
   const scrollEl = layoutRef.value
   const currentScroll = scrollEl?.scrollTop || 0
 
+  // A kept scroll moves nothing, so the gradient stays as it is
+  const scrollMoves = baseOnBeforeLeave(el) === 'move'
+
   // Forward nav from scrolled position → fade gradient in after scroll reset
-  gradientNeedsFadeIn = isForwardNav && !!props.gradient && currentScroll > 16
+  gradientNeedsFadeIn = scrollMoves && isForwardNav && !!props.gradient && currentScroll > 16
 
   // Back nav to scrolled position while gradient is visible → fade out during transition
-  gradientNeedsFadeOut = !isForwardNav && !!props.gradient && currentScroll <= 16 && targetScroll > 16
+  gradientNeedsFadeOut = scrollMoves && !isForwardNav && !!props.gradient && currentScroll <= 16 && targetScroll > 16
 
   if (gradientNeedsFadeOut) {
     const gradientEl = gradientRef.value
@@ -271,8 +277,6 @@ function onBeforeLeave(el) {
       gradientEl.style.opacity = '0'
     }
   }
-
-  baseOnBeforeLeave(el)
 }
 
 function onAfterLeave(el) {

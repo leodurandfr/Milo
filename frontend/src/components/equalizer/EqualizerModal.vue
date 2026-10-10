@@ -121,6 +121,7 @@ const equalizerStore = useEqualizerStore();
 // Inject modal refs (same pattern as SettingsModal)
 const modalContentRef = inject('modalContentRef', null);
 const modalSetNavHeight = inject('modalSetNavHeight', null);
+const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 const isMobile = ref(false);
 const zoneTabsRef = ref(null);
@@ -133,6 +134,7 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   pendingScrollRestore: ref(null),
   setNavHeight: modalSetNavHeight,
   headerRef: navHeaderRef,
+  contentElRef: modalContentInnerRef,
 });
 
 // Detect content key changes and prepare transition before Vue patches the DOM
