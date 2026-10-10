@@ -23,7 +23,7 @@
 
         <SettingItem :label="t('macSettings.latencyProfile')">
           <ButtonGroup :model-value="draft.latency_profile" :options="profileOptions" :disabled="busy"
-            mobile-layout="column" @change="set('latency_profile', $event)" />
+            mobile-layout="row" @change="set('latency_profile', $event)" />
         </SettingItem>
 
         <SettingItem :label="t('macSettings.frameLength')">

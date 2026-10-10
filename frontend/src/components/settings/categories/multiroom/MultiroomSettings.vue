@@ -107,7 +107,7 @@
 
             <SettingItem :label="t('multiroomSettings.codec')">
               <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
-                :disabled="busy" @change="selectCodec" />
+                :disabled="busy" mobile-layout="row" @change="selectCodec" />
             </SettingItem>
 
           </SectionCard>

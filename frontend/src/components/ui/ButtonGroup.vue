@@ -59,7 +59,7 @@ const props = defineProps({
   mobileLayout: {
     type: String,
     default: 'wrap',
-    validator: (value) => ['wrap', 'column', 'column-reverse', 'grid-3', 'scroll'].includes(value)
+    validator: (value) => ['wrap', 'row', 'column', 'column-reverse', 'grid-3', 'scroll'].includes(value)
   },
   disabled: {
     type: Boolean,
@@ -259,6 +259,11 @@ function selectOption(value) {
 
   .button-group--mobile-wrap .button-group__track {
     flex-wrap: wrap;
+  }
+
+  /* Row - the options stay on one line, sharing the width. */
+  .button-group--mobile-row .button-group__option {
+    min-width: 0;
   }
 
   .button-group--mobile-column .button-group__track {
