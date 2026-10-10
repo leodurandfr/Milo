@@ -4,7 +4,7 @@
     <!-- Hardware disabled: redirect to Hardware Settings -->
     <MessageContent
       v-if="!irHardwareEnabled"
-      icon="hardware"
+      icon="remoteControl"
       :title="t('irRemoteSettings.hardwareDisabledTitle')"
       :details="t('irRemoteSettings.hardwareDisabledDetails')"
       :cta-label="t('irRemoteSettings.openHardwareSettings')"
@@ -14,7 +14,7 @@
     <!-- Disabled: invite the user to enable the feature from the header toggle. -->
     <MessageContent
       v-else-if="!settingsStore.irRemote.enabled"
-      icon="infrared"
+      icon="remoteControl"
       :title="t('irRemoteSettings.disabledTitle')"
       :details="t('irRemoteSettings.disabledDetails')"
     />
@@ -39,7 +39,7 @@
       v-else
       :loading="fsmState === 'waiting'"
       :loading-delay="0"
-      :icon="messageIcon"
+      icon="remoteControl"
       :title="messageTitle"
       :details="messageDetails"
       :cta-label="primaryCtaLabel"
@@ -107,16 +107,6 @@ const fsmState = ref('idle');           // 'idle' | 'waiting' | 'timeout' | 'uns
 const errorMessage = ref('');
 const remainingSeconds = ref(PAIRING_TIMEOUT_SECONDS);
 let countdownTimer = null;
-
-const messageIcon = computed(() => {
-  switch (fsmState.value) {
-    case 'idle':
-    case 'waiting':
-      return null;
-    default:
-      return 'stop';
-  }
-});
 
 const messageTitle = computed(() => {
   switch (fsmState.value) {

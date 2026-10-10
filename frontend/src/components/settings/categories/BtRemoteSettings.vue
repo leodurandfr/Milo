@@ -4,7 +4,7 @@
     <!-- Disabled: invite the user to enable the feature from the header toggle. -->
     <MessageContent
       v-if="!settingsStore.btRemote.enabled"
-      icon="bluetooth"
+      icon="remoteControl"
       :title="t('btRemoteSettings.disabledTitle')"
       :details="t('btRemoteSettings.disabledDetails')"
     />
