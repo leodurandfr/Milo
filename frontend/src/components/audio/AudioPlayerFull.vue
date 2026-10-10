@@ -337,10 +337,15 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 }
 
 .now-playing {
+  /* The source bar's centre line: the body's top padding and half the bar's
+     24px row (PlayerBody, SourceBar). */
+  --source-line: calc(var(--space-06) + 12px);
   display: flex;
   height: 100%;
-  padding: var(--space-05) var(--space-07) var(--space-05) var(--space-05);
-  gap: var(--space-06);
+  /* On the right, the top row's buttons' distance from the top edge: the
+     padding, down to the source line, back up half a medium IconButton (48px). */
+  padding: var(--space-05) calc(var(--space-05) + var(--source-line) - 24px) var(--space-05) var(--space-05);
+  gap: var(--space-07);
 }
 
 /* Artwork */
@@ -354,9 +359,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
 /* Content Section */
 .content-section {
-  /* The source bar's centre line: the body's top padding and half the bar's
-     24px row (PlayerBody, SourceBar). */
-  --source-line: calc(var(--space-06) + 12px);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -439,7 +441,10 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   pointer-events: none;
 }
 
+/* Block, or the line box adds a descender under it and the cover runs 4px
+   taller than wide where its height follows its content (the phone). */
 .artwork img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -563,26 +568,16 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
     order: 3;
   }
 
-  /* The tracklist takes the cover's place: the cover rises out by its own
-     height (the page width less the padding) and fades as it goes, bringing the
-     top row under it up to the top of the screen. */
+  /* The tracklist takes the cover's place: the cover rises by its own height
+     until only a strip of its bottom is left, bringing the top row under it up
+     with it. A percentage margin resolves against the column's width, which is
+     the square cover's side. */
   .artwork-section {
     transition: margin-top 400ms var(--easeInOutCubic);
   }
 
   .artwork-section.art-collapsed {
-    margin-top: calc(-100vw + 2 * var(--space-05));
-  }
-
-  /* The fade is the container's, not the section's: the section's entrance
-     animation holds its opacity at 1 (fill-mode forwards), which would win over
-     any opacity set here. */
-  .artwork-container {
-    transition: opacity 300ms var(--easeInOutCubic);
-  }
-
-  .artwork-section.art-collapsed .artwork-container {
-    opacity: 0;
+    margin-top: calc(-100% + var(--space-09));
   }
 
   .artwork-blur {

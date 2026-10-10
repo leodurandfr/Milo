@@ -90,7 +90,6 @@ function trackRecord(track) {
   justify-content: space-between;
   align-items: last baseline;
   gap: var(--space-03);
-  padding-top: var(--space-06);
   padding-bottom: var(--space-04);
   flex-shrink: 0;
 }
