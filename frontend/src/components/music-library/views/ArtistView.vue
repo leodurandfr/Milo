@@ -2,7 +2,12 @@
   <div class="artist-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="loading && !artist" key="loading" loading />
+        <div v-if="loading && !artist" key="loading" class="content-stack swap-skeleton" aria-hidden="true">
+          <SkeletonDetailHeader />
+          <div class="albums-grid">
+            <SkeletonAlbumCard v-for="i in 12" :key="i" />
+          </div>
+        </div>
         <MessageContent v-else-if="!artist" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
@@ -31,7 +36,9 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
+import SkeletonAlbumCard from '../cards/SkeletonAlbumCard.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({

@@ -2,7 +2,7 @@
   <div class="liked-songs-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" loading />
+        <SkeletonDetailPage v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" cover artist shuffle />
         <MessageContent v-else-if="!store.likedSongs.length" key="empty" icon="musicNote" :title="t('musicLibrary.noTracks')" />
 
         <div v-else key="loaded" class="content-stack">
@@ -43,6 +43,7 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';

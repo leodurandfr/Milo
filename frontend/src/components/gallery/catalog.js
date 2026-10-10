@@ -250,7 +250,7 @@ export const ENTRIES = [
     id: 'LikedCover',
     group: 'media',
     file: 'components/audio/LikedCover.vue',
-    summary: 'The cover of the one collection that has none, Liked Songs: the brand orange under a grain, baked into one bitmap (constants/placeholders.js says how it is made), with a white heart its caller sizes to the tile — the Spotify shortcut, the Library row and the page header. It fills its parent and clips to its radius; blurred blurs it in place under a loading overlay, as LazyImage does.',
+    summary: 'The cover of the one collection that has none, Liked Songs: the brand orange under a grain, baked into one bitmap (constants/placeholders.js says how it is made), with a white heart at 32 % of the tile, so the whole cover scales as one picture — the Spotify shortcut, the Library row and the page header. It fills its parent and clips to its radius.',
   },
   {
     id: 'SvgIcon',
@@ -323,7 +323,7 @@ export const ENTRIES = [
     id: 'TrackRow',
     group: 'player',
     file: 'components/audio/TrackRow.vue',
-    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 7 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, and showArtist adds the second line, as text: a tap anywhere on the row plays. `opening` (a page the row leads to is loading) and a tap that starts the track both blur the cover under a spinner, or spin in place of the number without one. A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio).',
+    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 6 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, and showArtist adds the second line, as text: a tap anywhere on the row plays, and a start that takes over a second blurs the cover under a spinner, or spins in place of the number without one. A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio).',
   },
   {
     id: 'TrackList',
@@ -336,6 +336,25 @@ export const ENTRIES = [
     group: 'player',
     file: 'components/audio/DetailHeader.vue',
     summary: 'The album / playlist / episode header: cover art, or the Liked Songs cover (LikedCover) when liked. Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons.',
+  },
+
+  {
+    id: 'SkeletonTrackRow',
+    group: 'player',
+    file: 'components/audio/SkeletonTrackRow.vue',
+    summary: 'TrackRow\'s placeholder while a page\'s tracklist is fetched. `cover` and `artist` mirror the row\'s showCover and showArtist, each bar sitting in a line of the row\'s typography, so the list keeps its height when the rows arrive. TrackList clears the last one\'s divider as it does a row\'s.',
+  },
+  {
+    id: 'SkeletonDetailHeader',
+    group: 'player',
+    file: 'components/audio/SkeletonDetailHeader.vue',
+    summary: 'DetailHeader\'s placeholder: the same contrast card, cover and lines (the subtitle only with `subtitle`, as most headers draw none), then the Play pill and, with `shuffle`, the shuffle square — so the page below does not move when the header arrives. The Spotify artist page and the Library artist page lay it over their own shelves or grid.',
+  },
+  {
+    id: 'SkeletonDetailPage',
+    group: 'player',
+    file: 'components/audio/SkeletonDetailPage.vue',
+    summary: 'A header page waiting on its first answer, in its own geometry: SkeletonDetailHeader, then `rows` SkeletonTrackRows on TrackList\'s card, as every tracklist is drawn. A page opens on it at the tap, rather than holding the card that opened it; the content fades in over it, in place (.swap-skeleton), as a cover does over its skeleton.',
   },
 
   // --- Source layouts ---

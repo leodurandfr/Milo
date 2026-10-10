@@ -75,6 +75,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useTimer } from '@/composables/useTimer';
+import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { musicPlaceholder } from '@/constants/placeholders';
 
@@ -126,12 +127,6 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  // A page this row leads to is opening (from its menu): the row spins until
-  // the page has something to draw.
-  opening: {
-    type: Boolean,
-    default: false,
-  },
 });
 
 const emit = defineEmits(['play', 'menu', 'remove', 'grip-down']);
@@ -147,7 +142,8 @@ const displayTitle = computed(() => props.song.title || props.song.name || props
 // One token per row; the module's `startingRow` holds the last one tapped.
 const token = {};
 const starting = computed(() => startingRow.value === token && !(props.current && props.playing));
-const loading = computed(() => props.opening || starting.value);
+// Drawn only once the start is long enough to notice, as every wait is.
+const loading = useDelayedFlag(starting);
 
 function stopStarting() {
   if (startingRow.value === token) startingRow.value = null;

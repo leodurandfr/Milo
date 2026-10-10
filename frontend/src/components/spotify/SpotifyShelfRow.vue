@@ -5,6 +5,7 @@
     <div class="shelf-row" :class="{ 'with-name': withName, 'with-byline': withByline }">
       <SpotifyCard v-for="item in items" :key="item.uri" :item="item"
         @click="$emit('select', item)" />
+      <SkeletonSpotifyCard v-for="i in placeholders" :key="`placeholder-${i}`" />
     </div>
   </div>
 </template>
@@ -14,12 +15,19 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { cardLines } from '@/utils/spotifyCard';
 import SpotifyCard from './cards/SpotifyCard.vue';
+import SkeletonSpotifyCard from './cards/SkeletonSpotifyCard.vue';
 
 const props = defineProps({
   // Cards as /api/spotify/home lists a shelf's.
   items: {
     type: Array,
     required: true,
+  },
+  // Skeleton cards after the items, in the row's own geometry: a shelf still
+  // being fetched.
+  placeholders: {
+    type: Number,
+    default: 0,
   },
 });
 

@@ -2,7 +2,7 @@
   <div class="album-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="loading && !album" key="loading" loading />
+        <SkeletonDetailPage v-if="loading && !album" key="loading" subtitle />
         <MessageContent v-else-if="!album" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
@@ -52,6 +52,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { totalMinutes, formatAudioQuality } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import { musicPlaceholder } from '@/constants/placeholders';

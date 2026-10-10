@@ -1,6 +1,4 @@
-import { computed } from 'vue';
 import { useSpotifyStore } from '@/stores/spotifyStore';
-import { useOpeningKey } from '@/composables/useSpotifyOpening';
 
 /**
  * How a Spotify page plays its listing — a playlist's, an album's, an artist's
@@ -11,7 +9,6 @@ import { useOpeningKey } from '@/composables/useSpotifyOpening';
  */
 export function useSpotifyListingPlayback(uri, tracks) {
   const store = useSpotifyStore();
-  const openingKey = useOpeningKey();
 
   function rowSong(track) {
     return {
@@ -19,24 +16,6 @@ export function useSpotifyListingPlayback(uri, tracks) {
       artist: track.artists.map((a) => a.name).join(', '),
       duration: (track.duration_ms || 0) / 1000,
     };
-  }
-
-  // A row's key while a page it leads to opens (its ⋯ menu): the listing's
-  // uri with the track's place, so another listing's rows never match it.
-  function rowKey(track, index) {
-    return `${uri()}|${index}|${track.uri}`;
-  }
-
-  // The row of this listing opening a page, by its place, or -1: one value per
-  // listing, so a card opening elsewhere re-renders none of its rows.
-  const openingIndex = computed(() => {
-    const prefix = `${uri()}|`;
-    const key = openingKey?.value;
-    return key?.startsWith(prefix) ? Number(key.slice(prefix.length).split('|')[0]) : -1;
-  });
-
-  function isOpening(index) {
-    return openingIndex.value === index;
   }
 
   // The row playing now: this track, played from this list — the same track in
@@ -61,5 +40,5 @@ export function useSpotifyListingPlayback(uri, tracks) {
     play({ skipToUri: start.uri, shuffle: true });
   }
 
-  return { rowSong, rowKey, isOpening, isCurrent, play, shufflePlay };
+  return { rowSong, isCurrent, play, shufflePlay };
 }

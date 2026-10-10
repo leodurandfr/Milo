@@ -407,8 +407,6 @@
     "libraryUnavailable": "Spotify लाइब्रेरी लोड नहीं हो सकी",
     "likedSongs": "पसंद किए गए गाने",
     "listUnavailable": "यह सूची लोड नहीं हो सकी",
-    "loadingTracks": "गाने लोड हो रहे हैं…",
-    "loadingTracksProgress": "{total} में से {loaded} गाने लोड हो रहे हैं…",
     "moreOptions": "अधिक विकल्प",
     "noTracks": "कोई ट्रैक नहीं",
     "playlist": "प्लेलिस्ट",

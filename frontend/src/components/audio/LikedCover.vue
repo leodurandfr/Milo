@@ -1,5 +1,5 @@
 <template>
-  <div class="liked-cover" :class="{ blurred }">
+  <div class="liked-cover">
     <img :src="likedCover" alt="" class="liked-cover-image" draggable="false" />
     <SvgIcon name="heart" :size="iconSize" class="liked-cover-heart" aria-hidden="true" />
   </div>
@@ -15,11 +15,6 @@ defineProps({
   iconSize: {
     type: Number,
     required: true,
-  },
-  // Blurred in place under a card's loading overlay, as LazyImage blurs a cover.
-  blurred: {
-    type: Boolean,
-    default: false,
   },
 });
 </script>
@@ -47,15 +42,5 @@ defineProps({
 
 .liked-cover-heart {
   position: relative;
-}
-
-.liked-cover-image,
-.liked-cover-heart {
-  transition: filter var(--transition-fast);
-}
-
-.liked-cover.blurred .liked-cover-image,
-.liked-cover.blurred .liked-cover-heart {
-  filter: blur(var(--blur-02));
 }
 </style>

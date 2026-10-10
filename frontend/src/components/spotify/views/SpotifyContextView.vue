@@ -7,8 +7,8 @@
           :title="error === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable')"
           :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 
-        <MessageContent v-else-if="!tracks.length && !listing?.complete" key="loading" loading
-          :title="progress" />
+        <SkeletonDetailPage v-else-if="!tracks.length && !listing?.complete" key="loading"
+          :cover="kind !== 'album'" :subtitle="kind === 'album' || owner === 'spotify'" artist shuffle />
 
         <MessageContent v-else-if="!tracks.length" key="empty" icon="musicNote" :title="t('spotify.noTracks')" />
 
@@ -37,14 +37,13 @@
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
-              :opening="isOpening(idx)"
               @play="play({ skipToUri: track.uri })"
             >
               <template #menu>
                 <SpotifyTrackMenu :track="track" :kind="kind"
-                  @artist="$emit('select-artist', $event, rowKey(track, idx))"
-                  @album="$emit('select-album', track.album, rowKey(track, idx))"
-                  @radio="$emit('select-radio', $event, rowKey(track, idx))" />
+                  @artist="$emit('select-artist', $event)"
+                  @album="$emit('select-album', track.album)"
+                  @radio="$emit('select-radio', $event)" />
               </template>
             </TrackRow>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
@@ -62,6 +61,7 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import SpotifyTrackMenu from '@/components/spotify/SpotifyTrackMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
@@ -103,15 +103,9 @@ const error = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
 // The rows mounted, out of the tracks described so far.
 const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
-const { rowSong, rowKey, isOpening, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
 // While the rest is described, the listing's own length.
 const trackCount = computed(() => (listing.value?.complete ? tracks.value.length : listing.value?.length ?? 0));
-
-const progress = computed(() => {
-  const l = listing.value;
-  if (!l?.length) return t('spotify.loadingTracks');
-  return t('spotify.loadingTracksProgress', { loaded: l.cached, total: l.length });
-});
 
 // An album is named by its tracks once listed: it is reached from a track,
 // which only knows the name it carries.

@@ -407,8 +407,6 @@
     "libraryUnavailable": "Impossibile caricare la libreria Spotify",
     "likedSongs": "Brani preferiti",
     "listUnavailable": "Impossibile caricare questo elenco",
-    "loadingTracks": "Caricamento dei brani…",
-    "loadingTracksProgress": "Caricamento di {loaded} brani su {total}…",
     "moreOptions": "Altre opzioni",
     "noTracks": "Nessun brano",
     "playlist": "Playlist",

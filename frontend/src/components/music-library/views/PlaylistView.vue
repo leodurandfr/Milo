@@ -2,7 +2,7 @@
   <div class="playlist-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="loading && !playlist" key="loading" loading />
+        <SkeletonDetailPage v-if="loading && !playlist" key="loading" cover artist shuffle />
         <MessageContent v-else-if="!playlist" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
@@ -92,6 +92,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';

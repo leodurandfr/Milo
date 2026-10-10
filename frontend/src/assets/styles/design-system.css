@@ -985,6 +985,21 @@
     transition-delay: 100ms;
 }
 
+/* A skeleton drawn in its page's own geometry (.swap-skeleton) hands over in
+   place: it fades without rising, and the content fades in over it without
+   coming up, together on the reveal's time — the crossfade of a cover over
+   its skeleton, at the size of a page. */
+.swap-stack > .swap-skeleton.fade-slide-leave-active,
+.swap-stack:has(> .swap-skeleton.fade-slide-leave-active) > .fade-slide-enter-active {
+    transition: opacity var(--transition-reveal);
+    transition-delay: 0s;
+}
+
+.swap-stack > .swap-skeleton.fade-slide-leave-to,
+.swap-stack:has(> .swap-skeleton.fade-slide-leave-active) > .fade-slide-enter-from {
+    transform: none;
+}
+
 /* A view with glass in it (.swap-fades-leaves) is not faded as a whole: an
    ancestor at opacity < 1 is a Backdrop Root, so the glass would blur only
    what that ancestor paints and lose the page behind it until the fade ends.

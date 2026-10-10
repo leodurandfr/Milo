@@ -407,8 +407,6 @@
     "libraryUnavailable": "The Spotify library could not be loaded",
     "likedSongs": "Liked Songs",
     "listUnavailable": "This list could not be loaded",
-    "loadingTracks": "Loading the tracks…",
-    "loadingTracksProgress": "Loading {loaded} of {total} tracks…",
     "moreOptions": "More options",
     "noTracks": "No tracks",
     "playlist": "Playlist",

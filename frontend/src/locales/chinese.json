@@ -407,8 +407,6 @@
     "libraryUnavailable": "无法加载 Spotify 资料库",
     "likedSongs": "已点赞的歌曲",
     "listUnavailable": "无法加载此列表",
-    "loadingTracks": "正在加载歌曲…",
-    "loadingTracksProgress": "正在加载 {loaded}/{total} 首歌曲…",
     "moreOptions": "更多选项",
     "noTracks": "没有曲目",
     "playlist": "歌单",

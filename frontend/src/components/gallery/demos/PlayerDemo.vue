@@ -89,6 +89,33 @@
       <span class="text-mono-small">select-artist: {{ artistPicked ?? '—' }}</span>
     </GalleryVariant>
   </GalleryItem>
+
+  <GalleryItem id="SkeletonTrackRow">
+    <GalleryVariant label="bare, then :cover :artist — over the TrackRow it stands in for" stacked>
+      <TrackList>
+        <SkeletonTrackRow />
+        <SkeletonTrackRow cover artist />
+        <TrackRow :song="track" :number="4" show-artist show-cover :cover-url="musicPlaceholder" />
+      </TrackList>
+    </GalleryVariant>
+  </GalleryItem>
+
+  <GalleryItem id="SkeletonDetailHeader">
+    <GalleryVariant label=":shuffle — over the DetailHeader it stands in for" stacked>
+      <SkeletonDetailHeader shuffle />
+      <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
+        subtitle-meta="2013 · 17 tracks · 1 h 21" />
+    </GalleryVariant>
+  </GalleryItem>
+
+  <GalleryItem id="SkeletonDetailPage">
+    <GalleryVariant label="a playlist: :cover :artist :shuffle" stacked>
+      <SkeletonDetailPage :rows="4" cover artist shuffle />
+    </GalleryVariant>
+    <GalleryVariant label="an album: rows with neither cover nor artist line" stacked>
+      <SkeletonDetailPage :rows="4" />
+    </GalleryVariant>
+  </GalleryItem>
 </template>
 
 <script setup>
@@ -100,6 +127,9 @@ import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import SkeletonTrackRow from '@/components/audio/SkeletonTrackRow.vue';
+import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
+import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 

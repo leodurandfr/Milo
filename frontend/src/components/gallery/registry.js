@@ -87,6 +87,9 @@ import ArtistNames from '@/components/audio/ArtistNames.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import SkeletonTrackRow from '@/components/audio/SkeletonTrackRow.vue';
+import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
+import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import PlayerTransport from '@/components/audio/PlayerTransport.vue';
@@ -871,6 +874,21 @@ export const REGISTRY = {
     // Declares no props: the surface and where the dividers stop are the whole
     // component, so the sample has to be several rows.
     slots: { default: { 'Three tracks, the second playing': { component: TrackRowsSample } } }
+  },
+
+  SkeletonTrackRow: {
+    component: SkeletonTrackRow,
+    args: { cover: true, artist: true, class: 'canvas-column' }
+  },
+
+  SkeletonDetailHeader: {
+    component: SkeletonDetailHeader,
+    args: { shuffle: true, class: 'canvas-column' }
+  },
+
+  SkeletonDetailPage: {
+    component: SkeletonDetailPage,
+    args: { rows: 4, cover: true, artist: true, shuffle: true, class: 'canvas-column' }
   },
 
   DetailHeader: {

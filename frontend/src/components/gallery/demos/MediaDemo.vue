@@ -18,10 +18,9 @@
   </GalleryItem>
 
   <GalleryItem id="LikedCover">
-    <GalleryVariant label="the heart sized by the tile — 28 on a 60–64 px tile, 48 on a header / blurred">
+    <GalleryVariant label="the heart sized by the tile — 28 on a 60–64 px tile, 48 on a header">
       <div class="art art--small"><LikedCover :icon-size="28" /></div>
       <div class="art"><LikedCover :icon-size="48" /></div>
-      <div class="art"><LikedCover :icon-size="48" blurred /></div>
     </GalleryVariant>
   </GalleryItem>
 

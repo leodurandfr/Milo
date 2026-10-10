@@ -4,7 +4,24 @@
       <Transition name="fade-slide">
         <!-- Until the page and the first tracks are in: drawn one after the
              other, the tracks would push the sections down as they arrive. -->
-        <MessageContent v-if="(!page && !pageError) || tracksPending" key="loading" loading />
+        <div v-if="(!page && !pageError) || tracksPending" key="loading" class="sections swap-skeleton" aria-hidden="true">
+          <SkeletonDetailHeader shuffle />
+          <section class="section">
+            <span class="skeleton-title-line heading-2">
+              <span class="skeleton-text-line shimmer skeleton-title"></span>&#8203;
+            </span>
+            <TrackList>
+              <!-- The five, and the sixth the clip shows under its fade. -->
+              <SkeletonTrackRow v-for="i in POPULAR_FIRST + 1" :key="i" cover artist />
+            </TrackList>
+          </section>
+          <section class="section">
+            <span class="skeleton-title-line heading-2">
+              <span class="skeleton-text-line shimmer skeleton-title"></span>&#8203;
+            </span>
+            <SpotifyShelfRow :items="[]" :placeholders="columns" />
+          </section>
+        </div>
 
         <!-- Neither the page nor a track: nothing to show but a retry. -->
         <MessageContent v-else-if="pageError && !tracks.length" key="error" icon="spotify"
@@ -38,14 +55,13 @@
                   show-artist
                   show-cover
                   :cover-url="track.thumbnail || ''"
-                  :opening="isOpening(idx)"
                   @play="play({ skipToUri: track.uri })"
                 >
                   <template #menu>
                     <SpotifyTrackMenu :track="track" kind="artist" :page-uri="uri"
-                      @artist="$emit('select-artist', $event, rowKey(track, idx))"
-                      @album="$emit('select-album', track.album, rowKey(track, idx))"
-                      @radio="$emit('select-radio', $event, rowKey(track, idx))" />
+                      @artist="$emit('select-artist', $event)"
+                      @album="$emit('select-album', track.album)"
+                      @radio="$emit('select-radio', $event)" />
                   </template>
                 </TrackRow>
               </TrackList>
@@ -89,6 +105,8 @@ import { useCardGridColumns } from '@/composables/useCardGridColumns';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
+import SkeletonTrackRow from '@/components/audio/SkeletonTrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import SpotifyTrackMenu from '@/components/spotify/SpotifyTrackMenu.vue';
 import SpotifyShelfRow from '../SpotifyShelfRow.vue';
@@ -138,7 +156,7 @@ const pageError = computed(() => store.artistErrors[props.uri] ?? null);
 const listing = computed(() => store.contexts[props.uri] ?? null);
 const trackError = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
-const { rowSong, rowKey, isOpening, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
 
 // Until the first ones are described: the listing answers within a second.
 const tracksPending = computed(() => !tracks.value.length && !listing.value?.complete && !trackError.value);
@@ -208,5 +226,14 @@ load();
 .section-title {
   color: var(--color-text);
   margin: 0;
+}
+
+.skeleton-title-line {
+  display: flex;
+  align-items: center;
+}
+
+.skeleton-title {
+  width: 30%;
 }
 </style>

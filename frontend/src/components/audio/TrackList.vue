@@ -19,7 +19,8 @@
    item, where every row is a last child. Transparent rather than gone, so the
    last row keeps the height the drag steps by. */
 .track-list > :deep(.track-row:last-child),
-.track-list > :deep(:last-child > .track-row) {
+.track-list > :deep(:last-child > .track-row),
+.track-list > :deep(.skeleton-track-row:last-child) {
   border-bottom-color: transparent;
 }
 </style>

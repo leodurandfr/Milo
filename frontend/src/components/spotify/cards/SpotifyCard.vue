@@ -1,14 +1,8 @@
 <template>
   <div v-press class="playlist-card" :class="{ 'byline-only': !lines.heading && lines.byline }"
     @click="$emit('click')">
-    <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton :blurred="opening"
-      class="playlist-cover" :class="{ round: item.kind === 'artist' }">
-      <transition name="loading-fade">
-        <div v-if="opening" class="card-loading-overlay">
-          <LoadingSpinner :size="48" />
-        </div>
-      </transition>
-    </LazyImage>
+    <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
+      class="playlist-cover" :class="{ round: item.kind === 'artist' }" />
     <div v-if="lines.heading || lines.byline" class="playlist-info">
       <p v-if="lines.heading" class="playlist-name heading-4">{{ lines.heading }}</p>
       <p v-if="lines.byline" class="playlist-owner text-body-medium">{{ lines.byline }}</p>
@@ -20,8 +14,6 @@
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
-import { useCardOpening } from '@/composables/useSpotifyOpening';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { cardLines } from '@/utils/spotifyCard';
 
@@ -43,7 +35,6 @@ const { t } = useI18n();
 
 const title = computed(() => props.item.name || t('spotify.untitledPlaylist'));
 const lines = computed(() => cardLines(props.item, t));
-const opening = useCardOpening(() => props.item.uri);
 </script>
 
 <style scoped>
@@ -72,9 +63,6 @@ const opening = useCardOpening(() => props.item.uri);
 .playlist-cover.round {
   border-radius: var(--radius-full);
 }
-
-
-
 
 .playlist-info {
   display: flex;

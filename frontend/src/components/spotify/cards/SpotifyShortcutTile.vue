@@ -1,13 +1,8 @@
 <template>
   <div v-press class="shortcut-tile" @click="$emit('click')">
     <div class="tile-cover">
-      <LikedCover v-if="liked" :icon-size="28" :blurred="opening" />
-      <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy :blurred="opening" class="tile-image" />
-      <transition name="loading-fade">
-        <div v-if="opening" class="card-loading-overlay">
-          <LoadingSpinner :size="32" />
-        </div>
-      </transition>
+      <LikedCover v-if="liked" :icon-size="28" />
+      <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy class="tile-image" />
     </div>
     <p class="tile-name heading-4">{{ title }}</p>
   </div>
@@ -16,16 +11,9 @@
 <script setup>
 import LikedCover from '@/components/audio/LikedCover.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
-import { useCardOpening } from '@/composables/useSpotifyOpening';
 import { musicPlaceholder } from '@/constants/placeholders';
 
-const props = defineProps({
-  // The page it opens: the tile spins while that page loads.
-  uri: {
-    type: String,
-    required: true,
-  },
+defineProps({
   title: {
     type: String,
     required: true,
@@ -42,8 +30,6 @@ const props = defineProps({
 });
 
 defineEmits(['click']);
-
-const opening = useCardOpening(() => props.uri);
 </script>
 
 <style scoped>
@@ -60,11 +46,9 @@ const opening = useCardOpening(() => props.uri);
 }
 
 .tile-cover {
-  position: relative;
   width: 64px;
   height: 64px;
   flex-shrink: 0;
-  overflow: hidden;
   background: var(--color-surface-glass);
 }
 
