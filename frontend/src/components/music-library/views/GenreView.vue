@@ -154,6 +154,7 @@ watch(() => props.genre, async (genre) => {
   gap: var(--space-02);
 }
 
+
 /* Same column count and column gap as the radio favorites grid, so an album
    cover and a station logo are the same size on the same screen. Rows keep the
    wider gap: the card carries two lines of text under the cover. */
