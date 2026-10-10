@@ -12,7 +12,7 @@
         <span class="skeleton-text-line shimmer skeleton-list-item__title"></span>&#8203;
       </span>
       <span v-if="subtitle !== 'none'" class="skeleton-list-item__line"
-        :class="subtitle === 'mono' ? 'text-mono-small' : 'text-body'">
+        :class="subtitle === 'mono' ? 'text-mono-small' : 'text-body-medium'">
         <span class="skeleton-text-line shimmer skeleton-list-item__subtitle"></span>&#8203;
       </span>
     </div>

@@ -11,7 +11,7 @@
     </LazyImage>
     <div v-if="lines.heading || lines.byline" class="playlist-info">
       <p v-if="lines.heading" class="playlist-name heading-4">{{ lines.heading }}</p>
-      <p v-if="lines.byline" class="playlist-owner text-body">{{ lines.byline }}</p>
+      <p v-if="lines.byline" class="playlist-owner text-body-medium">{{ lines.byline }}</p>
     </div>
   </div>
 </template>
@@ -48,7 +48,7 @@ const opening = useCardOpening(() => props.item.uri);
 
 <style scoped>
 /* The card's box — a square cover, the gap, a heading-4 name, then a
-   text-body byline — is what SpotifyShelfRow reserves for a row not
+   text-body-medium byline — is what SpotifyShelfRow reserves for a row not
    drawn yet: change one, change both (tests/architecture/spotifyShelfEstimate). */
 .playlist-card {
   display: flex;

@@ -44,7 +44,7 @@
       <!-- Auth step -->
       <template v-if="phase === 'auth'">
         <div class="wb-form">
-          <p class="text-body wb-note">{{ t('musicLibrary.shares.wizard.authPrompt') }}</p>
+          <p class="text-body-medium wb-note">{{ t('musicLibrary.shares.wizard.authPrompt') }}</p>
           <SettingItem :label="t('musicLibrary.shares.username')">
             <InputText v-model="creds.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
           </SettingItem>

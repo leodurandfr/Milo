@@ -1,8 +1,8 @@
 <template>
   <div class="player-info-text" :class="`player-info-text--${variant}`">
-    <p class="player-info-title" :class="variant === 'line' ? 'text-body' : 'heading-2'">{{ title }}</p>
+    <p class="player-info-title" :class="variant === 'line' ? 'text-body-medium' : 'heading-2'">{{ title }}</p>
     <!-- The slot draws the same line in parts (the artist names as links). -->
-    <p v-if="secondary" class="player-info-secondary text-body"><slot name="secondary">{{ secondary }}</slot></p>
+    <p v-if="secondary" class="player-info-secondary text-body-medium"><slot name="secondary">{{ secondary }}</slot></p>
   </div>
 </template>
 

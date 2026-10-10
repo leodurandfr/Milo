@@ -47,7 +47,7 @@
         </template>
 
         <!-- NFS help note -->
-        <p v-else class="text-body share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
+        <p v-else class="text-body-medium share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
 
         <!-- Error -->
         <div v-if="errorMessage" class="share-form__error text-mono-medium">{{ errorMessage }}</div>

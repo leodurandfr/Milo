@@ -6,7 +6,7 @@
 <template>
   <div :class="['slider-container', orientation, { disabled, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel }]"
     :style="{ '--fraction': fraction }">
-    <span v-if="hasLabel" class="slider-label text-body">{{ label }}</span>
+    <span v-if="hasLabel" class="slider-label text-body-medium">{{ label }}</span>
 
     <div class="slider-rail">
       <div class="range-track"></div>

@@ -275,8 +275,8 @@
     --font-size-h5: 16px;
     --line-height-h5: 18px;
 
-    --font-size-body: 18px;
-    --line-height-body: 24px;
+    --font-size-body-medium: 18px;
+    --line-height-body-medium: 24px;
 
     --font-size-body-small: 16px;
     --line-height-body-small: 20px;
@@ -498,8 +498,8 @@
         --font-size-h5: 14px;
         --line-height-h5: 16px;
 
-        --font-size-body: 16px;
-        --line-height-body: 22px;
+        --font-size-body-medium: 16px;
+        --line-height-body-medium: 22px;
 
         --font-size-body-small: 14px;
         --line-height-body-small: 18px;
@@ -613,10 +613,10 @@
     font-weight: 500;
 }
 
-.text-body {
+.text-body-medium {
     font-family: 'Neue Montreal Regular', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
-    font-size: var(--font-size-body);
-    line-height: var(--line-height-body);
+    font-size: var(--font-size-body-medium);
+    line-height: var(--line-height-body-medium);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 400;
 }

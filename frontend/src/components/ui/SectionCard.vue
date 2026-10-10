@@ -4,7 +4,7 @@
     <slot name="header">
       <h2 v-if="title" class="heading-2">{{ title }}</h2>
     </slot>
-    <p v-if="description" class="section-card__description text-body">{{ description }}</p>
+    <p v-if="description" class="section-card__description text-body-medium">{{ description }}</p>
     <slot />
   </section>
 </template>

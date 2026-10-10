@@ -6,7 +6,7 @@
   <div class="double-range-slider"
     :class="{ dragging: draggingThumb !== null, 'dragging-min': draggingThumb === 'min', 'dragging-max': draggingThumb === 'max', labeled: Boolean(label) }"
     :style="{ '--fraction-min': fractionOf(modelValue.min), '--fraction-max': fractionOf(modelValue.max) }">
-    <span v-if="label" class="slider-label text-body">{{ label }}</span>
+    <span v-if="label" class="slider-label text-body-medium">{{ label }}</span>
 
     <!-- Each value beside its own end of the track, never on it: a thumb at
          that end covered it. -->

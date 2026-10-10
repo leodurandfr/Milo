@@ -21,7 +21,7 @@
         <div class="connection-row">
           <SvgIcon name="network" :size="24"
             :color="status.ethernet.connected ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)'" />
-          <span class="text-body">{{ t('network.ethernet') }}</span>
+          <span class="text-body-medium">{{ t('network.ethernet') }}</span>
           <Badge class="connection-badge" :tone="status.ethernet.connected ? 'success' : 'neutral'">
             {{ status.ethernet.connected ? t('network.connected') : t('network.notConnected') }}
           </Badge>
@@ -30,7 +30,7 @@
         <!-- WiFi row (always visible) -->
         <div class="connection-row connection-row--wifi">
           <WifiSignal :signal="wifiCardSignal" :size="24" />
-          <span class="text-body connection-row__ssid">{{ wifiDisplaySsid || t('network.wifi') }}</span>
+          <span class="text-body-medium connection-row__ssid">{{ wifiDisplaySsid || t('network.wifi') }}</span>
           <Badge class="connection-badge" :tone="wifiBadgeTone" :pulse="wifiBadgeTone === 'warning'">
             {{ wifiBadgeLabel }}
           </Badge>

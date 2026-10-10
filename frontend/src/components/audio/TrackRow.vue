@@ -22,7 +22,7 @@
 
     <div class="track-main">
       <div class="track-title-row">
-        <p class="track-title text-body">{{ displayTitle }}</p>
+        <p class="track-title text-body-medium">{{ displayTitle }}</p>
         <span v-if="feat" class="track-feat text-mono-small">{{ t('musicLibrary.featuring', { artists: feat }) }}</span>
       </div>
       <!-- Text only: the whole row plays, and a page is reached from its menu. -->

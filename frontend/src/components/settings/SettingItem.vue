@@ -2,7 +2,7 @@
      the control's left (stacked again on a phone); `hint` sits under the control. -->
 <template>
   <div class="setting-item" :class="{ 'setting-item--inline': inline }">
-    <div v-if="label" class="setting-item__label text-body">{{ label }}</div>
+    <div v-if="label" class="setting-item__label text-body-medium">{{ label }}</div>
     <slot />
     <span v-if="hint" class="setting-item__hint text-body-small">{{ hint }}</span>
   </div>

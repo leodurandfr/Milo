@@ -34,7 +34,7 @@
     <Transition name="analysis-results">
       <div v-if="resultsOpen" class="analysis-results">
         <div class="analysis-results__inner">
-          <p v-if="note" class="text-body analysis-results__note">{{ note }}</p>
+          <p v-if="note" class="text-body-medium analysis-results__note">{{ note }}</p>
           <slot v-if="hasResults" />
         </div>
       </div>

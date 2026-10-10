@@ -25,7 +25,7 @@
           <div class="dropdown-list" @scroll.stop>
             <div v-if="title" class="dropdown-title text-body-small">{{ title }}</div>
             <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
-              :class="['text-body', { 'is-selected': option.value === modelValue }]"
+              :class="['text-body-medium', { 'is-selected': option.value === modelValue }]"
               @click="selectOption(option.value)">
               <SvgIcon v-if="iconPlacement === 'end'" name="check" :size="20" class="dropdown-item-check" />
               <span class="dropdown-item-label">{{ option.label }}</span>

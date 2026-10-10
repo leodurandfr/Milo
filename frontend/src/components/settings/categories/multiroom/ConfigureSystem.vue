@@ -39,7 +39,7 @@
         <template v-if="canUseServerWifi && useServerWifi">
           <div class="server-wifi-row">
             <SvgIcon name="wifi" :size="24" />
-            <span class="text-body server-wifi-row__ssid">
+            <span class="text-body-medium server-wifi-row__ssid">
               {{ t('multiroom.adopt.useServerWifi', { ssid: discoveryStore.serverWifiCreds.ssid }) }}
             </span>
             <Button variant="control" size="small" @click="useServerWifi = false">
@@ -50,7 +50,7 @@
 
         <!-- Manual entry via NetworkSelector -->
         <template v-else>
-          <p v-if="!canUseServerWifi" class="text-body adopt-hint">
+          <p v-if="!canUseServerWifi" class="text-body-medium adopt-hint">
             {{ t('multiroom.adopt.enterCredentials') }}
           </p>
           <NetworkSelector

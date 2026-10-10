@@ -49,7 +49,7 @@
       <div class="lyrics-bar-content">
         <div class="lyrics-bar-track">
           <h2 class="heading-4 lyrics-bar-title">{{ identity.title }}</h2>
-          <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
+          <p class="text-body-medium lyrics-bar-artist">{{ identity.artist }}</p>
         </div>
 
         <div v-if="hasBar" class="lyrics-bar-progress">

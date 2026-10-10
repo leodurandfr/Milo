@@ -14,7 +14,7 @@
         <span :class="['list-item-button__title', titleHeadingClass, { 'list-item-button__title--inactive': isActionInactive }]">{{ title }}</span>
       </slot>
       <slot v-if="hasSubtitle" name="subtitle">
-        <span class="list-item-button__subtitle text-body">{{ subtitle }}</span>
+        <span class="list-item-button__subtitle text-body-medium">{{ subtitle }}</span>
       </slot>
     </div>
 

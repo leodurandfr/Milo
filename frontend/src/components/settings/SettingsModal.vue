@@ -44,7 +44,7 @@
         </div>
         <SectionCard class="home-card">
           <div v-for="section in visibleSections" :key="section.key" class="home-group">
-            <span class="text-body settings-home-section-title">{{ t(section.titleKey) }}</span>
+            <span class="text-body-medium settings-home-section-title">{{ t(section.titleKey) }}</span>
             <div class="settings-nav-grid">
               <ListItemButton v-for="row in section.rows" :key="row.view"
                 :title="t(row.titleKey)" action="caret" @click="push(row.view)">

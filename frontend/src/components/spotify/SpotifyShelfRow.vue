@@ -84,13 +84,13 @@ const withByline = computed(() => lines.value.some((line) => line.byline));
 
 /* The byline alone, when the cover carries the name. */
 .shelf-row.with-byline {
-  contain-intrinsic-block-size: calc(var(--shelf-cover-height) + var(--space-02) + var(--line-height-body));
+  contain-intrinsic-block-size: calc(var(--shelf-cover-height) + var(--space-02) + var(--line-height-body-medium));
 }
 
 /* And the byline under it. */
 .shelf-row.with-name.with-byline {
   contain-intrinsic-block-size: calc(
-    var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4) + var(--space-01) + var(--line-height-body)
+    var(--shelf-cover-height) + var(--space-03) + var(--line-height-h4) + var(--space-01) + var(--line-height-body-medium)
   );
 }
 

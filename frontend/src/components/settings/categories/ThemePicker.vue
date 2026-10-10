@@ -40,7 +40,7 @@
           </div>
         </div>
       </div>
-      <span class="theme-label" :class="option.value === modelValue ? 'heading-4' : 'text-body'">
+      <span class="theme-label" :class="option.value === modelValue ? 'heading-4' : 'text-body-medium'">
         {{ option.label }}
       </span>
     </button>
@@ -227,12 +227,12 @@ function select(value) {
   border-radius: 3.5cqw;
 }
 
-/* heading-4 sets a shorter line than text-body: the taller line holds both,
+/* heading-4 sets a shorter line than text-body-medium: the taller line holds both,
    so the label does not jump when it is selected. */
 .theme-label {
   display: flex;
   align-items: center;
-  min-height: var(--line-height-body);
+  min-height: var(--line-height-body-medium);
   color: var(--color-text-secondary);
   transition: color var(--transition-fast);
 }

@@ -47,7 +47,7 @@
       @change="handleWifiToggle"
     >
       <div ref="wifiContentRef" class="wifi-content">
-        <span class="text-body wifi-content__description">{{ t('network.wifiDescription') }}</span>
+        <span class="text-body-medium wifi-content__description">{{ t('network.wifiDescription') }}</span>
 
         <!-- Preferred network -->
         <div v-if="preferredNetwork" class="wifi-group">
@@ -56,7 +56,7 @@
             <div class="network-item__row">
               <div class="network-item__ssid-row">
                 <WifiSignal :signal="wifiCardSignal" :size="24" />
-                <span class="text-body network-item__ssid">{{ preferredNetwork.ssid }}</span>
+                <span class="text-body-medium network-item__ssid">{{ preferredNetwork.ssid }}</span>
               </div>
               <Button variant="important" size="small" @click="forgetNetwork(preferredNetwork.ssid)">
                 {{ t('network.forget') }}
@@ -96,7 +96,7 @@
               <div class="network-item__row">
                 <div class="network-item__ssid-row">
                   <WifiSignal :signal="network.signal" :size="24" />
-                  <span class="text-body network-item__ssid">{{ network.ssid }}</span>
+                  <span class="text-body-medium network-item__ssid">{{ network.ssid }}</span>
                 </div>
                 <SvgIcon name="caretDown" :size="24" color="var(--color-text-tertiary)"
                   class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />

@@ -49,7 +49,7 @@
           @update:model-value="set('fec_block_repair', $event)" />
 
         <div class="toggle-row">
-          <span class="text-body toggle-row__label">{{ t('macSettings.interleaving') }}</span>
+          <span class="text-body-medium toggle-row__label">{{ t('macSettings.interleaving') }}</span>
           <Toggle :model-value="draft.packet_interleaving" :disabled="busy"
             @change="set('packet_interleaving', $event)" />
         </div>
@@ -102,7 +102,7 @@
       </AnalysisSection>
     </template>
 
-    <p v-else-if="macLinkStore.capabilitiesFailed" class="text-body section-note">
+    <p v-else-if="macLinkStore.capabilitiesFailed" class="text-body-medium section-note">
       {{ t('macSettings.unavailable') }}
     </p>
 

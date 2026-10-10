@@ -22,7 +22,7 @@
           <!-- Row 1: 10 character keys -->
           <div class="keyboard-row">
             <button v-for="key in currentRow1" :key="'r1-' + key"
-              class="keyboard-key text-body"
+              class="keyboard-key text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
               @pointerup.prevent="onKeyPointerUp($event, key)"
               @pointerleave="onKeyPointerLeave">
@@ -33,7 +33,7 @@
           <!-- Row 2: 10 character keys -->
           <div class="keyboard-row">
             <button v-for="key in currentRow2" :key="'r2-' + key"
-              class="keyboard-key text-body"
+              class="keyboard-key text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
               @pointerup.prevent="onKeyPointerUp($event, key)"
               @pointerleave="onKeyPointerLeave">
@@ -50,12 +50,12 @@
               <template v-if="keyboardMode === 'abc'">
                 <SvgIcon :name="isCapsLock ? 'keyboardCapsLockFilled' : 'keyboardCapsLock'" :size="24" />
               </template>
-              <template v-else-if="keyboardMode === 'numbers'"><span class="text-body">#+=</span></template>
-              <template v-else><span class="text-body">123</span></template>
+              <template v-else-if="keyboardMode === 'numbers'"><span class="text-body-medium">#+=</span></template>
+              <template v-else><span class="text-body-medium">123</span></template>
             </button>
 
             <button v-for="key in currentRow3" :key="'r3-' + key"
-              class="keyboard-key text-body"
+              class="keyboard-key text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
               @pointerup.prevent="onKeyPointerUp($event, key)"
               @pointerleave="onKeyPointerLeave">
@@ -77,7 +77,7 @@
               @click="toggleShift">
               <SvgIcon name="keyboardShift" :size="24" />
             </button>
-            <button class="keyboard-key key-mode text-body"
+            <button class="keyboard-key key-mode text-body-medium"
               :class="{ 'mode-active': keyboardMode !== 'abc' }"
               @pointerdown.prevent
               @click="toggleMode">
@@ -87,7 +87,7 @@
               @pointerdown.prevent
               @click="addChar(' ')">
             </button>
-            <button class="keyboard-key key-dot text-body"
+            <button class="keyboard-key key-dot text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, '.')"
               @pointerup.prevent="onKeyPointerUp($event, '.')"
               @pointerleave="onKeyPointerLeave">
@@ -111,7 +111,7 @@
         <div v-if="accentPopup.visible" class="accent-popup"
           :style="accentPopup.style">
           <div v-for="(accent, i) in accentPopup.variants" :key="accent"
-            class="accent-option text-body"
+            class="accent-option text-body-medium"
             :class="{ 'accent-selected': accentPopup.selectedIndex === i }">
             {{ accent }}
           </div>

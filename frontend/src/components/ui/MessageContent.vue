@@ -8,8 +8,8 @@
 
     <!-- Content always visible (even while loading) -->
     <p v-if="displayTitle" class="heading-2 mc-title">{{ displayTitle }}</p>
-    <p v-if="subtitle" class="text-body mc-subtitle" v-html="subtitle"></p>
-    <p v-if="details" class="text-body mc-details">{{ details }}</p>
+    <p v-if="subtitle" class="text-body-medium mc-subtitle" v-html="subtitle"></p>
+    <p v-if="details" class="text-body-medium mc-details">{{ details }}</p>
     <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
       <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
         {{ ctaLabel }}

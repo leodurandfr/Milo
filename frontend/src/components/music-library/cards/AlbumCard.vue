@@ -10,7 +10,7 @@
     />
     <div class="album-info">
       <p class="album-name heading-4">{{ album.name }}</p>
-      <p v-if="album.artist" class="album-artist text-body">{{ album.artist }}</p>
+      <p v-if="album.artist" class="album-artist text-body-medium">{{ album.artist }}</p>
     </div>
   </div>
 </template>

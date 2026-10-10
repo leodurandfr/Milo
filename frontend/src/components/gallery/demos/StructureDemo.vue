@@ -8,7 +8,7 @@
     <Modal :is-open="modalOpen" @close="modalOpen = false">
       <NavigationHeader title="A modal" subtitle="Tap the scrim or the header to close" show-back
         @back="modalOpen = false" />
-      <p class="modal-copy text-body">
+      <p class="modal-copy text-body-medium">
         The container springs to the height of its content. Descendants that change
         size ask for a new height through the provided `modalRequestHeightDelta`
         rather than measuring the modal themselves.
@@ -17,7 +17,7 @@
     <Modal :is-open="modalTallOpen" @close="modalTallOpen = false">
       <NavigationHeader title="Growing content" @back="modalTallOpen = false" />
       <ToggleSection title="Expand me" :enabled="innerOpen" @change="innerOpen = $event">
-        <p class="modal-copy text-body">
+        <p class="modal-copy text-body-medium">
           This is the path Collapse exists for: the section animates its own height
           on the same curve as the modal's clip, through `modalSpringHeightDelta`,
           so the two are equal at every frame.

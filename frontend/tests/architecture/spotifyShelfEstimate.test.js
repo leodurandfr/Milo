@@ -3,7 +3,7 @@
  * A Spotify shelf not drawn yet (content-visibility: auto) holds the height
  * SpotifyShelfRow works out for its cards: a square cover, then the card's
  * gap and what it writes under it (utils/spotifyCard.js::cardLines) — a
- * heading-4 name and, past the info gap, a text-body byline; or, when the
+ * heading-4 name and, past the info gap, a text-body-medium byline; or, when the
  * cover carries the name, the byline alone. That height restates SpotifyCard's
  * box.
  *
@@ -55,14 +55,14 @@ describe('the height a Spotify shelf reserves', () => {
 
   it('adds the byline: alone, or under the name past the info gap', () => {
     expect(rule(card, '.playlist-info')).toMatch(/gap:\s*var\(--space-01\)/);
-    expect(card).toMatch(/v-if="lines.byline" class="playlist-owner text-body"/);
+    expect(card).toMatch(/v-if="lines.byline" class="playlist-owner text-body-medium"/);
     expect(card).toMatch(/'byline-only': !lines\.heading && lines\.byline/);
     expect(rule(card, '.playlist-card.byline-only')).toMatch(/gap:\s*var\(--space-02\)/);
     expect(row).toMatch(/withByline = computed\(\(\) => lines\.value\.some\(\(line\) => line\.byline\)\)/);
     expect(rule(row, '.shelf-row.with-byline'))
-      .toMatch(/calc\(var\(--shelf-cover-height\) \+ var\(--space-02\) \+ var\(--line-height-body\)\)/);
+      .toMatch(/calc\(var\(--shelf-cover-height\) \+ var\(--space-02\) \+ var\(--line-height-body-medium\)\)/);
     expect(rule(row, '.shelf-row.with-name.with-byline')).toMatch(
-      /calc\(\s*var\(--shelf-cover-height\) \+ var\(--space-03\) \+ var\(--line-height-h4\) \+ var\(--space-01\) \+ var\(--line-height-body\)\s*\)/,
+      /calc\(\s*var\(--shelf-cover-height\) \+ var\(--space-03\) \+ var\(--line-height-h4\) \+ var\(--space-01\) \+ var\(--line-height-body-medium\)\s*\)/,
     );
   });
 });
