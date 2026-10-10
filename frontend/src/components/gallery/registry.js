@@ -825,13 +825,6 @@ export const REGISTRY = {
     // `duration` is seconds here, unlike ProgressBar's milliseconds — the row
     // formats what the catalogue hands it, and Subsonic reports seconds.
     presets: {
-      // The line name by name, as the Spotify browser hands it (song's
-      // `artist` is still what is drawn while no name links).
-      artists: {
-        'none — the plain line': [],
-        'Two artists, each a link': [{ name: 'Nils Frahm', link: true }, { name: 'Ólafur Arnalds', link: true }],
-        'On the first one\'s page': [{ name: 'Nils Frahm', link: false }, { name: 'Ólafur Arnalds', link: true }]
-      },
       song: {
         'Track': { title: 'Says', artist: 'Nils Frahm', duration: 511 },
         'Two artists': { title: 'Loon', artist: 'Nils Frahm, Ólafur Arnalds', duration: 412 },

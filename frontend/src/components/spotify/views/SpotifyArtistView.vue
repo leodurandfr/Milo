@@ -38,15 +38,14 @@
                   show-artist
                   show-cover
                   :cover-url="track.thumbnail || ''"
-                  :artists="track.artists.map((artist) => ({ name: artist.name, link: !!artist.uri && artist.uri !== uri }))"
+                  :opening="isOpening(idx)"
                   @play="play({ skipToUri: track.uri })"
-                  @artist="$emit('select-artist', track.artists[$event])"
                 >
                   <template #menu>
                     <SpotifyTrackMenu :track="track" kind="artist" :page-uri="uri"
-                      @artist="$emit('select-artist', $event)"
-                      @album="$emit('select-album', track.album)"
-                      @radio="$emit('select-radio', $event)" />
+                      @artist="$emit('select-artist', $event, rowKey(track, idx))"
+                      @album="$emit('select-album', track.album, rowKey(track, idx))"
+                      @radio="$emit('select-radio', $event, rowKey(track, idx))" />
                   </template>
                 </TrackRow>
               </div>
@@ -138,7 +137,7 @@ const pageError = computed(() => store.artistErrors[props.uri] ?? null);
 const listing = computed(() => store.contexts[props.uri] ?? null);
 const trackError = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
-const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+const { rowSong, rowKey, isOpening, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
 
 // Until the first ones are described: the listing answers within a second.
 const tracksPending = computed(() => !tracks.value.length && !listing.value?.complete && !trackError.value);

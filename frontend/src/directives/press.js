@@ -3,6 +3,8 @@
 // Usage:
 //   <button v-press>             → standard press (4px shrink)
 //   <button v-press="condition"> → conditional (active if truthy)
+//   <div v-press.flat>           → dims without shrinking (a full-width row,
+//                                  where 4px of a small side reads as a lurch)
 //
 // Purely visual: activation is the browser's own click, so a scroll, a fling or
 // the tap that stops one never activates anything the native rules would not.
@@ -32,7 +34,16 @@ function updateScale(el, width, height) {
   }
 }
 
-function setupPress(el) {
+function setupPress(el, flat) {
+  if (flat) {
+    el.style.setProperty('--press-scale', '1')
+  } else {
+    observeScale(el)
+  }
+  listenPress(el)
+}
+
+function observeScale(el) {
   // Its first report arrives before the first paint, so no press can come
   // before the scale.
   const observer = new ResizeObserver(([entry]) => {
@@ -47,7 +58,9 @@ function setupPress(el) {
   })
   observer.observe(el, { box: 'border-box' })
   el._pressObserver = observer
+}
 
+function listenPress(el) {
   el.classList.add('interactive-press')
 
   // Held until release, with a minimum so quick taps still show feedback.
@@ -121,7 +134,7 @@ function cleanupPress(el) {
 export const vPress = {
   mounted(el, binding) {
     if (binding.value === false) return
-    setupPress(el)
+    setupPress(el, binding.modifiers.flat)
   },
 
   updated(el, binding) {
@@ -131,7 +144,7 @@ export const vPress = {
     if (wasActive && !shouldBeActive) {
       cleanupPress(el)
     } else if (!wasActive && shouldBeActive) {
-      setupPress(el)
+      setupPress(el, binding.modifiers.flat)
     } else if (wasActive && shouldBeActive) {
       // Re-apply class if Vue's :class binding removed it during re-render
       if (!el.classList.contains('interactive-press')) {

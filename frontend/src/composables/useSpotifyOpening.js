@@ -14,8 +14,10 @@ export const SPOTIFY_OPENING = Symbol('spotifyOpening');
  */
 export function useSpotifyOpening(push) {
   const store = useSpotifyStore();
-  // The uri of the card opening, or null.
+  // The key of what is opening (a card's uri, a track row's key), or null, and
+  // the page it opens: one row's menu leads to several.
   const opening = ref(null);
+  let target = null;
   let controller = null;
 
   provide(SPOTIFY_OPENING, opening);
@@ -31,11 +33,12 @@ export function useSpotifyOpening(push) {
     controller?.abort();
     controller = null;
     opening.value = null;
+    target = null;
   }
 
   async function open(card, view, params) {
     // Tapped again while it spins: the page opens now, on its own loading.
-    const again = opening.value === card.uri;
+    const again = opening.value === card.uri && target === params.uri;
     cancel();
     if (again) {
       push(view, params);
@@ -46,6 +49,7 @@ export function useSpotifyOpening(push) {
       const own = new AbortController();
       controller = own;
       opening.value = card.uri;
+      target = uri;
       if (view === 'artist') store.loadArtist(uri, { force: !!store.artistErrors[uri] });
       store.loadContext(uri, { signal: own.signal });
       if (!(await until(() => ready(view, uri), own.signal))) return;
@@ -59,9 +63,14 @@ export function useSpotifyOpening(push) {
   return { open, cancel };
 }
 
+/** The key of what is opening its page (a card's uri, a track row's key), or null. */
+export function useOpeningKey() {
+  return inject(SPOTIFY_OPENING, null);
+}
+
 /** Whether the card for `uri` is the one opening its page. */
 export function useCardOpening(uri) {
-  const opening = inject(SPOTIFY_OPENING, null);
+  const opening = useOpeningKey();
   return computed(() => !!opening?.value && opening.value === toValue(uri));
 }
 

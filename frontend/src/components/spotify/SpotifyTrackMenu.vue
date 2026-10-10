@@ -5,7 +5,7 @@
   <Dropdown v-if="mayLead" model-value="" :options="options" size="small" placement="top-end"
     icon-placement="start" @change="choose">
     <template #trigger="{ toggle, isOpen }">
-      <button v-press type="button" class="track-menu-trigger" :aria-label="t('spotify.moreOptions')"
+      <button v-press type="button" class="track-menu-trigger hit-outset" :aria-label="t('spotify.moreOptions')"
         :aria-busy="asking" @click="press(toggle, isOpen)">
         <SvgIcon name="threeDots" :size="20" />
       </button>

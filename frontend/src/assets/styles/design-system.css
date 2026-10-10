@@ -872,6 +872,19 @@
     opacity: 0.6 !important;
 }
 
+/* === HIT OUTSET === */
+/* A 32 px icon button whose tap target must reach 44 px without moving the
+   layout: a tap just off a track row's ⋯ landed on the row, which plays. */
+.hit-outset {
+    position: relative;
+}
+
+.hit-outset::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+}
+
 /* === CARD LOADING OVERLAY === */
 /* Blurred overlay centered on a card image container (position: relative parent).
    Its corners are the container's: a radius of its own left the cover's

@@ -122,21 +122,27 @@ const artistPage = (artist) => ({ uri: artist.uri, name: artist.name || '', imag
 const playlistPage = (playlist) =>
   ({ uri: playlist.uri, kind: 'playlist', name: playlist.name || '', image: playlist.image || '', owner: playlist.owner || '' });
 
-function openAlbum(album) {
-  if (album?.uri) push('context', albumPage(album));
+// `from`: the key of the track row whose menu asked, which then waits on the
+// page's first answer as a card does; the player's links open at once.
+function openFrom(from, view, params) {
+  if (from) opening.open({ uri: from }, view, params);
+  else push(view, params);
 }
-function openArtist(artist) {
-  if (artist?.uri) push('artist', artistPage(artist));
+function openAlbum(album, from) {
+  if (album?.uri) openFrom(from, 'context', albumPage(album));
+}
+function openArtist(artist, from) {
+  if (artist?.uri) openFrom(from, 'artist', artistPage(artist));
 }
 // A track's radio: the playlist Spotify made for it, named after the track
 // (a nameless track leaves the page its untitled heading).
-function openRadio({ uri, track }) {
+function openRadio({ uri, track }, from) {
   const name = track.title ? t('spotify.trackRadio', { title: track.title }) : '';
-  push('context', { uri, kind: 'playlist', name, image: track.artwork || '', owner: 'spotify' });
+  openFrom(from, 'context', { uri, kind: 'playlist', name, image: track.artwork || '', owner: 'spotify' });
 }
 // A card or a tile, by the kind of page it opens. It waits on the card for the
-// page's first answer; a page opened from anywhere else (a track's artist, the
-// player) opens at once on its own loading.
+// page's first answer; a page opened from the player opens at once on its own
+// loading.
 const opening = useSpotifyOpening(push);
 function openItem(item) {
   if (item.kind === 'liked') {

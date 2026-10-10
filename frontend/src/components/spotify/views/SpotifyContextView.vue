@@ -35,15 +35,14 @@
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
-              :artists="track.artists.map((artist) => ({ name: artist.name, link: !!artist.uri }))"
+              :opening="isOpening(idx)"
               @play="play({ skipToUri: track.uri })"
-              @artist="$emit('select-artist', track.artists[$event])"
             >
               <template #menu>
                 <SpotifyTrackMenu :track="track" :kind="kind"
-                  @artist="$emit('select-artist', $event)"
-                  @album="$emit('select-album', track.album)"
-                  @radio="$emit('select-radio', $event)" />
+                  @artist="$emit('select-artist', $event, rowKey(track, idx))"
+                  @album="$emit('select-album', track.album, rowKey(track, idx))"
+                  @radio="$emit('select-radio', $event, rowKey(track, idx))" />
               </template>
             </TrackRow>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
@@ -101,7 +100,7 @@ const error = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
 // The rows mounted, out of the tracks described so far.
 const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
-const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+const { rowSong, rowKey, isOpening, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
 // While the rest is described, the listing's own length.
 const trackCount = computed(() => (listing.value?.complete ? tracks.value.length : listing.value?.length ?? 0));
 

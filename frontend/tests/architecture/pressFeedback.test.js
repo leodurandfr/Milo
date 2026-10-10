@@ -28,10 +28,13 @@
  * That second list used to be called UNDECIDED, and it was: whether a
  * `.zone-header` should shrink was an eye-on-the-kiosk call. It was reviewed on
  * 2026-07-28 and the answer is that the existing affordance — shrink 4 px, fade
- * to 60 %, hold 150 ms — is the app's whole press vocabulary and no second one
- * is wanted. These fifteen stay as they are. What that costs is stated rather
- * than hidden: a list row and a large surface get no acknowledgement, because
- * the one verb available scales them out of their grid.
+ * to 60 %, hold 150 ms — was the app's whole press vocabulary, and these
+ * fifteen stayed as they are: a list row and a large surface got no
+ * acknowledgement, because that verb scales them out of their grid. Since
+ * 2026-10-10 a second verb exists for exactly that case, `v-press.flat` (the
+ * fade without the shrink), worn by the track row. The entries below were
+ * decided before it existed and are open to it; until one is revisited it
+ * stays here.
  *
  * Both lists are checked for staleness: an entry matching nothing fails, the way
  * a `.stylelintrc.cjs` whitelist entry for a deleted file did.
