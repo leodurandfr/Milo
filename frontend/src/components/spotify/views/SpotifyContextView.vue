@@ -3,14 +3,14 @@
     <div class="swap-stack">
       <Transition name="fade-slide">
         <!-- Rows already listed stay over an error: reopening asks for the rest. -->
-        <MessageContent v-if="error && !tracks.length" key="error" icon="network"
+        <MessageContent v-if="error && !tracks.length" key="error" icon="spotify"
           :title="error === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable')"
           :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 
         <MessageContent v-else-if="!tracks.length && !listing?.complete" key="loading" loading
           :title="progress" />
 
-        <MessageContent v-else-if="!tracks.length" key="empty" :title="t('spotify.noTracks')" />
+        <MessageContent v-else-if="!tracks.length" key="empty" icon="musicNote" :title="t('spotify.noTracks')" />
 
         <div v-else key="loaded" class="content-stack">
           <DetailHeader

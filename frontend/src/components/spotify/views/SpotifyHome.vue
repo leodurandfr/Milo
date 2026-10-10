@@ -5,7 +5,7 @@
         <MessageContent v-if="!home && (store.signingIn || store.homeError === 'not_signed_in')"
           key="signing-in" loading :title="t('spotify.signingIn')" />
 
-        <MessageContent v-else-if="store.homeError === 'unavailable'" key="error" icon="network"
+        <MessageContent v-else-if="store.homeError === 'unavailable'" key="error" icon="spotify"
           :title="t('spotify.libraryUnavailable')"
           :cta-label="t('spotify.retry')" cta-variant="control"
           :cta-click="() => store.loadHome({ force: true })" />

@@ -3,7 +3,7 @@
     <div class="swap-stack">
       <Transition name="fade-slide">
         <MessageContent v-if="loading && !album" key="loading" loading />
-        <MessageContent v-else-if="!album" key="notfound" :title="t('musicLibrary.notFound')" />
+        <MessageContent v-else-if="!album" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
           <DetailHeader

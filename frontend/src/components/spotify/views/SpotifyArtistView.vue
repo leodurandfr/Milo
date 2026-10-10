@@ -7,7 +7,7 @@
         <MessageContent v-if="(!page && !pageError) || tracksPending" key="loading" loading />
 
         <!-- Neither the page nor a track: nothing to show but a retry. -->
-        <MessageContent v-else-if="pageError && !tracks.length" key="error" icon="network"
+        <MessageContent v-else-if="pageError && !tracks.length" key="error" icon="spotify"
           :title="errorTitle(pageError)" :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 
         <div v-else key="loaded" class="sections">
@@ -54,11 +54,11 @@
 
           <!-- The page without its tracks: the popular ones are missing, said
                with a retry rather than left out in silence. -->
-          <MessageContent v-else-if="trackError" :title="errorTitle(trackError)" :cta-label="t('spotify.retry')"
+          <MessageContent v-else-if="trackError" icon="spotify" :title="errorTitle(trackError)" :cta-label="t('spotify.retry')"
             cta-variant="control" :cta-click="load" />
 
           <!-- The tracks without the page: what failed is said, with a retry. -->
-          <MessageContent v-if="pageError" :title="errorTitle(pageError)" :cta-label="t('spotify.retry')"
+          <MessageContent v-if="pageError" icon="spotify" :title="errorTitle(pageError)" :cta-label="t('spotify.retry')"
             cta-variant="control" :cta-click="load" />
 
           <!-- Spotify's own sections, in its order and under its titles; its

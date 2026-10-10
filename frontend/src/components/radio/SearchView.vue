@@ -44,7 +44,7 @@
         <MessageContent
           v-else-if="hasError && searchResults.length === 0"
           key="error"
-          icon="stop"
+          icon="network"
           :title="t('audioSources.radioSource.connectionError')"
           :subtitle="t('audioSources.radioSource.cannotLoadStations')"
           :cta-label="t('audioSources.radioSource.retry')"

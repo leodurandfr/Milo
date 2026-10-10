@@ -2,7 +2,7 @@
   <div class="spotify-discography">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <MessageContent v-if="!groups.length && error" key="error" icon="network"
+        <MessageContent v-if="!groups.length && error" key="error" icon="spotify"
           :title="error === 'not_signed_in' ? t('spotify.signingIn') : t('spotify.listUnavailable')"
           :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 

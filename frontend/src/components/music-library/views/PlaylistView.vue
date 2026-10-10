@@ -3,7 +3,7 @@
     <div class="swap-stack">
       <Transition name="fade-slide">
         <MessageContent v-if="loading && !playlist" key="loading" loading />
-        <MessageContent v-else-if="!playlist" key="notfound" :title="t('musicLibrary.notFound')" />
+        <MessageContent v-else-if="!playlist" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
@@ -36,7 +36,7 @@
             <p v-if="tracks.length" class="edit-hint text-mono-medium">{{ t('musicLibrary.playlists.reorderHint') }}</p>
           </div>
 
-          <MessageContent v-if="!tracks.length" :title="t('musicLibrary.noTracks')" />
+          <MessageContent v-if="!tracks.length" icon="musicNote" :title="t('musicLibrary.noTracks')" />
 
           <div v-else class="tracks" :class="{ reordering: editing }">
             <div

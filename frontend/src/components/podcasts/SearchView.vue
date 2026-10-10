@@ -14,7 +14,7 @@
         <MessageContent
           v-else-if="podcastStore.apiError"
           key="error"
-          icon="network"
+          icon="podcast"
           :title="t('podcasts.catalogUnavailable')"
           :subtitle="t('podcasts.catalogUnavailableHint')"
           :cta-label="t('podcasts.retry')"

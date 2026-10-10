@@ -68,6 +68,8 @@ import hardwareIcon from '@/assets/icons/hardware.svg?raw'
 import broadcastIcon from '@/assets/icons/broadcast.svg?raw'
 import userSoundIcon from '@/assets/icons/user-sound.svg?raw'
 import vinylRecordIcon from '@/assets/icons/vinyl-record.svg?raw'
+import musicNoteIcon from '@/assets/icons/music-note.svg?raw'
+import spotifyIcon from '@/assets/icons/spotify.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -128,7 +130,9 @@ const icons = {
   hardware: hardwareIcon,
   broadcast: broadcastIcon,
   userSound: userSoundIcon,
-  vinylRecord: vinylRecordIcon
+  vinylRecord: vinylRecordIcon,
+  musicNote: musicNoteIcon,
+  spotify: spotifyIcon
 }
 
 /**

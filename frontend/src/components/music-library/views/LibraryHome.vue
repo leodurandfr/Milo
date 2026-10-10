@@ -200,6 +200,7 @@ async function handleRescan() {
 function emptyState(titleKey, subtitleKey) {
   if (store.availability === 'no_storage') {
     return {
+      icon: 'musicNote',
       title: t('musicLibrary.emptyLibrary'),
       subtitle: t('musicLibrary.emptyLibraryHint'),
     };
@@ -227,7 +228,7 @@ function emptyState(titleKey, subtitleKey) {
       ctaClick: handleRescan,
     };
   }
-  return { title: t(titleKey), subtitle: subtitleKey ? t(subtitleKey) : '' };
+  return { icon: 'musicNote', title: t(titleKey), subtitle: subtitleKey ? t(subtitleKey) : '' };
 }
 
 const disconnectedTitle = computed(() =>

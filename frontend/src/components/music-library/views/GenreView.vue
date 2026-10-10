@@ -15,7 +15,7 @@
           <div class="swap-stack">
             <Transition name="fade-slide">
               <MessageContent v-if="loading && !songs.length" key="loading" loading />
-              <MessageContent v-else-if="!songs.length" key="notfound" :title="t('musicLibrary.noTracks')" />
+              <MessageContent v-else-if="!songs.length" key="notfound" icon="musicNote" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="content-stack">
                 <div class="genre-actions">
                   <div class="genre-buttons">
@@ -51,7 +51,7 @@
           <div class="swap-stack">
             <Transition name="fade-slide">
               <MessageContent v-if="loading && !albums.length" key="loading" loading />
-              <MessageContent v-else-if="!albums.length" key="notfound" :title="t('musicLibrary.noTracks')" />
+              <MessageContent v-else-if="!albums.length" key="notfound" icon="musicNote" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="albums-grid">
                 <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />
               </div>
