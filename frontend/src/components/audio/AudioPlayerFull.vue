@@ -337,15 +337,21 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 }
 
 .now-playing {
-  /* The source bar's centre line: the body's top padding and half the bar's
-     24px row (PlayerBody, SourceBar). */
-  --source-line: calc(var(--space-06) + 12px);
+  /* The top row's margin: the right padding, the gap to the cover, and the
+     buttons' distance from the top edge. */
+  --edge: var(--space-06);
+  /* The source bar's center line, where the top row's buttons (a medium
+     IconButton, 48px) are centered: --edge below the top, past the padding. */
+  --source-line: calc(var(--edge) - var(--space-05) + 24px);
   display: flex;
   height: 100%;
-  /* On the right, the top row's buttons' distance from the top edge: the
-     padding, down to the source line, back up half a medium IconButton (48px). */
-  padding: var(--space-05) calc(var(--space-05) + var(--source-line) - 24px) var(--space-05) var(--space-05);
-  gap: var(--space-07);
+  padding: var(--space-05) var(--edge) var(--space-05) var(--space-05);
+  gap: var(--edge);
+}
+
+/* The body's top padding puts the source bar (a 24px row) on that line. */
+.now-playing :deep(.player-body--full > .player-body-info) {
+  padding-top: calc(var(--source-line) - 12px);
 }
 
 /* Artwork */
@@ -377,10 +383,9 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   top: var(--source-line);
 }
 
-/* What replaces the body (CD's tracklist) starts as far below the buttons'
-   line as the line is from the top. */
+/* What replaces the body (CD's tracklist) starts --edge below the buttons. */
 .has-top-row .content-replace {
-  padding-top: calc(2 * var(--source-line));
+  padding-top: calc(var(--source-line) + 24px + var(--edge));
 }
 
 /* Content replacement (e.g., CD tracklist) */
@@ -538,6 +543,8 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
 @media (max-aspect-ratio: 4/3) {
   .now-playing {
+    /* The body's own top padding, and half the bar's row. */
+    --source-line: calc(var(--space-06) + 12px);
     padding-left: var(--space-05);
     padding-right: var(--space-05);
     padding-top: max(var(--space-05), env(safe-area-inset-top, 0px));
@@ -549,6 +556,11 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
   .content-replace {
     margin-bottom: calc(-1 * max(var(--space-06), env(safe-area-inset-bottom, 0px)));
+  }
+
+  /* As far below the buttons' line as the line is from the top. */
+  .has-top-row .content-replace {
+    padding-top: calc(2 * var(--source-line));
   }
 
   /* The column dissolves into the page's one column, so the top row can sit
