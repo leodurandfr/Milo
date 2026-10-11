@@ -133,7 +133,7 @@ const volumeFillStyle = computed(() => ({
   --volume-track: var(--color-glass);
   --volume-fill: var(--color-text-on-contrast);
   --volume-text: var(--color-text-secondary);
-  --glass-tone: var(--color-shell-on-contrast);
+  color-scheme: dark;
 }
 
 .volume-bar--on-contrast .text-mono-medium {

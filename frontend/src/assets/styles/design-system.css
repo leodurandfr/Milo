@@ -2,7 +2,7 @@
 
    The palette (--gray-*) is the only place a neutral is written as a value:
    true grays, no hue, the same in both themes, and the tints — a step at an
-   alpha (--gray-200-a55), for a layer meant to let what is behind it through.
+   alpha (--gray-200-a50), for a layer meant to let what is behind it through.
    The palette is private to this file — a component never reads a step, it
    reads a role — and every entry in it is read by a role.
 
@@ -31,29 +31,32 @@
     --gray-25: #f7f7f7;
     --gray-50: #f2f2f2;
     --gray-100: #ebebeb;
-    --gray-200: #c8c8c8;
+    --gray-200: #d6d6d6;
     --gray-300: #a8a8a8;
     --gray-400: #9e9e9e;
     --gray-500: #777777;
     --gray-600: #676767;
     --gray-800: #2f2f2f;
+    --gray-845: #292929;
     --gray-850: #282828;
     --gray-900: #1f1f1f;
     --gray-950: #161616;
     --gray-1000: #0b0b0b;
     /* Tints. */
     --gray-0-a12: color-mix(in srgb, var(--gray-0) 12%, transparent);
+    --gray-0-a16: color-mix(in srgb, var(--gray-0) 16%, transparent);
+    --gray-0-a32: color-mix(in srgb, var(--gray-0) 32%, transparent);
     --gray-0-a50: color-mix(in srgb, var(--gray-0) 50%, transparent);
     --gray-0-a80: color-mix(in srgb, var(--gray-0) 80%, transparent);
     --gray-100-a4: color-mix(in srgb, var(--gray-100) 4%, transparent);
     --gray-100-a10: color-mix(in srgb, var(--gray-100) 10%, transparent);
     --gray-100-a14: color-mix(in srgb, var(--gray-100) 14%, transparent);
     --gray-100-a80: color-mix(in srgb, var(--gray-100) 80%, transparent);
-    --gray-200-a55: color-mix(in srgb, var(--gray-200) 55%, transparent);
+    --gray-200-a50: color-mix(in srgb, var(--gray-200) 50%, transparent);
     --gray-500-a9: color-mix(in srgb, var(--gray-500) 9%, transparent);
     --gray-500-a16: color-mix(in srgb, var(--gray-500) 16%, transparent);
     --gray-500-a32: color-mix(in srgb, var(--gray-500) 32%, transparent);
-    --gray-800-a55: color-mix(in srgb, var(--gray-800) 55%, transparent);
+    --gray-845-a50: color-mix(in srgb, var(--gray-845) 50%, transparent);
     --gray-800-a80: color-mix(in srgb, var(--gray-800) 80%, transparent);
     --gray-950-a2: color-mix(in srgb, var(--gray-950) 2%, transparent);
     --gray-950-a5: color-mix(in srgb, var(--gray-950) 5%, transparent);
@@ -149,19 +152,17 @@
        recedes rather than fogs. The cost is accepted: a modal's .glass-shell
        lands darker than the dock on the bare ground. */
     --color-overlay: light-dark(var(--gray-950-a32), var(--gray-950-a72));
-    /* The tone of the .glass-shell material (a modal, the dock): Apple's
-       dock, a light gray in light and a dark one in dark at the same alpha.
-       The light gray is lighter than Apple's #999 because the alpha is
-       higher (55% against 33%): over the light ground it lands where
-       Apple's does (#ddd), and only a busy backdrop shows the difference.
+    /* The tone of the .glass-shell material (a modal, the dock): a light
+       gray in light and a dark one in dark, at the same alpha (50%).
        And what the dock lays on it (a volume key, the overflow toggle, an
        overflow app, the separator), covering enough that the icon or text
        on it stays legible whatever shows through the glass. */
-    --color-shell: light-dark(var(--gray-200-a55), var(--gray-800-a55));
+    --color-shell: light-dark(var(--gray-200-a50), var(--gray-845-a50));
     --color-shell-control: light-dark(var(--gray-0-a80), var(--gray-800-a80));
-    /* The same glass on a contrast surface (the lyrics, a dark ground): the
-       dark tone in both themes. */
-    --color-shell-on-contrast: var(--gray-800-a55);
+    /* The lit rim of the glass (--shadow-glass-rim): twice as bright in
+       light, where a white edge on a light tone would otherwise vanish, so
+       the rim reads as it does in dark. .glass-menu shares it. */
+    --color-shell-rim: light-dark(var(--gray-0-a32), var(--gray-0-a16));
     /* The .glass-menu material (a dropdown): iOS 27's menu, denser than the
        shell so a list reads over anything — the surface at 80% in light, and
        in dark barely translucent, set off from the screen by its drop rather
@@ -351,10 +352,10 @@
         0 0 0 0.5px rgba(0, 0, 0, 0.2),
         0 8px 15px rgba(0, 0, 0, 0.02);
     --shadow-glass-rim:
-        inset 0 1.25px 0.25px rgba(255, 255, 255, 0.16),
-        inset 0 -1.25px 0.25px rgba(255, 255, 255, 0.16),
-        inset 0 10px 10px -10px rgba(255, 255, 255, 0.16),
-        inset 0 -10px 10px -10px rgba(255, 255, 255, 0.16);
+        inset 0 1.25px 0.25px var(--color-shell-rim),
+        inset 0 -1.25px 0.25px var(--color-shell-rim),
+        inset 0 10px 10px -10px var(--color-shell-rim),
+        inset 0 -10px 10px -10px var(--color-shell-rim);
     /* The same lit rim on an app icon, as Figma's Glass Effect draws it there:
        the hairlines alone, fainter at the bottom, with no glow. */
     --shadow-app-icon-rim:
@@ -764,17 +765,15 @@
 
 /* === GLASSMORPHISM === */
 /* .glass-shell: the material of all floating chrome — a modal, the dock,
-   the volume bar, the keyboard, the playing bar's card, a glass button. It
-   is Apple's dock (its Figma kit: a gray blended in luminosity mode over a
-   frost), denser than Apple's 33% and light frost so what is laid on it
-   reads over any cover.
-   Luminosity keeps the hue and saturation of what is behind and moves only
-   its lightness toward the gray. A plain gray veil at 55% would also drain
-   55% of the saturation, so the backdrop is saturated by 1/(1 - 0.55) first
-   and the two cancel — for the muted colors a blur leaves; a vivid one clips
-   at the gamut edge and stays a little louder than Apple's. mix-blend-mode
-   would be exact but cannot reach the backdrop of an element that blurs it. On a contrast surface,
-   --glass-tone: var(--color-shell-on-contrast).
+   the volume bar, the keyboard, the playing bar's card, a glass button: the
+   theme's tone laid over a blur of what is behind, a ring outside and a lit
+   rim. The tone is a plain veil, so it drains the backdrop's color as much
+   as it covers it, and nothing gives it back — the blur is not saturated.
+   Apple's dock keeps the color by blending its gray in luminosity mode, but
+   mix-blend-mode cannot reach the backdrop of an element that blurs it.
+   On a contrast surface (the lyrics, a dark ground) the glass is a
+   color-scheme: dark scope, so its tone and its rim are the dark ones in
+   both themes.
    Under a layer that already blurs the screen, --glass-backdrop: none (the
    modal overlay sets it): a backdrop-filter stops at the nearest ancestor
    that has one, so the glass would only see that layer's veil and paint it
@@ -782,7 +781,7 @@
 .glass-shell {
     position: relative;
     isolation: isolate;
-    background: var(--glass-tone, var(--color-shell));
+    background: var(--color-shell);
     backdrop-filter: var(--glass-backdrop, blur(var(--blur-04)));
     -webkit-backdrop-filter: var(--glass-backdrop, blur(var(--blur-04)));
     box-shadow: var(--shadow-glass-shell);

@@ -302,7 +302,7 @@ const PAGES = [
       {
         title: 'GLASSMORPHISM',
         kind: 'glass',
-        note: 'Applied as a class: the theme\'s glass tone over a blur, a ring outside and a lit rim drawn above the content. --glass-tone: var(--color-shell-on-contrast) takes the dark tone on a contrast surface. Drawn here over the same backdrop as the blur steps.',
+        note: 'Applied as a class: the theme\'s glass tone over a blur, a ring outside and a lit rim drawn above the content. On a contrast surface the glass is a color-scheme: dark scope, which gives it the dark tone and rim in both themes. Drawn here over the same backdrop as the blur steps.',
         variants: [
           { label: '.glass-shell', classes: 'glass-shell' }
         ]

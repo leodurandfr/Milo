@@ -44,7 +44,7 @@ const NEUTRAL = [
   '--color-brand', '--color-text-on-brand', '--color-brand-subtle',
   '--color-success', '--color-warning', '--color-error',
   '--color-success-subtle', '--color-warning-subtle', '--color-error-subtle',
-  '--color-glass', '--color-glass-strong', '--color-shell-on-contrast',
+  '--color-glass', '--color-glass-strong',
   '--color-glint', '--color-text-on-contrast', '--color-text-on-contrast-secondary',
   '--color-image-veil', '--color-image-scrim',
   '--color-backdrop', '--color-backdrop-veil',

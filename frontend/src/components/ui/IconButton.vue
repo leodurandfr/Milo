@@ -180,10 +180,10 @@ function handleClick(event) {
   backface-visibility: hidden;
 }
 
-/* The glass plate on a contrast surface: the glass's dark tone in both
-   themes. */
+/* The glass plate on a contrast surface: the glass's dark tone and rim in
+   both themes. */
 .icon-button--glass-on-contrast {
-  --glass-tone: var(--color-shell-on-contrast);
+  color-scheme: dark;
   color: var(--color-text-on-contrast);
 }
 
