@@ -531,7 +531,8 @@
     "stop": "Arrêter",
     "play": "Lire",
     "shuffle": "Aléatoire",
-    "live": "En direct"
+    "live": "En direct",
+    "position": "Position de lecture"
   },
   "radio": {
     "country": "Pays",

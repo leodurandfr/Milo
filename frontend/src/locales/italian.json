@@ -531,7 +531,8 @@
     "stop": "Interrompi",
     "play": "Riproduci",
     "shuffle": "Casuale",
-    "live": "In diretta"
+    "live": "In diretta",
+    "position": "Posizione di riproduzione"
   },
   "radio": {
     "country": "Paese",

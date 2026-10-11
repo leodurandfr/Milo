@@ -57,8 +57,8 @@ const NOT_A_PRESS_SURFACE = {
     'the cover, a way into the full player: the view changing is the acknowledgement, and a shrink first read as a delay',
   'components/audio/AudioPlayerFull.vue::artwork':
     'the cover, the way back to the navigation: the view changing is the acknowledgement, and a shrink first read as a delay',
-  'components/audio/ProgressBar.vue::progress-container':
-    'a seek bar: the tap position is the value, and the bar must not move under the finger',
+  'components/audio/PlayerBody.vue::body-progress':
+    'a propagation guard made conditional: it keeps a seek from reaching the card, except on the phone\'s mini-bar, where the bar is a readout and the tap opens the full player',
   'components/audio/DetailHeader.vue::detail-header-subtitle':
     'an inline text link (tap the artist name), not a button — same treatment as EpisodeCard',
   'components/podcasts/EpisodeCard.vue::podcast-name':

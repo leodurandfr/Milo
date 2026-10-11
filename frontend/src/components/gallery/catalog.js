@@ -305,7 +305,7 @@ export const ENTRIES = [
     id: 'ProgressBar',
     group: 'player',
     file: 'components/audio/ProgressBar.vue',
-    summary: 'The one playback bar, in five surfaces. Positions and durations are always milliseconds — the wire convention — and seek is emitted in ms too. It self-hides when duration is 0 or isReady is false, which is how a source that reports no duration (radio, Qobuz) shows no bar rather than an empty one.',
+    summary: 'The one playback bar, in five surfaces. Positions and durations are always milliseconds — the wire convention — and seek is emitted in ms too, once, on the release of a press or a drag (the track thickens while held); the arrow keys emit skip in seconds. On the phone’s mini-bar PlayerBody passes interactive=false: a readout, the whole bar being one tap to the full player. It self-hides when duration is 0 or isReady is false, which is how a source that reports no duration (radio, Qobuz) shows no bar rather than an empty one.',
   },
   {
     id: 'ArtistNames',

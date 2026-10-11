@@ -1,12 +1,13 @@
 <!-- frontend/src/components/gallery/demos/PlayerDemo.vue -->
 <template>
   <GalleryItem id="ProgressBar">
-    <GalleryVariant label="variant=&quot;light&quot; (default) — interactive, click to seek" stacked>
+    <GalleryVariant label="variant=&quot;light&quot; (default) — interactive, press or drag to seek, arrows to skip" stacked>
       <ProgressBar
         :current-position="position"
         :duration="245000"
         :progress-percentage="(position / 245000) * 100"
         @seek="position = $event"
+        @skip="position = Math.min(245000, Math.max(0, position + $event * 1000))"
       />
       <span class="text-mono-small">seek → {{ position }} ms</span>
     </GalleryVariant>

@@ -2,7 +2,8 @@
 // The phone's pull down on a full-screen view: the view follows the finger down,
 // and on release either slides out (onDismiss) or springs back. Only a move
 // confirmed downward and vertical is taken; a tap or a horizontal swipe passes
-// through untouched. What the pull looks like is the caller's: this holds where
+// through untouched, and so does a touch a control under the finger has claimed
+// (preventDefault on its touchstart: the progress bar's drag). What the pull looks like is the caller's: this holds where
 // the finger is (`offset`, `progress` over the view's height), whether a pull is
 // under way at all (`active`), and the curve a release settles on (`timing`,
 // null while the finger moves the view itself).
@@ -48,7 +49,7 @@ export function usePullToDismiss({ enabled, onDismiss }) {
   let endedAt = 0;
 
   function onTouchStart(e) {
-    if (!enabled.value || settling.value) return;
+    if (!enabled.value || settling.value || e.defaultPrevented) return;
     const touch = e.touches[0];
     startX = touch.clientX;
     startY = touch.clientY;

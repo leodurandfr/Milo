@@ -531,7 +531,8 @@
     "stop": "Stop",
     "play": "Play",
     "shuffle": "Shuffle",
-    "live": "Live"
+    "live": "Live",
+    "position": "Playback position"
   },
   "radio": {
     "country": "Country",

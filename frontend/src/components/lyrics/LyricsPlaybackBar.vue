@@ -55,7 +55,7 @@
         <div v-if="hasBar" class="lyrics-bar-progress">
           <ProgressBar :currentPosition="currentPosition" :duration="duration"
             :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-            :interactive="canSeek" variant="on-contrast" animateIn @seek="seekTo" />
+            :interactive="canSeek" variant="on-contrast" animateIn @seek="seekTo" @skip="skip" />
         </div>
 
         <!-- Right column: the transport when the source has one — same as
@@ -116,7 +116,7 @@ const canSeek = computed(() => controls.value.includes('seek'));
 
 const identity = computed(() => getTrackIdentity(unifiedStore.systemState));
 
-const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } =
+const { currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized } =
   useSourceProgress(props.source);
 
 const isLoading = useDelayedFlag(() => session.value?.phase === 'loading');

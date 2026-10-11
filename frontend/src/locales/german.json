@@ -531,7 +531,8 @@
     "stop": "Stoppen",
     "play": "Wiedergeben",
     "shuffle": "Zufallswiedergabe",
-    "live": "Live"
+    "live": "Live",
+    "position": "Wiedergabeposition"
   },
   "radio": {
     "country": "Land",

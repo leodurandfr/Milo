@@ -67,11 +67,11 @@
            lines do not shift when the bar mounts on play; a receiver without
            one only takes it while it has a bar. The bar hides itself until the
            source has a duration and a position. -->
-      <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress" @click.stop>
+      <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress" @click="onProgressRowClick">
         <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
-          :isReady="isPositionInitialized" :interactive="canSeek" :loading="phase === 'loading'"
+          :isReady="isPositionInitialized" :interactive="seekable" :loading="phase === 'loading'"
           :variant="surface === 'card' ? 'on-contrast' : 'default'" :live="isLive" :onAir="phase === 'playing'"
-          :animateIn="surface === 'full'" @seek="seekTo" />
+          :animateIn="surface === 'full'" @seek="seekTo" @skip="skip" />
       </div>
       <div v-if="hasTransport" class="body-transport" :class="{ 'transport-scale--compact': surface === 'card' }">
         <PlayerTransport :source="source" :surface="surface === 'card' ? 'card' : 'plate'" @skip="skip">
@@ -126,6 +126,10 @@ const {
 const hasTransport = computed(() => shownControls.value.some(control => control.row === 'transport'));
 const canSeek = computed(() => liveControls.value.some(control => control.id === 'seek'));
 const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);
+// The phone's mini-bar is one target, the full player: its bar is a readout
+// there, and a tap on it goes through to the bar's expand.
+const miniBar = computed(() => props.surface === 'card' && isMobile.value);
+const seekable = computed(() => canSeek.value && !miniBar.value);
 // A live stream's main button (stop, or the play that re-tunes): its bar is
 // the live one.
 const isLive = computed(() => shownControls.value.some(control => control.id === 'main' && control.live));
@@ -134,13 +138,17 @@ const isLive = computed(() => shownControls.value.some(control => control.id ===
 // navigation says there is one. Not on the phone's mini-bar, which is one
 // target as a whole: the full player.
 const navigation = inject(PLAYER_NAVIGATION, null);
-const linksShown = computed(() => !(props.surface === 'card' && isMobile.value));
+const linksShown = computed(() => !miniBar.value);
 const albumLink = computed(() => !!navigation?.canOpenAlbum.value && linksShown.value);
 // The artist line's names, those with a page to open marked `link`. One name:
 // the line itself is the link, whatever it reads. Several: each name is its own.
 const artists = computed(() => (linksShown.value && navigation?.artists.value) || []);
 const lineLink = computed(() => artists.value.length === 1 && !!artists.value[0].link);
 const nameLinks = computed(() => artists.value.length > 1 && artists.value.some((artist) => artist.link));
+
+function onProgressRowClick(event) {
+  if (!miniBar.value) event.stopPropagation();
+}
 
 function onTitleClick() {
   if (albumLink.value) emit('title-click');
@@ -456,7 +464,12 @@ defineExpose({ swipe });
     display: none;
   }
 
-  .player-body--card .body-progress :deep(.progress-container),
+  .player-body--card .body-progress :deep(.progress-container) {
+    height: 100%;
+    margin-block: 0;
+  }
+
+  .player-body--card .body-progress :deep(.progress-track),
   .player-body--card .body-progress :deep(.progress) {
     height: 100%;
     border-radius: 0;
