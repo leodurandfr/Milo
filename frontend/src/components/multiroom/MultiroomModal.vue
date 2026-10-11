@@ -1,7 +1,7 @@
 <!-- frontend/src/components/multiroom/MultiroomModal.vue -->
 <template>
   <div class="multiroom-modal">
-    <NavigationHeader :title="t('audioSources.multiroom')">
+    <NavigationHeader :title="t('audioSources.multiroom')" icon="multiroom">
       <template #actions>
         <Toggle
           :modelValue="isMultiroomActive"

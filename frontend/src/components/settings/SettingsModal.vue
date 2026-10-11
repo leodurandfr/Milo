@@ -2,7 +2,7 @@
 <template>
   <div class="settings-modal">
     <!-- Single NavigationHeader outside transition -->
-    <NavigationHeader ref="navHeaderRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
+    <NavigationHeader ref="navHeaderRef" :title="headerTitle" icon="settings" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
       <template v-if="hasHeaderActions" #actions>
         <button v-if="showPowerToggle" v-press class="power-toggle" @click="togglePowerMenu">

@@ -1,7 +1,7 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <NavigationHeader ref="navHeaderRef" :title="t('equalizer.title')">
+    <NavigationHeader ref="navHeaderRef" :title="t('equalizer.title')" icon="equalizer">
       <template #actions>
         <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled"
           :disabled="equalizerStore.isTogglingEnabled" @change="handleEqualizerToggle" />
