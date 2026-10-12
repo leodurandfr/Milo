@@ -20,7 +20,7 @@
       </AudioSourceLayout>
     </GalleryVariant>
 
-    <GalleryVariant label=":show-player — the content gives up 340px, both widths animate" contain :contain-height="360">
+    <GalleryVariant label=":show-player — the content gives up 380px, both widths animate" contain :contain-height="360">
       <AudioSourceLayout gradient="podcast" header-title="Podcasts" header-show-back
         :show-player="playerShown" content-key="home">
         <template #content>

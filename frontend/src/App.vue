@@ -1,6 +1,6 @@
 <!-- App.vue - Version with i18n WebSocket -->
 <template>
-  <div class="app-container">
+  <div class="app-container" :style="kioskZoomStyle">
     <!-- Notification banner for connection issues and errors (shown after boot) -->
     <NotificationBanner
       :title="notificationTitle"
@@ -472,6 +472,13 @@ const colorFilterActive = computed(() => {
   const cf = settingsStore.screenColorFilter;
   return cf?.enabled && cf?.warmth > 0;
 });
+
+// The kiosk's interface scale is Chromium's page zoom (milo-kiosk-zoom), so a
+// CSS px grows with it: a size that must keep its size on the panel divides by
+// this factor.
+const kioskZoomStyle = computed(() => (
+  isKiosk() ? { '--kiosk-zoom': settingsStore.screenUiScale?.ui_scale ?? 1 } : null
+));
 
 const colorFilterStyle = computed(() => {
   const warmth = settingsStore.screenColorFilter?.warmth ?? 0;

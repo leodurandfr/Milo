@@ -356,7 +356,9 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 
 /* Layout wrapper */
 .audio-source-layout {
-  --audio-player-wrapper-width: 340px;
+  /* The player keeps its width on the kiosk whatever the interface scale:
+     only the gap before it follows the zoom. */
+  --audio-player-wrapper-width: calc((380px - var(--space-06)) / var(--kiosk-zoom, 1) + var(--space-06));
   position: relative;
   display: flex;
   justify-content: center;

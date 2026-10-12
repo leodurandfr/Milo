@@ -286,7 +286,7 @@ watch(current, (scenario) => {
   grid-template-rows: minmax(0, 1fr);
 }
 
-/* The canvas sizes a lone AudioPlayer to the 340px pane it does not have there
+/* The canvas sizes a lone AudioPlayer to the 380px pane it does not have there
    (see CanvasApp.vue). Here it *does* have one — AudioSourceLayout's sticky
    pane — so that rule has to give way, or the player overflows the pane by the
    stage's full height. The `.player-wrapper` step is what carries the win: the

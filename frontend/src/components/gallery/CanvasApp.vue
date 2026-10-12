@@ -377,7 +377,7 @@ onUnmounted(() => {
 }
 
 /* AudioPlayer sizes itself to its host (width and height 100%), and its host in
-   the app is AudioSourceLayout's 340px sticky pane — restated here because the
+   the app is AudioSourceLayout's 380px sticky pane — restated here because the
    stage is not that pane, or the player is a full-width band.
 
    Named by its own class rather than handed one through the args: its root is a
@@ -386,7 +386,7 @@ onUnmounted(() => {
    player teleports to body, out of this subtree, so the mobile mini-bar keeps
    its own full-width geometry and only the docked form is constrained. */
 .canvas :deep(.audio-player) {
-  width: 340px;
+  width: 380px;
 }
 
 /* AudioSourceLayout and AudioPlayerFull are `height: 100%` of a pane they do not

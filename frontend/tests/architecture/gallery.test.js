@@ -1629,7 +1629,7 @@ describe('component gallery source pages', () => {
     // unit", and an inset stage hands the view 1232 × 752 instead — a different
     // aspect ratio (which is what every mobile branch in the app switches on), a
     // different column count in every grid, and a different share of the row for
-    // the 340 px player pane. So the padding is zeroed for those selections.
+    // the 380 px player pane. So the padding is zeroed for those selections.
     // Both halves are asserted because either alone is silently a no-op: the
     // class with no rule pads anyway, the rule with no binding never applies.
     expect(CANVAS).toMatch(/'canvas--bleed':\s*bleed/);

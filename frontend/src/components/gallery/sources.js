@@ -1127,7 +1127,7 @@ export const SOURCE_PAGES = [
           controls: { favorite: true }
         }
       }),
-      browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 340 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. No progress bar either — a live stream has no duration, so the bar would have nothing to show.', {
+      browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 380 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. No progress bar either — a live stream has no duration, so the bar would have nothing to show.', {
         condition: ['currentStation', 'artwork'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
