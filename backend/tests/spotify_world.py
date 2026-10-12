@@ -55,10 +55,13 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiohttp
+import yarl
+from multidict import CIMultiDict, CIMultiDictProxy
 from unittest.mock import AsyncMock, Mock
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
+from backend.sources.spotify import jam as jam_module
 from backend.sources.spotify import library as library_module
 from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify import websocket as websocket_module
@@ -68,6 +71,29 @@ from backend.tests.golden.harness import (
 )
 
 ACCOUNT = "p6puyc6we1egphk4nt2l5vaxy"
+# go-librespot's device id on the unit, as /status names it.
+DEVICE_ID = "84929e0ca31026278abdcf27127aa71d1d5c166b"
+
+
+def jam_session(*members: Tuple[str, str, int], active: Optional[bool] = True,
+                host: str = DEVICE_ID) -> Dict[str, Any]:
+    """A Jam as social-connect answers it (measured 2026-10-11): `members` as
+    (id, display_name, joined_timestamp), the first one the owner, in the
+    order the asker is given them; `active` None: the dormant session Spotify
+    keeps after a Jam ends."""
+    session: Dict[str, Any] = {
+        "session_id": "56cc449ae52a4d4a1940bfc2211b21a4",
+        "session_owner_id": members[0][0] if members else "",
+        "session_members": [
+            {"id": member_id, "username": f"user-{member_id}", "display_name": name,
+             "joined_timestamp": str(joined), "is_listening": True}
+            for member_id, name, joined in members
+        ],
+        "hostActiveDeviceId": host,
+    }
+    if active is not None:
+        session["active"] = active
+    return session
 FIRST_PID = 46508
 
 
@@ -117,10 +143,23 @@ class _Exchange:
 
 
 class _EventsSocket:
-    """One /events connection: what the daemon pushes, in order, until it closes."""
+    """One /events connection (or one dealer socket): what is pushed, in
+    order, until it closes; and what the client sent on it."""
 
-    def __init__(self) -> None:
+    def __init__(self, answers_pings: bool = False) -> None:
         self.queue: asyncio.Queue = asyncio.Queue()
+        self.sent: List[str] = []
+        # The dealer answers each ping with a pong (measured; go-librespot's
+        # client relies on it).
+        self.answers_pings = answers_pings
+
+    async def send_str(self, data: str) -> None:
+        self.sent.append(data)
+        if self.answers_pings and json.loads(data).get("type") == "ping":
+            self.queue.put_nowait({"type": "pong"})
+
+    async def close(self) -> None:
+        self.queue.put_nowait(_CLOSED)
 
     def __aiter__(self) -> "_EventsSocket":
         return self
@@ -214,6 +253,26 @@ class Librespot:
         # Spotify's artist metadata (spclient metadata/4), as measured: per
         # hex gid, {name, portrait_group}; an unknown gid answers 503.
         self.artist_metadata: Dict[str, Dict[str, Any]] = {}
+        # go-librespot's own device id, as /status names it.
+        self.device_id = DEVICE_ID
+        # Spotify's social-connect (the account's Jam), on the internet: what
+        # sessions/current answers (None: 404, no Jam), how often it was read,
+        # and the dealer sockets opened.
+        self.jam: Optional[Dict[str, Any]] = None
+        self.jam_reads = 0
+        # sessions/current answers this status instead (a 429), when set.
+        self.jam_read_refused: Optional[int] = None
+        self.dealer: Optional[_EventsSocket] = None
+        self.dealer_urls: List[str] = []
+        self.dealer_up = True
+        # The dealer refuses the upgrade with this status (an expired token:
+        # 401), the way aiohttp raises it, its text naming the URL.
+        self.dealer_refuses: Optional[int] = None
+        self.last_refusal: Optional[BaseException] = None
+        # The dealer closes every socket as soon as it is open.
+        self.dealer_closes_at_once = False
+        # The dealer answers pings (False: a half-open socket, nothing comes back).
+        self.dealer_answers_pings = True
         self.token_reads = 0
         self.closed = False
 
@@ -223,6 +282,13 @@ class Librespot:
         return self
 
     def get(self, url: str, *a: Any, **k: Any) -> _Exchange:
+        if "apresolve" in url:
+            return _Exchange(_Response(200, {"dealer": ["dealer.test:443"]}))
+        if "social-connect/v2/sessions/current" in url:
+            self.jam_reads += 1
+            if self.jam_read_refused is not None:
+                return _Exchange(_Response(self.jam_read_refused))
+            return _Exchange(_Response(404) if self.jam is None else _Response(200, copy.deepcopy(self.jam)))
         if "homeview" in url:
             self.home_locales.append(k["params"]["locale"])
             answer = self.home_answer
@@ -252,14 +318,14 @@ class Librespot:
                 return _Exchange(_Response(200, {
                     "username": self.stored, "stopped": False, "paused": False,
                     "buffering": False, "track": None, **self._player_flags(),
-                    "remote": copy.deepcopy(self.remote),
+                    "remote": copy.deepcopy(self.remote), "device_id": self.device_id,
                 }))
             context_uri, context_name = self.context or (None, None)
             return _Exchange(_Response(200, {
                 "username": self.account, "stopped": False, "paused": self.paused,
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
                 "context_uri": context_uri, "context_name": context_name,
-                **self._player_flags(), "remote": None,
+                **self._player_flags(), "remote": None, "device_id": self.device_id,
             }))
         if url.endswith("/player/queue"):
             self.queue_reads += 1
@@ -365,6 +431,20 @@ class Librespot:
         return _Exchange(_Response(404))
 
     def ws_connect(self, url: str, *a: Any, **k: Any) -> _Exchange:
+        if url.startswith("wss://"):
+            if not self.dealer_up:
+                return _Exchange(error=aiohttp.ClientConnectionError("dealer unreachable"))
+            if self.dealer_refuses is not None:
+                info = aiohttp.RequestInfo(yarl.URL(url), "GET", CIMultiDictProxy(CIMultiDict()), yarl.URL(url))
+                self.last_refusal = aiohttp.WSServerHandshakeError(
+                    info, (), status=self.dealer_refuses, message="Invalid response status",
+                )
+                return _Exchange(error=self.last_refusal)
+            self.dealer_urls.append(url)
+            self.dealer = _EventsSocket(answers_pings=self.dealer_answers_pings)
+            if self.dealer_closes_at_once:
+                self.dealer.queue.put_nowait(_CLOSED)
+            return _Exchange(self.dealer)
         if not self.up:
             return _Exchange(error=_refused())
         self.socket = _EventsSocket()
@@ -489,10 +569,12 @@ class SpotifyWorld(WireReader):
 
     def __init__(
         self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None,
-        stored: Optional[str] = None,
+        stored: Optional[str] = None, follow_jam: bool = False,
     ):
         """`stored`: the account whose credentials go-librespot keeps in
-        state.json (a phone cast to it once, with persist_credentials)."""
+        state.json (a phone cast to it once, with persist_credentials).
+        `follow_jam`: the source follows the account's Jam (dependencies.py
+        asks it of the real one)."""
         world = self
         self.clock = VirtualClock()
         use_virtual_wall(monkeypatch, self.clock)
@@ -548,6 +630,7 @@ class SpotifyWorld(WireReader):
         monkeypatch.setattr(spotify_module, "follow_unit", _silent_journal)
         monkeypatch.setattr(spotify_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(websocket_module, "asyncio", AsyncioProxy(sleep))
+        monkeypatch.setattr(jam_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
 
@@ -560,7 +643,7 @@ class SpotifyWorld(WireReader):
         self.machine, self.recorder = make_state_machine()
         self.source = SpotifySource(
             {"config_path": str(config), "profiles_path": str(self.profiles_file),
-             "history_path": str(self.history_file)},
+             "history_path": str(self.history_file), "follow_jam": follow_jam},
             state_machine=self.machine,
             settings_service=make_settings(settings),
             systemd_manager=systemd,
@@ -736,6 +819,27 @@ class SpotifyWorld(WireReader):
         await self.advance(0.15)
         d.remote = remote
         await self._says({"type": "remote", "data": remote})
+
+    # === Spotify's Jam (social-connect, on the internet) ===
+
+    async def jam_update(self, session: Optional[Dict[str, Any]], reason: str) -> None:
+        """Spotify pushes a Jam update on the dealer socket (and its read
+        answers the same from now on); None with SESSION_DELETED."""
+        self.daemon.jam = session
+        frame = {"type": "message", "uri": "social-connect/v2/session_update",
+                 "headers": {"Content-Type": "application/json"},
+                 "payloads": [{"session": session or {}, "reason": reason, "update_session_members": []}]}
+        self.daemon.dealer.queue.put_nowait(frame)
+        await settle()
+
+    async def dealer_drops(self) -> None:
+        """The dealer closes the socket."""
+        socket, self.daemon.dealer = self.daemon.dealer, None
+        socket.queue.put_nowait(_CLOSED)
+        await settle()
+
+    def jam(self) -> Optional[Dict[str, Any]]:
+        return self.state()["details"]["jam"]
 
     async def phone_leaves(self) -> None:
         """The phone picks another output: the daemon drops the session."""

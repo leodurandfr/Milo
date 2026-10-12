@@ -81,6 +81,14 @@ export function formatUnit(value, unit, language, options = {}) {
 }
 
 /**
+ * Names joined the way the language lists them: "Léo and Cla", "Léo, Max and
+ * Cla" in English, "Léo et Cla" in French, "Léo、Max和Cla" in Chinese.
+ */
+export function formatList(items, language) {
+  return formatterFor(Intl.ListFormat, bcp47For(language), { type: 'conjunction' }).format(items);
+}
+
+/**
  * A duration in seconds in the language's short form: "1 hr, 5 min" in English,
  * "1 h et 5 min" in French, "1 Std., 5 Min." in German. `smallest: 'minute'`
  * drops the seconds (a podcast's remaining time).

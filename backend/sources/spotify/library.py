@@ -36,6 +36,8 @@ ARTIST_RELEASES_URL = "https://spclient.wg.spotify.com/artistview/v1/artist/{id}
 ARTIST_METADATA_URL = "https://spclient.wg.spotify.com/metadata/4/artist/{gid}"
 # The playlist Spotify's apps open as a track's radio ("Go to song radio").
 TRACK_RADIO_URL = "https://spclient.wg.spotify.com/inspiredby-mix/v2/seed_to_playlist/{uri}"
+# The account's Spotify Jam, 404 with none (measured 2026-10-11; see jam.py).
+JAM_URL = "https://spclient.wg.spotify.com/social-connect/v2/sessions/current"
 PAGE = 100
 
 
@@ -78,6 +80,12 @@ class SpotifyLibrary:
         # Spotify's profile service, on the internet: its own session, so its
         # timeout never shortens a call to the local daemon.
         self._internet: Optional[aiohttp.ClientSession] = None
+
+    @property
+    def internet(self) -> Optional[aiohttp.ClientSession]:
+        """The session for Spotify's own services, on the internet; None
+        while the source is stopped."""
+        return self._internet
 
     def open(self, api_url: str) -> None:
         self._api_url = api_url
@@ -188,7 +196,8 @@ class SpotifyLibrary:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
         return playlist_cover(covers)
 
-    async def _token(self) -> str:
+    async def token(self) -> str:
+        """An access token for the account signed in now."""
         token = (await self._request("POST", "/token") or {}).get("token")
         if not token:
             raise SpotifyUnavailable("Spotify gave no token")
@@ -196,19 +205,22 @@ class SpotifyLibrary:
 
     async def _spotify_service(
         self, url: str, params: Dict[str, Any], what: str,
-        headers: Optional[Dict[str, str]] = None, token: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None, token: Optional[str] = None, missing_ok: bool = False,
     ) -> Any:
         """One of Spotify's own services, with the signed-in session's token
         (one already read, for several requests at once): only the account
-        signed in now can be asked about."""
+        signed in now can be asked about. With `missing_ok` a 404 is an
+        answer, None."""
         internet = self._internet
         if internet is None or internet.closed:
             raise SpotifyUnavailable("Spotify stopped")
-        token = token or await self._token()
+        token = token or await self.token()
         try:
             async with internet.get(
                 url, params=params, headers={**(headers or {}), "Authorization": f"Bearer {token}"},
             ) as resp:
+                if missing_ok and resp.status == 404:
+                    return None
                 if resp.status != 200:
                     raise SpotifyLibraryError(f"Spotify's {what} service answered {resp.status}")
                 return await resp.json(content_type=None)
@@ -277,7 +289,7 @@ class SpotifyLibrary:
         if not ids:
             return {}
         try:
-            token = await self._token()
+            token = await self.token()
         except SpotifyUnavailable as exc:
             logger.warning(f"Spotify artists: {exc}; their shelves keep plain titles")
             return {}
@@ -309,6 +321,12 @@ class SpotifyLibrary:
         first = items[0] if isinstance(items, list) and items else None
         radio = first.get("uri") if isinstance(first, dict) else None
         return radio if isinstance(radio, str) and radio.startswith("spotify:playlist:") else None
+
+    async def jam_session(self, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """The signed-in account's Jam session, as Spotify's social-connect
+        service answers it; None when it has none."""
+        session = await self._spotify_service(JAM_URL, {}, "Jam", token=token, missing_ok=True)
+        return session if isinstance(session, dict) else None
 
     async def fetch_profile(self, username: str) -> Optional[Dict[str, Optional[str]]]:
         """What Spotify's profile service says of the account, with the

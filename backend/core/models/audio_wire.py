@@ -221,6 +221,18 @@ class SpotifyQueueEntry(BaseModel):
     duration_ms: Optional[int]
 
 
+class SpotifyJamMember(BaseModel):
+    # The name the member's Spotify profile shows; null when it shows none.
+    name: Optional[str]
+
+
+class SpotifyJam(BaseModel):
+    """The Spotify Jam the signed-in account hosts on Milō: everyone in it can
+    add to the queue and control what plays here."""
+    # The host first, then the others in the order they joined.
+    members: List[SpotifyJamMember]
+
+
 class SpotifyDetails(BaseModel):
     kind: Literal["spotify"] = "spotify"
     # The account go-librespot is signed in as, or about to be: its stored
@@ -246,6 +258,8 @@ class SpotifyDetails(BaseModel):
     repeat: RepeatMode
     # Null while Milō holds a session, or when no other device is active.
     remote: Optional[SpotifyRemote]
+    # Null unless the signed-in account hosts a Jam that plays on Milō.
+    jam: Optional[SpotifyJam]
 
 
 Details = Annotated[

@@ -65,3 +65,31 @@ describe('the source bar on the playing bar’s card', () => {
     expect(lines.barImage).toBeNull();
   });
 });
+
+describe('the Spotify Jam in the source bar', () => {
+  const jam = (...names) => ({ members: names.map(name => ({ name })) });
+  const spotify = (details) => linesOf({ kind: 'spotify', account: 'owner', remote: null, ...details });
+
+  it('names nobody while the host is alone: a Jam of one is the account’s own Spotify', () => {
+    expect(spotify({ jam: jam('Léo') }).barJam).toBeNull();
+    expect(spotify({ jam: null }).barJam).toBeNull();
+  });
+
+  it('names the host first, then who joined, up to three', () => {
+    expect(spotify({ jam: jam('Léo', 'Cla') }).barJam).toEqual({ names: ['Léo', 'Cla'], others: 0 });
+    expect(spotify({ jam: jam('Léo', 'Max', 'Cla') }).barJam).toEqual({ names: ['Léo', 'Max', 'Cla'], others: 0 });
+  });
+
+  it('names two and counts the rest past three, so the bar keeps one line', () => {
+    expect(spotify({ jam: jam('Léo', 'Max', 'Cla', 'Ana', 'Tom') }).barJam).toEqual({ names: ['Léo', 'Max'], others: 3 });
+  });
+
+  it('counts a member Spotify gives no name among the others, in its place', () => {
+    expect(spotify({ jam: jam('Léo', null) }).barJam).toEqual({ names: ['Léo'], others: 1 });
+    expect(spotify({ jam: jam('Léo', null, 'Cla', 'Max') }).barJam).toEqual({ names: ['Léo'], others: 3 });
+  });
+
+  it('never names a guest first: with no name for the host, the account’s label stands', () => {
+    expect(spotify({ jam: jam(null, 'Cla') }).barJam).toBeNull();
+  });
+});

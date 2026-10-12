@@ -465,6 +465,7 @@ function spotifyDetails(overrides = {}) {
     shuffle: false,
     repeat: 'off',
     remote: null,
+    jam: null,
     ...overrides
   };
 }

@@ -19,6 +19,23 @@ import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/
 import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
 /**
+ * Who a Spotify Jam's label names: null until someone joined the host (a Jam
+ * of one is the account's own Spotify), else the names to list — the host
+ * first, three at most, two once a count follows — and how many more members
+ * there are. A member Spotify gives no name is counted among them, never
+ * replaced by the next one, so no guest is ever named first; with no name for
+ * the host the label falls back to the account's.
+ *
+ * @param {object|null} jam - `details.jam`
+ */
+export function jamOf(jam) {
+  const members = jam?.members ?? [];
+  if (members.length < 2 || !members[0].name) return null;
+  const names = members.slice(0, members.length > 3 ? 2 : 3).map(member => member.name).filter(Boolean);
+  return { names, others: members.length - names.length };
+}
+
+/**
  * What surrounds the title, by what the details say the record is.
  *
  * `barLabel` names what the music comes from when the details know something
@@ -28,7 +45,8 @@ import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
  * the cover is the episode's own picture rather than the show's
  * (utils/podcastArtwork: a show's cover already says which show it is), with
  * the show's image when it has one. `barAccount` is the Spotify account, named
- * from the profiles. A radio's record names a detected song or, without one,
+ * from the profiles, and `barJam` the Spotify Jam playing here once someone
+ * joined its host (see jamOf). A radio's record names a detected song or, without one,
  * the station itself, which has no artist line to fall back on. An episode's
  * `artist` is its show: drawn under the title only when the bar does not
  * already say it. Anything else is a track, and a track always has an artist
@@ -45,7 +63,9 @@ import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
  */
 export function linesOf(current) {
   const kind = current?.kind;
-  const none = { barLabel: null, barImage: null, barAccount: null, barRemote: null, avatarName: '', barOnCard: false };
+  const none = {
+    barLabel: null, barImage: null, barAccount: null, barRemote: null, barJam: null, avatarName: '', barOnCard: false
+  };
   if (kind === 'radio') {
     const station = current.station;
     const track = current.track;
@@ -80,6 +100,7 @@ export function linesOf(current) {
       ...none,
       barAccount: current.account ?? null,
       barRemote: remote ? { device: remote.device_name, paused: remote.paused } : null,
+      barJam: jamOf(current.jam),
       barOnCard: !!remote,
       secondary: true
     };
@@ -90,7 +111,7 @@ export function linesOf(current) {
 export function usePlayerMetadata(source) {
   const unifiedStore = useUnifiedAudioStore();
   const spotifyStore = useSpotifyStore();
-  const { t } = useI18n();
+  const { t, formatList } = useI18n();
 
   const isSelected = computed(() => unifiedStore.systemState.source === source);
   const session = computed(() => (isSelected.value ? unifiedStore.systemState.session : null));
@@ -144,10 +165,17 @@ export function usePlayerMetadata(source) {
     if (!remote) return null;
     return t(remote.paused ? 'spotify.pausedOn' : 'spotify.playingOn', { device: remote.device });
   });
+  const jamLabel = computed(() => {
+    const jam = metadata.value.barJam;
+    if (!jam) return null;
+    const listed = jam.others ? [...jam.names, t('spotify.jamOthers', { count: jam.others })] : jam.names;
+    return t('spotify.jamOf', { names: formatList(listed) });
+  });
   const sourceLabel = computed(
     () => senderNames.value
       || metadata.value.barLabel
       || remoteLabel.value
+      || jamLabel.value
       || (accountName.value && t('spotify.accountSpotify', { name: accountName.value }))
       || t(AUDIO_SOURCE_LABEL_KEYS[source])
   );

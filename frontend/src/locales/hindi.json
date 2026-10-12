@@ -386,6 +386,8 @@
   },
   "spotify": {
     "accountSpotify": "{name} का Spotify",
+    "jamOf": "{names} का Spotify Jam",
+    "jamOthers": "{count} अन्य",
     "playingOn": "{device} पर चल रहा है",
     "pausedOn": "{device} पर रुका हुआ",
     "album": "एल्बम",

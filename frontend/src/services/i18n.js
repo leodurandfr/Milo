@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { bcp47For } from '@/constants/countries';
 import { logger } from '@/services/logger';
-import { formatDuration, formatNumber, formatUnit } from '@/utils/units';
+import { formatDuration, formatList, formatNumber, formatUnit } from '@/utils/units';
 
 /**
  * Which form index `count` selects, per language, for a `singular | plural`
@@ -204,6 +204,7 @@ export function useI18n() {
     formatNumber: (value, options) => formatNumber(value, i18n.currentLanguage.value, options),
     formatUnit: (value, unit, options) => formatUnit(value, unit, i18n.currentLanguage.value, options),
     formatDuration: (seconds, options) => formatDuration(seconds, i18n.currentLanguage.value, options),
+    formatList: (items) => formatList(items, i18n.currentLanguage.value),
     setLanguage: i18n.setLanguage.bind(i18n),
     currentLanguage: i18n.currentLanguage,
     getAvailableLanguages: i18n.getAvailableLanguages.bind(i18n),

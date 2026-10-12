@@ -386,6 +386,8 @@
   },
   "spotify": {
     "accountSpotify": "Spotify di {name}",
+    "jamOf": "Spotify Jam di {names}",
+    "jamOthers": "{count} altro | altri {count}",
     "playingOn": "In riproduzione su {device}",
     "pausedOn": "In pausa su {device}",
     "album": "Album",

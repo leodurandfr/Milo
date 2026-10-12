@@ -386,6 +386,8 @@
   },
   "spotify": {
     "accountSpotify": "{name} 的 Spotify",
+    "jamOf": "{names} 的 Spotify Jam",
+    "jamOthers": "另外 {count} 人",
     "playingOn": "正在 {device} 上播放",
     "pausedOn": "已在 {device} 上暂停",
     "album": "专辑",

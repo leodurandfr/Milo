@@ -208,6 +208,15 @@ charts down, since its episodes come from the publisher.
 - Direct audio streaming from Spotify servers (320kbps quality)
 - Milō backend controls play/pause via go-librespot HTTP API
 
+**The Jam.** go-librespot plays a Spotify Jam but says nothing of it, so Milō
+asks Spotify itself (`sources/spotify/jam.py`): it reads the signed-in account's
+Jam from the social-connect service once when it opens a dealer socket, with
+go-librespot's token, then follows the updates Spotify pushes on that socket.
+It never polls, because Spotify answered 429. The only consumer is the source
+bar, which reads "Spotify Jam with Léo and Cla" once someone has joined the host
+(`details.jam`). Milō neither starts nor ends a Jam: the host does, from the
+Spotify app, and guests join the way the app offers.
+
 **Configuration:**
 - Device name: "Milō"
 - API: http://localhost:3678

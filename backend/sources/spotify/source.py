@@ -57,6 +57,11 @@ though Spotify still holds the paused session. `take_over` asks go-librespot
 for the transfer (POST /player/transfer): the session arrives ~0.25 s later at
 the same position, through `reconcile` like any phone's transfer.
 
+The Jam. go-librespot plays a Spotify Jam but says nothing of it; who is in it
+is followed from Spotify itself (jam.py), for the signed-in account, and
+published while that Jam plays here. Milō neither starts nor ends one: the
+host does, from the Spotify app.
+
 Commands go through POST /player/<cmd>. routes.py is the browser's: the
 library (library.py), its shaping (catalog.py) and the kept profiles
 (profiles.py).
@@ -80,7 +85,7 @@ from pydantic import BaseModel
 from backend.core import audio_source
 from backend.core.audio_source import POSITION_TOLERANCE_MS, BaseAudioSource, Result
 from backend.core.models.audio_state import NetworkRequirement
-from backend.core.models.audio_wire import PositionAnchor, SpotifyDetails, SpotifyRemote
+from backend.core.models.audio_wire import PositionAnchor, SpotifyDetails, SpotifyJam, SpotifyJamMember, SpotifyRemote
 from backend.core.models.session import (
     Anchor, CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
@@ -88,6 +93,7 @@ from backend.core.models.session import (
 from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams, skip_target
 from backend.sources.spotify.catalog import artists_of, history_entry, queue_entry
 from backend.sources.spotify.history import SpotifyHistory
+from backend.sources.spotify.jam import JamSession, SpotifyJamFeed
 from backend.sources.spotify.library import SpotifyLibrary
 from backend.sources.spotify.models import (
     NextParams, PlayContextParams, PrevParams, SeekParams,
@@ -111,6 +117,7 @@ class LibrespotStatus:
     shuffle: bool = False
     repeat: str = "off"
     remote: Optional[Dict[str, Any]] = None
+    device_id: Optional[str] = None
 
 
 @dataclass
@@ -122,6 +129,15 @@ class RemotePlayback:
     track: Dict[str, Any]
     paused: bool
     anchor: Anchor
+
+
+def _joined_at(member: Dict[str, Any]) -> int:
+    """When a Jam member joined (ms, a string in Spotify's answer); 0 when
+    the answer does not say."""
+    try:
+        return int(member.get("joined_timestamp") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def repeat_mode(repeat_context: bool, repeat_track: bool) -> str:
@@ -404,6 +420,16 @@ class SpotifySource(BaseAudioSource):
         self._harvested: set = set()
         history_path = self._config.get("history_path")
         self._history = SpotifyHistory(Path(history_path)) if history_path else None
+
+        # The Jam, followed only where dependencies.py asks (it reaches
+        # Spotify on the internet): the feed of the signed-in account, what
+        # its last word puts on the wire, and go-librespot's own device id,
+        # which a Jam playing here names as its host.
+        self._follows_jam = bool(self._config.get("follow_jam"))
+        self._jam_feed: Optional[SpotifyJamFeed] = None
+        self._jam_account: Optional[str] = None
+        self._jam: Optional[SpotifyJam] = None
+        self._device_id: Optional[str] = None
 
     @property
     def library(self) -> SpotifyLibrary:
@@ -978,6 +1004,9 @@ class SpotifySource(BaseAudioSource):
         # the account it signs in as next is kept again (a forgotten one too).
         self._persisted = self._account = username or None
         self._harvested.clear()
+        # The Jam followed was the account just left; the next account's feed
+        # opens once the daemon names it (_apply_status), not while it is down.
+        await self._stop_jam_feed()
         if self._account is None or not running:
             self._settle_signin()
         else:
@@ -1112,10 +1141,12 @@ class SpotifySource(BaseAudioSource):
             self._order, self._order_stale = PlayOrder(), True
             await self.reconcile(None)
         else:
+            self._device_id = status.device_id or self._device_id
             await self._apply_session(status)
         await self._follow_account(status)
         self._follow_remote(status)
         self._list_started_tracks()
+        await self._follow_jam()
 
     def _list_started_tracks(self) -> None:
         """List the tracks that started in the history, under the account this
@@ -1275,6 +1306,63 @@ class SpotifySource(BaseAudioSource):
             position=PositionAnchor(ms=remote.anchor.ms, at=remote.anchor.at, rate=1.0),
         )
 
+    # === The Jam (jam.py) ===
+
+    async def _follow_jam(self) -> None:
+        """One feed, for the account signed in now. It lives as long as that
+        account does: the 204s between a session end and the sign-in that
+        follows keep the account, so they do not cost a reconnection. A new
+        account's feed opens once the daemon has signed it in: its token
+        cannot be had before."""
+        internet = self._library.internet
+        account = self._account if self._follows_jam and internet is not None else None
+        if account == self._jam_account:
+            return
+        await self._stop_jam_feed()
+        if account is None or self._signing_in:
+            return
+        self._jam_account = account
+        self._jam_feed = SpotifyJamFeed(
+            internet, self._library.token, self._library.jam_session, on_session=self._on_jam_session,
+        )
+        self._jam_feed.start()
+
+    async def _stop_jam_feed(self) -> None:
+        feed, self._jam_feed = self._jam_feed, None
+        self._jam_account, self._jam = None, None
+        if feed is not None:
+            await feed.stop()
+
+    def _on_jam_session(self, feed: SpotifyJamFeed, session: JamSession) -> None:
+        self._post_result(lambda: self._apply_jam(feed, session))
+
+    async def _apply_jam(self, feed: SpotifyJamFeed, session: JamSession) -> None:
+        # A feed replaced since it spoke tells of another account.
+        if feed is self._jam_feed:
+            self._jam = self._jam_of(session)
+            self._publish_changes()
+
+    def _jam_of(self, jam: JamSession) -> Optional[SpotifyJam]:
+        """What the wire says of a session the feed told: the Jam the
+        signed-in account hosts here, its host first and then the others in
+        the order they joined; None when it has none, when it has ended (a
+        dormant session is not `active`), or when it plays on another device.
+        The feed opens once /status named the device, so its id is known."""
+        if (
+            jam is None or jam.get("active") is not True
+            or self._device_id is None or jam.get("hostActiveDeviceId") != self._device_id
+        ):
+            return None
+        owner = jam.get("session_owner_id")
+        listed = jam.get("session_members")
+        members = [m for m in listed if isinstance(m, dict)] if isinstance(listed, list) else []
+        members.sort(key=lambda m: (m.get("id") != owner, _joined_at(m)))
+        # Spotify's answer, taken as it comes: what is not a name is none.
+        return SpotifyJam(members=[
+            SpotifyJamMember(name=name if isinstance(name := m.get("display_name"), str) and name else None)
+            for m in members
+        ])
+
     # === The account ===
 
     async def _follow_account(self, status: Optional[LibrespotStatus]) -> None:
@@ -1325,6 +1413,7 @@ class SpotifySource(BaseAudioSource):
         self._logger.warning("go-librespot still not signed in after a restart — waiting for a phone")
         self._account = self._persisted = None
         self._settle_signin()
+        await self._follow_jam()
         self._publish_changes()
 
     def _keep_profile(self, account: Optional[str]) -> None:
@@ -1509,6 +1598,7 @@ class SpotifySource(BaseAudioSource):
             shuffle=bool(data.get("shuffle_context", False)),
             repeat=repeat_mode(bool(data.get("repeat_context")), bool(data.get("repeat_track"))),
             remote=data.get("remote"),
+            device_id=data.get("device_id") or None,
         )
 
     async def _read_order(self) -> None:
@@ -1731,6 +1821,7 @@ class SpotifySource(BaseAudioSource):
         self._release_remote_hold()
         self._shuffle, self._repeat = False, "off"
         self._harvested.clear()
+        await self._stop_jam_feed()
         await self._library.close()
         self._stop_log_monitor()
 
@@ -1785,6 +1876,7 @@ class SpotifySource(BaseAudioSource):
             shuffle=self._shuffle,
             repeat=self._repeat,
             remote=self._remote_view(),
+            jam=self._jam,
         )
 
     def _controls(self) -> List[str]:

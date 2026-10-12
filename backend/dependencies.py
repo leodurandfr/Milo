@@ -238,6 +238,8 @@ def _create_service(name: str) -> Any:
                 "config_path": "/var/lib/milo/go-librespot/config.yml",
                 "profiles_path": str(SPOTIFY_PROFILES_FILE),
                 "history_path": str(SPOTIFY_HISTORY_FILE),
+                # Who is in the account's Spotify Jam, from Spotify (jam.py).
+                "follow_jam": True,
             },
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
