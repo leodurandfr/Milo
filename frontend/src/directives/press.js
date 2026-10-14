@@ -5,6 +5,9 @@
 //   <button v-press="condition"> → conditional (active if truthy)
 //   <div v-press.flat>           → dims without shrinking (a full-width row,
 //                                  where 4px of a small side reads as a lurch)
+//   <div v-press.media>          → a card: only its `.press-target` (the cover)
+//                                  shrinks, by 4px of its own size; the card,
+//                                  and the text beside the cover, keep theirs
 //
 // Purely visual: activation is the browser's own click, so a scroll, a fling or
 // the tap that stops one never activates anything the native rules would not.
@@ -34,16 +37,31 @@ function updateScale(el, width, height) {
   }
 }
 
-function setupPress(el, flat) {
-  if (flat) {
+function setupPress(el, modifiers) {
+  if (modifiers.flat) {
     el.style.setProperty('--press-scale', '1')
+  } else if (modifiers.media) {
+    setupMedia(el)
   } else {
-    observeScale(el)
+    observeScale(el, el)
   }
   listenPress(el)
 }
 
-function observeScale(el) {
+// The cover can be swapped by a re-render (a liked row's drawing for an image),
+// so the target is looked up again on every update; the scale lands on the card,
+// where the cover inherits it.
+function setupMedia(el) {
+  el.classList.add('press-media')
+  const target = el.querySelector('.press-target')
+  if (target === el._pressTarget) return
+  el._pressObserver?.disconnect()
+  delete el._pressObserver
+  el._pressTarget = target
+  if (target) observeScale(el, target)
+}
+
+function observeScale(el, measured) {
   // Its first report arrives before the first paint, so no press can come
   // before the scale.
   const observer = new ResizeObserver(([entry]) => {
@@ -52,11 +70,11 @@ function observeScale(el) {
     if (box) {
       updateScale(el, box.inlineSize, box.blockSize)
     } else {
-      const rect = el.getBoundingClientRect()
+      const rect = measured.getBoundingClientRect()
       updateScale(el, rect.width, rect.height)
     }
   })
-  observer.observe(el, { box: 'border-box' })
+  observer.observe(measured, { box: 'border-box' })
   el._pressObserver = observer
 }
 
@@ -113,6 +131,7 @@ function cleanupPress(el) {
     el._pressObserver.disconnect()
     delete el._pressObserver
   }
+  delete el._pressTarget
   if (el._pressHandler) {
     el.removeEventListener('pointerdown', el._pressHandler)
     el.removeEventListener('pointerup', el._pressEndHandler)
@@ -127,14 +146,14 @@ function cleanupPress(el) {
     delete el._pressStart
     delete el._pressReleaseTimer
   }
-  el.classList.remove('interactive-press', 'pressed')
+  el.classList.remove('interactive-press', 'press-media', 'pressed')
   el.style.removeProperty('--press-scale')
 }
 
 export const vPress = {
   mounted(el, binding) {
     if (binding.value === false) return
-    setupPress(el, binding.modifiers.flat)
+    setupPress(el, binding.modifiers)
   },
 
   updated(el, binding) {
@@ -144,12 +163,13 @@ export const vPress = {
     if (wasActive && !shouldBeActive) {
       cleanupPress(el)
     } else if (!wasActive && shouldBeActive) {
-      setupPress(el, binding.modifiers.flat)
+      setupPress(el, binding.modifiers)
     } else if (wasActive && shouldBeActive) {
       // Re-apply class if Vue's :class binding removed it during re-render
       if (!el.classList.contains('interactive-press')) {
         el.classList.add('interactive-press')
       }
+      if (binding.modifiers.media) setupMedia(el)
     }
   },
 

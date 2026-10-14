@@ -1,6 +1,6 @@
 <template>
-  <div v-press class="media-row" @click="$emit('click')">
-    <div v-if="liked" class="media-cover">
+  <div v-press.media class="media-row" @click="$emit('click')">
+    <div v-if="liked" class="media-cover press-target">
       <LikedCover />
     </div>
     <LazyImage
@@ -10,7 +10,7 @@
       :alt="title"
       lazy
       skeleton
-      class="media-cover"
+      class="media-cover press-target"
     />
     <div class="media-details">
       <p class="media-title heading-3">{{ title }}</p>

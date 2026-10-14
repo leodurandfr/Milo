@@ -875,8 +875,22 @@
 
 .interactive-press:active,
 .interactive-press.pressed {
-    transform: scale(var(--press-scale)) !important;
     opacity: 0.6 !important;
+}
+
+.interactive-press:not(.press-media):active,
+.interactive-press:not(.press-media).pressed {
+    transform: scale(var(--press-scale)) !important;
+}
+
+/* A card (v-press.media): the cover shrinks, the card and its text stay put. */
+.press-media .press-target {
+    transition: var(--transition-press);
+}
+
+.press-media:active .press-target,
+.press-media.pressed .press-target {
+    transform: scale(var(--press-scale)) !important;
 }
 
 /* === HIT OUTSET === */

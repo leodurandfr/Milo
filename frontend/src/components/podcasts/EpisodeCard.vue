@@ -1,11 +1,11 @@
 <template>
-  <div v-press class="episode-card" @click="emit('select', episode)">
+  <div v-press.media class="episode-card" @click="emit('select', episode)">
     <LazyImage
       :src="episode.image_url || episode.podcast?.image_url"
       :fallback="podcastPlaceholder"
       :alt="episode.name"
       lazy
-      class="card-image"
+      class="card-image press-target"
     />
 
     <div class="card-content">

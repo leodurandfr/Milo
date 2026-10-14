@@ -1,6 +1,6 @@
 <template>
-  <div v-press class="genre-card" @click="$emit('click')">
-    <div class="genre-image">
+  <div v-press.media class="genre-card" @click="$emit('click')">
+    <div class="genre-image press-target">
       <img :src="genreImage" :alt="label" class="genre-img" />
     </div>
     <p class="genre-label heading-4">{{ label }}</p>

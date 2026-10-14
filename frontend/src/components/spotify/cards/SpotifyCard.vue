@@ -1,8 +1,8 @@
 <template>
-  <div v-press class="playlist-card" :class="{ 'byline-only': !lines.heading && lines.byline }"
+  <div v-press.media class="playlist-card" :class="{ 'byline-only': !lines.heading && lines.byline }"
     @click="$emit('click')">
     <LazyImage :src="item.image || ''" :fallback="musicPlaceholder" :alt="title" lazy skeleton
-      class="playlist-cover" :class="{ round: item.kind === 'artist' }" />
+      class="playlist-cover press-target" :class="{ round: item.kind === 'artist' }" />
     <div v-if="lines.heading || lines.byline" class="playlist-info">
       <p v-if="lines.heading" class="playlist-name heading-4">{{ lines.heading }}</p>
       <p v-if="lines.byline" class="playlist-owner text-body-medium">{{ lines.byline }}</p>

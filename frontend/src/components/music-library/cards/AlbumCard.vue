@@ -1,12 +1,12 @@
 <template>
-  <div v-press class="album-card" @click="$emit('click')">
+  <div v-press.media class="album-card" @click="$emit('click')">
     <LazyImage
       :src="store.gridUrl(album.coverArt)"
       :fallback="musicPlaceholder"
       :alt="album.name"
       lazy
       skeleton
-      class="album-cover"
+      class="album-cover press-target"
     />
     <div class="album-info">
       <p class="album-name heading-4">{{ album.name }}</p>
