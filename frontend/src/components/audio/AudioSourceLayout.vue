@@ -360,6 +360,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
      only the gap before it follows the zoom. */
   --audio-player-wrapper-width: calc((380px - var(--space-06)) / var(--kiosk-zoom, 1) + var(--space-06));
   position: relative;
+  isolation: isolate;
   display: flex;
   justify-content: center;
   align-items: flex-start;
