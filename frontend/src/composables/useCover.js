@@ -26,7 +26,7 @@ import { riseIn } from '@/utils/sourceMotion';
 /**
  * Provided by a view that lays an overlay over the views it holds (a ref,
  * true while one is shown), for what a covered view draws outside its own box
- * — the phone's playing bar, teleported to <body>, which a cover cannot hide.
+ * — the phone's playing bar, which leaves rather than wait under the overlay.
  */
 export const UNDER_OVERLAY = Symbol('underOverlay');
 

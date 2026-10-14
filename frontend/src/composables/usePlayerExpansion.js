@@ -80,3 +80,11 @@ export function useExpandedView(source) {
  * `{ back, pull, canOpenAlbum, artists }`, the last two as refs.
  */
 export const PLAYER_NAVIGATION = Symbol('playerNavigation');
+
+/**
+ * Provided by BrowserSourceViews to the bar in its navigation: the selector of
+ * the layer the phone's mini-bar is teleported to, between the navigation and
+ * the full player, so the player comes and goes over it. A bar with nothing
+ * provided (a lone gallery item) goes to <body>.
+ */
+export const BAR_LAYER = Symbol('barLayer');

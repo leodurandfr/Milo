@@ -1070,8 +1070,8 @@
    `.source-motion` — its content, never its clipping box nor the background that
    box is welded to — played by the swap's hooks (utils/sourceMotion: swapIn,
    swapOut). A view that marks nothing simply fades (the sticky player pane,
-   which on mobile is teleported clear of the slot anyway). Lyrics marks its
-   body and not its backdrop, and rises on opening only.
+   and on the phone the bar its navigation keeps in a layer of its own). Lyrics
+   marks its body and not its backdrop, and rises on opening only.
 
    Lives here rather than in AudioSourceView because the gallery's source pages
    replay the same swap, and a transition copied into a second file is one that

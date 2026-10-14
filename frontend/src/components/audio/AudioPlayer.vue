@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body" :disabled="!isMobile">
+  <Teleport :to="layer" :disabled="!isMobile" defer>
     <Transition name="audio-player" @after-leave="$emit('after-hide')">
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
@@ -63,10 +63,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
 import { usePlayerState } from '@/composables/usePlayerState'
+import { BAR_LAYER } from '@/composables/usePlayerExpansion'
 import { swipeable, swipeMove, swipeTarget } from '@/utils/playerControls'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { useI18n } from '@/services/i18n'
@@ -75,6 +76,9 @@ import PlayerInfoText from './PlayerInfoText.vue'
 
 const { isMobile } = useIsMobile()
 const { t } = useI18n()
+// Where the phone's mini-bar is drawn: the layer its navigation keeps for it
+// under the full player, mounted after this bar, hence the deferred teleport.
+const layer = inject(BAR_LAYER, 'body')
 const timer = useTimer()
 
 const props = defineProps({

@@ -63,7 +63,8 @@
       <!-- Player wrapper: animates width on desktop, transparent on mobile.
            Marked source-motion so the sticky pane leaves with the column beside it
            rather than standing still while it rises. Inert on mobile, where the
-           wrapper is display: contents and the player is teleported to <body>. -->
+           wrapper is display: contents and the player is teleported out of it
+           (BrowserSourceViews' bar layer). -->
       <div
         :class="['player-wrapper source-motion', { 'has-player': showPlayer }]"
       >

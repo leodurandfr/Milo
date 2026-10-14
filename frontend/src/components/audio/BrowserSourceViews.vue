@@ -14,6 +14,10 @@
       <slot name="navigation" :bar="bar" />
     </div>
 
+    <!-- The phone's playing bar, teleported here (BAR_LAYER) out of the
+         navigation's scroll and under the player. -->
+    <div :id="barLayerId" class="browser-bar-layer" />
+
     <!-- The veil between the navigation and the player being pulled down: as
          dark as a modal's at rest, clear once the player is out. -->
     <div v-if="pullState" class="browser-view browser-veil" aria-hidden="true" :style="veilStyle" />
@@ -32,10 +36,10 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, provide, ref, watch } from 'vue';
+import { computed, inject, nextTick, provide, ref, useId, watch } from 'vue';
 import { UNDER_OVERLAY, useCover } from '@/composables/useCover';
 import { useIsMobile } from '@/composables/useIsMobile';
-import { PLAYER_NAVIGATION, useExpandedView, usePlayerExpansion } from '@/composables/usePlayerExpansion';
+import { BAR_LAYER, PLAYER_NAVIGATION, useExpandedView, usePlayerExpansion } from '@/composables/usePlayerExpansion';
 import { BROWSER_SOURCES } from '@/constants/audioSources';
 import { swapIn, swapOut } from '@/utils/sourceMotion';
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
@@ -118,11 +122,15 @@ provide(PLAYER_NAVIGATION, {
   artists: computed(() => props.artists)
 });
 
+const barLayerId = useId();
+provide(BAR_LAYER, `#${CSS.escape(barLayerId)}`);
+
 const hasSomethingToShow = computed(() => props.playback?.shouldShowPlayer.value ?? true);
 
 // The bar has to leave under the player — or Lyrics — only on the phone, where
-// it is teleported to <body> out of reach of the cover; the kiosk's sidebar
-// card is covered with the navigation and is just there again on the way back.
+// it is teleported out of the navigation and so out of reach of its cover; the
+// kiosk's sidebar card is covered with the navigation and is just there again
+// on the way back.
 const bar = computed(() => ({
   visible: hasSomethingToShow.value && !(isMobile.value && (playerShown.value || underOverlay.value)),
   onExpand: expand,
@@ -181,11 +189,20 @@ async function openInNavigation(event, payload) {
   pointer-events: none;
 }
 
-/* The player is a sheet over the navigation and stays over it in every phase:
-   the audio-content swap ranks a leaving view at 0, which would drop the player
-   under the navigation as it leaves. Two classes here outrank the swap's one. */
+/* The phone's bar: over everything the navigation raises (its back-to-top
+   anchor is at 3), under the player. A box of no size, so it takes no taps;
+   the bar inside is fixed to the screen. */
+.browser-bar-layer {
+  position: absolute;
+  z-index: 4;
+}
+
+/* The player is a sheet over the navigation and the bar, and stays over them in
+   every phase: the audio-content swap ranks a leaving view at 0, which would
+   drop the player under the navigation as it leaves. Two classes here outrank
+   the swap's one. */
 .browser-source > .browser-player {
-  z-index: 2;
+  z-index: 5;
 }
 
 /* The sheet comes in on a short ease-out rather than the swap's 400 ms: it is

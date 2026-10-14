@@ -45,7 +45,7 @@
 
     <!-- Warm color filter overlay (Night Shift-like, configurable in screen settings).
          Teleported to <body> so the multiply blend reaches teleported elements
-         (Dropdown menus, mobile AudioPlayer) that are siblings of #app. -->
+         (Dropdown menus) that are siblings of #app. -->
     <Teleport to="body">
       <div
         v-if="colorFilterActive && showChrome"
