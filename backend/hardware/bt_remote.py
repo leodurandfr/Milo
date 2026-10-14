@@ -131,6 +131,10 @@ class BtRemoteController:
     def _start_scanning(self):
         """Start evdev scan, BT discovery, and D-Bus reconnect listener."""
         self.running = True
+        # _stop_scanning() stopped the previous accumulator for good: once
+        # stopped it drops every delta, so an enable after a disable needs a
+        # new one or every volume key is swallowed without a log line.
+        self._volume = VolumeAccumulator(self.volume_service)
         self._scan_task = asyncio.create_task(self._periodic_scan())
         self._discovery_task = asyncio.create_task(self._startup_discovery())
         if DBUS_AVAILABLE:

@@ -425,6 +425,26 @@ async def test_an_unmapped_keycode_is_ignored(bt):
     await bt.controller._stop_scanning()
 
 
+@pytest.mark.asyncio
+async def test_a_volume_key_still_reaches_the_volume_service_after_a_disable_and_enable(bt):
+    """Disabling stops the volume accumulator, and a stopped accumulator drops
+    every delta it is handed. Enabling again reused that stopped one, so every
+    turn of the knob was swallowed without a log line while a click still
+    played and paused: the remote looked connected and half-working."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    await connect_remote(bt)
+    await bt.controller.update_config({"enabled": False})
+    await bt.controller.update_config({"enabled": True})
+    device = await connect_remote(bt)
+
+    await device.events.put(key_event(115))
+    await asyncio.sleep(0.05)
+
+    bt.volume_service.adjust_volume_db.assert_awaited_once_with(2.0)
+    await bt.controller._stop_scanning()
+
+
 # ------------------------------------------------- the key map, validated once
 def test_the_default_key_map_only_uses_actions_the_dispatcher_knows():
     """DEFAULT_KEY_MAP ships the appliance's remote; an action outside the
