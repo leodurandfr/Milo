@@ -8,3 +8,11 @@ KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0666"
 # Waveshare 8" DSI screen - grant write access to backlight brightness
 # This rule runs when backlight device is added
 SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"
+
+# Waveshare DSI touch (Goodix) - poll every 5 ms instead of the driver's 17 ms
+# The DSI ribbon carries no touch interrupt, so the driver polls. At 17 ms
+# (rounded up to 20 by HZ=250, plus ~4 ms of I2C read) the finger was sampled
+# at 41.7 Hz on a 60 Hz panel and every drag stuttered. 5 ms measured 62.5 Hz
+# (2026-10-16). TEST keeps the rule inert on a Goodix wired with an interrupt,
+# which has no poll attribute.
+SUBSYSTEM=="input", ACTION!="remove", KERNEL=="input*", DRIVERS=="Goodix-TS", TEST=="poll", ATTR{poll}="5"
