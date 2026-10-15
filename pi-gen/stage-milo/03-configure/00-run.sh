@@ -37,7 +37,7 @@ source provisioning/display.sh
 configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
 CHROOT
 
-# ── Boot config.txt (silent boot, fan) ───────────────────────────────────────
+# ── Boot config.txt (silent boot, fan, EEE) ──────────────────────────────────
 # Single source of truth: reuse the provisioning/ functions rather than duplicating
 # their sed/cat here.
 # The power button — its LED in config.txt and the bootloader EEPROM — is not
@@ -52,6 +52,7 @@ source provisioning/boot-common.sh
 source provisioning/system.sh
 configure_silent_boot
 configure_fan_control
+configure_ethernet_eee
 CHROOT
 
 # ── IR remote (Apple Remote via TSOP4838 on GPIO17) ──────────────────────────

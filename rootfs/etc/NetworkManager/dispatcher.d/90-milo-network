@@ -1,12 +1,13 @@
 #!/bin/bash
-# Milo Network Manager - Avahi mDNS interface selection + EEE disable
+# Milo Network Manager - Avahi mDNS interface selection
 #
-# Two responsibilities:
-#   1. Pick which interface Avahi advertises milo.local on (single-interface
-#      advertising avoids the self-loop hostname conflict
-#      milo.local -> milo-2.local without sacrificing WiFi as a fallback).
-#   2. Disable Energy Efficient Ethernet on eth0 link-up to keep Snapcast
-#      buffers happy.
+# Picks which interface Avahi advertises milo.local on (single-interface
+# advertising avoids the self-loop hostname conflict milo.local -> milo-2.local
+# without sacrificing WiFi as a fallback).
+#
+# Energy Efficient Ethernet is not handled here: config.txt turns it off in the
+# PHY (dtparam=eee=off, provisioning/system.sh). Switching it off from a script
+# renegotiates a link that is already up — 3 s down at every boot, measured.
 #
 # Backend network status is no longer driven from here — NetworkService now
 # subscribes directly to NetworkManager's D-Bus signals on eth0 + wlan0
@@ -54,19 +55,6 @@ has_ip() {
 get_wlan0_connection() {
     nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | \
         grep ":wlan0$" | cut -d: -f1
-}
-
-# Disable Energy Efficient Ethernet on a wired interface.
-# EEE/LPI causes micro-pauses on link wake-up that produce TCP retransmissions
-# and Snapcast buffer underruns on the multiroom audio path.
-disable_eee() {
-    local iface="$1"
-    [ -x /usr/sbin/ethtool ] || return 0
-    /usr/sbin/ethtool --show-eee "$iface" 2>/dev/null | \
-        grep -q "EEE status: enabled" || return 0
-    if ! /usr/sbin/ethtool --set-eee "$iface" eee off >/dev/null 2>&1; then
-        logger -t milo-network "EEE disable unsupported on $iface (driver limitation)"
-    fi
 }
 
 # Update Avahi interface - writes to state file then restarts Avahi
@@ -134,11 +122,7 @@ apply_avahi_target() {
 case "$INTERFACE" in
     eth0)
         case "$ACTION" in
-            up)
-                disable_eee eth0
-                apply_avahi_target
-                ;;
-            dhcp4-change|down)
+            up|dhcp4-change|down)
                 apply_avahi_target
                 ;;
         esac

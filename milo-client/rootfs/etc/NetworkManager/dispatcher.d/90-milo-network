@@ -23,19 +23,6 @@ has_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep -q "inet "
 }
 
-# Disable Energy Efficient Ethernet on a wired interface.
-# EEE/LPI causes micro-pauses on link wake-up that produce TCP retransmissions
-# and Snapcast buffer underruns on the multiroom audio path.
-disable_eee() {
-    local iface="$1"
-    [ -x /usr/sbin/ethtool ] || return 0
-    /usr/sbin/ethtool --show-eee "$iface" 2>/dev/null | \
-        grep -q "EEE status: enabled" || return 0
-    if ! /usr/sbin/ethtool --set-eee "$iface" eee off >/dev/null 2>&1; then
-        logger -t milo-network "EEE disable unsupported on $iface (driver limitation)"
-    fi
-}
-
 # Update Avahi allow/deny-interfaces - only restarts if config actually changes.
 # Both keys are compared: Avahi 0.8 ignores allow-interfaces for interfaces that
 # appear dynamically, so deny-interfaces is what keeps the daemon strictly
@@ -84,11 +71,7 @@ apply_avahi_target() {
 case "$INTERFACE" in
     eth0)
         case "$ACTION" in
-            up)
-                disable_eee eth0
-                apply_avahi_target
-                ;;
-            dhcp4-change|down)
+            up|dhcp4-change|down)
                 apply_avahi_target
                 ;;
         esac

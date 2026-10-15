@@ -74,7 +74,6 @@ dosfstools
 cifs-utils
 nfs-common
 smbclient
-ethtool
 ir-keytable
 cage
 seatd
