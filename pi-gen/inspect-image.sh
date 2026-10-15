@@ -95,9 +95,11 @@ else
     bad "cmdline.txt not found under $BOOT"
 fi
 check "config.txt has silent boot" "grep -q 'disable_splash=1' '$BOOT/config.txt'"
-# Under [all], or a model filter would keep EEE on every other board.
+# Under [all], or a model filter keeps EEE on every other board; right after an
+# empty dtoverlay=, or the last overlay's scope takes the parameter instead of
+# the base device tree.
 check "config.txt turns Ethernet EEE off, for every board" \
-    "awk '/^\\[/{s=\$0} /^dtparam=eee=off\$/{print s}' '$BOOT/config.txt' | grep -qx '\\[all\\]'"
+    "awk '/^\\[/{s=\$0} /^dtparam=eee=off\$/{print s \"|\" p} !/^#/ && NF {p=\$0}' '$BOOT/config.txt' | grep -qx '\\[all\\]|dtoverlay='"
 
 # --------------------------------------------------------------------------
 section "Helpers — both trees reach /usr/local"

@@ -12,14 +12,6 @@ set -e
 
 MILO_USER="${MILO_USER:-milo}"
 
-boot_config_file() {
-    if [[ -f /boot/firmware/config.txt ]]; then
-        echo /boot/firmware/config.txt
-    else
-        echo /boot/config.txt
-    fi
-}
-
 configure_fan_control() {
     log_info "Configuring fan control..."
 

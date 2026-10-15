@@ -19,10 +19,8 @@ IR_REMOTE_GPIO_DEFAULT=17
 configure_ir_overlay() {
     log_info "Configuring gpio-ir overlay (GPIO${IR_REMOTE_GPIO_DEFAULT})..."
 
-    local config_file="/boot/firmware/config.txt"
-    if [[ ! -f "$config_file" ]]; then
-        config_file="/boot/config.txt"
-    fi
+    local config_file
+    config_file=$(boot_config_file)
 
     # Remove any previous managed block (idempotent re-run safety)
     sed -i '/^# BEGIN MILO IR$/,/^# END MILO IR$/d' "$config_file"

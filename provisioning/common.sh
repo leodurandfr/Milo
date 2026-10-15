@@ -44,3 +44,17 @@ log_warning() {
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# ============================================================================
+# Boot partition
+# ============================================================================
+
+# config.txt is on the boot partition, mounted at /boot/firmware since
+# Bookworm and at /boot before.
+boot_config_file() {
+    if [[ -f /boot/firmware/config.txt ]]; then
+        echo /boot/firmware/config.txt
+    else
+        echo /boot/config.txt
+    fi
+}

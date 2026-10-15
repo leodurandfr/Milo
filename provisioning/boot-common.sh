@@ -17,8 +17,8 @@ BOOT_PARAMS_SCREEN=""
 # Insert the silent-boot directive (disable_splash) once, right after [all].
 # Called by pi-gen/stage-milo/03-configure.
 configure_silent_boot() {
-    local config_file="/boot/firmware/config.txt"
-    [[ ! -f "$config_file" ]] && config_file="/boot/config.txt"
+    local config_file
+    config_file=$(boot_config_file)
     [[ ! -f "$config_file" ]] && return 0
 
     if ! grep -q "disable_splash=1" "$config_file"; then
