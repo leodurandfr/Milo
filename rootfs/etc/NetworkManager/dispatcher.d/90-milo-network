@@ -81,11 +81,14 @@ set_avahi_interface() {
 # a wlan0 lease renewal took the address away and cut that one room.
 # Timed on /proc/uptime: the Pi has no RTC and timesyncd steps the wall clock
 # mid-boot (35 s into that same boot), which would cut a wall-clock wait short.
+# The cable is read once, on entry: a carrier flap while DHCP runs (one at
+# 33.3 s in that boot) is not an unplugged cable and must not end the wait.
 wait_for_eth0_lease() {
     local up _ deadline
+    [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = 1 ] || return 0
     read -r up _ < /proc/uptime
     deadline=$(( ${up%.*} + ETH0_LEASE_GRACE_S ))
-    while [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = 1 ] && ! has_ip eth0; do
+    while ! has_ip eth0; do
         read -r up _ < /proc/uptime
         (( ${up%.*} < deadline )) || return 0
         sleep 0.5
@@ -104,7 +107,10 @@ apply_avahi_target() {
     elif is_hotspot_connection "$wlan_conn"; then
         set_avahi_interface "wlan0"
     elif has_ip wlan0; then
-        wait_for_eth0_lease
+        # Already published on wlan0, there is no early switch to hold back:
+        # waiting again would block the dispatcher at every wlan0 renewal on a
+        # unit whose cable leads nowhere.
+        [ "$(get_avahi_interface)" = "wlan0" ] || wait_for_eth0_lease
         if has_ip eth0; then
             set_avahi_interface "eth0"
         else
