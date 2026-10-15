@@ -83,18 +83,28 @@ set_avahi_interface() {
 # state that never settles: NetworkManager's DHCP transaction lasts 45 s.
 # Timed on /proc/uptime: the Pi has no RTC and timesyncd steps the wall clock
 # mid-boot, which would cut a wall-clock wait short.
-eth0_activating() {
+# A cable that drops while eth0 activates (NetworkManager then calls the device
+# unavailable, 20, once the drop outlasts its few seconds of grace) is a flap,
+# not an unplugged cable: once eth0 was seen activating, only the cap ends the
+# wait.
+eth0_state() {
     local state
     state=$(nmcli -g GENERAL.STATE device show eth0 2>/dev/null)
     state=${state%% *}
-    [[ "$state" =~ ^[0-9]+$ ]] && (( state >= 40 && state < 100 ))
+    [[ "$state" =~ ^[0-9]+$ ]] && echo "$state" || echo 0
 }
 
 wait_for_eth0_lease() {
-    local up _ deadline
+    local up _ deadline state activated=false
     read -r up _ < /proc/uptime
     deadline=$(( ${up%.*} + ETH0_ACTIVATION_CAP_S ))
-    while eth0_activating && ! has_ip eth0; do
+    while ! has_ip eth0; do
+        state=$(eth0_state)
+        if (( state >= 40 && state < 100 )); then
+            activated=true
+        elif ! { $activated && (( state == 20 )); }; then
+            return 0
+        fi
         read -r up _ < /proc/uptime
         (( ${up%.*} < deadline )) || return 0
         sleep 0.5
@@ -113,10 +123,7 @@ apply_avahi_target() {
     elif is_hotspot_connection "$wlan_conn"; then
         set_avahi_interface "wlan0"
     elif has_ip wlan0; then
-        # Already published on wlan0, there is no early switch to hold back:
-        # waiting again would block the dispatcher at every wlan0 renewal on a
-        # unit whose cable leads nowhere.
-        [ "$(get_avahi_interface)" = "wlan0" ] || wait_for_eth0_lease
+        wait_for_eth0_lease
         if has_ip eth0; then
             set_avahi_interface "eth0"
         else

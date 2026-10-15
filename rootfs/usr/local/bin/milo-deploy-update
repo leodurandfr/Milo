@@ -84,7 +84,8 @@ cmd_sync_system_files() {
     # Sync system/*.service and rootfs/** from the repo to their system destinations.
     # Hardcoded repo path — no arguments needed.
     local synced_udev=false
-    local synced_sysctl=false
+    local synced_nm_conf=false
+    local sysctl_files=()
 
     # 1. Deploy systemd service files
     echo "Deploying systemd service files..."
@@ -142,10 +143,11 @@ cmd_sync_system_files() {
                 ;;
         esac
 
-        # Track udev rule and sysctl changes
+        # Track what needs its daemon or the kernel told
         case "$rel_path" in
             etc/udev/*) synced_udev=true ;;
-            etc/sysctl.d/*) synced_sysctl=true ;;
+            etc/sysctl.d/*) sysctl_files+=("$target") ;;
+            etc/NetworkManager/conf.d/*) synced_nm_conf=true ;;
         esac
     done < <(find . -type f)
 
@@ -156,9 +158,19 @@ cmd_sync_system_files() {
         echo "  udev rules reloaded"
     fi
 
-    if [ "$synced_sysctl" = true ]; then
-        sysctl -q --system
-        echo "  sysctl settings applied"
+    # Our own files only, every time: a copy changes nothing until applied, and
+    # `sysctl --system` would also re-read every distro file, any of which can
+    # fail this update under set -e.
+    for sysctl_file in "${sysctl_files[@]}"; do
+        sysctl -q -p "$sysctl_file"
+        echo "  Applied $sysctl_file"
+    done
+
+    # NetworkManager reads conf.d at start; reloading it applies connection
+    # defaults to the next activation without touching a live link.
+    if [ "$synced_nm_conf" = true ]; then
+        nmcli general reload conf
+        echo "  NetworkManager configuration reloaded"
     fi
 
     echo "System files sync complete"

@@ -10,6 +10,8 @@ error_exit() { echo "ERROR: $1" >&2; exit 1; }
 # machine has. Everything installed below is compared before it is overwritten,
 # and what actually moved is listed at the end.
 CHANGED=()
+SYSCTL_FILES=()
+NM_CONF_DEPLOYED=false
 would_change() {
     # $1 source, $2 destination — true when copying would alter the destination.
     [ -f "$2" ] || return 0
@@ -167,18 +169,27 @@ while read -r rel_path; do
             chown milo-client:milo-client "$target"
             ;;
     esac
+
+    # Track what needs the kernel or its daemon told
+    case "$rel_path" in
+        etc/sysctl.d/*) SYSCTL_FILES+=("$target") ;;
+        etc/NetworkManager/conf.d/*) NM_CONF_DEPLOYED=true ;;
+    esac
 done < <(find . -type f)
 
-# A kernel setting takes effect when applied, not when its file is copied.
-for changed in "${CHANGED[@]}"; do
-    case "$changed" in
-        /etc/sysctl.d/*)
-            sysctl -q --system
-            echo "  sysctl settings applied"
-            break
-            ;;
-    esac
+# Our own files only, on every push, changed or not: the push that brings one
+# is run by the deploy script the unit already had, which may not apply it.
+# `sysctl --system` would also re-read every distro file, any of which can fail
+# this script under set -e. NetworkManager reloads conf.d for the next
+# activation without touching a live link.
+for sysctl_file in "${SYSCTL_FILES[@]}"; do
+    sysctl -q -p "$sysctl_file"
+    echo "  Applied $sysctl_file"
 done
+if [ "$NM_CONF_DEPLOYED" = true ]; then
+    nmcli general reload conf
+    echo "  NetworkManager configuration reloaded"
+fi
 
 if [ ${#CHANGED[@]} -eq 0 ]; then
     echo "Changed nothing: every deployed file already matched"
