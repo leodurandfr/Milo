@@ -60,10 +60,15 @@ export function mountTheme({ animate }) {
 
   // A view transition fades the screen as one image, so an animation in flight
   // at sunset keeps its own transition; without the API the swap is instant.
+  // A hidden tab (a phone in a pocket at sunset) has nothing to fade, and the
+  // browser refuses the transition by rejecting `ready`; one hidden mid-fade is
+  // aborted the same way. The theme lands either way — only the fade is lost.
   watch(wanted, (next) => {
     if (next === theme.value) return;
-    if (theme.value !== null && animate.value && document.startViewTransition) {
-      document.startViewTransition(() => applyTheme(next));
+    const visible = document.visibilityState === 'visible';
+    if (theme.value !== null && animate.value && visible && document.startViewTransition) {
+      const transition = document.startViewTransition(() => applyTheme(next));
+      transition.ready.catch(() => {});
     } else {
       applyTheme(next);
     }
