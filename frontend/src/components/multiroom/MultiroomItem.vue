@@ -91,10 +91,7 @@
         <div
           v-else
           class="volume-control"
-          :class="{
-            'visible': !isLoading,
-            'muted': client.equalizerMuted
-          }"
+          :class="{ 'visible': !isLoading }"
         >
           <RangeSlider
             :model-value="displayVolume"
@@ -709,10 +706,6 @@ function handleClientMuteToggle(clientMacId, muted) {
 .volume-control.visible {
   opacity: 1;
   transition: opacity var(--transition-reveal);
-}
-
-.volume-control.muted :deep(.slider-container) {
-  --slider-accent: var(--color-text-tertiary);
 }
 
 /* === TOGGLE WRAPPER === */

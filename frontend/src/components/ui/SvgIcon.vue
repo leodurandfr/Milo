@@ -14,6 +14,7 @@ import pauseIcon from '@/assets/icons/pause.svg?raw'
 import nextIcon from '@/assets/icons/next.svg?raw'
 import previousIcon from '@/assets/icons/previous.svg?raw'
 import volumeIcon from '@/assets/icons/volume.svg?raw'
+import volumeOffIcon from '@/assets/icons/volume-off.svg?raw'
 import plusIcon from '@/assets/icons/plus.svg?raw'
 import minusIcon from '@/assets/icons/minus.svg?raw'
 import threeDotsIcon from '@/assets/icons/three-dots.svg?raw'
@@ -77,6 +78,7 @@ const icons = {
   next: nextIcon,
   previous: previousIcon,
   volume: volumeIcon,
+  volumeOff: volumeOffIcon,
   plus: plusIcon,
   minus: minusIcon,
   threeDots: threeDotsIcon,

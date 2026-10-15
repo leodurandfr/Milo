@@ -38,7 +38,8 @@
     </div>
 
     <!-- Beside the track, never on it: a thumb at either end covered it. -->
-    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono-medium">
+    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono-medium"
+      :class="{ 'slider-value--masked': showMuteGlyph }">
       <template v-if="isStepped">
         <!-- Every label in one cell, all but the current one hidden: the box is as
              wide as the widest, so the track does not resize mid-drag. -->
@@ -53,6 +54,7 @@
         <span class="slider-value__other">{{ widestLabel }}</span>
         <span>{{ valueLabel(effectiveValue) }}</span>
       </template>
+      <SvgIcon v-if="showMuteGlyph" name="volumeOff" size="small" />
     </div>
   </div>
 </template>
@@ -62,6 +64,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { usePointerHold } from '@/composables/usePointerHold';
 import { UNITS } from '@/utils/units';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   modelValue: { type: Number, required: true },
@@ -88,6 +91,9 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
 const { held: isDragging, press } = usePointerHold({ onRelease: stopDrag });
+
+// A muted level still moves: the readout shows the mute glyph, and the level while dragged.
+const showMuteGlyph = computed(() => props.muted && !isDragging.value);
 
 // Local value during drag - prevents external updates (WebSocket echo) from causing jumps
 const localDragValue = ref(null);
@@ -531,8 +537,16 @@ function handleChange(event) {
   opacity: var(--opacity-disabled);
 }
 
-.slider-container.muted {
-  --slider-accent: color-mix(in srgb, var(--color-text-secondary) 50%, transparent);
+/* Muted is not disabled: the level still moves, nothing sounds. The fill
+   drops to the unpassed ticks' tone — and never the brand while dragged,
+   since what is set is not heard. */
+.slider-container.muted,
+.slider-container.muted.dragging {
+  --slider-accent: var(--color-fill-soft);
+}
+
+.slider-container.muted .slider-value {
+  color: var(--color-text-secondary);
 }
 
 /* === VALUE === */
@@ -551,11 +565,12 @@ function handleChange(event) {
   white-space: nowrap;
 }
 
-.slider-value > span {
+.slider-value > * {
   grid-area: 1 / 1;
 }
 
-.slider-value__other {
+.slider-value__other,
+.slider-value--masked > span {
   visibility: hidden;
 }
 
