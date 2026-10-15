@@ -6,7 +6,7 @@
      precondition: nothing on the API authenticates, so refusing to open it would
      have stopped the owner and nobody else. -->
 <template>
-  <SectionCard :description="description">
+  <SectionCard>
     <template #header>
       <div class="ssh-header">
         <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
@@ -14,17 +14,18 @@
       </div>
     </template>
 
-    <!-- Wraps: the button drops under the command when the row is too
-         narrow for both, rather than squeezing the command into a scroll.
-         It stays with SSH closed too: the same password guards sudo on the
-         unit itself, and it is better changed before the door opens. -->
-    <div class="ssh-command-row">
-      <div v-if="state.enabled && user" class="ssh-command text-mono-medium">
-        ssh {{ user }}@{{ host }}
-      </div>
-      <Button size="small" variant="tinted" @click="$emit('open-password')">
+    <!-- The description is drawn here rather than by SectionCard so the button
+         can sit beside it; on a portrait screen it drops under the text. It
+         stays with SSH closed too: the same password guards sudo on the unit
+         itself, and it is better changed before the door opens. -->
+    <div class="ssh-intro">
+      <p class="ssh-description text-body-medium">{{ description }}</p>
+      <Button size="small" variant="tinted" class="ssh-password" @click="$emit('open-password')">
         {{ t('system.password.change') }}
       </Button>
+    </div>
+    <div v-if="state.enabled && user" class="ssh-command text-mono-medium">
+      ssh {{ user }}@{{ host }}
     </div>
     <!-- The marker speaks for the `milo` account only; with no such account
          there is nothing it can say. -->
@@ -68,20 +69,36 @@ const { t } = useI18n();
   gap: var(--space-03);
 }
 
-.ssh-command-row {
+.ssh-intro {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-03);
+  gap: var(--space-04);
+}
+
+/* Same look as SectionCard's own description, which this one stands in for. */
+.ssh-description {
+  flex: 1;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.ssh-password {
+  flex-shrink: 0;
 }
 
 .ssh-command {
-  flex: 1 0 auto;
   padding: var(--space-03);
   border-radius: var(--radius-04);
   background: var(--color-inset);
   color: var(--color-text-secondary);
   overflow-x: auto;
   white-space: nowrap;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .ssh-intro {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

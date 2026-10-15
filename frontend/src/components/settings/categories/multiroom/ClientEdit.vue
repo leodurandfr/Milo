@@ -132,6 +132,19 @@
         </ToggleSection>
       </template>
 
+      <!-- SSH (remote clients only): a satellite has no UI of its own and its
+           image ships with SSH off, so this is the one way to open it. The
+           address is the IP: every satellite answers to milo-client.local. -->
+      <template v-if="!client?.is_local">
+        <SshSection v-if="sshState" :state="sshState" :host="client?.ip || ''" :user="sshState.loginUser" :busy="sshBusy"
+          :error="sshError" :description="t('multiroom.ssh.description')"
+          :factory-password-notice="t('multiroom.ssh.factoryPassword')"
+          @toggle="handleSshToggle" @open-password="emit('open-password')" />
+        <SectionCard v-else-if="sshError" :title="t('system.ssh.title')">
+          <NoticeBox>{{ sshError }}</NoticeBox>
+        </SectionCard>
+      </template>
+
       <!-- Client Info -->
       <SectionCard :title="t('multiroom.systemInfo')">
         <div class="info-grid">
@@ -145,19 +158,6 @@
           </div>
         </div>
       </SectionCard>
-
-      <!-- SSH (remote clients only): a satellite has no UI of its own and its
-           image ships with SSH off, so this is the one way to open it. The
-           address is the IP: every satellite answers to milo-client.local. -->
-      <template v-if="!client?.is_local">
-        <SshSection v-if="sshState" :state="sshState" :host="client?.ip || ''" :user="sshState.loginUser" :busy="sshBusy"
-          :error="sshError" :description="t('multiroom.ssh.description')"
-          :factory-password-notice="t('multiroom.ssh.factoryPassword')"
-          @toggle="handleSshToggle" @open-password="emit('open-password')" />
-        <SectionCard v-else-if="sshError" :title="t('system.ssh.title')">
-          <NoticeBox>{{ sshError }}</NoticeBox>
-        </SectionCard>
-      </template>
 
       <!-- Apply & Reboot (two-step confirm, only when audio card changed) -->
       <Button
