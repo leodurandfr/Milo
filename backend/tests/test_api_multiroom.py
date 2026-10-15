@@ -7,6 +7,7 @@ Tests cover:
 - PATCH /api/multiroom/clients/{mac_id} — update name, update speaker_type
 - Validation — 400 for an invalid speaker_type
 """
+import asyncio
 import dataclasses
 import logging
 import pytest
@@ -1786,3 +1787,123 @@ class TestSatelliteOnlyRoutesRefuseTheMainUnit:
         assert resp.status_code == 400
         registry.set_client_online.assert_not_awaited()
         registry.update_client.assert_not_awaited()
+
+
+class TestSatelliteRemoteAccess:
+    """The satellite's SSH switch and password, relayed from its client panel.
+
+    A satellite has no UI and its image ships with SSH off, so these routes are
+    the only way to open it without pulling its card. If these fail: a satellite
+    whose app predates the route reads as a generic failure instead of "update it
+    first", or a refusal from the satellite (a failed chpasswd, a systemctl that
+    did not run) reaches the panel as a success.
+    """
+
+    class _Satellite:
+        """Answers every request with one status and payload, and records it."""
+
+        def __init__(self, status=200, payload=None):
+            self.status = status
+            self.payload = {"status": "success", "data": {}} if payload is None else payload
+            self.requests = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def _answer(self, verb, url, json=None, **kwargs):
+            self.requests.append((verb, url, json))
+            return TestVolumeControlPush._FakeResponse(self.status, self.payload)
+
+        def get(self, url, **kwargs):
+            return self._answer("GET", url, **kwargs)
+
+        def put(self, url, **kwargs):
+            return self._answer("PUT", url, **kwargs)
+
+        def post(self, url, **kwargs):
+            return self._answer("POST", url, **kwargs)
+
+    @staticmethod
+    def _patch_session(satellite):
+        return patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite)
+
+    def test_a_satellite_without_the_route_is_told_to_update(self, client):
+        satellite = self._Satellite(status=404, payload={"detail": "Not Found"})
+
+        with self._patch_session(satellite):
+            response = client.put("/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh", json={"enabled": True})
+
+        assert response.status_code == 502
+        assert "update the satellite" in response.json()["detail"]
+
+    def test_a_refused_password_is_relayed_with_the_satellite_reason(self, client):
+        satellite = self._Satellite(status=500, payload={"detail": "Failed to set password: chpasswd: PAM"})
+
+        with self._patch_session(satellite):
+            response = client.post(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43/password", json={"password": "a-long-one"}
+            )
+
+        assert response.status_code == 502
+        assert "chpasswd: PAM" in response.json()["detail"]
+        assert satellite.requests == [
+            ("POST", "http://192.168.1.100:8001/api/system/password", {"password": "a-long-one"})
+        ]
+
+    def test_a_short_password_never_reaches_the_satellite(self, client):
+        """The satellite's helper would refuse it; the server's model refuses it first."""
+        satellite = self._Satellite()
+
+        with self._patch_session(satellite):
+            response = client.post(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43/password", json={"password": "short"}
+            )
+
+        assert response.status_code == 422
+        assert satellite.requests == []
+
+    def test_the_main_unit_is_not_addressed(self, client):
+        """The server runs no milo-client; its own switch lives under /api/system."""
+        satellite = self._Satellite()
+
+        with self._patch_session(satellite):
+            response = client.put("/api/multiroom/clients/local/ssh", json={"enabled": True})
+
+        assert response.status_code == 400
+        assert satellite.requests == []
+
+    def test_a_slow_satellite_stays_online(self, client, mock_registry_service):
+        """A systemctl that takes long is a satellite that is there, maybe already switched."""
+        mock_registry_service.set_client_online = AsyncMock()
+
+        class _SlowSatellite(self._Satellite):
+            def put(self, url, **kwargs):
+                raise asyncio.TimeoutError()
+
+        with self._patch_session(_SlowSatellite()):
+            response = client.put("/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh", json={"enabled": True})
+
+        assert response.status_code == 504
+        mock_registry_service.set_client_online.assert_not_awaited()
+
+    def test_an_answer_that_is_not_json_does_not_mark_it_offline(self, client, mock_registry_service):
+        """aiohttp's ContentTypeError is a ClientError; read as 'unreachable' it hid a speaker that answered."""
+        mock_registry_service.set_client_online = AsyncMock()
+
+        class _HtmlResponse(TestVolumeControlPush._FakeResponse):
+            async def json(self):
+                raise aiohttp.ContentTypeError(Mock(real_url="http://x"), ())
+
+        class _HtmlSatellite(self._Satellite):
+            def get(self, url, **kwargs):
+                return _HtmlResponse(200, "<html>")
+
+        with self._patch_session(_HtmlSatellite()):
+            response = client.get("/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh")
+
+        assert response.status_code == 502
+        assert "not JSON" in response.json()["detail"]
+        mock_registry_service.set_client_online.assert_not_awaited()

@@ -146,6 +146,19 @@
         </div>
       </SectionCard>
 
+      <!-- SSH (remote clients only): a satellite has no UI of its own and its
+           image ships with SSH off, so this is the one way to open it. The
+           address is the IP: every satellite answers to milo-client.local. -->
+      <template v-if="!client?.is_local">
+        <SshSection v-if="sshState" :state="sshState" :host="client?.ip || ''" :user="sshState.loginUser" :busy="sshBusy"
+          :error="sshError" :description="t('multiroom.ssh.description')"
+          :factory-password-notice="t('multiroom.ssh.factoryPassword')"
+          @toggle="handleSshToggle" @open-password="emit('open-password')" />
+        <SectionCard v-else-if="sshError" :title="t('system.ssh.title')">
+          <NoticeBox>{{ sshError }}</NoticeBox>
+        </SectionCard>
+      </template>
+
       <!-- Apply & Reboot (two-step confirm, only when audio card changed) -->
       <Button
         v-if="isAudioDirty"
@@ -185,6 +198,7 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import SshSection from '@/components/settings/categories/SshSection.vue';
 
 const props = defineProps({
   macId: {
@@ -193,7 +207,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['back']);
+const emit = defineEmits(['back', 'open-password']);
 
 const { t, formatUnit } = useI18n();
 const timer = useTimer();
@@ -224,6 +238,11 @@ const DEFAULT_DELAY_MS = 20;
 const lastDelay = ref(DEFAULT_DELAY_MS);
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
+// null until the satellite answered; a satellite whose app predates the route
+// answers with an error that says to update it, shown in place of the switch.
+const sshState = ref(null);
+const sshBusy = ref(false);
+const sshError = ref(null);
 
 const client = computed(() =>
   snapcastStore.clients.find(c => c.mac_id === props.macId)
@@ -568,6 +587,27 @@ async function handleDelete() {
     deleting.value = false;
   }
 }
+
+async function handleSshToggle(enabled) {
+  sshBusy.value = true;
+  sshError.value = null;
+  const state = await multiroomClientStore.setClientSsh(props.macId, enabled, { errorRef: sshError });
+  // A refused switch never moved on the satellite; re-read rather than trust the click.
+  sshState.value = state ?? await multiroomClientStore.fetchClientSsh(props.macId) ?? sshState.value;
+  sshBusy.value = false;
+}
+
+// Read whenever the satellite is (back) online with no state yet: the panel can
+// open on a speaker that is rebooting, or before the client list arrived.
+watch(
+  () => !!client.value && !client.value.is_local && client.value.online,
+  async (reachable) => {
+    if (!reachable || sshState.value) return;
+    sshError.value = null;
+    sshState.value = await multiroomClientStore.fetchClientSsh(props.macId, { errorRef: sshError });
+  },
+  { immediate: true }
+);
 
 onMounted(async () => {
   if (client.value) {

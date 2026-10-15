@@ -1,7 +1,8 @@
 <!-- frontend/src/components/settings/categories/SystemPasswordSettings.vue -->
-<!-- The account password, one level under System › SSH. The save goes through
-     the system store, which outlives this view: System re-reads the SSH state
-     when it mounts again, and that read waits for a save still in flight. -->
+<!-- The account password, one level under an SSH panel: the server's (System)
+     or, given `macId`, a satellite's (its client panel). The save goes through
+     a store, which outlives this view: the panel re-reads the SSH state when it
+     mounts again, and that read waits for a save still in flight. -->
 <template>
   <SectionStack>
     <SectionCard :description="t('system.password.description')">
@@ -25,15 +26,22 @@ import { ref, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 
+const props = defineProps({
+  /** A satellite's MAC; absent for the server's own password. */
+  macId: { type: String, default: null }
+});
+
 const { t } = useI18n();
 const timer = useTimer();
 const systemStore = useSystemStore();
+const multiroomStore = useMultiroomStore();
 
 const PASSWORD_MIN_LENGTH = 8;
 
@@ -60,7 +68,9 @@ async function savePassword() {
   }
 
   savingPassword.value = true;
-  const saved = await systemStore.setPassword(newPassword.value, { errorRef: passwordError });
+  const saved = props.macId
+    ? await multiroomStore.setClientPassword(props.macId, newPassword.value, { errorRef: passwordError })
+    : await systemStore.setPassword(newPassword.value, { errorRef: passwordError });
   savingPassword.value = false;
 
   if (!saved) return;

@@ -218,16 +218,15 @@ else
 fi
 
 # The escape hatch the README documents: an empty `ssh` file on the boot
-# partition. It is also the only way into a satellite, which has no UI. Shipped
-# enabled by raspberrypi-sys-mods; if a stage ever disabled it, that instruction
-# becomes a lie no test would catch.
+# partition — the way in when no UI can be reached, and into a satellite whose
+# app predates its SSH switch. Shipped enabled by raspberrypi-sys-mods; if a
+# stage ever disabled it, that instruction becomes a lie no test would catch.
 check "sshswitch.service enabled (the boot-partition escape hatch)" \
       "compgen -G '${ROOT%/}/etc/systemd/system/*.wants/sshswitch.service' >/dev/null"
 
-# `PUT /api/system/ssh` refuses to open SSH until milo-set-password has run, and
-# `sudo` on the unit needs a password that works. A locked or absent hash breaks
-# both — the account could not sudo at all, and the switch would gate on a
-# password nobody can set.
+# SSH logs in as `milo`, and `sudo` on the unit needs a password that works. A
+# locked or absent hash breaks both — the switch would open a door no password
+# fits, and the account could not sudo at all.
 if [[ -r "${ROOT%/}/etc/shadow" ]]; then
     check "the milo account carries a usable password hash" \
           "grep -q '^milo:\\\$' '${ROOT%/}/etc/shadow'"

@@ -14,6 +14,7 @@ Features:
 - Enriched zone responses with computed fields
 """
 import asyncio
+import contextlib
 import logging
 import uuid
 
@@ -26,7 +27,7 @@ from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
     ClientEqIndependentRequest, ClientDelayRequest, ClientGainRequest,
     RegisterClientRequest, ConfigurePendingClientRequest,
-    ConfigureClientAudioRequest,
+    ConfigureClientAudioRequest, SshRequest, DevicePasswordRequest,
 )
 from backend.api.responses import (
     ClientMutationResponse,
@@ -77,9 +78,10 @@ async def _mark_unreachable(registry_service, mac_id: str, client_ip: str, exc: 
 def _require_satellite(client) -> None:
     """Refuse a satellite-only route aimed at the main unit.
 
-    Three routes mean nothing for the local client: its milo-client API (the
+    These routes mean nothing for the local client: its milo-client API (the
     server runs none — `milo-client/app` is installed on satellites only), its
-    audio card + reboot, and its removal. Unguarded, each one reached
+    audio card + reboot, its SSH switch and password (the server's own live
+    under /api/system), and its removal. Unguarded, each one reached
     127.0.0.1:CLIENT_API_PORT, failed, and called `_mark_unreachable` on the way
     out — which flips the MAIN unit to offline, and that is exactly what puts a
     "Système hors ligne · Supprimer" screen on its own settings page. The delete
@@ -92,6 +94,49 @@ def _require_satellite(client) -> None:
             status_code=400,
             detail="This endpoint addresses a multiroom satellite, not the main unit",
         )
+
+
+async def _satellite_reply(resp: aiohttp.ClientResponse, mac_id: str) -> dict:
+    """The satellite's JSON answer, or its refusal relayed as a 502 that says why.
+
+    A 404 is a satellite whose app predates the route: it is reached by an app
+    update from the server, and saying so is the one useful thing to tell.
+    """
+    # Parsed here, not left to the caller: aiohttp's ContentTypeError is a
+    # ClientError, which the relay reads as "unreachable" — a satellite that
+    # answered something other than JSON would be marked offline.
+    try:
+        body = await resp.json()
+    except (aiohttp.ContentTypeError, ValueError):
+        body = None
+    if resp.status == 200 and isinstance(body, dict):
+        return body
+    if resp.status == 200:
+        detail = "it answered something that is not JSON"
+    elif resp.status == 404:
+        detail = "this satellite's app does not offer it yet; update the satellite first"
+    else:
+        detail = (body or {}).get("detail") or f"HTTP {resp.status}"
+    logger.error(f"Satellite {mac_id} refused the request (HTTP {resp.status}): {detail}")
+    raise HTTPException(status_code=502, detail=f"Satellite refused: {detail}")
+
+
+@contextlib.asynccontextmanager
+async def _reaching_satellite(registry_service, mac_id: str, client_ip: str):
+    """One exchange with a satellite, its two ways of failing told apart.
+
+    No connection is a satellite that is gone: recorded offline, 502. No answer
+    in time is a satellite that is there but slow — a `systemctl` on a loaded Pi —
+    and may have applied the change, so it stays online and the caller hears 504.
+    """
+    try:
+        yield
+    except asyncio.TimeoutError:
+        logger.warning(f"Client {mac_id} at {client_ip} did not answer in time")
+        raise HTTPException(status_code=504, detail=f"Client at {client_ip} did not answer in time")
+    except aiohttp.ClientError as e:
+        await _mark_unreachable(registry_service, mac_id, client_ip, e)
+        raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
 async def _push_volume_control(
@@ -551,6 +596,59 @@ def create_multiroom_router(
             await registry_service.update_client(mac_id, volume_control=volume_control)
             logger.info(f"Client {mac_id} audio changed to {request.audio_id} (volume_control={volume_control}), rebooting")
             return {"status": "success", "message": f"Client {mac_id} audio changed, rebooting"}
+
+    # The satellite's remote access: the same SSH switch and `milo` password the
+    # server offers for itself under /api/system, relayed because a satellite has
+    # no UI of its own and its image ships with SSH off. Each URL stays literal at
+    # its call: the milo-client contract test reads them there. The budgets cover
+    # the satellite's own: two parallel 5 s reads, a 15 s write followed by them.
+
+    def _satellite(mac_id: str):
+        client = registry_service.get_client(mac_id)
+        if not client:
+            raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
+        _require_satellite(client)
+        return client
+
+    @router.get("/clients/{mac_id}/ssh")
+    async def get_client_ssh(mac_id: str):
+        """SSH state of a satellite, the account it logs into, and whether that account still has the factory password."""
+        async with api_error_handler(f"Error reading SSH state of client {mac_id}", logger):
+            client = _satellite(mac_id)
+            async with _reaching_satellite(registry_service, mac_id, client.ip):
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh") as resp:
+                        return await _satellite_reply(resp, mac_id)
+
+    @router.put("/clients/{mac_id}/ssh")
+    async def set_client_ssh(mac_id: str, request: SshRequest):
+        """Open or close SSH on a satellite."""
+        async with api_error_handler(f"Error setting SSH on client {mac_id}", logger):
+            client = _satellite(mac_id)
+            async with _reaching_satellite(registry_service, mac_id, client.ip):
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as session:
+                    async with session.put(
+                        f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh",
+                        json={"enabled": request.enabled},
+                    ) as resp:
+                        reply = await _satellite_reply(resp, mac_id)
+            logger.info(f"SSH {'enabled' if request.enabled else 'disabled'} on client {mac_id}")
+            return reply
+
+    @router.post("/clients/{mac_id}/password")
+    async def set_client_password(mac_id: str, request: DevicePasswordRequest):
+        """Set the `milo` account password of a satellite (SSH login + sudo)."""
+        async with api_error_handler(f"Error setting the password of client {mac_id}", logger):
+            client = _satellite(mac_id)
+            async with _reaching_satellite(registry_service, mac_id, client.ip):
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+                    async with session.post(
+                        f"http://{client.ip}:{CLIENT_API_PORT}/api/system/password",
+                        json={"password": request.password},
+                    ) as resp:
+                        reply = await _satellite_reply(resp, mac_id)
+            logger.info(f"Password updated on client {mac_id}")
+            return reply
 
     # === ZONE ENDPOINTS ===
 

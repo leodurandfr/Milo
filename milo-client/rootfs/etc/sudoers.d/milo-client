@@ -4,7 +4,8 @@
 # unit name that moves on one side is a silent permission denial on a satellite
 # — the one machine CI never touches. Both directions are enforced by
 # backend/tests/contracts/test_privileged_exec_contract.py. `systemctl is-active`
-# is deliberately absent: it needs no root and both call sites run it plain.
+# and `is-enabled` are deliberately absent: they need no root, and every call
+# site runs them plain.
 #
 # The first rule is what makes the rest of the file mean anything. Raspberry Pi
 # OS ships /etc/sudoers.d/010_pi-nopasswd — a conffile of raspberrypi-sys-mods —
@@ -31,3 +32,9 @@ milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-camilladsp
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-deploy-update
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-apply-hardware
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl restart milo-client.service
+
+# Remote access, driven from the server's client panel (routes/system.py) — the
+# same two switches the server's own policy grants its backend.
+milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now ssh.service
+milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl disable --now ssh.service
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password

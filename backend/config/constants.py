@@ -101,9 +101,9 @@ SET_PASSWORD_CMD = "/usr/local/bin/milo-set-password"
 SET_TIMEZONE_CMD = "/usr/local/bin/milo-set-timezone"
 
 # Written by milo-set-password, read here only for its existence. Absent means
-# the unit still carries the factory password `pi-gen/config` bakes — which is
-# the same on every unit, so `PUT /api/system/ssh` refuses to open the one
-# remote path that would accept it.
+# the unit still carries the factory password `pi-gen/config` bakes — the same
+# on every unit — so `GET /api/system/ssh` reports it (`password_is_default`)
+# and the UI warns beside an open SSH door. Not a gate: see `PUT /api/system/ssh`.
 PASSWORD_CHANGED_MARKER = MILO_DATA_DIR / "password-changed"
 
 # Dropped by POST /api/system/reset-setup and consumed by milo-first-boot on the

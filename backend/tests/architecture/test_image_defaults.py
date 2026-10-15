@@ -13,9 +13,9 @@ Three rules, each one the load-bearing half of a decision made elsewhere:
   1. **SSH is off in the image.** The factory password is the same on every
      unit, which is safe only while it stays a *local* convenience — SSH is the
      one remote path that accepts it, since neither nginx nor the backend
-     authenticates anything. `PUT /api/system/ssh` refuses to open that path
-     until `milo-set-password` has run; this is the other half, and without it
-     the refusal guards a door already standing open on a freshly flashed card.
+     authenticates anything. SSH opens only when the owner asks, from the UI,
+     with a warning while the factory password stands; this is the other half,
+     and without it that choice is made for every owner by a freshly flashed card.
 
   2. **The shipped timezone is the backend's `DEFAULT_TIMEZONE`.** The frontend
      adopts the browser's zone only while the system still sits on the value

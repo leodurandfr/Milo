@@ -115,6 +115,10 @@
     "systemNameRemote": "Nome del sistema remoto",
     "systemType": "Tipo di altoparlanti",
     "systemInfo": "Informazioni",
+    "ssh": {
+      "description": "Apre una sessione terminale su questo sistema audio da un altro computer della rete locale.",
+      "factoryPassword": "Questo sistema audio ha ancora la password di fabbrica."
+    },
     "systemTypes": {
       "satellite": "Altoparlanti satellite",
       "bookshelf": "Altoparlanti da scaffale",

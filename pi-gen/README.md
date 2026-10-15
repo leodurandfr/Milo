@@ -84,10 +84,12 @@ The image is a universal image supporting both **Milo** (server) and **Milo Clie
 ### Image Configuration
 
 - **User**: `milo`, factory password `milo`, **SSH disabled**. The password is a local
-  convenience only: `PUT /api/system/ssh` refuses to start the SSH server until
-  `milo-set-password` has replaced it, so the shared factory credential is never reachable
-  from the network. Re-opened either from Settings → Device → System, or by dropping an empty
-  `ssh` file on the boot partition (`sshswitch.service`, shipped enabled by Raspberry Pi OS).
+  convenience only, so the SSH server stays off until the owner opens it, and the UI warns
+  while the factory password is still in place (the switch does not refuse: nothing on the
+  API authenticates, so a refusal would stop nobody on the LAN). Opened from Settings →
+  System on the server, from a satellite's own panel under Multiroom for a satellite, or by
+  dropping an empty `ssh` file on the boot partition (`sshswitch.service`, shipped enabled
+  by Raspberry Pi OS).
 - **Hostname**: `milo` (renamed to `milo-client` on first boot if an existing `milo.local` is detected on the network)
 - **Locale**: `en_US.UTF-8`
 - **Timezone**: `Etc/UTC` — a value meaning "nobody has said yet". The first non-kiosk browser

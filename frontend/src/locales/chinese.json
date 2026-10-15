@@ -115,6 +115,10 @@
     "systemNameRemote": "远程系统名称",
     "systemType": "扬声器类型",
     "systemInfo": "信息",
+    "ssh": {
+      "description": "从局域网内的另一台电脑打开此音频系统的终端会话。",
+      "factoryPassword": "此音频系统仍在使用出厂密码。"
+    },
     "systemTypes": {
       "satellite": "卫星扬声器",
       "bookshelf": "书架扬声器",

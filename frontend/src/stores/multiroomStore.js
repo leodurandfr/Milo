@@ -605,6 +605,59 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     return result.data;
   }
 
+  // === CLIENT REMOTE ACCESS ===
+  // A satellite's SSH switch and password, the same panel the server offers for
+  // itself (systemStore) relayed to the speaker. The panel and its password
+  // sub-view are two views over one satellite, so a save in flight is held here:
+  // going back mid-save remounts the panel, whose read would otherwise answer
+  // from before the save and keep the factory warning up.
+  const clientPasswordSaves = new Map();
+
+  function toSshState(data) {
+    return {
+      enabled: !!data.enabled,
+      active: !!data.active,
+      passwordIsDefault: !!data.password_is_default,
+      // null on a satellite provisioned before the image, which has no `milo`
+      loginUser: data.login_user ?? null,
+    };
+  }
+
+  /** @returns {Promise<{enabled, active, passwordIsDefault, loginUser}|null>} null when unreadable */
+  async function fetchClientSsh(macId, { errorRef } = {}) {
+    await clientPasswordSaves.get(macId);
+    const result = await apiCall.get(`/api/multiroom/clients/${encodeURIComponent(macId)}/ssh`, {
+      category: 'store',
+      message: 'Failed to load client SSH state',
+      errorRef,
+    });
+    return result.ok ? toSshState(result.data.data) : null;
+  }
+
+  /** @returns {Promise<{enabled, active, passwordIsDefault, loginUser}|null>} the state the satellite answered */
+  async function setClientSsh(macId, enabled, { errorRef } = {}) {
+    const result = await apiCall.put(
+      `/api/multiroom/clients/${encodeURIComponent(macId)}/ssh`,
+      { enabled },
+      { category: 'store', message: 'Failed to change client SSH state', errorRef },
+    );
+    return result.ok ? toSshState(result.data.data) : null;
+  }
+
+  async function setClientPassword(macId, password, { errorRef } = {}) {
+    const saving = apiCall.post(
+      `/api/multiroom/clients/${encodeURIComponent(macId)}/password`,
+      { password },
+      { category: 'store', message: 'Failed to set client password', errorRef },
+    );
+    clientPasswordSaves.set(macId, saving);
+    try {
+      return (await saving).ok;
+    } finally {
+      clientPasswordSaves.delete(macId);
+    }
+  }
+
   // === PENDING CLIENTS ===
 
   /**
@@ -735,6 +788,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     // Client hardware
     fetchClientHardware,
     configureClientAudio,
+    fetchClientSsh,
+    setClientSsh,
+    setClientPassword,
 
     // Pending clients
     fetchPendingClients,

@@ -5,9 +5,11 @@ FIRST_USER_NAME="milo"
 
 # The factory password is the same on every unit, and that is safe only for as
 # long as it stays a *local* convenience. SSH is the single remote path that
-# uses it (neither nginx nor the backend authenticates anything), and the
-# backend refuses to enable ssh.service until milo-set-password has run — so a
-# scanner sweeping port 22 with milo/milo finds nothing, on any unit, ever.
+# uses it (neither nginx nor the backend authenticates anything), so it ships
+# off and opens only when the owner asks — Settings › System on the server, a
+# satellite's client panel for a satellite — with a warning while the factory
+# password is still in place. A scanner sweeping port 22 with milo/milo finds
+# nothing on a unit nobody opened.
 # Changing this name is not a config edit: /home/milo/milo, both sudoers
 # policies and every systemd unit are written around it.
 FIRST_USER_PASS="milo"

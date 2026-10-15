@@ -1,39 +1,14 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
-<!-- SSH, with the account password one level down. The factory password is
-     identical on every Milō and published with the source, so an open SSH door
-     is worth a word — but as a fact, and only while the door is open. Not as a
-     precondition: nothing on the API authenticates, so refusing to open it would
-     have stopped the owner and nobody else. -->
+<!-- SSH, with the account password one level down (SshSection says why the
+     factory password is a warning and not a precondition). -->
 <template>
   <SectionStack>
     <SystemInfoSection />
 
-    <SectionCard :description="t('system.ssh.description')">
-      <template #header>
-        <div class="system-header">
-          <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
-          <Toggle :model-value="ssh.enabled" :disabled="sshBusy" @change="handleSshToggle" />
-        </div>
-      </template>
-
-      <!-- Wraps: the button drops under the command when the row is too
-           narrow for both, rather than squeezing the command into a scroll.
-           It stays with SSH closed too: the same password guards sudo on the
-           unit itself, and it is better changed before the door opens. -->
-      <div class="system-command-row">
-        <div v-if="ssh.enabled" class="system-command text-mono-medium">
-          ssh milo@milo.local
-        </div>
-        <Button size="small" variant="tinted" @click="$emit('open-password')">
-          {{ t('system.password.change') }}
-        </Button>
-      </div>
-      <NoticeBox v-if="ssh.enabled && ssh.passwordIsDefault" kind="warning">
-        {{ t('system.ssh.factoryPassword') }}
-      </NoticeBox>
-
-      <NoticeBox v-if="sshError">{{ sshError }}</NoticeBox>
-    </SectionCard>
+    <SshSection :state="ssh" host="milo.local" user="milo" :busy="sshBusy" :error="sshError"
+      :description="t('system.ssh.description')"
+      :factory-password-notice="t('system.ssh.factoryPassword')"
+      @toggle="handleSshToggle" @open-password="$emit('open-password')" />
 
     <SectionCard :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
       <Button variant="brand" :loading="generating" :disabled="generating"
@@ -97,8 +72,8 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import Button from '@/components/ui/Button.vue';
-import Toggle from '@/components/ui/Toggle.vue';
 import SystemInfoSection from '@/components/settings/categories/SystemInfoSection.vue';
+import SshSection from '@/components/settings/categories/SshSection.vue';
 
 defineEmits(['open-password']);
 
@@ -228,13 +203,6 @@ onMounted(systemStore.loadSsh);
 </script>
 
 <style scoped>
-.system-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-03);
-}
-
 .diagnostic-actions {
   display: flex;
   gap: var(--space-03);
@@ -271,22 +239,5 @@ onMounted(systemStore.loadSsh);
   background: var(--color-inset);
   color: var(--color-text-secondary);
   white-space: pre;
-}
-
-.system-command-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.system-command {
-  flex: 1 0 auto;
-  padding: var(--space-03);
-  border-radius: var(--radius-04);
-  background: var(--color-inset);
-  color: var(--color-text-secondary);
-  overflow-x: auto;
-  white-space: nowrap;
 }
 </style>

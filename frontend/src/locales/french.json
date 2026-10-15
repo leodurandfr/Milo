@@ -115,6 +115,10 @@
     "systemNameRemote": "Nom du système distant",
     "systemType": "Type de haut-parleurs",
     "systemInfo": "Informations",
+    "ssh": {
+      "description": "Ouvre une session terminal sur ce système audio depuis un autre ordinateur du réseau local.",
+      "factoryPassword": "Ce système audio a encore son mot de passe d'usine."
+    },
     "systemTypes": {
       "satellite": "Enceintes satellites",
       "bookshelf": "Enceintes bibliothèque",

@@ -115,6 +115,10 @@
     "systemNameRemote": "Nome do sistema remoto",
     "systemType": "Tipo de colunas",
     "systemInfo": "Informações",
+    "ssh": {
+      "description": "Abre uma sessão de terminal neste sistema de áudio a partir de outro computador da rede local.",
+      "factoryPassword": "Este sistema de áudio ainda tem a palavra-passe de fábrica."
+    },
     "systemTypes": {
       "satellite": "Colunas satélite",
       "bookshelf": "Colunas de estante",

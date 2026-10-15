@@ -115,6 +115,10 @@
     "systemNameRemote": "Remote system name",
     "systemType": "Speaker type",
     "systemInfo": "Information",
+    "ssh": {
+      "description": "Opens a terminal session on this audio system from another computer on your local network.",
+      "factoryPassword": "This audio system still has its factory password."
+    },
     "systemTypes": {
       "satellite": "Satellite speakers",
       "bookshelf": "Bookshelf speakers",

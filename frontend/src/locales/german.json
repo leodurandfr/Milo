@@ -115,6 +115,10 @@
     "systemNameRemote": "Name des Remote-Systems",
     "systemType": "Lautsprechertyp",
     "systemInfo": "Informationen",
+    "ssh": {
+      "description": "Öffnet eine Terminalsitzung auf diesem Audiosystem von einem anderen Computer im lokalen Netzwerk.",
+      "factoryPassword": "Dieses Audiosystem hat noch sein Werkspasswort."
+    },
     "systemTypes": {
       "satellite": "Satellitenlautsprecher",
       "bookshelf": "Regallautsprecher",

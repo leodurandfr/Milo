@@ -87,7 +87,12 @@
         :group-id="zoneGroupId" @back="handleZoneSaved" />
 
       <ClientEdit v-else-if="currentView === 'multiroom-client-edit'" key="multiroom-client-edit" class="view-content"
-        :mac-id="macIdToEdit" @back="handleClientSaved" />
+        :mac-id="macIdToEdit" @back="handleClientSaved" @open-password="push('multiroom-client-password')" />
+
+      <!-- Only with a satellite named: an absent macId would mean the server's own password. -->
+      <SystemPasswordSettings v-else-if="currentView === 'multiroom-client-password' && macIdToEdit"
+        key="multiroom-client-password"
+        class="view-content" :mac-id="macIdToEdit" />
 
       <!-- Multiroom configure pending speaker view -->
       <ConfigureSystem v-else-if="currentView === 'multiroom-configure-system'" key="multiroom-configure-system"
@@ -380,6 +385,7 @@ const headerTitle = computed(() => {
     'music-library-share-edit': t('musicLibrary.shares.editTitle'),
     'music-library-usb-edit': t('musicLibrary.usb.renameTitle'),
     'system-password': t('system.password.title'),
+    'multiroom-client-password': t('system.password.title'),
   };
   return titles[currentView.value] || t('settings.title');
 });
