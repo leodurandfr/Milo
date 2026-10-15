@@ -54,7 +54,9 @@
         <span class="slider-value__other">{{ widestLabel }}</span>
         <span>{{ valueLabel(effectiveValue) }}</span>
       </template>
-      <SvgIcon v-if="showMuteGlyph" name="volumeOff" size="small" />
+      <Transition name="mute-fade">
+        <SvgIcon v-if="showMuteGlyph" name="volumeOff" size="small" />
+      </Transition>
     </div>
   </div>
 </template>
@@ -569,9 +571,35 @@ function handleChange(event) {
   grid-area: 1 / 1;
 }
 
-.slider-value__other,
-.slider-value--masked > span {
+/* The level and the mute glyph take turns in the one cell, never both at
+   once: what leaves fades out, then what comes fades in — its delay is the
+   leave's 200ms. */
+.slider-value > span {
+  transition: opacity var(--transition-fast);
+  transition-delay: 200ms;
+}
+
+.slider-value__other {
   visibility: hidden;
+}
+
+.slider-value--masked > span {
+  opacity: 0;
+  transition: opacity var(--transition-fast-leave);
+}
+
+.mute-fade-enter-active {
+  transition: opacity var(--transition-fast);
+  transition-delay: 200ms;
+}
+
+.mute-fade-leave-active {
+  transition: opacity var(--transition-fast-leave);
+}
+
+.mute-fade-enter-from,
+.mute-fade-leave-to {
+  opacity: 0;
 }
 
 /* With a label: the name on its own line above the track, the value in its
