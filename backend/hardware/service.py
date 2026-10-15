@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 from backend.config.constants import HARDWARE_FILE
-from backend.hardware.registry import DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE, DEFAULT_POWER_BUTTON
+from backend.hardware.registry import DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE, DEFAULT_POWER_BUTTON, SCREENS
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 
@@ -79,10 +79,13 @@ class HardwareService:
             return None
 
     def get_screen_info(self) -> Dict:
-        """Returns combined screen info: {"type": str, "resolution": dict|None}."""
+        """Returns combined screen info: {"type": str, "resolution": dict|None,
+        "color_correction": (r, g, b)|None} — the last from the screen registry."""
+        screen_type = self.get_screen_type()
         return {
-            "type": self.get_screen_type(),
-            "resolution": self.get_screen_resolution()
+            "type": screen_type,
+            "resolution": self.get_screen_resolution(),
+            "color_correction": SCREENS.get(screen_type, {}).get("color_correction"),
         }
 
     def get_audio_id(self) -> Optional[str]:

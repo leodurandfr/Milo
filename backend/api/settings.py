@@ -681,7 +681,8 @@ def create_settings_router(
                 "status": "success",
                 "hardware": {
                     "screen_type": screen_info["type"],
-                    "screen_resolution": screen_info["resolution"]
+                    "screen_resolution": screen_info["resolution"],
+                    "screen_color_correction": screen_info["color_correction"]
                 }
             }
         except Exception as e:
@@ -691,7 +692,8 @@ def create_settings_router(
                 "message": str(e),
                 "hardware": {
                     "screen_type": "none",
-                    "screen_resolution": {"width": None, "height": None}
+                    "screen_resolution": {"width": None, "height": None},
+                    "screen_color_correction": None
                 }
             }
 

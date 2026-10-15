@@ -100,6 +100,11 @@ def is_dac_card(audio_id: str) -> bool:
 # Each entry maps a screen type ID to its properties:
 # - label: Human-readable name for the UI dropdown
 # - resolution: "WIDTHxHEIGHT" string (None for "none")
+# - color_correction: optional (R, G, B) gains the kiosk multiplies every pixel
+#   by (gamma-encoded, as a CSS multiply blend applies them) to bring the
+#   panel's white to D65. Only a panel measured with a colorimeter carries one:
+#   neither DSI nor Chromium-on-cage offers a native place for it (rp1-dsi has
+#   no gamma LUT, cage implements no color-management protocol).
 
 SCREENS = {
     "waveshare_7_usb": {
@@ -109,6 +114,10 @@ SCREENS = {
     "waveshare_8_dsi": {
         "label": "Waveshare 8\" 1280x800 (DSI)",
         "resolution": "1280x800",
+        # SpyderX, 2026-10-15, one unit: native white 9880 K, Duv +0.006 (blue
+        # and green); corrected 6530 K, du'v' 0.0005 from D65, grays neutral
+        # down to 25 %, 79 % of the native luminance kept.
+        "color_correction": (1.0, 0.875, 0.768),
     },
     "none": {
         "label": "No screen",

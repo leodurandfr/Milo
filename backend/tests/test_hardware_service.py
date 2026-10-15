@@ -171,7 +171,30 @@ class TestTheScreenResolution:
         assert service.get_screen_info() == {
             "type": "waveshare_7_usb",
             "resolution": {"width": 1024, "height": 600},
+            "color_correction": None,
         }
+
+    def test_only_a_measured_screen_carries_a_correction(self, service):
+        """The kiosk's color layer reads the correction from here alone: the
+        measured panel gets gains, an unmeasured one none — and so does a type
+        the registry does not know, which must not raise on the lookup."""
+        _write(service, {"screen": {"type": "waveshare_8_dsi"}})
+        assert len(service.get_screen_info()["color_correction"]) == 3
+        for screen_type in ("waveshare_7_usb", "none", "retired_panel"):
+            _write(service, {"screen": {"type": screen_type}})
+            assert service.get_screen_info()["color_correction"] is None, screen_type
+
+    def test_every_registry_correction_only_attenuates_and_keeps_one_channel_whole(self):
+        """A multiply layer can only darken: a gain above 1 is clamped by the
+        blend in silence, and a correction whose largest gain is under 1 dims the
+        panel for nothing — the white it aims at is reached with one channel at 1."""
+        for screen_id, screen in SCREENS.items():
+            gains = screen.get("color_correction")
+            if gains is None:
+                continue
+            assert len(gains) == 3, screen_id
+            assert all(0 < g <= 1 for g in gains), screen_id
+            assert max(gains) == 1, screen_id
 
 
 class TestTheIrRemoteKeys:

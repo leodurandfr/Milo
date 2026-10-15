@@ -43,14 +43,14 @@
     <!-- Global Virtual Keyboard (available in wizard too) -->
     <VirtualKeyboard />
 
-    <!-- Warm color filter overlay (Night Shift-like, configurable in screen settings).
-         Teleported to <body> so the multiply blend reaches teleported elements
-         (Dropdown menus) that are siblings of #app. -->
+    <!-- Screen color layer: the panel's measured correction (screen registry)
+         × the warm filter (screen settings). Teleported to <body> so the multiply blend
+         reaches teleported elements (Dropdown menus) that are siblings of #app. -->
     <Teleport to="body">
       <div
-        v-if="colorFilterActive && showChrome"
+        v-if="colorLayerGains"
         class="color-filter-overlay"
-        :style="colorFilterStyle"
+        :style="colorLayerStyle"
       />
     </Teleport>
 
@@ -119,6 +119,7 @@ import { logger } from '@/services/logger';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { SOURCE_ERROR_KEYS, SOURCE_ERROR_FALLBACK_KEY } from '@/constants/sourceErrors';
 import { isKiosk } from '@/utils/kiosk';
+import { screenColorGains } from '@/utils/screenColor';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
@@ -164,7 +165,7 @@ const { on, parsedOn, onReconnect, onVisibilityChange, showDisconnectedBanner } 
 // cannot see what it is drawn on. The dark full-bleed surface (Lyrics)
 // declares itself; the bar just takes the matching variant.
 const { isDarkSurface } = useDarkSurface();
-const { loadHardwareInfo } = useHardwareConfig();
+const { loadHardwareInfo, hardwareInfo } = useHardwareConfig();
 const timer = useTimer();
 
 // Enable screen activity detection (touch, mouse, keyboard)
@@ -456,21 +457,21 @@ watch(isReady, (ready) => {
   }
 });
 
-// === Warm color filter overlay (Night Shift-like) ===
-// Only applied on the Pi kiosk (localhost). Remote browsers (e.g. milo.local
-// from another device) keep their native colors.
-const COLOR_FILTER_MAX_ALPHA = 0.40;
-
+// === Screen color layer: the panel's measured correction × the warm filter ===
+// Only applied on the Pi kiosk (localhost): both belong to its panel, and remote
+// browsers (e.g. milo.local from another device) keep their native colors.
 // App furniture the current route may opt out of: the Dock and the warm colour
 // overlay. Declared by the route (`meta.chrome: false`) rather than matched on a
 // path here, so the shell carries no knowledge of which page wants it — today
 // only /components does, where both would sit over the component being judged.
 const showChrome = computed(() => route.meta.chrome !== false);
 
-const colorFilterActive = computed(() => {
-  if (!isKiosk()) return false;
-  const cf = settingsStore.screenColorFilter;
-  return cf?.enabled && cf?.warmth > 0;
+const colorLayerGains = computed(() => {
+  if (!isKiosk()) return null;
+  // A calibration, not a preference: always on where the registry measured one,
+  // the gallery included — only the warm filter is furniture.
+  const correction = hardwareInfo.value?.screen_color_correction ?? null;
+  return screenColorGains(correction, showChrome.value ? settingsStore.screenColorFilter : null);
 });
 
 // The kiosk's interface scale is Chromium's page zoom (milo-kiosk-zoom), so a
@@ -480,10 +481,9 @@ const kioskZoomStyle = computed(() => (
   isKiosk() ? { '--kiosk-zoom': settingsStore.screenUiScale?.ui_scale ?? 1 } : null
 ));
 
-const colorFilterStyle = computed(() => {
-  const warmth = settingsStore.screenColorFilter?.warmth ?? 0;
-  const alpha = (warmth / 100) * COLOR_FILTER_MAX_ALPHA;
-  return { backgroundColor: `rgba(255, 119, 0, ${alpha})` };
+const colorLayerStyle = computed(() => {
+  const [r, g, b] = colorLayerGains.value.map(gain => (gain * 255).toFixed(1));
+  return { backgroundColor: `rgb(${r}, ${g}, ${b})` };
 });
 
 const isEqualizerOpen = ref(false);
@@ -815,7 +815,9 @@ onUnmounted(() => {
   inset: 0;
   pointer-events: none;
   mix-blend-mode: multiply;
-  z-index: 9999;
+  /* Above every full-screen view (the hostname conflict sits at 10000), below
+     only the sleep shield, which draws nothing. */
+  z-index: 99998;
 }
 
 .sleep-shield {

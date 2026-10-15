@@ -92,7 +92,8 @@ class TestSettingsRoutes:
         service = Mock()
         service.get_screen_info = Mock(return_value={
             "type": "official",
-            "resolution": {"width": 800, "height": 480}
+            "resolution": {"width": 800, "height": 480},
+            "color_correction": None
         })
         service.get_full_config = Mock(return_value={
             "audio": {"id": "hifiberry_amp2"},

@@ -569,7 +569,8 @@ class TestTheHardwareRead:
 
     def test_it_reports_the_screen_the_service_knows_about(self, client, hardware):
         hardware.get_screen_info = Mock(
-            return_value={"type": "waveshare-7", "resolution": {"width": 1024, "height": 600}}
+            return_value={"type": "waveshare-7", "resolution": {"width": 1024, "height": 600},
+                          "color_correction": None}
         )
 
         body = client.get("/api/settings/hardware-info").json()
