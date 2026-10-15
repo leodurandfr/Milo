@@ -304,6 +304,7 @@ check "asound.conf deployed"        "cmp -s '$REPO/rootfs/etc/asound.conf' '${RO
 check "shairport-sync.conf deployed" "cmp -s '$REPO/rootfs/etc/shairport-sync.conf' '${ROOT%/}/etc/shairport-sync.conf'"
 check "avahi-daemon.conf deployed"  "cmp -s '$REPO/rootfs/etc/avahi/avahi-daemon.conf' '${ROOT%/}/etc/avahi/avahi-daemon.conf'"
 check "ARP sysctl deployed"         "cmp -s '$REPO/rootfs/etc/sysctl.d/90-milo-arp.conf' '${ROOT%/}/etc/sysctl.d/90-milo-arp.conf'"
+check "ethernet IPv4 wait deployed" "cmp -s '$REPO/rootfs/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf' '${ROOT%/}/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf'"
 check "nginx site written"          "grep -q 'server_name milo.local' '${ROOT%/}/etc/nginx/sites-available/milo'"
 check "go-librespot uses avahi"     "grep -q 'zeroconf_backend: avahi' '${ROOT%/}/var/lib/milo/go-librespot/config.yml'"
 check "navidrome config written"    "[ -f '${ROOT%/}/var/lib/milo/navidrome/navidrome.toml' ]"

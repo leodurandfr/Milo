@@ -206,6 +206,10 @@ cp /home/milo/milo/rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf 
 mkdir -p /etc/NetworkManager/conf.d
 cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf /etc/NetworkManager/conf.d/
 
+# A wired link counts as up once it has IPv4, not on IPv6 alone (see the file):
+# what waits for the network, milo.local included, then uses the cable.
+cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf /etc/NetworkManager/conf.d/
+
 # NetworkManager connectivity check — drop-in read by the backend connectivity
 # D-Bus subscriber (backend/core/connectivity/service.py). Written inline rather
 # than through provisioning/network.sh: applying it needs a NetworkManager reload,

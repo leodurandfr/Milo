@@ -31,7 +31,7 @@ INTERFACE=$1
 ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
 AVAHI_STATE_FILE="/var/lib/milo/avahi-interface"
-ETH0_LEASE_GRACE_S=30
+ETH0_ACTIVATION_CAP_S=45
 
 # Setup hotspot SSID (shared across all Milō devices)
 is_hotspot_connection() {
@@ -73,22 +73,28 @@ set_avahi_interface() {
     systemctl restart avahi-daemon.service
 }
 
-# Wait while eth0 has a cable but no lease yet, at most ETH0_LEASE_GRACE_S.
-# At boot wlan0 can lease first: on 2026-10-14 eth0 had carrier at 22.1 s, a
-# carrier flap at 33.3 s and its lease at 42.4 s, wlan0 its lease at 26.0 s.
-# milo.local was published on wlan0 in between, a satellite that resolved it then
-# kept that address (its watch never cuts a client that streams), and 12 h later
-# a wlan0 lease renewal took the address away and cut that one room.
+# Wait while NetworkManager is still bringing eth0 up (device states 40-90,
+# prepare .. secondaries). At boot wlan0 can lease first: on 2026-10-14 eth0 had
+# carrier at 22.1 s and its lease at 42.4 s, wlan0 its lease at 26.0 s, and
+# milo.local published on wlan0 in between sent a satellite to that address.
+# 90-milo-ethernet-ipv4.conf keeps eth0 activating until it has IPv4 (or 30 s
+# of trying), so NetworkManager decides how long; a cable that is absent, or a
+# profile that never activates, waits nothing. The cap only guards against a
+# state that never settles: NetworkManager's DHCP transaction lasts 45 s.
 # Timed on /proc/uptime: the Pi has no RTC and timesyncd steps the wall clock
-# mid-boot (35 s into that same boot), which would cut a wall-clock wait short.
-# The cable is read once, on entry: a carrier flap while DHCP runs (one at
-# 33.3 s in that boot) is not an unplugged cable and must not end the wait.
+# mid-boot, which would cut a wall-clock wait short.
+eth0_activating() {
+    local state
+    state=$(nmcli -g GENERAL.STATE device show eth0 2>/dev/null)
+    state=${state%% *}
+    [[ "$state" =~ ^[0-9]+$ ]] && (( state >= 40 && state < 100 ))
+}
+
 wait_for_eth0_lease() {
     local up _ deadline
-    [ "$(cat /sys/class/net/eth0/carrier 2>/dev/null)" = 1 ] || return 0
     read -r up _ < /proc/uptime
-    deadline=$(( ${up%.*} + ETH0_LEASE_GRACE_S ))
-    while ! has_ip eth0; do
+    deadline=$(( ${up%.*} + ETH0_ACTIVATION_CAP_S ))
+    while eth0_activating && ! has_ip eth0; do
         read -r up _ < /proc/uptime
         (( ${up%.*} < deadline )) || return 0
         sleep 0.5
