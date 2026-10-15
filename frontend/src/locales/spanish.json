@@ -290,7 +290,7 @@
     "sleepDelay": "Si la aplicación está inactiva, apagar la pantalla después de:",
     "autoPlayer": "Reproductor a pantalla completa automático",
     "autoPlayerDelay": "Si la aplicación está inactiva durante la reproducción, abrir el reproductor a pantalla completa después de:",
-    "uiScale": "Pantalla",
+    "uiScale": "Tamaño de la interfaz",
     "uiScaleLevel": "Escala de la interfaz en la pantalla táctil de Milō",
     "colorFilter": "Filtro de color cálido",
     "colorFilterWarmth": "Intensidad",

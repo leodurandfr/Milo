@@ -290,7 +290,7 @@
     "sleepDelay": "Quando a aplicação estiver inativa, desligar o ecrã após:",
     "autoPlayer": "Leitor em ecrã inteiro automático",
     "autoPlayerDelay": "Quando a aplicação estiver inativa durante a reprodução, abrir o leitor em ecrã inteiro após:",
-    "uiScale": "Exibição",
+    "uiScale": "Tamanho da interface",
     "uiScaleLevel": "Escala da interface no ecrã tátil do Milō",
     "colorFilter": "Filtro de cor quente",
     "colorFilterWarmth": "Intensidade",
