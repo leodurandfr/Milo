@@ -876,3 +876,83 @@ async def test_library_track_heard_then_cut_is_the_point_to_come_back_to(library
     assert not library.active()
     assert library.track() == "tr-2"
     assert library.state()["resume"]["position_ms"] == 180000
+
+
+# === No command to an unstarted source fails as a stream ===
+
+# One valid set of params per command of each mpv source. The table must name
+# every command a source declares (asserted below), so a new command is driven
+# here before it can ship.
+UNSTARTED_COMMANDS = {
+    "radio": {
+        "play_station": {"station_id": "nova"}, "stop": None,
+        "resume_playback": None, "prev": None, "next": None,
+    },
+    "podcast": {
+        "play_episode": {"episode_uuid": EPISODE_B["uuid"]}, "pause": None, "resume": None,
+        "seek": {"position_ms": 1000}, "skip": {"seconds": 30},
+    },
+    "music_library": {
+        "play_context": {"tracks": ALBUM}, "play_index": {"index": 1}, "pause": None,
+        "resume": None, "next": None, "prev": None, "seek": {"position_ms": 1000},
+        "skip": {"seconds": 30}, "set_shuffle": {"shuffle": True},
+        "set_repeat": {"mode": "context"}, "stop": None,
+    },
+    "cd": {
+        "play_track": {"track_number": 2}, "pause": None, "resume": None, "next": None,
+        "prev": None, "seek": {"position_ms": 1000}, "skip": {"seconds": 30},
+        "set_shuffle": {"shuffle": True}, "set_repeat": {"mode": "context"},
+        "eject": None,
+    },
+}
+
+
+async def _left_with_something_to_resume(source_id: str, monkeypatch):
+    """A source that played, then was left: not started, with a resume point —
+    the state every reopening command (CONTENT or RESUME) reaches."""
+    if source_id == "cd":
+        from backend.tests.cd_world import CdWorld
+        rig = CdWorld(monkeypatch)
+        rig.drive, rig.media = True, "audio"
+        await rig.boot()
+        await rig.select()
+        await rig.command("play_track", {"track_number": 1})
+        await rig.advance(1.1)
+        await rig.leave()
+        return rig
+    rig = {"radio": RadioRig, "podcast": PodcastRig, "music_library": LibraryRig}[source_id](monkeypatch)
+    await rig.select()
+    if source_id == "radio":
+        await rig.tune(FIP)
+    elif source_id == "podcast":
+        await rig.play(EPISODE_A)
+    else:
+        await rig.play_album()
+    await rig.tick()
+    await rig.leave()
+    return rig
+
+
+@pytest.mark.parametrize("source_id", UNSTARTED_COMMANDS)
+async def test_no_command_to_an_unstarted_source_fails_as_a_stream(source_id, monkeypatch, caplog):
+    """A command a source cannot serve while it is not started is refused or a
+    no-op — never a failed stream, whose ERROR and "stream did not load"
+    banner reach every screen. The refusal travels as an exception from the
+    opener, so a handler's broad `except Exception` that does not let it
+    through turns it back into that banner: driving every command here is what
+    catches one."""
+    rig = await _left_with_something_to_resume(source_id, monkeypatch)
+    try:
+        assert set(UNSTARTED_COMMANDS[source_id]) == set(rig.source.COMMANDS), (
+            f"{source_id}: UNSTARTED_COMMANDS must drive every declared command"
+        )
+        errors_before = list(rig.errors())
+        caplog.clear()
+        for cmd, params in UNSTARTED_COMMANDS[source_id].items():
+            await rig.command(cmd, params)
+
+        assert rig.errors() == errors_before
+        logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert not logged, f"{source_id}: {logged}"
+    finally:
+        await rig.source.shutdown()

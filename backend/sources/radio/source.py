@@ -23,7 +23,7 @@ from urllib.parse import quote, urlparse
 
 from pydantic import BaseModel
 
-from backend.core.audio_source import DeviceToken, Result, SourceNotStarted
+from backend.core.audio_source import DeviceToken, Result
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.audio_wire import RadioDetails, RadioStation, RadioTrack, ResumeView
 from backend.core.models.session import (
@@ -331,8 +331,6 @@ class RadioSource(MpvAudioSource):
             )
             return await self._tune(station)
 
-        except SourceNotStarted:
-            raise
         except Exception as e:
             self._logger.error(f"Station playback error: {e}")
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
