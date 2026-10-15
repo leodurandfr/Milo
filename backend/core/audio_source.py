@@ -140,6 +140,15 @@ _PREEMPTS = {
 _VOIDED_BY_STOP = (Command, Timer, Query, Feed, Result)
 
 
+class SourceNotStarted(Exception):
+    """A session was about to open on a source whose player is not running.
+
+    Raised by the opener, caught by the command runner: whichever command led
+    there — a play, a resume, a step that reopens the queue — is refused as a
+    command, never failed as a stream.
+    """
+
+
 class _MailboxClosed(Exception):
     """A hold still waiting for the mailbox when the source was shut down."""
 
@@ -716,6 +725,9 @@ class BaseAudioSource(ABC):
             return self.error_response(f"Nothing is playing: '{cmd}' needs a live session")
         try:
             return await self._handle_command(cmd, params)
+        except SourceNotStarted:
+            self._logger.warning(f"Refused '{cmd}': {self.source_id} is not started")
+            return self.error_response(f"{self.source_id} is not started: select it before '{cmd}'")
         except Exception as e:
             self._logger.error(f"Error handling command {cmd}: {e}")
             return self.error_response(str(e))

@@ -792,8 +792,6 @@ class MusicLibrarySource(MpvAudioSource):
 
     async def _handle_play_context(self, params: PlayContextParams) -> Dict[str, Any]:
         """Build the mpv playlist from a context and start playing at start_index."""
-        if not self._mpv:
-            return self.error_response("Music library not active")
         if await self.get_navidrome_client() is None:
             return self.error_response("Music library catalog not ready")
 

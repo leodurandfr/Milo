@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional
 
 from pydantic import BaseModel
 
+from backend.core.audio_source import SourceNotStarted
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.audio_wire import PodcastDetails, ResumeView
 from backend.core.models.commands import SkipParams, skip_target
@@ -245,6 +246,8 @@ class PodcastSource(MpvAudioSource):
 
             return await self._play(episode, start_position)
 
+        except SourceNotStarted:
+            raise
         except Exception as e:
             self._logger.error(f"Episode playback error: {e}")
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)

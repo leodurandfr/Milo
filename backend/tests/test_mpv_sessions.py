@@ -291,8 +291,10 @@ async def test_radio_play_before_the_source_is_selected_is_refused_not_failed(ra
 
 
 async def test_radio_left_keeps_its_station_when_a_late_play_is_refused(radio):
-    """The same refusal once radio was left: the play never reaches a stopped
-    mpv, and the station left is still the one a return re-tunes."""
+    """The same refusal once radio was left, for a play and for the resume
+    that re-tunes (a RESUME command, so not refused by its scope): neither
+    reaches a stopped mpv, and the station left is still the one a return
+    re-tunes."""
     await radio.select()
     await radio.tune(FIP)
     await radio.tick()
@@ -300,6 +302,7 @@ async def test_radio_left_keeps_its_station_when_a_late_play_is_refused(radio):
     loads = len(radio.loads())
 
     assert (await radio.tune(NOVA))["success"] is False
+    assert (await radio.command("resume_playback"))["success"] is False
 
     await radio.select()
     assert len(radio.loads()) == loads
@@ -361,6 +364,20 @@ async def test_podcast_play_before_the_source_is_selected_is_refused_not_failed(
 
     assert result["success"] is False
     assert podcast.loads() == []
+    assert podcast.errors() == []
+
+
+async def test_podcast_resume_after_leaving_is_refused_not_failed(podcast):
+    """`resume` reopens the episode left behind: a load like a play, reached
+    by a RESUME command."""
+    await podcast.select()
+    await podcast.play(EPISODE_A)
+    await podcast.tick()
+    await podcast.leave()
+    loads = len(podcast.loads())
+
+    assert (await podcast.command("resume"))["success"] is False
+    assert len(podcast.loads()) == loads
     assert podcast.errors() == []
 
 
@@ -640,6 +657,23 @@ async def test_library_failed_track_then_one_heard_resumes_the_one_heard(library
     await library.select()
 
     assert library.track() == "tr-2"
+
+
+async def test_library_queue_reopened_after_leaving_is_refused_not_failed(library):
+    """`play_index` and `resume` reopen the queue left behind (E50) — loads
+    reached by RESUME commands — and are refused like a play while the
+    library is not started."""
+    await library.select()
+    await library.play_album()
+    await library.tick()
+    await library.leave()
+    loads = len(library.loads())
+
+    assert (await library.command("play_index", {"index": 2}))["success"] is False
+    assert (await library.command("resume"))["success"] is False
+    assert (await library.play_album())["success"] is False
+    assert len(library.loads()) == loads
+    assert library.errors() == []
 
 
 async def test_library_play_index_from_the_resume_view_plays(monkeypatch):
