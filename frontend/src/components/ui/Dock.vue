@@ -223,8 +223,8 @@ const showDock = () => {
   // z-index) or with Lyrics (a full-screen slot, not a modal, that owns the
   // same swipe gesture for its own playback bar — see useDockDrag's
   // .lyrics-view exclusion). Refuse to open while either is on screen — this
-  // covers every reveal path: swipe, pill, and App.vue's auto-reveal (at boot
-  // and when the backend restarts).
+  // covers every reveal path: swipe, pill, the source dropping to none, and
+  // App.vue's auto-reveal (at boot, when the backend restarts, on a touch wake).
   if (isVisible.value || document.querySelector('.modal-overlay') || lyricsStore.isOpen) return;
   isVisible.value = true;
   isFullyVisible.value = false;
@@ -240,6 +240,13 @@ const showDock = () => {
     timer.setTimeout(() => isFullyVisible.value = true, 400);
     timer.setTimeout(updateActiveIndicator, 500);
   });
+};
+
+// With no source selected the dock is the only way in, so it comes up by
+// itself; with one on, it waits for the swipe or the pill. The auto-reveal
+// App.vue triggers (boot, backend restart, touch wake) goes through here.
+const revealIfIdle = () => {
+  if (unifiedStore.systemState.source === 'none') showDock();
 };
 
 const hideDock = () => {
@@ -470,6 +477,7 @@ watch(() => unifiedStore.systemState.source, (newSource) => {
   if (newSource === 'none') {
     indicatorStyle.value.opacity = '0';
     timer.clear(hideTimeout);
+    revealIfIdle();
   } else if (isVisible.value && indicatorStyle.value.opacity === '1') {
     // Indicator already visible — slide to new position
     const newIndex = activeSourceIndex.value;
@@ -502,7 +510,7 @@ onMounted(() => {
   drag.setupDragEvents();
 
   if (registerDockControl) {
-    registerDockControl(showDock);
+    registerDockControl(revealIfIdle);
   }
 
   timer.setTimeout(() => showDragIndicator.value = true, 800);

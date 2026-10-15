@@ -210,9 +210,9 @@ function processInitialState(event) {
   isReady.value = true;
 
   // A reconnect to the same backend leaves the dock as it is (a phone back
-  // from the background must not get it thrown up); a restarted one shows it,
-  // as the boot does.
-  if (backendRestarted && isBootComplete.value) showDockFn?.();
+  // from the background must not get it thrown up); a restarted one reveals
+  // it as the boot does.
+  if (backendRestarted && isBootComplete.value) revealDockFn?.();
 }
 
 // Stores whose WS-fed state is delta-based: events missed while disconnected or
@@ -407,10 +407,15 @@ watch(() => unifiedStore.transientNotice, (notice) => {
 // === Sleep shield: wake screen on first touch ===
 let sleepShieldTimeout = null;
 let wakeInProgress = false;
+// A touch that woke the screen reveals the dock once the sleep flag clears (by
+// the WS event or the fallback below) — not on the touchstart, while the
+// backlight is still coming up. Other wakes don't.
+let revealDockOnWake = false;
 
 function handleScreenWake() {
   if (wakeInProgress || !settingsStore.isScreenSleeping) return;
   wakeInProgress = true;
+  revealDockOnWake = true;
 
   // Send wake notification to backend (triggers on_touch_detected → broadcasts screen_sleep_changed: false)
   apiCall.post('/api/settings/screen-activity', null, {
@@ -428,6 +433,12 @@ function handleScreenWake() {
     wakeInProgress = false;
   }, 500);
 }
+
+watch(() => settingsStore.isScreenSleeping, (sleeping) => {
+  if (sleeping || !revealDockOnWake) return;
+  revealDockOnWake = false;
+  revealDockFn?.();
+});
 
 // Watch isReady → trigger boot screen fade and dock auto-show
 watch(isReady, (ready) => {
@@ -450,9 +461,7 @@ watch(isReady, (ready) => {
         if (bootScreenEl) bootScreenEl.style.display = 'none';
       }, DOM_REMOVE_DELAY);
 
-      // Auto-show dock after boot complete. With a source playing it hides
-      // itself again after a while (Dock's hide timer).
-      timer.setTimeout(() => showDockFn?.(), DOCK_AUTO_SHOW_DELAY);
+      timer.setTimeout(() => revealDockFn?.(), DOCK_AUTO_SHOW_DELAY);
     }, SCREEN_FADE_DELAY);
   }
 });
@@ -514,12 +523,13 @@ function closeSettings() {
   settingsInitialView.value = 'home'; // Reset for next open
 }
 
-// Dock control registration (for the auto-show at boot and on a backend
-// restart). The Dock hands it back on unmount — `null` — so a route that drops
-// the chrome cannot leave this holding a callback whose component is gone.
-let showDockFn = null;
-function registerDockControl(showFn) {
-  showDockFn = showFn;
+// Dock control registration (for the auto-reveal at boot, on a backend restart
+// and on a touch wake — the Dock alone decides whether it comes up). The Dock
+// hands it back on unmount — `null` — so a route that drops the chrome cannot
+// leave this holding a callback whose component is gone.
+let revealDockFn = null;
+function registerDockControl(revealFn) {
+  revealDockFn = revealFn;
 }
 
 provide('openEqualizer', () => isEqualizerOpen.value = true);
