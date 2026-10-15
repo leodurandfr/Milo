@@ -43,7 +43,7 @@
             </template>
 
             <template #transport-end>
-              <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="medium"
+              <IconButton :icon="stationIsFavorite ? 'checkCircle' : 'plusCircle'" variant="ghost" size="medium"
                 :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </template>
           </AudioPlayer>
@@ -55,7 +55,7 @@
          after the transport — in the full player as on the bar, in the fill of
          the stop button beside it. -->
     <template #transport-end>
-      <IconButton :icon="stationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="medium"
+      <IconButton :icon="stationIsFavorite ? 'checkCircle' : 'plusCircle'" variant="ghost" size="medium"
         :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
     </template>
   </BrowserSourceViews>

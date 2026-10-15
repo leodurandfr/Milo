@@ -562,7 +562,7 @@ export const REGISTRY = {
       icon: 'radio',
       title: 'No favourites yet',
       subtitle: 'Stations you like end up here',
-      details: 'Search for a station, then tap the heart to keep it.',
+      details: 'Search for a station, then tap ⊕ to keep it.',
       ctaLabel: 'Open search',
       ctaSecondaryLabel: 'Retry'
     },

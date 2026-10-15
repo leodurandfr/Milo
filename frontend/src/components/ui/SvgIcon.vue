@@ -31,7 +31,8 @@ import radioIcon from '@/assets/icons/radio.svg?raw'
 import searchIcon from '@/assets/icons/search.svg?raw'
 import stopIcon from '@/assets/icons/stop.svg?raw'
 import heartIcon from '@/assets/icons/heart.svg?raw'
-import heartOffIcon from '@/assets/icons/heart-off.svg?raw'
+import plusCircleIcon from '@/assets/icons/plus-circle.svg?raw'
+import checkCircleIcon from '@/assets/icons/check-circle.svg?raw'
 import caretDownIcon from '@/assets/icons/caret-down.svg?raw'
 import caretUpIcon from '@/assets/icons/caret-up.svg?raw'
 import powerIcon from '@/assets/icons/power.svg?raw'
@@ -98,7 +99,8 @@ const icons = {
   search: searchIcon,
   stop: stopIcon,
   heart: heartIcon,
-  heartOff: heartOffIcon,
+  plusCircle: plusCircleIcon,
+  checkCircle: checkCircleIcon,
   podcast: podcastIcon,
   queue: queueIcon,
   check: checkIcon,

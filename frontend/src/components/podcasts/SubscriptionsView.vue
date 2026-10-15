@@ -9,7 +9,7 @@
             <MessageContent
               v-else-if="subscriptions.length === 0"
               key="empty"
-              icon="heartOff"
+              icon="checkCircle"
               :title="t('podcasts.noSubscriptions')"
               :subtitle="t('podcasts.noSubscriptionsHint')"
             />

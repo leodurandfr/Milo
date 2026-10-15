@@ -92,7 +92,7 @@
                   </template>
 
                   <template v-if="page.source === 'radio'" #transport-end>
-                    <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" variant="ghost" size="medium" />
+                    <IconButton :icon="controls.favorite ? 'checkCircle' : 'plusCircle'" variant="ghost" size="medium" />
                   </template>
 
                 </AudioPlayer>
@@ -101,7 +101,7 @@
           </template>
 
           <template v-if="page.source === 'radio'" #transport-end>
-            <IconButton :icon="controls.favorite ? 'heart' : 'heartOff'" variant="ghost" size="medium" />
+            <IconButton :icon="controls.favorite ? 'checkCircle' : 'plusCircle'" variant="ghost" size="medium" />
           </template>
         </BrowserSourceViews>
       </div>
@@ -198,7 +198,7 @@ const slotKey = computed(() => (browser.value ? `browser-${page.value?.source}` 
 
 /**
  * What the source adds that the state does not carry — radio's favourite: a
- * heart that is only ever hollow documents half the button — and its station
+ * ⊕ that never turns to ✓ documents half the button — and its station
  * for the phone's badge.
  */
 const controls = computed(() => browser.value?.player?.controls ?? {});

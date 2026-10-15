@@ -24,7 +24,7 @@
             />
           </div>
 
-          <MessageContent v-else key="empty-sub" icon="heartOff" :title="t('podcasts.noNewEpisodes')" />
+          <MessageContent v-else key="empty-sub" icon="checkCircle" :title="t('podcasts.noNewEpisodes')" />
         </Transition>
       </div>
     </section>

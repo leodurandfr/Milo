@@ -141,7 +141,7 @@ const bar = computed(() => ({
 // so the player would have nothing left to drive. The source's latch is
 // released at once rather than by the bar's leave — the phone's bar is already
 // gone, the kiosk's leaves unseen — so a finished album is not one tap away,
-// nor a station keeps its heart.
+// nor a station keeps its favorite.
 watch(hasSomethingToShow, (present) => {
   if (present || !playerShown.value) return;
   props.playback?.onAfterHide();

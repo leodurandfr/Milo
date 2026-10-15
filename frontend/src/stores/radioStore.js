@@ -498,7 +498,7 @@ export const useRadioStore = defineStore('radio', () => {
       // Refetched rather than appended in place: the list comes ordered by the
       // backend, and an append would park the new station at the end of the
       // grid rather than at its real position. Through
-      // preloadFavorites, not loadStations: the heart is usually tapped from
+      // preloadFavorites, not loadStations: the ⊕ is usually tapped from
       // the search view, whose results share the `loading` flag — reloading
       // through it would blank the grid the user is looking at.
       await preloadFavorites({ force: true });

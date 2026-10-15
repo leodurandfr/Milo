@@ -444,7 +444,7 @@ const ZARATHOUSTRA = {
  * different screen from the one being documented.
  */
 const RADIO_HEADER = { titleKey: 'audioSources.radioSource.favoritesTitle', actions: ['search'] };
-const PODCAST_HEADER = { titleKey: 'podcasts.podcasts', actions: ['heartOff', 'queue', 'search'] };
+const PODCAST_HEADER = { titleKey: 'podcasts.podcasts', actions: ['checkCircle', 'queue', 'search'] };
 const ML_HEADER = { titleKey: 'audioSources.musicLibrary', actions: ['queue', 'search'] };
 
 const SPOTIFY_HEADER = { titleKey: 'audioSources.spotify', actions: ['queue'] };

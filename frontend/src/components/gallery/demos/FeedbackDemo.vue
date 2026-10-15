@@ -60,7 +60,7 @@
         icon="radio"
         title="No favourites yet"
         subtitle="Stations you like end up here"
-        details="Search for a station, then tap the heart to keep it."
+        details="Search for a station, then tap ⊕ to keep it."
       />
     </GalleryVariant>
     <GalleryVariant label="two CTAs — ctaClick is a Function prop, not an event" stacked>
