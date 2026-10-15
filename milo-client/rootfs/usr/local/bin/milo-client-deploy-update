@@ -169,6 +169,17 @@ while read -r rel_path; do
     esac
 done < <(find . -type f)
 
+# A kernel setting takes effect when applied, not when its file is copied.
+for changed in "${CHANGED[@]}"; do
+    case "$changed" in
+        /etc/sysctl.d/*)
+            sysctl -q --system
+            echo "  sysctl settings applied"
+            break
+            ;;
+    esac
+done
+
 if [ ${#CHANGED[@]} -eq 0 ]; then
     echo "Changed nothing: every deployed file already matched"
 else

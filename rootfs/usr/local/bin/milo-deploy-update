@@ -84,6 +84,7 @@ cmd_sync_system_files() {
     # Sync system/*.service and rootfs/** from the repo to their system destinations.
     # Hardcoded repo path — no arguments needed.
     local synced_udev=false
+    local synced_sysctl=false
 
     # 1. Deploy systemd service files
     echo "Deploying systemd service files..."
@@ -141,9 +142,10 @@ cmd_sync_system_files() {
                 ;;
         esac
 
-        # Track udev rule changes
+        # Track udev rule and sysctl changes
         case "$rel_path" in
             etc/udev/*) synced_udev=true ;;
+            etc/sysctl.d/*) synced_sysctl=true ;;
         esac
     done < <(find . -type f)
 
@@ -152,6 +154,11 @@ cmd_sync_system_files() {
         udevadm control --reload-rules
         udevadm trigger
         echo "  udev rules reloaded"
+    fi
+
+    if [ "$synced_sysctl" = true ]; then
+        sysctl -q --system
+        echo "  sysctl settings applied"
     fi
 
     echo "System files sync complete"

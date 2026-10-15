@@ -99,6 +99,15 @@ cp /home/milo/milo/rootfs/etc/systemd/journald.conf.d/99-milo-journald.conf \
 mkdir -p /var/log/journal
 CHROOT
 
+# ── ARP: each interface answers for its own addresses ────────────────────────
+# eth0 and wlan0 share the LAN; without this eth0 answers ARP for wlan0's
+# address, and NetworkManager's conflict probe at a lease renewal removes it
+# (see the file). Read by systemd-sysctl at every boot, in either mode.
+
+on_chroot << 'CHROOT'
+cp /home/milo/milo/rootfs/etc/sysctl.d/90-milo-arp.conf /etc/sysctl.d/90-milo-arp.conf
+CHROOT
+
 # ── udev rules ───────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
