@@ -109,7 +109,9 @@ class Result:
 
 class DeviceToken:
     """The token of work on the source's hardware — a drive announcing a disc,
-    a disc read, a timer watching the drive — rather than on a session.
+    a disc read, a timer watching the drive — rather than on a session. Also
+    taken by an update of what the session and the resume point both hold
+    (radio's station records), which the end of one must not void for the other.
 
     The device axis outlives sessions: a disc stays in the drive across a
     source switch. So a STOP neither voids nor cuts a Timer or a Result that

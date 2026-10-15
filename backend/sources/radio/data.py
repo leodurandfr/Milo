@@ -264,11 +264,17 @@ class ImageManager:
         file_path = self.IMAGES_DIR / filename
 
         if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
+            self.logger.warning(f"Attempted path traversal: {filename}")
             return None
 
         if file_path.exists():
             return file_path
         return None
+
+
+def _without_image(station: Dict[str, Any]) -> Dict[str, Any]:
+    """`station` once its uploaded image is deleted: no logo rather than a dead link."""
+    return {**station, 'favicon': '', 'image_filename': ''}
 
 
 class StationDataService:
@@ -300,12 +306,21 @@ class StationDataService:
 
     SCHEMA_VERSION: int = 1
 
-    def __init__(self, state_machine=None, on_favorites_changed: Optional[Callable[[], None]] = None):
+    def __init__(
+        self,
+        state_machine=None,
+        on_favorites_changed: Optional[Callable[[], None]] = None,
+        on_station_changed: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ):
         self.logger = logging.getLogger("source.radio.data")
         self._state_machine = state_machine
         # The source's: whether the playing station can step to another
         # favorite depends on the list.
         self._on_favorites_changed = on_favorites_changed
+        # The source's too: it holds the station on screen by value, so a
+        # record that moves under it — its image deleted above all — has to be
+        # handed over, or the state keeps naming a file that is gone.
+        self._on_station_changed = on_station_changed
         self.image_manager = ImageManager()
 
         self._data_file = Path('/var/lib/milo/radio_data.json')
@@ -436,6 +451,11 @@ class StationDataService:
         """Tell the source the list changed, once it is saved."""
         if self._on_favorites_changed:
             self._on_favorites_changed()
+
+    def _station_changed(self, station_id: str, record: Dict[str, Any]) -> None:
+        """Tell the source what a station is now, once it is saved."""
+        if self._on_station_changed:
+            self._on_station_changed({**record, 'id': station_id})
 
     @property
     def favorite_ids(self) -> List[str]:
@@ -578,6 +598,11 @@ class StationDataService:
         else:
             if override and override.get('image_filename'):
                 await self.image_manager.delete_image(override['image_filename'])
+            if override is not None:
+                # Back to the directory's record. Without one (a favorite added
+                # with no record, which no route does) there is nothing else to
+                # show: the edit stays on screen, minus the image just deleted.
+                self._station_changed(station_id, cached if cached is not None else _without_image(override))
             self._favorites_moved()
             await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
@@ -718,6 +743,7 @@ class StationDataService:
         else:
             if station.get('image_filename'):
                 await self.image_manager.delete_image(station['image_filename'])
+            self._station_changed(station_id, _without_image(station))
             if position is not None:
                 self._favorites_moved()
                 await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
@@ -816,6 +842,7 @@ class StationDataService:
             station_data['is_favorite'] = station_id in self._favorites
 
             if success:
+                self._station_changed(station_id, station)
                 await self._broadcast(RadioFavoriteModified(station=station_data))
 
             return {"success": success, "station": station_data}
@@ -871,6 +898,7 @@ class StationDataService:
             await self._save()
 
             restored = self._lookup_local(station_id)
+            self._station_changed(station_id, restored)
             restored['is_favorite'] = station_id in self._favorites
             await self._broadcast(RadioFavoriteModified(station=restored))
 

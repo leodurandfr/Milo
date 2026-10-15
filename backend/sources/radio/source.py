@@ -23,7 +23,7 @@ from urllib.parse import quote, urlparse
 
 from pydantic import BaseModel
 
-from backend.core.audio_source import Result
+from backend.core.audio_source import DeviceToken, Result
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.audio_wire import RadioDetails, RadioStation, RadioTrack, ResumeView
 from backend.core.models.session import (
@@ -135,6 +135,9 @@ class RadioSession(MpvSession):
     all belong to it, so ending the session is what clears them.
     """
     station: Dict[str, Any] = field(default_factory=dict)
+    # What mpv was handed: an edit of the station while it plays changes the
+    # record on screen, not the stream that is sounding.
+    stream_url: str = ""
     inband_track: Optional[Dict[str, Any]] = None
     inband_seen: bool = False           # the station emits in-band → no Shazam
     inband_poll_ticks: int = 0
@@ -200,8 +203,13 @@ class RadioSource(MpvAudioSource):
 
         # Station data service (initialized immediately for API access)
         self._station_data = StationDataService(
-            state_machine=state_machine, on_favorites_changed=self._favorites_changed
+            state_machine=state_machine,
+            on_favorites_changed=self._favorites_changed,
+            on_station_changed=self._station_changed,
         )
+        # The station records outlive a session, like a drive: a STOP must not
+        # void an update that the resume point it leaves behind still needs.
+        self._records_token = DeviceToken()
 
         # RadioBrowser API (initialized immediately for API access)
         self._radio_api = RadioBrowserAPI(
@@ -340,7 +348,7 @@ class RadioSource(MpvAudioSource):
 
         # Replaced, not stopped: the next load replaces the entry in mpv.
         await self.end_session(EndReason.USER_STOP)
-        session = RadioSession(phase=Phase.LOADING, station=station)
+        session = RadioSession(phase=Phase.LOADING, station=station, stream_url=station.get('url') or "")
         session.recognition_enabled = self._station_data.is_station_shazam_enabled(
             station.get('id')
         )
@@ -447,6 +455,23 @@ class RadioSource(MpvAudioSource):
 
     async def _favorites_moved(self) -> None:
         """Nothing to apply: `_republish_if_moved` publishes the new controls."""
+
+    def _station_changed(self, station: Dict[str, Any]) -> None:
+        """A station's record moved — edited, restored, or its favorite removed,
+        each of which can delete the image it showed. The station on screen,
+        playing or kept for a re-tune, is held by value: it takes the new
+        record, or the state goes on naming a file the image route answers 404
+        for. The stream playing stays the one tuned (`stream_url`); a re-tune
+        plays the new record. Called from the route's task, so it posts."""
+        async def apply() -> None:
+            session = self._session
+            if isinstance(session, RadioSession) and session.station.get("id") == station["id"]:
+                session.station = station
+            point = self._resume_point
+            if point is not None and point.identity == station["id"]:
+                self._set_resume_point(replace(point, content=station))
+
+        self._post_result(apply, self._records_token)
 
     async def _handle_resume_playback(self) -> Dict[str, Any]:
         """Re-tune the station on screen: the live one, or the one kept."""
@@ -593,7 +618,7 @@ class RadioSource(MpvAudioSource):
             # starts it once in-band stays empty.
             if isinstance(session, RadioSession) and session.phase is Phase.PLAYING:
                 station_id = session.station.get('id')
-                stream_url = session.station.get('url')
+                stream_url = session.stream_url
                 if stream_url and self._station_data.is_station_shazam_enabled(station_id):
                     if session.inband_seen or session.inband_track:
                         session.shazam_candidate = False
@@ -690,7 +715,7 @@ class RadioSource(MpvAudioSource):
             and not self._shazam.is_running
             and session.empty_inband_polls * _INBAND_POLL_TICKS >= _SHAZAM_GRACE_TICKS
         ):
-            stream_url = session.station.get('url')
+            stream_url = session.stream_url
             if stream_url:
                 session.shazam_candidate = False
                 # The preroll probe (ffprobe) runs off the actor: up to ~10 s.

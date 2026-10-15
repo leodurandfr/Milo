@@ -446,7 +446,9 @@ async def get_station_image(
         image_path = source.station_data.image_manager.get_image_path(filename)
 
         if not image_path or not image_path.exists():
-            logger.error("Image not found: %s", filename)
+            # Not a failure: a client still holding the URL of an image an edit
+            # deleted (a widget's timeline, a browser cache) asks for it after.
+            logger.debug("Image not found: %s", filename)
             raise HTTPException(status_code=404, detail="Image not found")
 
         ext = image_path.suffix.lower()

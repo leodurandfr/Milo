@@ -563,6 +563,153 @@ class TestFavoriteSteps:
         assert radio.errors() == ["playback_failed"]
 
 
+class TestStationRecordMoved:
+    """The source holds the station on screen by value. An edit, a restore or a
+    removal can delete the image that copy names; the image route then answers
+    404 to every client still drawing the state — the kiosk, the lock screen,
+    the widget — until another station is tuned. Through the real station store
+    and the callback it was handed at construction, the path the routes take."""
+
+    UPLOAD = "/api/radio/images/upload.webp"
+
+    @pytest.fixture
+    def data(self, radio, tmp_path, monkeypatch):
+        from backend.sources.radio.data import ImageManager
+        monkeypatch.setattr(ImageManager, "IMAGES_DIR", tmp_path / "radio_images")
+        data = radio.real_station_data
+        data._data_file = tmp_path / "radio_data.json"
+        radio.source._station_data = data
+        return data
+
+    async def edit(self, data, station: dict, **changes) -> None:
+        fields = {k: station[k] for k in ("name", "url")}
+        result = await data.modify_favorite_metadata(station["id"], **{**fields, **changes})
+        assert result["success"] is True
+
+    def shown(self, radio) -> tuple:
+        """What the clients draw: the line's artwork and the station's logo."""
+        state = radio.state()
+        line = state["session"] or state["resume"]
+        return line["artwork"], radio.details()["station"]["favicon"]
+
+    async def test_a_favorite_removed_while_it_plays_shows_the_directory_logo(
+        self, radio, data
+    ):
+        await data.add_favorite("fip", FIP)
+        await self.edit(data, FIP, image_filename="upload.webp")
+        await radio.select()
+        await radio.tune(FIP)
+        assert self.shown(radio) == (self.UPLOAD, self.UPLOAD)
+
+        await data.remove_favorite("fip")
+        await settle()
+
+        assert self.shown(radio)[1] == FIP["favicon"]
+        assert self.UPLOAD not in self.shown(radio)[0]
+
+    async def test_a_favorite_removed_while_stopped_on_it_shows_the_directory_logo(
+        self, radio, data
+    ):
+        """The station kept for a re-tune is drawn as much as a playing one,
+        and is what the next play would tune."""
+        await data.add_favorite("fip", FIP)
+        await self.edit(data, FIP, name="FIP (mine)", image_filename="upload.webp")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.command("stop")
+
+        await data.remove_favorite("fip")
+        await settle()
+
+        assert self.shown(radio)[1] == FIP["favicon"]
+        assert radio.details()["station"]["name"] == "FIP"
+        await radio.command("resume_playback")
+        assert radio.details()["station"]["name"] == "FIP"
+
+    async def test_an_edit_of_the_playing_station_is_shown_at_once(self, radio, data):
+        await data.add_favorite("fip", FIP)
+        await radio.select()
+        await radio.tune(FIP)
+
+        await self.edit(data, FIP, name="FIP (mine)", image_filename="upload.webp")
+        await settle()
+
+        assert self.shown(radio) == (self.UPLOAD, self.UPLOAD)
+        assert radio.details()["station"]["name"] == "FIP (mine)"
+
+    async def test_an_added_station_removed_while_it_plays_loses_its_image(
+        self, radio, data
+    ):
+        """No directory to fall back on: no logo, rather than a dead link."""
+        added = await data.add_custom_station(
+            name="Mine", url="http://stream.example/mine.mp3", image_filename="upload.webp"
+        )
+        station = added["station"]
+        await radio.select()
+        await radio.tune(station)
+        assert self.shown(radio) == (self.UPLOAD, self.UPLOAD)
+
+        assert await data.remove_custom_station(station["id"]) is True
+        await settle()
+
+        assert self.shown(radio) == (None, None)
+        assert radio.details()["station"]["name"] == "Mine"
+
+    async def test_a_source_switch_right_after_the_removal_keeps_the_update(
+        self, radio, data
+    ):
+        """The update is queued when the switch's STOP lands: the STOP ends the
+        session, but the resume point it leaves is what the next selection of
+        radio draws, so the update must outlive it."""
+        await data.add_favorite("fip", FIP)
+        await self.edit(data, FIP, image_filename="upload.webp")
+        await radio.select()
+        await radio.tune(FIP)
+
+        await data.remove_favorite("fip")
+        await radio.leave()
+        await radio.select()
+
+        assert self.shown(radio)[1] == FIP["favicon"]
+
+    async def test_an_edited_url_is_the_next_tune_not_the_stream_playing(
+        self, radio, data
+    ):
+        """Recognition fingerprints the stream that sounds; the edit is what a
+        re-tune plays."""
+        await data.add_favorite("fip", FIP)
+        await radio.select()
+        await radio.tune(FIP)
+        shazam, fingerprinted = radio.shazams[-1], []
+        start = shazam.start
+
+        async def recording_start(stream_url, preroll_skip=0):
+            fingerprinted.append(stream_url)
+            await start(stream_url, preroll_skip)
+
+        shazam.start = recording_start
+
+        await self.edit(data, FIP, url="http://stream.example/fip-hifi.aac")
+        await radio.tick(8)
+
+        assert fingerprinted == [FIP["url"]]
+        await radio.command("stop")
+        await radio.command("resume_playback")
+        assert radio.loads()[-1][1] == "http://stream.example/fip-hifi.aac"
+
+    async def test_another_stations_edit_leaves_the_one_on_screen(self, radio, data):
+        await data.add_favorite("fip", FIP)
+        await data.add_favorite("nova", NOVA)
+        await radio.select()
+        await radio.tune(FIP)
+
+        await self.edit(data, NOVA, name="Nova (mine)", image_filename="upload.webp")
+        await settle()
+
+        assert radio.details()["station"]["name"] == "FIP"
+        assert self.shown(radio)[1] == FIP["favicon"]
+
+
 class TestShazamSettingChanged:
     """`PUT /api/settings/radio-settings` → `on_shazam_setting_changed`.
 
