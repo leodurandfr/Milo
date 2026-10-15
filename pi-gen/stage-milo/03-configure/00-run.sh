@@ -113,6 +113,10 @@ chmod 0644 /etc/udev/rules.d/99-milo-screen.rules
 cp /home/milo/milo/rootfs/etc/udev/rules.d/99-milo-fan.rules /etc/udev/rules.d/
 chmod 0644 /etc/udev/rules.d/99-milo-fan.rules
 
+# No Bluetooth input device may act as a logind power/sleep button
+cp /home/milo/milo/rootfs/etc/udev/rules.d/71-milo-bt-no-power-switch.rules /etc/udev/rules.d/
+chmod 0644 /etc/udev/rules.d/71-milo-bt-no-power-switch.rules
+
 # DSI backlight permissions
 tee /etc/udev/rules.d/99-backlight.rules > /dev/null << 'EOF'
 SUBSYSTEM=="backlight", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"

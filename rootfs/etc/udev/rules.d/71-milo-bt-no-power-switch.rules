@@ -1,0 +1,9 @@
+# No Bluetooth input device may power off, suspend or hibernate the unit.
+#
+# 70-power-switch.rules tags every input device with keys as a logind "system
+# button", so logind acts on its KEY_POWER / KEY_SLEEP. The BT remote's HID
+# descriptor is a generic Apple keyboard that advertises both, and BlueZ's AVRCP
+# uinput device maps a sender's Power command to KEY_POWER. Removing the tag
+# keeps their keys flowing to evdev readers (the backend's remote) and keeps the
+# Pi 5's own power button, which is not on the Bluetooth bus.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_BUS}=="bluetooth", TAG-="power-switch"
