@@ -15,6 +15,15 @@ from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
 
 
+def _reason(exc: Exception) -> str:
+    """The exception's message, or its class when it has none.
+
+    A bare ``TimeoutError()`` stringifies to nothing, so the log line read
+    "Network status: " and the client received an empty ``detail``.
+    """
+    return str(exc) or type(exc).__name__
+
+
 async def run_source_command(source, cmd: str, data: dict, context: str = "Command"):
     """
     Call source.command() with standard success check and error handling.
@@ -42,7 +51,7 @@ async def run_source_command(source, cmd: str, data: dict, context: str = "Comma
     except SatelliteUnreachable as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{context}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"{context}: {_reason(e)}")
 
 
 @asynccontextmanager
@@ -83,9 +92,10 @@ async def api_error_handler(context: str, log=None):
             log_at(f"{context}: {e.detail}")
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
+        reason = _reason(e)
         if log:
-            log.error(f"{context}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+            log.error(f"{context}: {reason}")
+        raise HTTPException(status_code=500, detail=reason)
 
 
 def parse_audio_source(name: str) -> AudioSource:

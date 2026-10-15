@@ -45,3 +45,24 @@ class TestApiErrorHandlerSatelliteLogLevel:
                     raise SatelliteUnreachable("192.168.1.60", "boom", status_code=500)
 
         assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+class TestApiErrorHandlerEmptyMessage:
+
+    @pytest.mark.asyncio
+    async def test_an_exception_without_a_message_is_named_by_its_class(self, caplog):
+        """A bare TimeoutError logged "Network status: " and answered an empty detail.
+
+        The ERROR line reaches the UI banner and errors.log; empty, it says
+        nothing about what failed (measured: four such lines on 2026-10-08 while
+        nmcli hung).
+        """
+        logger = logging.getLogger("test.route_helpers")
+
+        with caplog.at_level(logging.DEBUG, logger="test.route_helpers"):
+            with pytest.raises(HTTPException) as exc:
+                async with api_error_handler("Network status", logger):
+                    raise TimeoutError()
+
+        assert exc.value.detail == "TimeoutError"
+        assert [r.getMessage() for r in caplog.records] == ["Network status: TimeoutError"]
