@@ -1,5 +1,5 @@
 <template>
-  <div class="profile-row" :class="[`profile-row--${state}`, { 'profile-row--active': profile.active }]">
+  <div class="profile-row" :class="[`profile-row--${state}`, { 'profile-row--active': active }]">
     <button v-press type="button" class="profile-pick" :disabled="disabled || confirming" @click="emit('pick')">
       <div class="avatar-frame">
         <ProfileAvatar :profile="profile" :size="AVATAR_SIZE" :blurred="state === 'switching'" />
@@ -15,8 +15,7 @@
         <div v-else class="profile-text">
           <div class="title-line">
             <span class="profile-name heading-4">{{ profile.name }}</span>
-            <Badge v-if="profile.active" tone="success">{{ activeLabel }}</Badge>
-            <Badge v-else-if="state === 'switching'" tone="brand" pulse>{{ t('spotify.connecting') }}</Badge>
+            <Badge v-if="active" tone="success">{{ activeLabel }}</Badge>
           </div>
           <span v-if="message" class="profile-message text-mono-small">{{ message }}</span>
         </div>
@@ -81,6 +80,11 @@ const { t } = useI18n();
 const AVATAR_SIZE = 64;
 
 const { describing } = useProfileDescribing(() => props.profile);
+
+// A switch opens the browser once the new account's home has loaded, and the
+// state names that account before: the row signing in stays the spinner alone
+// until then, never "connected" behind it.
+const active = computed(() => props.profile.active && props.state !== 'switching');
 
 const confirming = computed(() => props.state === 'armed' || props.state === 'forgetting');
 
