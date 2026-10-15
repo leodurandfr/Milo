@@ -1,5 +1,5 @@
 <template>
-  <div class="lazy-image" :class="{ instant, blurred }">
+  <div ref="rootRef" class="lazy-image" :class="{ instant, blurred }">
     <!-- Baseline layer: SVG generated from name, or static image fallback.
          Mounted at opacity 1, then faded out once the real image loads — so a
          transparent favicon shows the card background, not this layer, through
@@ -22,7 +22,7 @@
          an ink, the placeholder would show through it. The reveal, played by
          the hooks (see revealFade). -->
     <Transition name="reveal" :css="false" @enter="revealIn" @leave="revealOut">
-      <div v-if="skeletonShown" class="lazy-image-skeleton shimmer" />
+      <div v-if="skeletonShown" class="lazy-image-skeleton shimmer" :class="{ offscreen: !onScreen }" />
     </Transition>
 
     <!-- Real image layer: fades in over the placeholder once loaded. -->
@@ -45,8 +45,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
+import { observeVisibility } from '@/utils/visibility'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { transitionTiming } from '@/utils/transitionTiming'
 
@@ -107,6 +108,23 @@ let painted = false
 
 const skeletonShown = computed(() => props.skeleton && !!props.src && !imageLoaded.value && !imageError.value)
 const placeholderHidden = computed(() => imageLoaded.value || skeletonShown.value)
+
+// The shimmer runs only on screen. A lazy image off screen is never fetched,
+// so its skeleton would shimmer for as long as the page is open, and an
+// animated background restyles the document every frame wherever it is: the
+// covers left off screen on the Spotify home kept the kiosk's renderer at
+// 25 % of a core over a still screen (6 % paused, measured on the Pi).
+const rootRef = ref(null)
+const onScreen = ref(false)
+let stopObserving = null
+
+watch([skeletonShown, rootRef], ([shown, el]) => {
+  stopObserving?.()
+  stopObserving = null
+  if (shown && el) stopObserving = observeVisibility(el, (visible) => { onScreen.value = visible })
+}, { immediate: true })
+
+onBeforeUnmount(() => stopObserving?.())
 
 const resolvedFallbackSvg = computed(() => {
   if (!props.fallbackName) return ''
@@ -207,6 +225,10 @@ defineExpose({ imageLoaded, imageError })
 img.lazy-image-main,
 img.lazy-image-placeholder {
   object-fit: cover;
+}
+
+.lazy-image-skeleton.offscreen {
+  animation-play-state: paused;
 }
 
 .lazy-image-placeholder {
