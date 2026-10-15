@@ -572,11 +572,15 @@ function handleChange(event) {
 }
 
 /* The level and the mute glyph take turns in the one cell, never both at
-   once: what leaves fades out, then what comes fades in — its delay is the
-   leave's 200ms. */
+   once: what leaves fades out, then what comes fades in, delayed by the
+   leave. The two halves together last the 200ms the track's and the
+   Toggle's colors take (--transition-fast), so the swap ends with them. */
+.slider-value {
+  --swap-half: 100ms;
+}
+
 .slider-value > span {
-  transition: opacity var(--transition-fast);
-  transition-delay: 200ms;
+  transition: opacity var(--swap-half) var(--easeOutCubic) var(--swap-half);
 }
 
 .slider-value__other {
@@ -585,16 +589,22 @@ function handleChange(event) {
 
 .slider-value--masked > span {
   opacity: 0;
-  transition: opacity var(--transition-fast-leave);
+  transition: opacity var(--swap-half) var(--easeInCubic);
+}
+
+/* The glyph keeps the muted ink through its leave: on unmute the cell's
+   color falls back to --slider-accent, still on its way up from the muted
+   fill, and the fading glyph would drop to that tone and climb back. */
+.slider-value > .icon {
+  color: var(--color-text-secondary);
 }
 
 .mute-fade-enter-active {
-  transition: opacity var(--transition-fast);
-  transition-delay: 200ms;
+  transition: opacity var(--swap-half) var(--easeOutCubic) var(--swap-half);
 }
 
 .mute-fade-leave-active {
-  transition: opacity var(--transition-fast-leave);
+  transition: opacity var(--swap-half) var(--easeInCubic);
 }
 
 .mute-fade-enter-from,
