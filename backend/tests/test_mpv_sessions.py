@@ -278,8 +278,8 @@ async def test_radio_mpv_that_crashes_is_still_a_death_with_a_banner(radio):
 
 async def test_radio_play_before_the_source_is_selected_is_refused_not_failed(radio, caplog):
     """Right after a backend restart no source is started, and a play that
-    reached radio then (a dev script, a tab racing the restart, Milo-Mac's menu
-    playing before it switches) ended LOAD_FAILED: an ERROR in errors.log and a
+    reached radio then (a dev script, a client racing the restart) ended
+    LOAD_FAILED: an ERROR in errors.log and a
     "stream did not load" banner on every screen, for a stream never tried."""
     result = await radio.tune(FIP)
 

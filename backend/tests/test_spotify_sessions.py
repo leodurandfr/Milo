@@ -29,6 +29,30 @@ async def world(monkeypatch, tmp_path):
     await w.source.shutdown()
 
 
+# === A content command needs the source started ===
+
+async def test_a_play_while_spotify_is_not_started_is_refused_as_such(monkeypatch, tmp_path):
+    """go-librespot runs only while Spotify is the source, and the account is
+    cleared at each stop: a play sent then answered "Spotify is not signed in"
+    for a signed-in account. It is refused for what it is, and the daemon is
+    asked nothing — before the first start and after the source was left."""
+    w = SpotifyWorld(monkeypatch, tmp_path)
+    try:
+        before = await w.command("play_context", {"uri": LE_CHEMIN["uri"]})
+        await w.select()
+        await w.leave()
+        posted = len(w.daemon.posted)
+        after = await w.command("play_context", {"uri": LE_CHEMIN["uri"]})
+        take_over = await w.command("take_over")
+
+        for result in (before, after, take_over):
+            assert result["success"] is False
+            assert "not started" in result["error"]
+        assert len(w.daemon.posted) == posted
+    finally:
+        await w.source.shutdown()
+
+
 # === A session opens at its first track, and follows what the daemon says ===
 
 async def test_a_transfer_shows_nothing_until_the_track_is_known(world):

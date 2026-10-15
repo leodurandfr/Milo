@@ -207,8 +207,9 @@ class MpvAudioSource(BaseAudioSource):
         No mpv means the source is not started (it is attached by the start and
         detached by the stop). A load opened then ended LOAD_FAILED, with an
         ERROR and a "stream did not load" banner on every screen, for a stream
-        nobody had tried (a dev script, a tab racing a backend restart,
-        Milo-Mac's radio menu posting its play before its source switch)."""
+        nobody had tried (a dev script, or a client racing a source change or a
+        backend restart: every UI shows a source's browser only while it is
+        active)."""
         if self._mpv is None:
             raise SourceNotStarted(self.source_id)
         super().open_session(session)

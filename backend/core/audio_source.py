@@ -141,11 +141,13 @@ _VOIDED_BY_STOP = (Command, Timer, Query, Feed, Result)
 
 
 class SourceNotStarted(Exception):
-    """A session was about to open on a source whose player is not running.
+    """A command reached a source that is not started.
 
-    Raised by the opener, caught by the command runner: whichever command led
-    there — a play, a resume, a step that reopens the queue — is refused as a
-    command, never failed as a stream.
+    The command runner raises it for a CONTENT command before its handler runs
+    (every family: a Spotify play with go-librespot stopped answered "not
+    signed in", the account being cleared at each stop); an mpv source raises
+    it from the opener for a load reached by any command (a resume reopens
+    content too). Either way the command is refused, never failed as a stream.
     """
 
 
@@ -319,6 +321,9 @@ class BaseAudioSource(ABC):
 
         # The session model (see IDLE_POLICY above).
         self._session: Optional[Session] = None
+        # A START or an ACQUIRE that came up, and no STOP or RELEASE since:
+        # what a CONTENT command needs (SourceNotStarted).
+        self._started = False
         self._resume_point: Optional[ResumePoint] = None
         self._session_bg: Optional[BackgroundTaskSet] = None
         # The daemon process a SESSION_DAEMON source's session belongs to.
@@ -629,12 +634,16 @@ class BaseAudioSource(ABC):
             return await self._run_command(message.name, message.params)
         if isinstance(message, Lifecycle):
             if message.step is LifecycleStep.START:
-                return await self._run_start()
+                self._started = bool(await self._run_start())
+                return self._started
             if message.step is LifecycleStep.STOP:
+                self._started = False
                 return await self._run_stop()
             if message.step is LifecycleStep.RELEASE:
+                self._started = False
                 return await self._do_release()
-            return await self._do_acquire()
+            self._started = bool(await self._do_acquire())
+            return self._started
         if isinstance(message, Timer):
             return await self._run_timer(message.token, message.name)
         if isinstance(message, Query):
@@ -721,9 +730,12 @@ class BaseAudioSource(ABC):
         return await self._run_start()
 
     async def _run_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
-        if self.COMMAND_SCOPES.get(cmd) is CommandScope.SESSION and self._session is None:
+        scope = self.COMMAND_SCOPES.get(cmd)
+        if scope is CommandScope.SESSION and self._session is None:
             return self.error_response(f"Nothing is playing: '{cmd}' needs a live session")
         try:
+            if scope is CommandScope.CONTENT and not self._started:
+                raise SourceNotStarted(self.source_id)
             return await self._handle_command(cmd, params)
         except SourceNotStarted:
             self._logger.warning(f"Refused '{cmd}': {self.source_id} is not started")
