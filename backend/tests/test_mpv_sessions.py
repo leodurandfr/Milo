@@ -276,6 +276,37 @@ async def test_radio_mpv_that_crashes_is_still_a_death_with_a_banner(radio):
     assert radio.errors() == ["stream_disconnected"]
 
 
+async def test_radio_play_before_the_source_is_selected_is_refused_not_failed(radio, caplog):
+    """Right after a backend restart no source is started, and a play that
+    reached radio then (a dev script, a tab racing the restart, Milo-Mac's menu
+    playing before it switches) ended LOAD_FAILED: an ERROR in errors.log and a
+    "stream did not load" banner on every screen, for a stream never tried."""
+    result = await radio.tune(FIP)
+
+    assert result["success"] is False
+    assert radio.loads() == []
+    assert radio.session_ends() == []
+    assert radio.errors() == []
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+async def test_radio_left_keeps_its_station_when_a_late_play_is_refused(radio):
+    """The same refusal once radio was left: the play never reaches a stopped
+    mpv, and the station left is still the one a return re-tunes."""
+    await radio.select()
+    await radio.tune(FIP)
+    await radio.tick()
+    await radio.leave()
+    loads = len(radio.loads())
+
+    assert (await radio.tune(NOVA))["success"] is False
+
+    await radio.select()
+    assert len(radio.loads()) == loads
+    assert radio.errors() == []
+    assert radio.station() == "fip"
+
+
 # === Podcast ===
 
 class PodcastRig(Rig):
@@ -321,6 +352,16 @@ async def test_podcast_switching_away_keeps_the_episode_to_resume(podcast):
     assert state["session"] is None
     assert podcast.episode() == EPISODE_A["uuid"]
     assert state["resume"]["position_ms"] == 300_000
+
+
+async def test_podcast_play_before_the_source_is_selected_is_refused_not_failed(podcast):
+    """The radio rule holds for every mpv source: an episode played while
+    podcast is not started opens nothing and raises no banner."""
+    result = await podcast.play(EPISODE_A)
+
+    assert result["success"] is False
+    assert podcast.loads() == []
+    assert podcast.errors() == []
 
 
 async def test_podcast_dead_url_is_not_marked_listened(podcast):

@@ -14,10 +14,12 @@ from dataclasses import dataclass
 from backend.core.models.ws_events import SourceErrorReason
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from pydantic import BaseModel
+
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.commands import skip_target
 from backend.core.models.session import (
-    EndReason, IdlePolicy, Phase, PhaseEvent, Session,
+    CommandScope, EndReason, IdlePolicy, Phase, PhaseEvent, Session,
 )
 from backend.shared.mpv import LINK_LOST, MpvController
 
@@ -107,6 +109,19 @@ class MpvAudioSource(BaseAudioSource):
         """
         self._logger.error(f"mpv did not take '{action}' (IPC link down?)")
         return self.error_response(f"mpv did not take: {action}")
+
+    async def _run_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
+        """A load asked of a source that is not started is refused before it
+        opens anything: with no mpv it ended LOAD_FAILED, with an ERROR and a
+        "stream did not load" banner on every screen, for a stream nobody had
+        tried (a dev script, a tab racing a backend restart, Milo-Mac's radio
+        menu sending its play before its source switch). Only CONTENT: a RESUME
+        command has a meaning with no player (a stop is idempotent, a radio step
+        moves the station a failed reroute left behind)."""
+        if self._mpv is None and self.COMMAND_SCOPES.get(cmd) is CommandScope.CONTENT:
+            self._logger.warning(f"Refused '{cmd}': {self.source_id} is not started")
+            return self.error_response(f"{self.source_id} is not started: select it before '{cmd}'")
+        return await super()._run_command(cmd, params)
 
     # === Auto-stop on pause ===
 
