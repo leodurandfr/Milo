@@ -63,7 +63,8 @@
                    seeded and its fetches are served, so what renders is the app's
                    screen rather than a drawing of it. -->
               <template #content>
-                <component :is="VIEWS[browser.view]" v-bind="browser.props || {}" :key="scenario" />
+                <component :is="VIEWS[browser.view]" v-bind="browser.props || {}" :key="`${scenario}-${picks}`"
+                  @picked="picks++" />
               </template>
 
               <template v-if="browser.layout.actions?.length" #header-actions>
@@ -110,7 +111,7 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
@@ -164,6 +165,10 @@ const VIEWS = {
   'spotify-home': SpotifyHome,
   'spotify-profiles': SpotifyProfilesView
 };
+
+// The profiles view leaves on a pick in the app, and keeps its spinner until it
+// does: here it is mounted again.
+const picks = ref(0);
 
 const { t } = useI18n();
 const { isMobile } = useIsMobile();

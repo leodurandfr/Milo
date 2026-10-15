@@ -59,6 +59,12 @@ const props = defineProps({
     default: 'default',
     validator: (value) => ['default', 'switching', 'armed', 'forgetting'].includes(value),
   },
+  // The signed-in profile, badged. The list decides it, not `profile.active`:
+  // during a switch it keeps the one the pick left until the screen goes.
+  active: {
+    type: Boolean,
+    default: false,
+  },
   // The session's phase, drawn on the signed-in profile's badge: it says what
   // plays, so a pick of another one needs no warning.
   phase: {
@@ -80,11 +86,6 @@ const { t } = useI18n();
 const AVATAR_SIZE = 64;
 
 const { describing } = useProfileDescribing(() => props.profile);
-
-// A switch opens the browser once the new account's home has loaded, and the
-// state names that account before: the row signing in stays the spinner alone
-// until then, never "connected" behind it.
-const active = computed(() => props.profile.active && props.state !== 'switching');
 
 const confirming = computed(() => props.state === 'armed' || props.state === 'forgetting');
 

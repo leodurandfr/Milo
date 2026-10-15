@@ -1,13 +1,14 @@
 <template>
   <div class="profiles-list">
     <SpotifyProfileRow v-for="profile in store.profiles" :key="profile.username" :profile="profile"
-      :state="rowState(profile)" :phase="store.phase" :disabled="!!switching || !!forgetting"
+      :state="rowState(profile)" :active="profile.username === signedIn.username" :phase="signedIn.phase"
+      :disabled="!!switching || !!forgetting"
       @pick="pick(profile)" @arm="arm(profile)" @cancel="armed = null" @forget="forget(profile)" />
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue';
+import { computed, ref, onUnmounted } from 'vue';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useTimer } from '@/composables/useTimer';
 import SpotifyProfileRow from '../SpotifyProfileRow.vue';
@@ -25,6 +26,13 @@ const SWITCH_WAIT_MS = 15000;
 const HOME_RETRY_MS = 300;
 
 const switching = ref(null);
+// The signed-in profile and its phase as the pick found them, drawn until the
+// screen leaves: the state names the new account, and drops the old session,
+// before its home has loaded.
+const switchedFrom = ref(null);
+const signedIn = computed(() => (switching.value
+  ? switchedFrom.value
+  : { username: store.account, phase: store.phase }));
 
 function rowState(profile) {
   if (switching.value === profile.username) return 'switching';
@@ -39,9 +47,11 @@ async function pick(profile) {
     emit('picked');
     return;
   }
+  switchedFrom.value = { username: store.account, phase: store.phase };
   switching.value = profile.username;
   if (!(await store.switchProfile(profile.username))) {
     switching.value = null;
+    switchedFrom.value = null;
     return;
   }
   // The pick lands with the new account's home loaded, so the browser opens on
@@ -59,7 +69,8 @@ async function pick(profile) {
     await new Promise((resolve) => timer.setTimeout(resolve, HOME_RETRY_MS));
   }
   if (switching.value !== profile.username) return;
-  switching.value = null;
+  // Still switching while the screen leaves: cleared now, the rows would draw
+  // the account just signed in as for the length of the leave.
   emit('picked');
 }
 
