@@ -1,11 +1,13 @@
 # backend/tests/test_radio_data.py
-"""StationDataService — one record per station, and a favorite owns its edits.
+"""StationDataService — one record per station, and an edit belongs to its station.
 
 An added station lives in `manual_stations`, edits included, and is a favorite
-for as long as it exists. A directory favorite's original sits in
-`favorites_cache` and its edit in `modified_metadata`, both dropped with the
-favorite. Two records for one station, or an edit outliving its favorite, is
-what left stale records, orphaned uploads and edits that came back on a re-add.
+for as long as it exists. A directory station's original sits in
+`favorites_cache` and its edit in `modified_metadata`; the edit outlives the
+favorite, because a mistaken tap on the heart cost the image the user chose,
+and Réglages lists it, favorite or not. What Réglages would not list is never
+kept: two records for one station, or a record nothing shows, is what left
+stale records and orphaned uploads.
 """
 import json
 from unittest.mock import AsyncMock, MagicMock
@@ -83,7 +85,7 @@ class TestAddedStationIsAFavorite:
         record = data._manual_stations[station_id]
         assert record["name"] == "Renamed"
         assert record["is_custom"] is True
-        assert data.get_favorite_metadata_local(station_id)["is_custom"] is True
+        assert data.get_local_station(station_id)["is_custom"] is True
 
     async def test_an_edit_of_an_unknown_added_station_is_refused(self, data):
         result = await data.modify_favorite_metadata(
@@ -150,13 +152,13 @@ class TestModifyStationImage:
         )
 
         data.image_manager.delete_image.assert_awaited_once_with("first.webp")
-        assert data.get_favorite_metadata_local(station_id)["image_filename"] == "second.webp"
+        assert data.get_local_station(station_id)["image_filename"] == "second.webp"
 
     @pytest.mark.asyncio
     async def test_a_save_without_an_upload_keeps_the_current_image(self, data):
         station_id = await _create_then_edit(data, image="only.webp", new_image=None)
 
-        station = data.get_favorite_metadata_local(station_id)
+        station = data.get_local_station(station_id)
         assert station["image_filename"] == "only.webp"
         assert station["favicon"] == "/api/radio/images/only.webp"
         data.image_manager.delete_image.assert_not_awaited()
@@ -166,7 +168,7 @@ class TestModifyStationImage:
         station_id = await _create_then_edit(data, image="only.webp", new_image="")
 
         data.image_manager.delete_image.assert_awaited_once_with("only.webp")
-        assert data.get_favorite_metadata_local(station_id)["favicon"] == ""
+        assert data.get_local_station(station_id)["favicon"] == ""
 
 
 class TestRestoreFavoriteMetadata:
@@ -196,6 +198,38 @@ class TestRestoreFavoriteMetadata:
         assert event.station["favicon"] == "http://origin/logo.png"
         assert event.station["id"] == station_id
         assert event.station["is_favorite"] is True
+
+    async def test_a_station_off_the_favorites_keeps_nothing_once_restored(self, data):
+        await data.add_favorite("api-1", {"name": "Origin"})
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s",
+            image_filename="upload.webp",
+        )
+        await data.remove_favorite("api-1")
+
+        assert (await data.restore_favorite_metadata("api-1"))["success"] is True
+
+        assert data.get_local_station("api-1") is None
+        data.image_manager.delete_image.assert_awaited_once_with("upload.webp")
+        event = data._state_machine.broadcast.await_args.args[0]
+        assert (event.station["name"], event.station["is_favorite"]) == ("Origin", False)
+
+    async def test_a_restore_that_cannot_be_written_is_not_kept(self, data, tmp_path):
+        """The edit stays in Réglages, and its image with it: deleted before a
+        failed save, the file was gone while the disk still named it."""
+        await data.add_favorite("api-1", {"name": "Origin"})
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s",
+            image_filename="upload.webp",
+        )
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("")
+        data._data_file = blocker / "radio_data.json"
+
+        assert (await data.restore_favorite_metadata("api-1"))["success"] is False
+
+        assert data.get_local_station("api-1")["name"] == "Renamed"
+        data.image_manager.delete_image.assert_not_awaited()
 
 
 class TestBlankNameIsRefused:
@@ -264,7 +298,7 @@ class TestEnrichWithFavoriteStatus:
 
     @pytest.fixture(autouse=True)
     def _favorite(self, data):
-        # Only a favorite carries an edit.
+        # An edit starts on a favorite.
         data._favorites.append("api-1")
 
     async def test_an_edit_is_overlaid_on_the_api_record(self, data):
@@ -318,12 +352,13 @@ class TestFavorites:
     """Adding and removing a favourite — the durable user data of this source.
 
     Both write `/var/lib/milo/radio_data.json` and both announce themselves over
-    WS; nothing in the suite entered either. The two promises that are not
+    WS; nothing in the suite entered either. The promises that are not
     obvious from the call site: the cached original is stored without its `id`
     (the id is the key, and a stamped copy is what `_lookup_local` would serve
-    back as metadata), and removing a favourite drops its edit, its cached
-    original and its upload — kept, the edit came back on a re-add, and in
-    between the search list and Réglages still showed it.
+    back as metadata); removing a favourite keeps its edit, original and upload
+    (a tap on the wrong heart cost the user's image) but nothing Réglages would
+    not list; and a re-add never takes the edited record a client sends from
+    the search for the original.
 
     Consumers: `radioStore` via WS `radio/favorite_added` + `favorite_removed`.
     """
@@ -346,7 +381,7 @@ class TestFavorites:
         data._state_machine.broadcast.assert_not_awaited()
         assert data._favorites == ["api-1"]
 
-    async def test_removing_purges_what_the_user_made_of_it(self, data):
+    async def test_removing_keeps_the_edit_its_original_and_its_upload(self, data):
         await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
         await data.modify_favorite_metadata(
             "api-1", name="Renamed", url="http://example.invalid/s",
@@ -357,30 +392,51 @@ class TestFavorites:
         assert await data.remove_favorite("api-1") is True
 
         assert data.is_favorite("api-1") is False
-        assert "api-1" not in data._modified_metadata
-        assert "api-1" not in data._favorites_cache
-        data.image_manager.delete_image.assert_awaited_once_with("upload.webp")
+        assert data.get_modified_metadata()["api-1"]["name"] == "Renamed"
+        assert data._favorites_cache["api-1"]["name"] == "Origin"
+        data.image_manager.delete_image.assert_not_awaited()
         event = data._state_machine.broadcast.await_args.args[0]
         assert (event.TYPE, event.station_id) == ("favorite_removed", "api-1")
 
-    async def test_a_re_add_shows_the_directory_station_not_the_old_edit(self, data):
+    async def test_removing_an_unedited_favorite_keeps_nothing_of_it(self, data):
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+
+        await data.remove_favorite("api-1")
+
+        assert data.get_local_station("api-1") is None
+
+    async def test_a_recognition_preference_alone_goes_with_the_favorite(self, data):
+        """Réglages lists no such station, so kept it would be a record the
+        user can neither see nor undo."""
+        original = {"name": "Origin", "url": "http://example.invalid/s"}
+        await data.add_favorite("api-1", {"id": "api-1", **original})
+        await data.modify_favorite_metadata("api-1", **original, shazam_enabled=False)
+
+        await data.remove_favorite("api-1")
+
+        assert data.get_local_station("api-1") is None
+        assert data.is_station_shazam_enabled("api-1") is True
+
+    async def test_a_re_add_from_the_search_keeps_the_original_to_restore(self, data):
+        """The search overlays the edit on the directory record, and that is
+        the record the client sends back with the heart."""
         await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
         await data.modify_favorite_metadata(
             "api-1", name="Renamed", url="http://example.invalid/s",
             image_filename="upload.webp",
         )
         await data.remove_favorite("api-1")
+        searched = data.enrich_with_favorite_status([{"id": "api-1", "name": "Origin"}])[0]
 
-        await data.add_favorite("api-1", {"id": "api-1", "name": "Directory now",
-                                          "favicon": "http://origin/logo.png"})
+        await data.add_favorite("api-1", searched)
 
-        station = data.get_favorite_metadata_local("api-1")
-        assert station["name"] == "Directory now"
-        assert station["favicon"] == "http://origin/logo.png"
+        assert data.get_local_station("api-1")["name"] == "Renamed"
+        assert (await data.restore_favorite_metadata("api-1"))["success"] is True
+        assert data.get_local_station("api-1")["name"] == "Origin"
 
     async def test_an_edit_of_a_station_that_is_not_a_favorite_is_refused(self, data):
-        """An auto-save landing after the heart was released would otherwise
-        recreate an edit nothing lists or purges."""
+        """An auto-save landing after the heart of a station never edited was
+        released has no original kept to edit over."""
         result = await data.modify_favorite_metadata(
             "api-1", name="Renamed", url="http://example.invalid/s",
         )
@@ -388,15 +444,35 @@ class TestFavorites:
         assert result["success"] is False
         assert data._modified_metadata == {}
 
+    async def test_an_edit_kept_without_its_favorite_can_still_be_edited(self, data):
+        """Réglages lists it, so it opens there like any other."""
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+        await data.modify_favorite_metadata("api-1", name="Renamed", url="http://example.invalid/s")
+        await data.remove_favorite("api-1")
+
+        result = await data.modify_favorite_metadata(
+            "api-1", name="Renamed again", url="http://example.invalid/s",
+        )
+
+        assert result["success"] is True
+        assert data.get_modified_metadata()["api-1"]["name"] == "Renamed again"
+
+    async def test_an_edit_back_to_the_original_off_the_favorites_keeps_nothing(self, data):
+        original = {"name": "Origin", "url": "http://example.invalid/s"}
+        await data.add_favorite("api-1", {"id": "api-1", **original})
+        await data.modify_favorite_metadata("api-1", name="Renamed", url=original["url"])
+        await data.remove_favorite("api-1")
+
+        result = await data.modify_favorite_metadata("api-1", **original)
+
+        assert result["success"] is True
+        assert result["station"]["name"] == "Origin"
+        assert data.get_local_station("api-1") is None
+
     async def test_a_removal_that_cannot_be_written_is_not_kept(self, data, tmp_path):
         """The route answers 500 and the grid still shows the favorite; kept in
-        memory, the removal would reach the disk with the next unrelated save,
-        and its upload would be orphaned."""
+        memory, the removal would reach the disk with the next unrelated save."""
         await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
-        await data.modify_favorite_metadata(
-            "api-1", name="Renamed", url="http://example.invalid/s",
-            image_filename="upload.webp",
-        )
         blocker = tmp_path / "not-a-directory"
         blocker.write_text("")
         data._data_file = blocker / "radio_data.json"
@@ -404,9 +480,7 @@ class TestFavorites:
         assert await data.remove_favorite("api-1") is False
 
         assert data.is_favorite("api-1") is True
-        assert data.get_favorite_metadata_local("api-1")["name"] == "Renamed"
-        assert data._favorites_cache["api-1"]["name"] == "Origin"
-        data.image_manager.delete_image.assert_not_awaited()
+        assert data.get_local_station("api-1")["name"] == "Origin"
 
     async def test_a_deletion_that_cannot_be_written_is_not_kept(self, data, tmp_path):
         created = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
@@ -501,6 +575,20 @@ class TestModifiedStationsList:
         assert data.is_station_shazam_enabled("api-1") is False, "the preference was not stored"
         assert "api-1" not in data.get_modified_metadata()
 
+    async def test_a_directory_record_without_an_image_field_is_not_an_edit(self, data):
+        """A directory record has no `image_filename` at all, and an override
+        written with no upload carries "": read as different, the recognition
+        preference alone filed every such station under "Modified"."""
+        data._favorites.append("api-1")
+        data._favorites_cache["api-1"] = {
+            k: v for k, v in self.ORIGINAL.items() if k != "image_filename"
+        }
+        fields = {k: self.ORIGINAL[k] for k in
+                  ("name", "url", "country", "genre", "codec", "bitrate")}
+        await data.modify_favorite_metadata("api-1", **fields, shazam_enabled=False)
+
+        assert "api-1" not in data.get_modified_metadata()
+
     async def test_a_renamed_station_is_listed(self, data):
         await self._save_as_is(data)
         await data.modify_favorite_metadata(
@@ -515,7 +603,7 @@ class TestModifiedStationsList:
         data._favorites_cache["custom_1"] = {"name": "Cached, not authored here"}
 
         assert data.get_custom_station_by_id("custom_1") is None
-        assert data.get_favorite_metadata_local("custom_1")["name"] == "Cached, not authored here"
+        assert data.get_local_station("custom_1")["name"] == "Cached, not authored here"
 
     async def test_the_two_station_stores_answer_with_copies(self, data):
         created = await data.add_custom_station(

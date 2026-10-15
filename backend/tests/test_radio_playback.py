@@ -68,7 +68,7 @@ class TestResolutionChain:
     async def test_a_favorite_with_no_local_record_falls_through_to_the_body(self, radio):
         """`is_favorite` and "we hold its record" are two different questions."""
         radio.data.is_favorite = Mock(return_value=True)
-        radio.data.get_favorite_metadata_local = Mock(return_value=None)
+        radio.data.get_local_station = Mock(return_value=None)
         await radio.select()
 
         result = await radio.command("play_station", play("s1", STATION))
@@ -447,7 +447,7 @@ class TestFavoriteSteps:
         the list and past a favorite no record names."""
         ghost = {"id": "ghost", "name": "Ghost FM"}
         radio.favorites(FIP, NOVA, ghost)
-        radio.data.get_favorite_metadata_local = Mock(
+        radio.data.get_local_station = Mock(
             side_effect=lambda sid: {"fip": FIP, "nova": NOVA}.get(sid)
         )
         radio.data.get_station_metadata = AsyncMock(return_value=None)
@@ -467,7 +467,7 @@ class TestFavoriteSteps:
         await radio.select()
         await radio.tune(FIP)
         await radio.command("stop")
-        radio.data.get_favorite_metadata_local = Mock(side_effect=RuntimeError("store unreadable"))
+        radio.data.get_local_station = Mock(side_effect=RuntimeError("store unreadable"))
 
         result = await radio.command("next")
 
@@ -537,7 +537,7 @@ class TestFavoriteSteps:
         past it could never be reached."""
         ghost = {"id": "ghost", "name": "Ghost FM"}
         radio.favorites(FIP, ghost, self.LAST)
-        radio.data.get_favorite_metadata_local = Mock(
+        radio.data.get_local_station = Mock(
             side_effect=lambda sid: {"fip": FIP, "zzz": self.LAST}.get(sid)
         )
         radio.data.get_station_metadata = AsyncMock(return_value=None)
@@ -553,7 +553,7 @@ class TestFavoriteSteps:
         """The banner a failed tune from the grid raises: a step that fails the
         same way must not fail in silence."""
         radio.favorites(FIP, NOVA)
-        radio.data.get_favorite_metadata_local = Mock(side_effect=RuntimeError("store unreadable"))
+        radio.data.get_local_station = Mock(side_effect=RuntimeError("store unreadable"))
         await radio.select()
         await radio.command("play_station", play("fip", FIP))
 
@@ -564,11 +564,12 @@ class TestFavoriteSteps:
 
 
 class TestStationRecordMoved:
-    """The source holds the station on screen by value. An edit, a restore or a
-    removal can delete the image that copy names; the image route then answers
-    404 to every client still drawing the state — the kiosk, the lock screen,
-    the widget — until another station is tuned. Through the real station store
-    and the callback it was handed at construction, the path the routes take."""
+    """The source holds the station on screen by value. An edit, a restore or
+    the deletion of an added station can delete the image that copy names; the
+    image route then answers 404 to every client still drawing the state — the
+    kiosk, the lock screen, the widget — until another station is tuned.
+    Through the real station store and the callback it was handed at
+    construction, the path the routes take."""
 
     UPLOAD = "/api/radio/images/upload.webp"
 
@@ -592,22 +593,41 @@ class TestStationRecordMoved:
         line = state["session"] or state["resume"]
         return line["artwork"], radio.details()["station"]["favicon"]
 
-    async def test_a_favorite_removed_while_it_plays_shows_the_directory_logo(
-        self, radio, data
-    ):
+    async def test_a_favorite_removed_while_it_plays_keeps_its_edit(self, radio, data):
+        """A tap on the wrong heart: the image the user chose stays, on screen
+        and in the store, and a second tap finds the station as it was."""
+        upload = data.image_manager.IMAGES_DIR / "upload.webp"
+        upload.parent.mkdir()
+        upload.write_bytes(b"webp")
         await data.add_favorite("fip", FIP)
-        await self.edit(data, FIP, image_filename="upload.webp")
+        await self.edit(data, FIP, name="FIP (mine)", image_filename="upload.webp")
         await radio.select()
         await radio.tune(FIP)
-        assert self.shown(radio) == (self.UPLOAD, self.UPLOAD)
 
         await data.remove_favorite("fip")
         await settle()
 
-        assert self.shown(radio)[1] == FIP["favicon"]
-        assert self.UPLOAD not in self.shown(radio)[0]
+        assert self.shown(radio) == (self.UPLOAD, self.UPLOAD)
+        assert upload.exists()
+        await data.add_favorite("fip", FIP)
+        assert data.get_local_station("fip")["favicon"] == self.UPLOAD
 
-    async def test_a_favorite_removed_while_stopped_on_it_shows_the_directory_logo(
+    async def test_an_edit_kept_without_its_favorite_is_what_a_play_tunes(
+        self, radio, data
+    ):
+        """Played again from the search, the station is the user's: their
+        stream URL, their name — not the directory's record the caller sent."""
+        await data.add_favorite("fip", FIP)
+        await self.edit(data, FIP, name="FIP (mine)", url="http://stream.example/fip-hifi.aac")
+        await data.remove_favorite("fip")
+        await radio.select()
+
+        await radio.command("play_station", play("fip", FIP))
+
+        assert radio.loads()[-1][1] == "http://stream.example/fip-hifi.aac"
+        assert radio.details()["station"]["name"] == "FIP (mine)"
+
+    async def test_a_restore_while_stopped_on_it_shows_the_directory_logo(
         self, radio, data
     ):
         """The station kept for a re-tune is drawn as much as a playing one,
@@ -618,7 +638,7 @@ class TestStationRecordMoved:
         await radio.tune(FIP)
         await radio.command("stop")
 
-        await data.remove_favorite("fip")
+        assert (await data.restore_favorite_metadata("fip"))["success"] is True
         await settle()
 
         assert self.shown(radio)[1] == FIP["favicon"]
@@ -655,7 +675,7 @@ class TestStationRecordMoved:
         assert self.shown(radio) == (None, None)
         assert radio.details()["station"]["name"] == "Mine"
 
-    async def test_a_source_switch_right_after_the_removal_keeps_the_update(
+    async def test_a_source_switch_right_after_a_restore_keeps_the_update(
         self, radio, data
     ):
         """The update is queued when the switch's STOP lands: the STOP ends the
@@ -666,7 +686,7 @@ class TestStationRecordMoved:
         await radio.select()
         await radio.tune(FIP)
 
-        await data.remove_favorite("fip")
+        await data.restore_favorite_metadata("fip")
         await radio.leave()
         await radio.select()
 

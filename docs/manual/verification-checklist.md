@@ -139,7 +139,7 @@ These are shared by every source; they break for all of them at once.
 | Custom station, added | Réglages → Webradio: add a station → it appears in the favorites grid at once, its ✓ shown and disabled; the catalog search does not list it | targeted |
 | Custom station, edited | Rename the added station, then **reload the page** — the list shows the new name, not the one it was created with (in-session the WS delta hides a stale record; only a reload re-reads it) | targeted |
 | Custom station, deleted | Delete an **edited** custom station → its card disappears from "Stations ajoutées" and from the grid, and neither comes back on reload | targeted |
-| Favorite released | Change a favorite's image, release its ✓, favorite it again with ⊕ → the catalog logo is back; the card left "Stations modifiées" without a reload | targeted |
+| Favorite released | Change a playing favorite's image, release its ✓ → the image stays on the player and in the search, the card stays under "Stations modifiées"; favorite it again with ⊕ → it comes back with its image; restore it from Réglages → the catalog logo replaces it everywhere at once, the player included | targeted |
 | Automatic full-screen player | Playing, untouched for the configured delay → the full player opens with station + track info; a tap on its cover returns to the same page of the navigation | targeted |
 
 ### Podcast (C) ⚠ API credentials

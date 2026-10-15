@@ -291,13 +291,18 @@ class StationDataService:
 
     Three invariants keep the stores disjoint, so no reader reconciles two
     records for one station:
-    - `modified_metadata` holds edits of *directory* stations that are
-      favorites. Un-favoriting one drops its edit, its cached original and its
-      upload: re-adding it later shows the directory's station, not the edit.
+    - `modified_metadata` holds the user's edits of *directory* stations. An
+      edit belongs to the station, not to its favorite: un-favoriting keeps it
+      (a mistaken tap cost the uploaded image), so the search shows the station
+      as the user made it and a re-add brings it back. Réglages lists it,
+      favorite or not, and restoring the original is how it goes.
     - `manual_stations` holds the stations the user added (`custom_…`), each
       one record, edits written into it. An added station is always a
       favorite; it leaves the favorites only by being deleted.
-    - `favorites_cache` holds the directory original of a favorite.
+    - `favorites_cache` holds the directory original of every station the user
+      keeps something of: a favorite, or an edited station (the restore and the
+      "modified" comparison read it). Named for its first use; renaming the
+      key would be a schema bump.
 
     Per-station Shazam preference (shazam_enabled) lives as a regular field
     inside modified_metadata[id] / manual_stations[id]. Default ON when the
@@ -527,8 +532,9 @@ class StationDataService:
 
         return None
 
-    def get_favorite_metadata_local(self, station_id: str) -> Optional[Dict[str, Any]]:
-        """Get favorite station metadata from local data only (no API)."""
+    def get_local_station(self, station_id: str) -> Optional[Dict[str, Any]]:
+        """A station as the user keeps it — a favorite, an added station or an
+        edited one — from local data only (no API); None for any other."""
         return self._lookup_local(station_id)
 
     async def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
@@ -551,7 +557,10 @@ class StationDataService:
 
         self._favorites.append(station_id)
 
-        if station and not self.is_custom_station(station_id):
+        # An edited station keeps the original it has: the record a client sends
+        # from the search carries the edit overlaid, and cached as the original
+        # it would leave the restore nothing to restore.
+        if station and not self.is_custom_station(station_id) and station_id not in self._modified_metadata:
             cached_station = station.copy()
             cached_station.pop('id', None)
             self._favorites_cache[station_id] = cached_station
@@ -564,15 +573,31 @@ class StationDataService:
 
         return success
 
-    async def remove_favorite(self, station_id: str) -> bool:
-        """Remove a directory station from favorites, and everything the user
-        made of it.
+    def _drop_if_unkept(
+        self, station_id: str
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """A directory station that is neither a favorite nor edited keeps
+        nothing here: its cached original goes, and with it an override holding
+        nothing but the recognition preference — nothing is stored that
+        Réglages does not list. Returns what it dropped (override, original),
+        for a caller whose save fails to put back."""
+        if (self.is_custom_station(station_id) or station_id in self._favorites
+                or self._is_real_metadata_modification(station_id)):
+            return None, None
+        return (self._modified_metadata.pop(station_id, None),
+                self._favorites_cache.pop(station_id, None))
 
-        The edit, the cached original and the uploaded image go with the
-        favorite: kept, they came back on a re-add, and in between the search
-        list and Réglages still showed an edit of a station nobody kept. An
-        added station is refused — it is a favorite for as long as it exists,
-        and `remove_custom_station` is how it leaves.
+    async def remove_favorite(self, station_id: str) -> bool:
+        """Remove a directory station from favorites. Its edit stays.
+
+        The edit, its cached original and its upload belong to the station
+        (see the class docstring): a tap on the wrong heart no longer costs the
+        image the user chose. What Réglages would not list goes with the
+        favorite — the cached original of a station never edited, and an
+        override holding nothing but the recognition preference — so nothing is
+        kept that the user cannot see or undo. An added station is refused —
+        it is a favorite for as long as it exists, and `remove_custom_station`
+        is how it leaves.
         """
         if not station_id or station_id not in self._favorites:
             return True
@@ -582,27 +607,19 @@ class StationDataService:
 
         position = self._favorites.index(station_id)
         self._favorites.remove(station_id)
-        override = self._modified_metadata.pop(station_id, None)
-        cached = self._favorites_cache.pop(station_id, None)
+        override, cached = self._drop_if_unkept(station_id)
 
         success = await self._save()
 
         if not success:
             # Left dropped in memory, the next save would write the removal the
-            # UI was told failed — and orphan the upload nothing names any more.
+            # UI was told failed.
             self._favorites.insert(position, station_id)
             if override is not None:
                 self._modified_metadata[station_id] = override
             if cached is not None:
                 self._favorites_cache[station_id] = cached
         else:
-            if override and override.get('image_filename'):
-                await self.image_manager.delete_image(override['image_filename'])
-            if override is not None:
-                # Back to the directory's record. Without one (a favorite added
-                # with no record, which no route does) there is nothing else to
-                # show: the edit stays on screen, minus the image just deleted.
-                self._station_changed(station_id, cached if cached is not None else _without_image(override))
             self._favorites_moved()
             await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
@@ -649,7 +666,9 @@ class StationDataService:
         original = self._favorites_cache.get(station_id, {})
         real_fields = ('name', 'url', 'country', 'genre', 'codec', 'bitrate',
                        'image_filename', 'favicon')
-        return any(custom.get(f) != original.get(f) for f in real_fields)
+        # Blank and absent are one value: a directory record has no
+        # `image_filename` at all, an override with no upload writes "".
+        return any((custom.get(f) or None) != (original.get(f) or None) for f in real_fields)
 
     def get_modified_metadata(self) -> Dict[str, Dict[str, Any]]:
         """Get stations with REAL metadata modifications (excludes shazam-only deltas)."""
@@ -768,9 +787,11 @@ class StationDataService:
         An added station's edit goes into its own record in `manual_stations`
         — it has no original to restore, and two records for one station is
         what every reader then had to reconcile. A directory station's goes
-        into `modified_metadata`, over the cached original, and only while it
-        is a favorite: an edit of one that is not (an auto-save landing after
-        the heart was released) would be an override nothing lists or purges.
+        into `modified_metadata`, over the cached original: a favorite's, or a
+        station already edited (listed in Réglages, favorite or not). Any other
+        has no original kept to edit over, and an auto-save landing after its
+        heart was released must not make it one. An edit of a station that is
+        not a favorite and brings it back to its original leaves nothing kept.
         """
         # Same order as add_custom_station, and the same reason: here it renamed
         # an existing favourite to nothing rather than creating a blank one.
@@ -783,8 +804,8 @@ class StationDataService:
             record = self._manual_stations.get(station_id)
             if record is None:
                 return {"success": False, "error": "Unknown station"}
-        elif station_id not in self._favorites:
-            return {"success": False, "error": "Only a favorite station can be edited"}
+        elif station_id not in self._favorites and station_id not in self._modified_metadata:
+            return {"success": False, "error": "Only a favorite or an edited station can be edited"}
         else:
             record = self._modified_metadata.get(station_id)
 
@@ -830,6 +851,9 @@ class StationDataService:
                     "score": original.get("score", 0),
                 }
                 self._modified_metadata[station_id] = station
+                _, original_kept = self._drop_if_unkept(station_id)
+                if original_kept is not None:
+                    station = original_kept
             success = await self._save()
 
             # The upload this save replaces is now unreachable — no read can
@@ -852,7 +876,8 @@ class StationDataService:
             return {"success": False, "error": str(e)}
 
     async def restore_favorite_metadata(self, station_id: str, radio_api=None) -> Dict[str, Any]:
-        """Restore a directory station's original metadata by dropping its edit.
+        """Restore a directory station's original metadata by dropping its edit
+        — a favorite's, or one kept after its favorite was removed.
 
         An added station never has an edit here (its edits live in its own
         record), so it is answered "no modified metadata".
@@ -889,15 +914,22 @@ class StationDataService:
                 )
                 return {"success": False, "error": "No original metadata to restore"}
 
-            old_image = self._modified_metadata[station_id].get('image_filename')
-            if old_image:
-                await self.image_manager.delete_image(old_image)
+            override = self._modified_metadata.pop(station_id)
+            restored = {**self._favorites_cache[station_id], 'id': station_id}
+            # A station that is not a favorite keeps nothing once restored.
+            _, original = self._drop_if_unkept(station_id)
 
-            del self._modified_metadata[station_id]
+            if not await self._save():
+                # Put back, or the next save would write the restore the UI was
+                # told failed — after its image was already gone.
+                self._modified_metadata[station_id] = override
+                if original is not None:
+                    self._favorites_cache[station_id] = original
+                return {"success": False, "error": "Could not save the restore"}
 
-            await self._save()
+            if override.get('image_filename'):
+                await self.image_manager.delete_image(override['image_filename'])
 
-            restored = self._lookup_local(station_id)
             self._station_changed(station_id, restored)
             restored['is_favorite'] = station_id in self._favorites
             await self._broadcast(RadioFavoriteModified(station=restored))

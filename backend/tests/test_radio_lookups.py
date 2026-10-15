@@ -427,7 +427,7 @@ class TestRestoringAFavourite:
 
         assert result["success"] is True
         assert "s1" not in store.get_modified_metadata()
-        assert store.get_favorite_metadata_local("s1")["name"] == "FIP"
+        assert store.get_local_station("s1")["name"] == "FIP"
 
     @pytest.mark.asyncio
     async def test_a_cached_original_is_enough_without_the_directory(self, store):
@@ -439,7 +439,7 @@ class TestRestoringAFavourite:
         result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
         assert result["success"] is True
-        assert store.get_favorite_metadata_local("s1")["name"] == "FIP"
+        assert store.get_local_station("s1")["name"] == "FIP"
 
     @pytest.mark.asyncio
     async def test_nothing_to_restore_keeps_the_users_edit(self, store):

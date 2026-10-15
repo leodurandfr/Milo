@@ -503,11 +503,9 @@ export const useRadioStore = defineStore('radio', () => {
       // through it would blank the grid the user is looking at.
       await preloadFavorites({ force: true });
     } else {
-      // Remove from favorites - reload to get animation and ensure consistency
+      // Remove from favorites - reload to get animation and ensure consistency.
+      // The custom dict is left alone: an edit outlives its favorite.
       logger.debug('radio', 'Favorite removed, reloading favorites');
-      // Un-favoriting drops the station's edits: without the refetch it stays
-      // listed under "Modified stations" until the next resync.
-      if (customStationsLoaded.value) fetchCustomStations();
       await loadStations(true);
     }
   }

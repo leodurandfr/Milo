@@ -310,14 +310,13 @@ class RadioSource(MpvAudioSource):
     # === Command Handlers ===
 
     async def _handle_play_station(self, params: PlayStationParams) -> Dict[str, Any]:
-        """Play a radio station: favorite data first, then what the caller
-        sent, then the directory."""
+        """Play a radio station: the record the user keeps first (a favorite,
+        or a station they edited, favorite or not), then what the caller sent,
+        then the directory."""
         station_id = params.station_id
 
         try:
-            station = None
-            if self._station_data.is_favorite(station_id):
-                station = self._station_data.get_favorite_metadata_local(station_id)
+            station = self._station_data.get_local_station(station_id)
             if not station and params.station:
                 station = params.station
             if not station:
@@ -426,7 +425,7 @@ class RadioSource(MpvAudioSource):
             for distance in range(1, len(favorites)):
                 target = favorites[(here + step * distance) % len(favorites)]
                 station = (
-                    self._station_data.get_favorite_metadata_local(target)
+                    self._station_data.get_local_station(target)
                     or await self._station_data.get_station_metadata(target)
                 )
                 if not station:
@@ -457,8 +456,8 @@ class RadioSource(MpvAudioSource):
         """Nothing to apply: `_republish_if_moved` publishes the new controls."""
 
     def _station_changed(self, station: Dict[str, Any]) -> None:
-        """A station's record moved — edited, restored, or its favorite removed,
-        each of which can delete the image it showed. The station on screen,
+        """A station's record moved — edited, restored, or an added station
+        deleted, each of which can delete the image it showed. The station on screen,
         playing or kept for a re-tune, is held by value: it takes the new
         record, or the state goes on naming a file the image route answers 404
         for. The stream playing stays the one tuned (`stream_url`); a re-tune

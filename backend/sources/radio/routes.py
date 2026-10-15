@@ -242,7 +242,11 @@ async def modify_favorite_metadata(
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """
-    Modify metadata of a favorite station.
+    Modify a station's metadata: a favorite's, or a station edited before
+    (an edit outlives its favorite, and Réglages lists it).
+
+    The path keeps its `favorites/` segment from when only a favorite could
+    carry an edit; the web UI is its one caller.
     """
     async with api_error_handler("Modify favorite error", logger):
         image_filename = None
@@ -289,7 +293,7 @@ async def restore_favorite_metadata(
     source: RadioSource = Depends(get_source)
 ) -> Dict[str, Any]:
     """
-    Restore original metadata of a modified favorite station.
+    Restore an edited station's original metadata, favorite or not.
     """
     async with api_error_handler("Restore favorite error", logger):
         result = await source.station_data.restore_favorite_metadata(

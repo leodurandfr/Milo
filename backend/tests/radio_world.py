@@ -109,4 +109,4 @@ class RadioWorld(RadioRig):
         self.data.is_favorite = Mock(side_effect=lambda sid: sid in records)
         self.data.favorite_ids = list(records)
         self.data.favorite_count = len(records)
-        self.data.get_favorite_metadata_local = Mock(side_effect=records.get)
+        self.data.get_local_station = Mock(side_effect=records.get)

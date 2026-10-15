@@ -492,24 +492,17 @@ describe('radioStore', () => {
       expect(store.displayedStations).toHaveLength(2);
     });
 
-    it('drops a removed station from the custom dict once settings loaded it', async () => {
-      // Un-favoriting purges the station's edits on the backend: without the
-      // refetch it stays under "Modified stations" until the next resync.
+    it('keeps an edited station under "Modified stations" when its favorite is removed', async () => {
+      // An edit outlives its favorite on the backend: a station released by
+      // mistake keeps the image the user chose, listed in Réglages.
       apiCall.get.mockResolvedValueOnce(ok({ s1: STATION('s1', { name: 'Renamed' }) }));
       await store.loadRadioSettingsData();
-      apiCall.get.mockImplementation(async (url) =>
-        url === '/api/radio/custom' ? ok({}) : ok({ stations: [] }));
+      apiCall.get.mockClear();
+      apiCall.get.mockResolvedValue(ok({ stations: [] }));
 
       await store.handleFavoriteEvent('s1', false);
 
-      await vi.waitFor(() => expect(store.customStations).toEqual({}));
-    });
-
-    it('leaves the custom dict unfetched on a removal while settings never asked', async () => {
-      apiCall.get.mockResolvedValueOnce(ok({ stations: [] }));
-
-      await store.handleFavoriteEvent('s1', false);
-
+      expect(store.customStations.s1.name).toBe('Renamed');
       expect(apiCall.get).not.toHaveBeenCalledWith('/api/radio/custom', expect.anything());
     });
   });

@@ -618,7 +618,7 @@ Advanced settings to optimize multiroom synchronization:
 Station management is organized into three categories:
 
 * **Unmodified favorites**: your favorite stations exactly as they come from the RadioBrowser catalog. Tap a station to customize it.
-* **Modified stations**: your favorite stations whose display you have customized (name, image, etc.). You can restore the original metadata at any time. Removing a station from your favorites also discards its customizations: added again later, it comes back as the catalog has it.
+* **Modified stations**: the stations whose display you have customized (name, image, etc.), favorites or not. A customization belongs to the station: removing it from your favorites keeps it, so the station still shows as you made it in the search and comes back that way when you add it again. Tap it to edit it again, or restore the original metadata to discard your changes.
 * **Added stations**: stations created manually with your own stream URL. They always appear among your favorites (their ✓ cannot be released) and are removed by deleting them here.
 
 ### Customize a station

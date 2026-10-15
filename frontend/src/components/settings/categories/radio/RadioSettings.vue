@@ -19,7 +19,7 @@
       </div>
     </template>
 
-    <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
+    <!-- Section 2: Modified Stations (RadioBrowser stations the user edited, favorites or not) -->
     <h2 class="heading-2">{{ t('radioSettings.modifiedStationsTitle') }}</h2>
     <div v-if="modifiedStations.length > 0" class="stations-list">
       <StationCard v-for="station in modifiedStations" :key="station.id" :station="station"
@@ -82,7 +82,8 @@ const unmodifiedFavorites = computed(() => {
     .filter(station => !radioStore.customStations[station.id]);
 });
 
-// Modified stations: RadioBrowser favorites that have been modified (sorted alphabetically)
+// Modified stations: RadioBrowser stations the user edited — an edit outlives its
+// favorite, so a station released by mistake keeps its image here (sorted alphabetically)
 const modifiedStations = computed(() => {
   return Object.entries(radioStore.customStations)
     .filter(([id]) => !isCustomStation(id))
