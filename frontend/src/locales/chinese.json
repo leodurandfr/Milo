@@ -95,7 +95,9 @@
       "retry": "重试",
       "noStationsFound": "未找到电台",
       "minCharactersRequired": "请输入至少3个字符进行搜索",
-      "noFavorites": "没有喜爱的电台"
+      "noFavorites": "没有喜爱的电台",
+      "addFavorite": "加入喜爱的电台",
+      "removeFavorite": "从喜爱的电台中移除"
     }
   },
   "multiroom": {

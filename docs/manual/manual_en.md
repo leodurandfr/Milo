@@ -167,7 +167,7 @@ Milō lets you listen to thousands of Internet radio stations from around the wo
 
 ### Favorites
 
-The main screen shows your **favorite stations**. Tap a station to start playback. To add a station to your favorites, tap the **heart** icon.
+The main screen shows your **favorite stations**. Tap a station to start playback. To add a station to your favorites, tap the **⊕** icon beside the transport; it turns into a **✓** once the station is a favorite, and tapping the ✓ removes it.
 
 ### Search for stations
 
@@ -619,7 +619,7 @@ Station management is organized into three categories:
 
 * **Unmodified favorites**: your favorite stations exactly as they come from the RadioBrowser catalog. Tap a station to customize it.
 * **Modified stations**: your favorite stations whose display you have customized (name, image, etc.). You can restore the original metadata at any time. Removing a station from your favorites also discards its customizations: added again later, it comes back as the catalog has it.
-* **Added stations**: stations created manually with your own stream URL. They always appear among your favorites (their heart cannot be released) and are removed by deleting them here.
+* **Added stations**: stations created manually with your own stream URL. They always appear among your favorites (their ✓ cannot be released) and are removed by deleting them here.
 
 ### Customize a station
 

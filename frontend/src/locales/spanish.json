@@ -95,7 +95,9 @@
       "retry": "Reintentar",
       "noStationsFound": "No se encontraron emisoras",
       "minCharactersRequired": "Ingrese al menos 3 caracteres para buscar",
-      "noFavorites": "No hay emisoras favoritas"
+      "noFavorites": "No hay emisoras favoritas",
+      "addFavorite": "Añadir a favoritos",
+      "removeFavorite": "Quitar de favoritos"
     }
   },
   "multiroom": {

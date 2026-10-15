@@ -95,7 +95,9 @@
       "retry": "Riprova",
       "noStationsFound": "Nessuna stazione trovata",
       "minCharactersRequired": "Inserisca almeno 3 caratteri per cercare",
-      "noFavorites": "Nessuna stazione preferita"
+      "noFavorites": "Nessuna stazione preferita",
+      "addFavorite": "Aggiungi ai preferiti",
+      "removeFavorite": "Rimuovi dai preferiti"
     }
   },
   "multiroom": {

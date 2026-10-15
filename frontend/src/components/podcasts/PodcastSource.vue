@@ -14,7 +14,7 @@
         @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
         <!-- Header actions (only on home view) -->
         <template v-if="currentView === 'home'" #header-actions>
-          <IconButton icon="checkCircle" @click="goToSubscriptions" />
+          <IconButton icon="podcast" @click="goToSubscriptions" />
           <IconButton icon="queue" @click="goToQueue" />
           <IconButton icon="search" @click="goToSearch" />
         </template>

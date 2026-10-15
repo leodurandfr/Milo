@@ -44,6 +44,7 @@
 
             <template #transport-end>
               <IconButton :icon="stationIsFavorite ? 'checkCircle' : 'plusCircle'" variant="ghost" size="medium"
+                :aria-label="favoriteLabel"
                 :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
             </template>
           </AudioPlayer>
@@ -56,6 +57,7 @@
          the stop button beside it. -->
     <template #transport-end>
       <IconButton :icon="stationIsFavorite ? 'checkCircle' : 'plusCircle'" variant="ghost" size="medium"
+                :aria-label="favoriteLabel"
         :disabled="isCustomStation(station?.id)" @click="handleFavorite" />
     </template>
   </BrowserSourceViews>
@@ -116,6 +118,10 @@ const stationIsFavorite = computed(() =>
     ? radioStore.favoriteStations.some(s => s.id === station.value.id)
     : false
 )
+
+const favoriteLabel = computed(() => t(stationIsFavorite.value
+  ? 'audioSources.radioSource.removeFavorite'
+  : 'audioSources.radioSource.addFavorite'))
 
 // === STATE ===
 const isSearchMode = ref(false)

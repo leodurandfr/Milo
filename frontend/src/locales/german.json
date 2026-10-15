@@ -95,7 +95,9 @@
       "retry": "Erneut versuchen",
       "noStationsFound": "Keine Sender gefunden",
       "minCharactersRequired": "Geben Sie mindestens 3 Zeichen ein, um zu suchen",
-      "noFavorites": "Keine Lieblingssender"
+      "noFavorites": "Keine Lieblingssender",
+      "addFavorite": "Zu Favoriten hinzufügen",
+      "removeFavorite": "Aus Favoriten entfernen"
     }
   },
   "multiroom": {

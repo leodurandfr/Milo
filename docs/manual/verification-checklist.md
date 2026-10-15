@@ -133,13 +133,13 @@ These are shared by every source; they break for all of them at once.
 | Favourites | The favourites grid renders with logos | smoke |
 | Playback | Tapping a station plays within a few seconds; play/pause works | smoke |
 | Station info | Name, genre, codec and bitrate shown under the player | smoke |
-| Transport | The full player and the kiosk's playing bar show one labelled button, "Stop" ("Play" once stopped), with the heart across from it; the phone's mini-bar shows the stop glyph alone. Rotary double/triple-click and the IR remote's next/prev keys do nothing | targeted |
+| Transport | The full player and the kiosk's playing bar show one labelled button, "Stop" ("Play" once stopped), with the favorite toggle (⊕ / ✓) across from it; the phone's mini-bar shows the stop glyph alone. Rotary double/triple-click and the IR remote's next/prev keys do nothing | targeted |
 | Track recognition | With recognition on, a recognised track's title + artist appear within ~30 s and update on track change | targeted |
 | Custom station | An added/customised station keeps its name, image and stream URL after a backend restart | targeted |
-| Custom station, added | Réglages → Webradio: add a station → it appears in the favorites grid at once, its heart filled and disabled; the catalog search does not list it | targeted |
+| Custom station, added | Réglages → Webradio: add a station → it appears in the favorites grid at once, its ✓ shown and disabled; the catalog search does not list it | targeted |
 | Custom station, edited | Rename the added station, then **reload the page** — the list shows the new name, not the one it was created with (in-session the WS delta hides a stale record; only a reload re-reads it) | targeted |
 | Custom station, deleted | Delete an **edited** custom station → its card disappears from "Stations ajoutées" and from the grid, and neither comes back on reload | targeted |
-| Favorite released | Change a favorite's image, release its heart, favorite it again → the catalog logo is back; the card left "Stations modifiées" without a reload | targeted |
+| Favorite released | Change a favorite's image, release its ✓, favorite it again with ⊕ → the catalog logo is back; the card left "Stations modifiées" without a reload | targeted |
 | Automatic full-screen player | Playing, untouched for the configured delay → the full player opens with station + track info; a tap on its cover returns to the same page of the navigation | targeted |
 
 ### Podcast (C) ⚠ API credentials

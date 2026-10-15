@@ -474,7 +474,7 @@ describe('radioStore', () => {
 
   describe('handleFavoriteEvent', () => {
     it('adds without touching the loading flag the search view reads', async () => {
-      // The heart is tapped from the search view, and `loading` is shared with
+      // The ⊕ is tapped from the search view, and `loading` is shared with
       // it: refetching through loadStations() would blank the results grid the
       // user is looking at. The favorites still have to be re-read, because the
       // backend decides where the new station sits.
