@@ -16,3 +16,15 @@ SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chmod 0666 /sys/class/backligh
 # (2026-10-16). TEST keeps the rule inert on a Goodix wired with an interrupt,
 # which has no poll attribute.
 SUBSYSTEM=="input", ACTION!="remove", KERNEL=="input*", DRIVERS=="Goodix-TS", TEST=="poll", ATTR{poll}="5"
+
+# Kiosk compositor - no pointer, so Chromium's buffer is scanned out directly
+# The IR receiver and the two HDMI-CEC inputs advertise relative axes, so
+# libinput calls them pointers and cage keeps a cursor, invisible but drawn. The
+# DSI panel has no cursor plane, so that cursor made cage composite every frame:
+# ~33 ms between Chromium's frame and the panel (finger to panel 82 -> 49 ms
+# without it, measured 2026-10-16). Hidden from libinput only: the backend reads
+# the IR remote through evdev, which this does not touch. IR keys no longer reach
+# Chromium as keystrokes, so they no longer count as screen activity: on purpose,
+# playback wakes the screen.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="gpio_ir_recv", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="vc4-hdmi-*", ENV{LIBINPUT_IGNORE_DEVICE}="1"
