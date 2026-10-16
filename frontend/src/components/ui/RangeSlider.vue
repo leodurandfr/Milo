@@ -259,23 +259,23 @@ function handleChange(event) {
 </style>
 
 <style scoped>
-/* The Toggle's dimensions: a 34px track with its 44x28 pill knob inside it,
-   3px from every side. The track and its fill are drawn by the component; the
-   native input lies over them, 3px in from each end, so its thumb travels
+/* The Toggle's dimensions: a 32px track with its 46x28 pill knob inside it,
+   2px from every side. The track and its fill are drawn by the component; the
+   native input lies over them, 2px in from each end, so its thumb travels
    exactly where the knob belongs. While held, the knob widens by 4px, anchored
    where it stands — at the left end it grows to the right, at the right end to
    the left, in between in proportion — so it never eats into the track's ends,
-   and the fill follows its right edge out to keep the 3px around it. */
+   and the fill follows its right edge out to keep the 2px around it. */
 .slider-container {
   --slider-accent: var(--color-text-secondary);
-  --track-thickness: 34px;
-  --knob-width: 44px;
+  --track-thickness: 32px;
+  --knob-width: 46px;
   --knob-height: 28px;
   /* The 4px the knob widens by, as a share of its width (a length cannot
      divide a length in every engine yet). */
-  --knob-grow: 0.0909;
-  /* The knob plus its 3px each side: the length of track it stands on. */
-  --thumb-length: calc(var(--knob-width) + 6px);
+  --knob-grow: 0.087;
+  /* The knob plus its 2px each side: the length of track it stands on. */
+  --thumb-length: calc(var(--knob-width) + 4px);
   --grow: 0;
   /* What the knob's right edge moves out by: none at the right end. */
   --fill-extra: calc(var(--grow) * 4px * (1 - var(--fraction)));
@@ -308,11 +308,11 @@ function handleChange(event) {
 
 .slider-container.horizontal {
   width: 100%;
-  height: 34px;
+  height: 32px;
 }
 
 .slider-container.vertical {
-  width: 34px;
+  width: 32px;
   flex: 1;
   flex-direction: column;
 }
@@ -387,19 +387,19 @@ function handleChange(event) {
 }
 
 .horizontal .range-input {
-  left: 3px;
+  left: 2px;
   top: 50%;
-  width: calc(100% - 6px);
+  width: calc(100% - 4px);
   height: var(--knob-height);
   transform: translateY(-50%);
 }
 
 /* Bottom to top, as a fader is read. */
 .vertical .range-input {
-  top: 3px;
+  top: 2px;
   left: 50%;
   width: var(--knob-height);
-  height: calc(100% - 6px);
+  height: calc(100% - 4px);
   transform: translateX(-50%);
   writing-mode: vertical-lr;
   direction: rtl;
@@ -481,7 +481,7 @@ function handleChange(event) {
 
 .horizontal .range-knob {
   top: 50%;
-  left: calc(3px + var(--fraction) * (100% - var(--thumb-length)));
+  left: calc(2px + var(--fraction) * (100% - var(--thumb-length)));
   width: var(--knob-width);
   height: var(--knob-height);
   transform: translateY(-50%) scaleX(calc(1 + var(--grow) * var(--knob-grow)));
@@ -490,7 +490,7 @@ function handleChange(event) {
 
 .vertical .range-knob {
   left: 50%;
-  bottom: calc(3px + var(--fraction) * (100% - var(--thumb-length)));
+  bottom: calc(2px + var(--fraction) * (100% - var(--thumb-length)));
   width: var(--knob-height);
   height: var(--knob-width);
   transform: translateX(-50%) scaleY(calc(1 + var(--grow) * var(--knob-grow)));
@@ -632,7 +632,7 @@ function handleChange(event) {
 
 .labeled .slider-rail {
   grid-area: rail;
-  height: 34px;
+  height: 32px;
 }
 
 .labeled .slider-value {
@@ -641,22 +641,22 @@ function handleChange(event) {
 
 @media (max-aspect-ratio: 4/3) {
   .slider-container {
-    --track-thickness: 30px;
-    --knob-width: 38px;
+    --track-thickness: 28px;
+    --knob-width: 40px;
     --knob-height: 24px;
-    --knob-grow: 0.105;
+    --knob-grow: 0.1;
   }
 
   .slider-container.horizontal {
-    height: 30px;
+    height: 28px;
   }
 
   .labeled .slider-rail {
-    height: 30px;
+    height: 28px;
   }
 
   .slider-container.vertical {
-    width: 30px;
+    width: 28px;
   }
 }
 </style>

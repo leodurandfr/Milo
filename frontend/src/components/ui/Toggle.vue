@@ -88,22 +88,23 @@ function handleToggle(event) {
    width and its position travel on one curve, so the edge it is anchored to
    (left when off, right when on) stays put through the whole press. */
 
-/* iOS's proportions: the track 2.2 times as wide as it is tall, the knob 1.6
-   times as wide as it is tall and 3px inside, its travel 0.6 of its width. */
+/* macOS's proportions: the track 2.25 times as wide as it is tall, the knob
+   1.6 times as wide as it is tall and 2px inside, its travel a third of the
+   track. */
 
-/* Default - Desktop: 68x34, a 42x28 knob */
+/* Default - Desktop: 72x32, a 44x28 knob */
 .toggle--default {
-  width: 68px;
-  height: 34px;
-  --knob-width: 42px;
+  width: 72px;
+  height: 32px;
+  --knob-width: 44px;
   --knob-height: 28px;
   --knob-stretch: 4px;
 }
 
-/* Compact - Desktop: 66x30, a 38x24 knob */
+/* Compact - Desktop: 63x28, a 38x24 knob */
 .toggle--compact {
-  width: 66px;
-  height: 30px;
+  width: 63px;
+  height: 28px;
   --knob-width: 38px;
   --knob-height: 24px;
   --knob-stretch: 4px;
@@ -129,8 +130,8 @@ function handleToggle(event) {
 .slider:before {
   position: absolute;
   content: "";
-  left: 3px;
-  top: 3px;
+  left: 2px;
+  top: 2px;
   width: var(--knob-width);
   height: var(--knob-height);
   background-color: var(--color-thumb);
@@ -146,15 +147,15 @@ function handleToggle(event) {
 }
 
 .toggle input:checked + .slider:before {
-  transform: translateX(calc(var(--toggle-width) - var(--knob-width) - 6px));
+  transform: translateX(calc(var(--toggle-width) - var(--knob-width) - 4px));
 }
 
 .toggle--pressed:not(:has(input:disabled)) input:checked + .slider:before {
-  transform: translateX(calc(var(--toggle-width) - var(--knob-width) - var(--knob-stretch) - 6px));
+  transform: translateX(calc(var(--toggle-width) - var(--knob-width) - var(--knob-stretch) - 4px));
 }
 
-.toggle--default { --toggle-width: 68px; }
-.toggle--compact { --toggle-width: 66px; }
+.toggle--default { --toggle-width: 72px; }
+.toggle--compact { --toggle-width: 63px; }
 
 /* Colors */
 .toggle--primary .slider,
@@ -166,8 +167,9 @@ function handleToggle(event) {
   background-color: var(--color-brand);
 }
 
+/* The RangeSlider's fill at rest, so a speaker's toggle and its volume read as one control. */
 .toggle--secondary input:checked + .slider {
-  background-color: var(--color-fill);
+  background-color: var(--color-text-secondary);
 }
 
 /* Disabled */
@@ -183,9 +185,9 @@ input:disabled + .slider {
 /* Responsive: one size on a phone, the compact one */
 @media (max-aspect-ratio: 4/3) {
   .toggle--default {
-    width: 66px;
-    height: 30px;
-    --toggle-width: 66px;
+    width: 63px;
+    height: 28px;
+    --toggle-width: 63px;
     --knob-width: 38px;
     --knob-height: 24px;
     --knob-stretch: 4px;

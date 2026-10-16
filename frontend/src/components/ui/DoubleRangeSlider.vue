@@ -175,15 +175,15 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 <style scoped>
 /* RangeSlider's track and knobs (the Toggle's dimensions), with a value beside
    each end and, with a label, the name on its own line above. The two native
-   inputs lie over the track 3px in from each end, so their thumbs travel
+   inputs lie over the track 2px in from each end, so their thumbs travel
    where the knobs belong. */
 .double-range-slider {
   --slider-accent: var(--color-text-secondary);
-  --track-thickness: 34px;
-  --knob-width: 44px;
+  --track-thickness: 32px;
+  --knob-width: 46px;
   --knob-height: 28px;
-  --knob-grow: 0.0909;
-  --thumb-length: calc(var(--knob-width) + 6px);
+  --knob-grow: 0.087;
+  --thumb-length: calc(var(--knob-width) + 4px);
   --grow-min: 0;
   --grow-max: 0;
   display: grid;
@@ -226,7 +226,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 .slider-rail {
   grid-area: rail;
   position: relative;
-  height: 34px;
+  height: 32px;
 }
 
 .range-track {
@@ -264,9 +264,9 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 /* Only the thumbs take the pointer: a touch on the track scrolls the page. */
 .range-input {
   position: absolute;
-  left: 3px;
+  left: 2px;
   top: 50%;
-  width: calc(100% - 6px);
+  width: calc(100% - 4px);
   height: var(--knob-height);
   margin: 0;
   padding: 0;
@@ -394,10 +394,10 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .double-range-slider {
-    --track-thickness: 30px;
-    --knob-width: 38px;
+    --track-thickness: 28px;
+    --knob-width: 40px;
     --knob-height: 24px;
-    --knob-grow: 0.105;
+    --knob-grow: 0.1;
     grid-template-columns: auto auto;
     grid-template-areas:
       "rail rail"
@@ -414,11 +414,11 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
   }
 
   .slider-rail {
-    height: 30px;
+    height: 28px;
   }
 
   .slider-value {
-    height: 30px;
+    height: 28px;
   }
 
   .slider-value--min {
