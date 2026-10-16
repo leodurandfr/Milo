@@ -148,14 +148,6 @@
       <!-- Client Info -->
       <SectionCard :title="t('multiroom.systemInfo')">
         <div class="info-grid">
-          <div class="info-item">
-            <span class="info-label text-mono-medium">{{ t('clientDetails.hostname') }}</span>
-            <span class="info-value text-mono-medium">{{ client?.host }}</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
-            <span class="info-value text-mono-medium">{{ client?.ip || 'Unknown' }}</span>
-          </div>
           <!-- A satellite on both links can lose its cable: the server hands
                every satellite its own WiFi, and these two say whether it holds. -->
           <template v-if="networkState">
@@ -172,6 +164,14 @@
               </span>
             </div>
           </template>
+          <div class="info-item">
+            <span class="info-label text-mono-medium">{{ t('clientDetails.hostname') }}</span>
+            <span class="info-value text-mono-medium">{{ client?.host }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
+            <span class="info-value text-mono-medium">{{ client?.ip || 'Unknown' }}</span>
+          </div>
         </div>
       </SectionCard>
 
