@@ -25,6 +25,7 @@ _PLAY_PAUSE_SOURCES = {
     AudioSource.MUSIC_LIBRARY,
     AudioSource.TIDAL,
     AudioSource.BLUETOOTH,
+    AudioSource.AIRPLAY,
 }
 
 # Sources that support next/prev navigation. Radio steps between favorites,
@@ -36,6 +37,7 @@ _TRACK_NAV_SOURCES = {
     AudioSource.TIDAL,
     AudioSource.BLUETOOTH,
     AudioSource.RADIO,
+    AudioSource.AIRPLAY,
 }
 
 
@@ -127,8 +129,15 @@ class PlaybackDispatcher:
                 AudioSource.TIDAL,
                 # Bluetooth likewise: AVRCP has Play and Pause, no toggle.
                 AudioSource.BLUETOOTH,
+                # AirPlay: the sender holds the toggle, Milō asks for one side.
+                AudioSource.AIRPLAY,
             ):
-                if source_instance.is_playing:
+                playing = source_instance.is_playing
+                # An AirPlay sender takes only what it listed (system audio: nothing).
+                if (active_source == AudioSource.AIRPLAY
+                        and ("pause" if playing else "resume") not in source_instance.view.controls):
+                    return
+                if playing:
                     await source_instance.command("pause", {})
                 else:
                     await source_instance.command("resume", {})
@@ -145,6 +154,8 @@ class PlaybackDispatcher:
         if not source_instance:
             return
 
+        if active_source == AudioSource.AIRPLAY and direction not in source_instance.view.controls:
+            return
         try:
             await source_instance.command(direction, {})
         except Exception as e:

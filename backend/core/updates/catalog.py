@@ -100,8 +100,8 @@ PROGRAMS = {
             "--sysconfdir=/etc", "--with-alsa", "--with-avahi",
             "--with-ssl=openssl", "--with-soxr", "--with-metadata",
             # --with-metadata already implies the pipe on 5.2.x, but the pipe
-            # is the channel Milo reads AirPlay metadata from — name it rather
-            # than inherit it.
+            # is the channel Milo reads the AirPlay session from — name it
+            # rather than inherit it. The D-Bus interface carries the rest.
             "--with-metadata-pipe",
             "--with-airplay-2", "--with-dbus-interface"
         ],

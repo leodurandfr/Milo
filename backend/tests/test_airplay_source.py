@@ -1,21 +1,23 @@
 # backend/tests/test_airplay_source.py
 """
-The AirPlay source's metadata pipe, the cover it pairs, the playhead it
-anchors, and the reader that feeds it.
+The AirPlay source: the session it follows off the metadata pipe, the item,
+cover, playhead, commands and volume it follows over shairport-sync's D-Bus
+object, and the pipe reader that feeds it.
 
 Everything here drives the source through the world shairport-sync was measured
 to be (tests/airplay_world.py): the real `MetadataReader` parser, fed the items
-the daemon writes, behind the real `AirPlaySource` on a real state machine, on a
+the daemon writes, and a stand-in for its D-Bus object that emits what 5.6 was
+measured to emit, behind the real `AirPlaySource` on a real state machine, on a
 virtual clock. What is asserted is what reaches the wire — the state (`_shown`),
-every state published, the `source/position` events, the artwork route — never
-the source's own fields. The pure parser and the read loop are driven through the real
-`MetadataReader` alone, with an `on_event` collector.
+every state published, the `source/position` events, the artwork route — and
+what was asked of the sender, never the source's own fields. The pure parser
+and the read loop are driven through the real `MetadataReader` alone, with an
+`on_event` collector.
 
-What is being pinned first is the cover rule, shairport-sync's own
-(metadata/hub.c): the cover is the last picture the sender pushed, until the
-sender withdraws it with an empty one. The rtptime on a picture decides
-nothing — it is where the sender was when it wrote the request, and pairing it
-with the tags' took the playing track's own cover off the screen (E68).
+What is being pinned first is the cover rule: the cover is the picture file of
+the sender's item, held while the item re-sends itself without its path (most
+updates do, for 8-90 ms) and replaced by the next item's, or removed when a new
+item brings none within ARTWORK_SETTLE_SECONDS.
 
 Danger specific to this file: `/tmp/shairport-sync-metadata` is the LIVE pipe's
 path. shairport-sync is stopped whenever the AirPlay source is off, so a test
@@ -28,27 +30,23 @@ import base64
 import logging
 import contextlib
 import os
-from io import BytesIO
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from PIL import Image
 
+from backend.core.models.volume import VolumeConfig
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent, _hex_to_str
+from backend.sources.airplay.remote import RemoteUpdate
 from backend.core.audio_source import POSITION_TOLERANCE_MS
-from backend.sources.airplay.source import ARTWORK_SETTLE_SECONDS
-from backend.tests.airplay_world import MAC, PHONE, AirPlayWorld, Item, ssnc, withdrawal
+from backend.sources.airplay.source import ARTWORK_SETTLE_SECONDS, VOLUME_HOLD_S
+from backend.tests.airplay_world import (
+    IPHONE_MUSIC_COMMANDS, MAC, MAC_COMMANDS, PHONE, SPOTIFY_COMMANDS, AirPlayWorld, png, ssnc,
+)
 
 LIVE_PIPE = "/tmp/shairport-sync-metadata"
-
-# Two rtptimes, as the sender sends them (the pipe carries them as ASCII decimal).
-RTP_A = 3222108659
-RTP_B = 3222285731
-
-SAMPLE_RATE = 44100
 
 # The old source re-published the playhead every 10 s; the spans below still
 # cover several of those, so a ticker that came back would be heard.
@@ -82,57 +80,14 @@ async def world(monkeypatch, tmp_path):
     await w.source.shutdown()
 
 
-# === What the sender writes ===
-
-def _cover(color: str, size: int = 600) -> bytes:
-    """A real cover, so the dimension decode on the way in is real too."""
-    buf = BytesIO()
-    Image.new("RGB", (size, size), color).save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def _stamp(rtptime: Optional[int]) -> Optional[bytes]:
-    """An rtptime as mdst/pcst carry it; None is the empty item shairport-sync
-    writes when the sender gave it no RTP-Info."""
-    return str(rtptime).encode() if rtptime is not None else None
-
-
-def _bundle(rtptime: Optional[int], title: str, artist: Optional[str] = "Nils Frahm") -> List[Item]:
-    """A track's tags, bracketed by mdst/mden as rtsp.c brackets them.
-
-    `artist=None` is a bundle the sender sent no `asar` in — not an empty one:
-    a DAAP tag a sender omits produces no item at all, which is the whole
-    difference between "this track has no artist" and "unchanged".
-    """
-    tags: List[Item] = [("core", "minm", title.encode())]
-    if artist is not None:
-        tags.append(("core", "asar", artist.encode()))
-    return [ssnc("mdst", _stamp(rtptime)), *tags, ssnc("mden", _stamp(rtptime))]
-
-
-def _picture(rtptime: Optional[int], data: Optional[bytes]) -> List[Item]:
-    """A cover, bracketed by pcst/pcen as rtsp.c brackets it."""
-    return [ssnc("pcst", _stamp(rtptime)), ssnc("PICT", data), ssnc("pcen", _stamp(rtptime))]
-
-
-def _frames(ms: float) -> int:
-    """A distance in stamp, from milliseconds to RTP frames."""
-    return int(ms * SAMPLE_RATE / 1000)
-
-
-def _progress(start_s: float, current_s: float, end_s: float) -> Item:
-    """`prgr` as rtsp.c writes it: three RTP frame counts separated by slashes."""
-    frames = [int(s * SAMPLE_RATE) for s in (start_s, current_s, end_s)]
-    return ssnc("prgr", "/".join(map(str, frames)).encode())
-
+# === What the daemon writes ===
 
 def _item(item_type: str, code: str, payload: Optional[bytes] = None) -> str:
     """One metadata item in the wire shape the pipe carries.
 
     Type and code are hex-encoded ASCII, the payload base64 with its decoded
     length alongside — an item with no payload carries `<length>0</length>` and
-    no data element at all, which is how shairport-sync reports an rtptime it
-    did not get from the sender.
+    no data element at all.
     """
     head = (
         f"<item><type>{item_type.encode().hex()}</type>"
@@ -146,11 +101,18 @@ def _item(item_type: str, code: str, payload: Optional[bytes] = None) -> str:
 
 # === Driving and reading ===
 
-async def _on_air(world: AirPlayWorld) -> None:
-    """A phone connected and playing a Buffered stream, before any tags."""
-    await world.connects(PHONE, "iPhone de Léo")
+async def _on_air(world: AirPlayWorld, commands: frozenset = IPHONE_MUSIC_COMMANDS) -> None:
+    """A phone connected and playing a Buffered stream, before any item."""
+    await world.connects(PHONE, "iPhone de Léo", commands)
     await world.send(ssnc("pbeg"), ssnc("pres"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
     assert world.playing(), "the stream never reached PLAYING"
+
+
+async def _plays(world: AirPlayWorld, title: str, cover: bool = True, **item: Any):
+    """The sender's item, published as 5.6 publishes one (bare, then with its picture)."""
+    published = world.item(title=title, **item)
+    await world.publishes(published, world.cover(name=title) if cover else None)
+    return world.now_playing
 
 
 async def _after_the_hold(world: AirPlayWorld) -> None:
@@ -173,8 +135,8 @@ def _shown(state: dict) -> dict:
     session = state["session"] or {}
     details = state["details"] or {}
     return {
-        "title": session["title"],
-        "artist": session["artist"],
+        "title": session.get("title"),
+        "artist": session.get("artist"),
         "album": session.get("album"),
         "artwork": session.get("artwork"),
         "artwork_width": details.get("artwork_width"),
@@ -201,261 +163,196 @@ class _Collector:
         return [e.kind for e in self.events]
 
 
+class _Volume:
+    """VolumeService as the source uses it: the level in dB over the real
+    VolumeConfig, a state listener called after each broadcast, as the real one."""
+
+    def __init__(self, volume_db: float = -50.0) -> None:
+        self.volume_config = VolumeConfig()
+        self.volume_db, self.muted = volume_db, False
+        self.listeners: List[Callable[[float, bool], None]] = []
+        self.sets: List[float] = []
+
+    def add_state_listener(self, listener) -> None:
+        self.listeners.append(listener)
+
+    async def get_volume_state(self):
+        return Mock(global_volume_db=self.volume_db, global_mute=self.muted)
+
+    async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
+        self.sets.append(volume_db)
+        self.volume_db = volume_db
+        self._broadcast()
+        return True
+
+    def moved_in_milo(self, volume_db: float, muted: bool = False) -> None:
+        """The knob, the slider, a remote: anything but the sender."""
+        self.volume_db, self.muted = volume_db, muted
+        self._broadcast()
+
+    def _broadcast(self) -> None:
+        for listener in self.listeners:
+            listener(self.volume_config.normalize(self.volume_db), self.muted)
+
+
+def _slider_volumes(world: AirPlayWorld) -> List[float]:
+    """Every level Milō put the sender's slider at, in AirPlay dB."""
+    return [r[1] for r in world.requests if isinstance(r, tuple) and r[0] == "volume"]
+
+
+class TestTheItem:
+    """The sender's item (`NowPlayingInformation`) is the whole current track:
+    each update replaces the last."""
+
+    async def test_the_item_is_the_track_on_screen(self, world):
+        await _on_air(world)
+        await _plays(world, "Steam", artist="Ledeunff", album="My Storm - EP", length_s=223.3)
+
+        meta = _shown(world.state())
+        assert (meta["title"], meta["artist"], meta["album"]) == ("Steam", "Ledeunff", "My Storm - EP")
+        assert world.session()["duration_ms"] == 223_300
+
+    async def test_a_new_item_owns_every_field(self, world):
+        """No amendment rule any more: shairport-sync merges the sender's
+        partial updates itself, so an item missing a field has no such field."""
+        await _on_air(world)
+        await _plays(world, "Steam", album="My Storm - EP")
+        await _plays(world, "Plasma", album=None)
+
+        assert _shown(world.state())["album"] is None
+
+    async def test_the_empty_item_of_a_sender_arriving_keeps_what_is_on_screen(self, world):
+        """`{}` is what every sender's connection starts with; read as an item,
+        it blanked the track 0.9 s before the newcomer's own arrived."""
+        await _on_air(world)
+        await _plays(world, "Steam")
+
+        await world.signal(RemoteUpdate("now_playing", None))
+
+        assert _shown(world.state())["title"] == "Steam"
+
+    async def test_an_item_with_no_session_opens_nothing(self, world):
+        await world.publishes(world.item("Orphan"), world.cover())
+
+        assert not world.active()
+
+    async def test_an_item_that_arrived_before_its_session_is_shown_once_it_opens(self, world):
+        """D-Bus and the pipe are two feeds: the item can land before `conn`."""
+        await world.signal(RemoteUpdate("commands", IPHONE_MUSIC_COMMANDS))
+        await world.publishes(world.item("Early"), world.cover())
+        await world.send(ssnc("conn", PHONE.encode()))
+
+        assert _shown(world.state())["title"] == "Early"
+        assert _shown(world.state())["artwork"]
+
+
 class TestTheCover:
-    """Which cover is on screen: the last picture the sender pushed, until it
-    withdraws it — shairport-sync's own rule (metadata/hub.c) — with the
-    withdrawal given ARTWORK_SETTLE_SECONDS for its replacement to land."""
+    """The cover is the picture file of the item, held across the item's
+    re-sends without it (measured 8-90 ms on most updates, 2026-10-16)."""
 
     async def test_a_track_and_its_cover_are_published_together(self, world):
-        """The non-triviality check the rest of this class rests on: a stream
-        that produced no cover at all would satisfy every 'has no cover'
-        assertion below."""
         await _on_air(world)
-
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Steam")
 
         meta = _shown(world.state())
-        assert meta["title"] == "Says"
-        assert meta["artwork"].startswith("/api/airplay/artwork?v=")
-        assert meta["artwork_width"] == 600
-        assert world.source.get_artwork() is not None
+        assert meta["artwork"] and meta["artwork_width"] == 600
+        assert _rich(world.state())
 
-    async def test_a_cover_that_arrives_before_its_track_is_kept(self, world):
-        """The order is the sender's to choose — two SET_PARAMETER requests,
-        nothing sequencing them — and tags never touch the cover. Asserted
-        after the settle, so the cover is on screen because it is the cover,
-        not because a deadline has yet to run out."""
+    async def test_the_item_re_sent_without_its_picture_keeps_the_cover(self, world):
+        """The re-send without the path, as nearly every update does: dropping
+        the cover on it would swap the player for the status card and back."""
         await _on_air(world)
+        item = await _plays(world, "Steam")
+        shown = _shown(world.state())["artwork"]
+        published = len(world.published())
 
-        await world.send(*_picture(RTP_A, _cover("navy")))
-        await world.send(*_bundle(RTP_A, "Says"))
+        await world.signal(RemoteUpdate("now_playing", world.moved(item, artwork_path=None)))
         await _after_the_hold(world)
 
-        assert _shown(world.state())["title"] == "Says"
-        assert _shown(world.state())["artwork"] is not None
+        assert _shown(world.state())["artwork"] == shown
+        assert all(_rich(s) for s in world.published()[published:])
 
-    @pytest.mark.parametrize("offset_ms", [24, -32, -293, -565])
-    async def test_the_playing_tracks_cover_stays_whatever_its_stamp(self, world, offset_ms):
-        """E68. The picture's rtptime is where the sender was when it wrote
-        the request, not which track the picture is for: measured +24 ms on an
-        iPhone, -32 ms on a Mac, and on an iPhone playing Music -293 and -565 ms
-        from the tags of its own track. Paired with the tags by distance
-        (250 ms), the last two lost their cover 8 s into the track, and the
-        untrusted-sender gate took AudioPlayerFull off the screen for the rest
-        of it. Replayed through that gate over every published state, sent the
-        way the iPhone sends it: tags, the withdrawal, the picture 100 ms on."""
+    async def test_the_cover_is_held_while_the_next_one_is_in_flight(self, world):
+        """A new track names a new picture before it is written: the old cover
+        stays until it lands, and is replaced then."""
         await _on_air(world)
-        before = len(world.published())
+        await _plays(world, "Steam")
+        first = _shown(world.state())["artwork"]
+        published = len(world.published())
 
-        await world.send(*_bundle(RTP_A, "Says"), *withdrawal(RTP_A))
-        await world.advance(0.1)
-        await world.send(*_picture(RTP_A + _frames(offset_ms), _cover("navy")))
-        await _after_the_hold(world)
-
-        meta = _shown(world.state())
-        assert meta["title"] == "Says"
-        assert meta["artwork_width"] == 600, meta
-        published = world.published()[before:]
-        assert _rich(published[-1]), "the run never reached the player"
-        unmounts = [(a, b) for a, b in zip(published, published[1:]) if _rich(a) and not _rich(b)]
-        assert not unmounts, unmounts
-
-    async def test_tags_under_another_stamp_leave_the_cover_alone(self, world):
-        """A new track does not clear the cover — not in shairport-sync, and
-        not here: only the sender's withdrawal does. The pairing this replaced
-        asserted the opposite (a picture 23 s of stamp away from the tags was
-        another track's), which no threshold could tell from E68's 565 ms."""
-        await _on_air(world)
-        await world.send(*_picture(RTP_A, _cover("navy")))
-
-        await world.send(*_bundle(RTP_B, "Toilet Brush"))
-        await _after_the_hold(world)
-
-        assert _shown(world.state())["title"] == "Toilet Brush"
-        assert _shown(world.state())["artwork_width"] == 600
-
-    async def test_a_withdrawn_cover_goes_once_the_settle_runs_out(self, world):
-        """The withdrawal is the sender saying "no picture", and it is heard:
-        the cover stays for ARTWORK_SETTLE_SECONDS, in case a picture follows,
-        then goes in exactly one publish. Dropped by the reader, a withdrawal
-        left the cover on screen for as long as the sender stayed."""
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-
-        await world.send(*withdrawal(RTP_A))
-        await world.advance(ARTWORK_SETTLE_SECONDS - 0.5)
-        assert _shown(world.state())["artwork_width"] == 600, "withdrawn at once"
-        before = len(world.published())
+        await world.signal(RemoteUpdate("now_playing", world.item("Plasma", artwork_id="art-2")))
+        assert _shown(world.state())["artwork"] == first
         await world.advance(1)
+        await world.signal(RemoteUpdate("now_playing", world.item(
+            "Plasma", artwork_id="art-2", artwork_path=world.cover(png(color="teal"), "plasma"))))
 
-        meta = _shown(world.state())
-        assert meta["artwork"] is None and meta["artwork_width"] is None
-        assert world.source.get_artwork() is None
-        assert len(world.published()) == before + 1
+        assert _shown(world.state())["artwork"] not in (None, first)
+        assert all(s["session"]["artwork"] for s in world.published()[published:])
 
-    async def test_a_track_that_sends_no_cover_shows_none(self, world):
-        """The defect a cover that outlives its track would be: the full-screen
-        player drawing the previous track's sleeve for the whole of this one.
-        A coverless track is announced by the withdrawal alone, and the settle
-        ends — a hold that never expired would be that bug again."""
+    async def test_a_new_picture_that_never_comes_removes_the_cover(self, world):
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Steam")
 
-        await world.send(*_bundle(RTP_B, "Toilet Brush"), *withdrawal(RTP_B))
-        await _after_the_hold(world)
+        await world.signal(RemoteUpdate("now_playing", world.item("Plasma", artwork_id="art-2")))
+        await world.advance(ARTWORK_SETTLE_SECONDS - 1)
+        assert _shown(world.state())["artwork"]
+        await world.advance(2)
 
-        meta = _shown(world.state())
-        assert meta["title"] == "Toilet Brush"
-        assert meta["artwork"] is None
-        assert meta["artwork_width"] is None
-
-    async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, world):
-        """A track change must not blank the cover for the 89-126 ms between
-        the withdrawal and the picture that follows it (iPhone, measured).
-
-        Publishing that gap sends a state with no `artwork`, and
-        `useRichDisplay`'s untrusted-sender gate reads a missing
-        `artwork_width` as "no real cover from this sender": AudioPlayerFull is
-        swapped for the AudioSourceStatus card and back, which is visible as
-        the player animating itself out and in. Asserted over every published
-        state, and past the settle: the picture disarmed it.
-        """
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        before = len(world.published())
-
-        await world.send(*_bundle(RTP_B, "Toilet Brush"), *withdrawal(RTP_B))
-        await world.advance(0.1)
-        await world.send(*_picture(RTP_B, _cover("crimson", size=450)))
-        await _after_the_hold(world)
-
-        published = world.published()[before:]
-        assert published, "the track change published nothing to judge"
-        assert all(_shown(m)["artwork_width"] for m in published), published
-        assert _shown(world.state())["title"] == "Toilet Brush"
-        assert _shown(world.state())["artwork_width"] == 450
-
-    async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, world):
-        """The mirror of the test above: the picture can be the one that
-        arrives first, while the title on screen is still the previous
-        track's. Asserted over every published state, not the last one: the
-        last one was always right, which is how the pairing's version of this
-        flicker survived the fix that named it."""
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        before = len(world.published())
-
-        await world.send(*withdrawal(RTP_B), *_picture(RTP_B, _cover("crimson", size=450)))
-        await world.send(*_bundle(RTP_B, "Toilet Brush"))
-
-        published = world.published()[before:]
-        assert published, "the track change published nothing to judge"
-        assert all(_shown(m)["artwork_width"] for m in published), published
-        assert _shown(world.state())["title"] == "Toilet Brush"
-        assert _shown(world.state())["artwork_width"] == 450
+        assert _shown(world.state())["artwork"] is None
+        assert _shown(world.state())["artwork_width"] is None
 
     async def test_two_tracks_off_one_album_keep_their_cover(self, world):
-        """The same image byte for byte, so the dedupe short-circuits — and it
-        must still answer the withdrawal before it, or the album's cover goes
-        8 s into its second track. Asserted after the settle for that reason."""
+        """The same picture written again (a Mac names the file by its md5,
+        so the path is the same; an iPhone writes it anew): nothing to publish."""
         await _on_air(world)
-        sleeve = _cover("navy")
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
-        first = _shown(world.state())["artwork"]
+        await _plays(world, "Steam")
+        cover = _shown(world.state())["artwork"]
 
-        await world.send(*_bundle(RTP_B, "Says (Live)"), *withdrawal(RTP_B))
-        await world.advance(0.1)
-        await world.send(*_picture(RTP_B, sleeve))
-        await _after_the_hold(world)
+        await world.publishes(world.item("L.A.D.Y", artwork_id="art-2"), world.cover(name="again"))
 
-        assert _shown(world.state())["title"] == "Says (Live)"
-        assert _shown(world.state())["artwork"] == first
+        assert _shown(world.state())["artwork"] == cover
 
-    async def test_the_same_image_re_sent_inside_a_track_publishes_nothing(self, world):
-        """An iPhone re-sends its cover, withdrawal first, up to three times
-        inside one track (measured), each under wherever its playhead was by
-        then. None of it changes what is shown, so none of it reaches the wire
-        — not at once, and not when a settle would have run out."""
+    async def test_a_track_that_sends_no_cover_shows_none(self, world):
         await _on_air(world)
-        sleeve = _cover("navy")
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, sleeve))
-        marker = len(world.recorder.envelopes)
+        await _plays(world, "Energy", cover=False)
 
-        for seconds_in in (30, 60):
-            await world.advance(30)
-            stamp = RTP_A + seconds_in * SAMPLE_RATE
-            await world.send(*withdrawal(stamp))
-            await world.advance(0.1)
-            await world.send(*_picture(stamp, sleeve))
-        await _after_the_hold(world)
-
-        assert world.recorder.envelopes[marker:] == []
-        assert _shown(world.state())["artwork_width"] == 600
-
-    async def test_a_new_sender_starts_with_no_cover(self, world):
-        """A session owns its cover (E19): only a withdrawal removes one, so a
-        cover kept on the source rather than on the session would stand over
-        the next sender until that sender happened to push its own."""
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-        await world.leaves(PHONE)
-
-        await world.connects(MAC, "Mac mini de Léo")
         assert _shown(world.state())["artwork"] is None
         assert world.source.get_artwork() is None
-        await world.send(*_bundle(RTP_B, "Toilet Brush"), *_picture(RTP_B, _cover("crimson", size=450)))
 
-        assert _shown(world.state())["senders"] == ["Mac mini de Léo"]
-        assert _shown(world.state())["artwork_width"] == 450
-
-    async def test_a_bundle_under_a_new_stamp_owns_every_tag(self, world):
-        """Nothing belonging to the previous track is published as this one's.
-
-        A bundle carries only the DAAP tags the sender put in it, so a track
-        sent without an `asar` used to be published wearing the previous
-        track's artist — under the right title, for the whole of it. The stamp
-        settles it: a new one is a different track and owns its absences too.
-        The status card is then the right screen, and it is the one the gate
-        already picks for a sender that publishes a bare title.
-        """
+    async def test_a_picture_file_that_is_gone_is_no_cover(self, world, caplog):
+        """shairport-sync deletes a track's picture once played: a path read
+        too late is no cover, not an error that stops the feed."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says", artist="Nils Frahm"))
+        with caplog.at_level(logging.WARNING, logger=world.source._logger.name):
+            await world.publishes(world.item("Steam"), str(world.covers / "missing.png"))
 
-        await world.send(*_bundle(RTP_B, "Untitled recording", artist=None))
+        assert _shown(world.state())["title"] == "Steam"
+        assert _shown(world.state())["artwork"] is None
+        assert any("unreadable" in r.message for r in caplog.records)
 
-        assert _shown(world.state())["title"] == "Untitled recording"
-        assert not _shown(world.state())["artist"]
-
-    async def test_a_bundle_under_the_stamp_on_screen_amends_it(self, world):
-        """The other half of the same rule, and what stops it stripping a track
-        that is already right: a bundle re-sent under the stamp on screen is an
-        amendment to that track, not a new one, so the tags it does not carry
-        stay as they were."""
+    async def test_a_new_tracks_unreadable_picture_does_not_keep_the_old_cover(self, world):
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says", artist="Nils Frahm"))
+        await _plays(world, "Steam")
 
-        await world.send(*_bundle(RTP_A, "Says", artist=None))
-
-        assert _shown(world.state())["artist"] == "Nils Frahm"
-
-    async def test_a_sender_without_rtp_info_keeps_what_it_had(self, world):
-        """shairport-sync tolerates a sender that sends no RTP-Info and sends
-        mdst/pcst empty: every bundle then amends the track on screen, and the
-        cover, which no stamp ever decided, stays until it is withdrawn."""
-        await _on_air(world)
-        await world.send(*_bundle(None, "Says"), *_picture(None, _cover("navy")))
-
-        await world.send(*_bundle(None, "Toilet Brush"))
+        await world.publishes(world.item("Plasma", artwork_id="art-2"), str(world.covers / "gone.png"))
         await _after_the_hold(world)
 
-        assert _shown(world.state())["title"] == "Toilet Brush"
-        assert _shown(world.state())["artwork"] is not None
+        assert _shown(world.state())["artwork"] is None
+
+    async def test_a_new_sender_starts_with_no_cover(self, world):
+        await _on_air(world)
+        await _plays(world, "Steam")
+
+        await world.leaves(PHONE)
+        await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+
+        assert _shown(world.state())["artwork"] is None
+        assert world.source.get_artwork() is None
 
 
-class TestSessionControl:
-    """What moves the phase: a Buffered stream's first frame, its `paus`/`pres`,
-    and the stream ending. The session model's own scenarios — pauses timing
-    out, skips, Realtime streams — live in test_airplay_sessions.py."""
+class TestThePhase:
+    """The phase comes from the pipe's stream facts and the item's rate
+    (see the source's docstring for the measurements)."""
 
     async def test_a_stream_is_loading_until_its_first_frame(self, world):
         """`pbeg` opens the stream; sound arrives at `pffr`, and `styp` says
@@ -471,13 +368,12 @@ class TestSessionControl:
         assert world.phase() == "playing"
 
     async def test_a_flush_neither_pauses_nor_freezes_the_playhead(self, world):
-        """E54, inverted from the test this file used to carry. `pfls` (a flush)
-        was read as a pause: it stopped the playback and froze the position under
-        a sender that never paused, and armed the auto-stop behind it. It never
-        appeared in the 2026-09-23 measurements and is no longer read: the
-        session plays on, and its anchor keeps moving."""
+        """E54. `pfls` (a flush) was read as a pause: it stopped the playback
+        and froze the position under a sender that never paused, and armed the
+        auto-stop behind it. It is not read: the session plays on, and its
+        anchor keeps moving."""
         await _on_air(world)
-        await world.send(_progress(0, 30, 300))
+        await _plays(world, "Says", elapsed_s=30, length_s=300)
 
         await world.send(ssnc("pfls", b"12345"))
         await world.advance(OLD_TICK_SECONDS)
@@ -498,6 +394,350 @@ class TestSessionControl:
         assert _shown(world.state())["senders"] == ["iPhone de Léo"]
         assert world.phase() == "paused"
 
+    async def test_an_item_at_rate_zero_is_a_pause_on_any_stream(self, world):
+        await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+        await world.realtime_plays()
+        assert world.phase() == "playing"
+
+        await world.realtime_pauses()
+
+        assert world.phase() == "paused"
+
+    async def test_a_rate_zero_stamped_before_the_resume_is_history(self, world):
+        """iPhone Music's pause report lands with its resume, stamped at the
+        pause (measured: 3 s late, 11 ms before the rate-1 one)."""
+        await _on_air(world)
+        item = await _plays(world, "Steam")
+        await world.pauses()
+        await world.advance(3)
+        stale = world.moved(item, rate=0.0, at=item.at + 1)
+
+        await world.send(ssnc("pres"))
+        await world.signal(RemoteUpdate("now_playing", stale))
+
+        assert world.phase() == "playing"
+
+    async def test_realtime_with_no_item_is_connected(self, world):
+        await world.connects(MAC, "Mac mini de Léo", frozenset())
+        await world.realtime_plays(title=None)
+
+        assert world.phase() == "connected"
+
+
+class TestThePlayhead:
+    """The item's ElapsedTime at Timestamp, moving at PlaybackRate, is an
+    anchor already: what is published is where it puts the playhead now."""
+
+    async def test_the_item_becomes_a_position_and_a_duration_in_ms(self, world):
+        await _on_air(world)
+        await _plays(world, "Says", elapsed_s=30, length_s=300)
+
+        # 20 ms on: the item's re-send with its picture, as measured.
+        assert abs(world.position_ms() - 30_020) <= 5
+        assert world.session()["duration_ms"] == 300_000
+
+    async def test_an_item_stamped_earlier_is_carried_to_now(self, world):
+        """The sender's report is about when it sent it."""
+        await _on_air(world)
+        item = world.item("Says", elapsed_s=30, length_s=300)
+        await world.advance(2.5)
+
+        await world.signal(RemoteUpdate("now_playing", item))
+
+        assert abs(world.position_ms() - 32_500) <= 10
+
+    async def test_the_position_moves_while_the_track_plays(self, world):
+        await _on_air(world)
+        await _plays(world, "Says", elapsed_s=30, length_s=300)
+
+        await world.advance(OLD_TICK_SECONDS)
+
+        assert abs(world.position_ms() - (30_020 + OLD_TICK_SECONDS * 1000)) <= 5
+
+    async def test_a_report_that_only_confirms_the_playhead_is_not_broadcast(self, world):
+        """Every item update carries the playhead; within the tolerance it is
+        the same playhead, and a position event per update would be noise."""
+        await _on_air(world)
+        item = await _plays(world, "Says", elapsed_s=30, length_s=300)
+        await world.advance(OLD_TICK_SECONDS)
+        since = len(world.recorder.envelopes)
+
+        drift = (POSITION_TOLERANCE_MS - 500) / 1000
+        await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=int(
+            (30 + OLD_TICK_SECONDS + drift) * 1000))))
+
+        assert _pushes(world, since) == []
+
+    async def test_a_seek_on_the_sender_is_broadcast_at_once(self, world):
+        await _on_air(world)
+        item = await _plays(world, "Says", elapsed_s=30, length_s=300)
+        since = len(world.recorder.envelopes)
+
+        await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=120_000)))
+
+        assert world.position_ms() == 120_000
+        assert _pushes(world, since), "a seek reached the wire only with the next state"
+
+    async def test_a_new_track_starts_its_own_playhead(self, world):
+        await _on_air(world)
+        await _plays(world, "Says", elapsed_s=200, length_s=300)
+
+        await _plays(world, "Next", elapsed_s=0.5, length_s=200)
+
+        assert abs(world.position_ms() - 520) <= 5
+
+    async def test_a_paused_playhead_stands_still(self, world):
+        await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+        await world.realtime_plays()
+        await world.advance(10)
+        await world.realtime_pauses()
+        stopped = world.position_ms()
+
+        await world.advance(30)
+
+        assert world.position_ms() == stopped
+
+    async def test_a_resume_does_not_play_the_pause_into_the_playhead(self, world):
+        """iPhone Music resumes with the item it had before its pause (its
+        pause report comes after): carried forward, it put the playhead a whole
+        pause ahead, then back, on every resume."""
+        await _on_air(world)
+        await _plays(world, "Says", elapsed_s=30, length_s=300)
+        await world.advance(10)
+        await world.pauses()
+        stopped = world.position_ms()
+        await world.advance(60)
+        published = len(world.published())
+
+        await world.resumes()
+
+        positions = [s["session"]["position"]["ms"] for s in world.published()[published:]]
+        assert positions and max(positions) <= stopped + 1000
+        assert abs(world.position_ms() - stopped) <= 1000
+
+    async def test_no_position_is_pushed_on_a_timer(self, world):
+        """The old source re-published the playhead every 10 s."""
+        await _on_air(world)
+        await _plays(world, "Says", elapsed_s=30, length_s=300)
+        since = len(world.recorder.envelopes)
+
+        await world.advance(5 * OLD_TICK_SECONDS)
+
+        assert _pushes(world, since) == []
+
+
+class TestTheTransport:
+    """The commands go to the sender; `controls` lists what it says it takes
+    (CommandInformation), and the state follows what it then reports."""
+
+    async def test_an_iphone_playing_lists_pause_steps_and_modes(self, world):
+        await _on_air(world)
+        await _plays(world, "Steam")
+
+        assert world.controls() == ["pause", "next", "prev", "set_shuffle", "set_repeat"]
+
+    async def test_a_paused_sender_lists_resume(self, world):
+        await _on_air(world)
+        await world.pauses()
+
+        assert world.controls()[0] == "resume"
+
+    async def test_spotify_lists_the_modes_by_their_set_commands(self, world):
+        """Spotify lists 25/26 (set shuffle / set repeat), not 6/7."""
+        await world.connects(PHONE, "iPhone de Léo", SPOTIFY_COMMANDS)
+        await world.realtime_plays("oh my love")
+
+        assert world.controls() == ["pause", "next", "prev", "set_shuffle", "set_repeat"]
+
+    async def test_a_sender_that_lists_nothing_gets_no_buttons(self, world):
+        await world.connects(MAC, "Mac mini de Léo", frozenset())
+        await world.realtime_plays(title=None)
+
+        assert world.controls() == []
+
+    async def test_a_sender_that_lists_only_the_toggle_gets_both_sides(self, world):
+        await _on_air(world, commands=frozenset({2}))
+        assert world.controls() == ["pause"]
+        await world.pauses()
+        assert world.controls() == ["resume"]
+
+    @pytest.mark.parametrize("cmd, member", [
+        ("pause", "Pause"), ("resume", "Play"), ("next", "Next"), ("prev", "Previous"),
+    ])
+    async def test_each_transport_command_is_asked_of_the_sender(self, world, cmd, member):
+        await _on_air(world)
+        await _plays(world, "Steam")
+
+        result = await world.command(cmd)
+
+        assert result["success"] is True
+        assert world.requests[-1] == member
+
+    async def test_the_modes_are_asked_of_the_sender_and_shown_from_its_echo(self, world):
+        await _on_air(world)
+        await _plays(world, "Steam")
+
+        await world.command("set_shuffle", {"shuffle": True})
+        await world.command("set_repeat", {"mode": "track"})
+
+        assert ("shuffle", True) in world.requests and ("repeat", "track") in world.requests
+        assert world.details()["shuffle"] is True and world.details()["repeat"] == "track"
+
+    async def test_the_modes_shown_are_the_senders_own(self, world):
+        """A mode changed on the phone reaches Milō's buttons."""
+        await _on_air(world)
+        await world.signal(RemoteUpdate("shuffle", True), RemoteUpdate("repeat", "context"))
+
+        assert world.details()["shuffle"] is True and world.details()["repeat"] == "context"
+
+    async def test_a_toggle_only_sender_is_sent_the_toggle(self, world):
+        """Pause and Play are commands 1 and 0: a sender that lists only 2 never
+        said it takes them, and shairport-sync answers success either way."""
+        await _on_air(world, commands=frozenset({2}))
+
+        await world.command("pause")
+
+        assert world.requests[-1] == "PlayPause"
+
+    async def test_a_sender_leaving_takes_its_modes_with_it(self, world):
+        """shairport-sync never writes the modes itself: the next sender's
+        buttons showed the previous one's shuffle."""
+        await _on_air(world)
+        await world.signal(RemoteUpdate("shuffle", True), RemoteUpdate("repeat", "track"))
+
+        await world.leaves(PHONE)
+        await world.send(ssnc("conn", MAC.encode()))
+
+        assert world.details()["shuffle"] is False and world.details()["repeat"] == "off"
+
+    async def test_a_takeover_before_the_late_goodbye_shows_nothing_of_the_previous_sender(self, world):
+        await _on_air(world)
+        await _plays(world, "Steam")
+
+        await world.send(ssnc("conn", MAC.encode()), ssnc("snam", b"Mac mini"))
+
+        assert _shown(world.state())["title"] is None and world.controls() == []
+
+    async def test_a_request_shairport_sync_refuses_is_a_failed_command(self, world):
+        await _on_air(world)
+        world.remote_answers = False
+
+        result = await world.command("next")
+
+        assert result["success"] is False
+
+    async def test_a_command_with_no_session_is_refused_and_never_sent(self, world):
+        result = await world.command("pause")
+
+        assert result["success"] is False
+        assert world.requests == []
+
+    async def test_without_d_bus_the_sender_still_plays_with_no_controls(self, monkeypatch, tmp_path):
+        """Fail open: D-Bus unavailable costs the item and the commands, not the audio."""
+        world = AirPlayWorld(monkeypatch, tmp_path)
+        world.remote_unreachable = True
+        try:
+            await world.select()
+            await _on_air(world)
+            assert world.playing() and world.controls() == []
+            assert (await world.command("next"))["success"] is False
+        finally:
+            await world.source.shutdown()
+
+
+class TestTheVolume:
+    """One level on both sliders: the sender's moves Milō's, Milō's — whoever
+    moved it — moves the sender's. CamillaDSP stays the only attenuation."""
+
+    @pytest.fixture
+    def volume(self, world):
+        volume = _Volume(volume_db=-50.0)
+        world.source.set_volume_service(volume)
+        return volume
+
+    async def test_a_sender_arriving_is_put_at_milos_level(self, world, volume):
+        """The first frame: Milō's level wins, the sender's slider follows."""
+        await _on_air(world)
+
+        level = volume.volume_config.normalize(-50.0)
+        assert _slider_volumes(world) == [pytest.approx(-30.0 * (1 - level))]
+        assert volume.sets == []
+
+    async def test_the_senders_own_level_on_arrival_is_ignored(self, world, volume):
+        """A Mac reports a ramp to its own level as it connects (measured
+        2026-10-16): taken as a move, it would set the whole house's volume
+        to whatever the Mac last had."""
+        await _on_air(world)
+        await world.moves_its_slider(-5.0)
+
+        assert volume.sets == []
+
+    async def test_the_senders_slider_moves_milos_volume(self, world, volume):
+        await _on_air(world)
+        await world.advance(VOLUME_HOLD_S + 1)
+
+        await world.moves_its_slider(-6.0)
+
+        assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
+
+    async def test_milos_move_comes_back_from_the_sender_without_an_echo(self, world, volume):
+        """shairport-sync writes the level Milō set back on D-Bus; read as the
+        sender's move, it would set Milō's volume to itself, and round."""
+        await _on_air(world)
+        await world.advance(VOLUME_HOLD_S + 1)
+
+        volume.moved_in_milo(-30.0)
+        await world.advance(0)
+
+        assert volume.sets == []
+        assert _slider_volumes(world)[-1] == pytest.approx(-30.0 * (1 - volume.volume_config.normalize(-30.0)))
+
+    async def test_the_senders_move_is_not_sent_back_to_it(self, world, volume):
+        await _on_air(world)
+        await world.advance(VOLUME_HOLD_S + 1)
+        sent = len(_slider_volumes(world))
+
+        await world.moves_its_slider(-6.0)
+
+        assert len(_slider_volumes(world)) == sent
+
+    async def test_a_mute_in_milo_mutes_the_senders_slider(self, world, volume):
+        await _on_air(world)
+
+        volume.moved_in_milo(-50.0, muted=True)
+        await world.advance(0)
+
+        assert _slider_volumes(world)[-1] == -144.0
+
+    async def test_milos_mute_written_back_leaves_the_volume_alone(self, world, volume):
+        """shairport-sync writes the -144 Milō sent back on D-Bus: read as the
+        sender's slider at 0, it put the whole house at the floor."""
+        await _on_air(world)
+        await world.advance(VOLUME_HOLD_S + 1)
+
+        volume.moved_in_milo(-50.0, muted=True)
+        await world.advance(0)
+
+        assert _slider_volumes(world)[-1] == -144.0
+        assert volume.sets == []
+
+    async def test_a_knob_turn_moves_the_slider_once(self, world, volume):
+        """A turn is dozens of volume states; the slider goes to the last."""
+        await _on_air(world)
+        sent = len(_slider_volumes(world))
+
+        for volume_db in (-48.0, -46.0, -44.0, -42.0):
+            volume.moved_in_milo(volume_db)
+        await world.advance(0)
+
+        level = volume.volume_config.normalize(-42.0)
+        assert _slider_volumes(world)[sent:] == [pytest.approx(-30.0 * (1 - level))]
+
+    async def test_no_sender_no_volume_traffic(self, world, volume):
+        volume.moved_in_milo(-30.0)
+        await world.advance(0)
+
+        assert _slider_volumes(world) == []
 
 class TestConnectionEvents:
     """`conn`/`disc` are AirPlay 2's own events, sent as soon as a client picks
@@ -517,7 +757,7 @@ class TestConnectionEvents:
         """Anything left behind is what the next sender inherits: the previous
         phone's track and cover on screen before it has sent its own."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Says")
         assert _shown(world.state())["title"] == "Says"
         assert world.source.get_artwork() is not None
 
@@ -542,7 +782,7 @@ class TestConnectionEvents:
         await world.says_goodbye(PHONE)
         await world.connects(MAC, "Mac mini de Léo")
         await world.send(ssnc("pbeg"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Says")
 
         await world.says_goodbye(PHONE)
 
@@ -558,7 +798,7 @@ class TestConnectionEvents:
         trade that keeps a sender shairport reports no address for from holding
         the source ACTIVE for ever."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"))
+        await _plays(world, "Says", cover=False)
 
         await world.send(ssnc("disc"))
 
@@ -572,6 +812,7 @@ class TestConnectionEvents:
 
         assert world.active()
         assert _shown(world.state())["senders"] == ["Mac mini de Léo"]
+
 
 
 class TestTheDaemonDyingUnderTheSession:
@@ -592,7 +833,7 @@ class TestTheDaemonDyingUnderTheSession:
         """The track and the cover go with it: left on the wire they are what
         the lock screen keeps drawing over a daemon that no longer holds them."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Says")
 
         await world.kill_daemon()
 
@@ -624,11 +865,11 @@ class TestTheDaemonDyingUnderTheSession:
         """`conn` is not guaranteed first, or at all.
 
         Two other messages open a session — the client name and a stream
-        beginning (tags or a cover with no session are leftovers of one that
-        ended). If only `conn` bound the session to its daemon, a session
+        beginning (an item with no session is a leftover of one that ended). If only `conn` bound the session to its daemon, a session
         opened by either would never learn the daemon died.
         """
-        await world.send(ssnc("pbeg"), *_bundle(RTP_A, "Says"))
+        await world.send(ssnc("pbeg"))
+        await _plays(world, "Says", cover=False)
         assert world.active()
 
         await world.kill_daemon()
@@ -658,7 +899,7 @@ class TestTheDaemonDyingUnderTheSession:
         daemon runs through tick after tick, so a guard that fired wrongly would
         tear it down every OLD_TICK_SECONDS."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), _progress(0, 30, 300))
+        await _plays(world, "Says", cover=False, elapsed_s=30, length_s=300)
 
         await world.advance(5 * OLD_TICK_SECONDS)
 
@@ -679,185 +920,11 @@ class TestTheDaemonDyingUnderTheSession:
         assert world.errors() == []
 
 
-class TestProgress:
-    """`prgr` carries three RTP frame counts. It arrives every 5-15 s, not
-    continuously, so what is published is an anchor: where the playhead was,
-    and when."""
-
-    async def test_a_snapshot_becomes_a_position_and_a_duration_in_ms(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-
-        assert world.session()["duration_ms"] == 300_000
-        assert abs(world.position_ms() - 30_000) < 50
-
-    async def test_a_track_that_does_not_start_at_zero_is_measured_from_its_start(self, world):
-        """`start` is the track's own first frame, not the session's: a stream
-        running for an hour has huge frame counts, and reading `current` as an
-        absolute would show the position as the session's age."""
-        await _on_air(world)
-        await world.send(_progress(3600, 3610, 3900))
-
-        assert world.session()["duration_ms"] == 300_000
-        assert abs(world.position_ms() - 10_000) < 50
-
-    async def test_a_snapshot_that_makes_no_sense_is_ignored(self, world):
-        """`end <= start` is a zero-length track; taken at face value it makes
-        the duration 0 and every position clamp to it."""
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-
-        await world.send(_progress(500, 500, 500))
-
-        assert world.session()["duration_ms"] == 300_000
-
-    async def test_a_jump_is_broadcast_at_once(self, world):
-        """A track change or a seek is an arbitrarily large move that the
-        clients' local interpolation cannot guess."""
-        await _on_air(world)
-        await world.send(_progress(0, 0, 300))
-        marker = len(world.recorder.envelopes)
-
-        await world.send(_progress(0, 200, 300))
-
-        pushed = _pushes(world, marker)
-        assert len(pushed) == 1
-        assert pushed[0]["position"]["ms"] > 199_000
-        assert world.position_ms() > 199_000
-
-    async def test_a_snapshot_that_only_confirms_the_interpolation_is_not_broadcast(self, world):
-        """A sender that emits `prgr` often would otherwise flood every
-        connected client with values they had already worked out."""
-        await _on_air(world)
-        await world.send(_progress(0, 100, 300))
-        marker = len(world.recorder.envelopes)
-
-        within = (POSITION_TOLERANCE_MS / 1000) / 2
-        await world.send(_progress(0, 100 + within, 300))
-
-        assert _pushes(world, marker) == []
-        assert world.recorder.envelopes[marker:] == []
-
-    async def test_the_position_moves_while_the_track_plays(self, world):
-        """`prgr` is 5-15 s apart, so between two of them the position has to be
-        derived from the clock or the bar stops: the anchor a playing session
-        publishes moves at rate 1."""
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        taken = world.position_ms()
-
-        await world.advance(OLD_TICK_SECONDS)
-
-        assert world.session()["position"]["rate"] == 1.0
-        assert world.position_ms() - taken >= OLD_TICK_SECONDS * 1000 - 100
-
-    async def test_a_paused_position_keeps_what_it_had_aged_to(self, world):
-        """The clock is moved on between the snapshot and the pause on purpose:
-        with the two at the same instant, a freeze that forgot to bank the aged
-        value would look identical to one that banked it."""
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        await world.advance(5)                   # five seconds of playing
-
-        await world.pauses()
-
-        frozen = world.position_ms()
-        assert frozen >= 34_900, f"the pause discarded the five seconds that had played: {frozen} ms"
-        marker = len(world.recorder.envelopes)
-        await world.advance(30)
-        await world.send(ssnc("snam", "iPhone de Léo".encode()))   # any publish
-        assert world.position_ms() == frozen
-        assert _pushes(world, marker) == []
-
-    async def test_playing_again_resumes_ageing_from_the_frozen_point(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        await world.pauses()
-        frozen = world.position_ms()
-        await world.advance(30)
-
-        await world.resumes()
-
-        resumed = world.position_ms()
-        assert frozen <= resumed < frozen + 1000, "resuming restarted or skipped the track"
-        await world.advance(OLD_TICK_SECONDS)
-        assert world.position_ms() > resumed + 5_000, "the playhead stayed frozen"
-
-    async def test_a_snapshot_taken_while_paused_does_not_start_ageing(self, world):
-        await _on_air(world)
-        await world.pauses()
-        await world.send(_progress(0, 30, 300))
-        taken = world.position_ms()
-
-        await world.advance(30)
-        await world.send(ssnc("snam", "iPhone de Léo".encode()))   # any publish
-
-        assert world.position_ms() == taken == 30_000
-
-    async def test_a_malformed_progress_payload_is_ignored(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-
-        await world.send(ssnc("prgr", b"not/a/number"))
-
-        assert world.session()["duration_ms"] == 300_000
-        assert world.playing()
-
-    async def test_a_progress_payload_of_the_wrong_shape_is_ignored(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-
-        await world.send(ssnc("prgr", b"12345"))
-
-        assert world.session()["duration_ms"] == 300_000
-        assert world.playing()
-
-
-class TestNoPositionTicker:
-    """The old source re-published the aged playhead every 10 s so that a new
-    connection's initial state was never more than 10 s stale. The anchor
-    replaces it: any client computes the playhead from the state it is handed,
-    so a steady playhead puts nothing on the wire."""
-
-    async def test_a_new_client_reads_the_playhead_where_it_is(self, world):
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        marker = len(world.recorder.envelopes)
-
-        await world.advance(2 * OLD_TICK_SECONDS)
-
-        assert world.recorder.envelopes[marker:] == [], "a steady playhead was broadcast"
-        assert abs(world.position_ms() - (30_000 + 2 * OLD_TICK_SECONDS * 1000)) < 50
-
-    async def test_a_track_of_unknown_length_has_no_playhead(self, world):
-        """A sender that never sends `prgr` leaves the duration unknown;
-        publishing a playhead would seed every client's bar with a zero-length
-        track."""
-        await _on_air(world)
-
-        await world.advance(6 * OLD_TICK_SECONDS)
-
-        assert world.session()["position"] is None
-        assert world.session()["duration_ms"] is None
-        assert world.positions() == []
-
-    async def test_a_stopped_source_pushes_no_position(self, world):
-        """A playhead broadcast for a source that is no longer selected moves
-        a bar nobody should see."""
-        await _on_air(world)
-        await world.send(_progress(0, 30, 300))
-        await world.leave()
-        marker = len(world.recorder.envelopes)
-
-        await world.advance(6 * OLD_TICK_SECONDS)
-
-        assert _pushes(world, marker) == []
-
 
 class TestTheWireFormat:
     """The reader parses what rtsp.c writes. Its refusals matter because a
     malformed item must not take the reader down with it — the loop that feeds
-    it is the only thing that ever hears from the sender."""
+    it is the only thing that ever hears of the session."""
 
     async def test_an_item_missing_its_code_is_dropped(self):
         heard = _Collector()
@@ -870,16 +937,14 @@ class TestTheWireFormat:
         assert heard.kinds() == ["stream_begin"], "a malformed item stopped the stream"
 
     async def test_a_declared_length_of_zero_means_no_payload(self):
-        """rtsp.c writes `<length>0</length>` and no data element when the
-        sender gave it no rtptime — that is how an un-stamped bundle arrives."""
+        """A `conn` with no address (rtsp.c writes `<length>0</length>` and no
+        data element) still opens a session."""
         heard = _Collector()
         reader = MetadataReader("/nonexistent", on_event=heard)
 
-        await reader._process_buffer("".join(_item(*i) for i in _bundle(None, "Says")).encode())
+        await reader._process_buffer(_item("ssnc", "conn").encode())
 
-        assert heard.kinds() == ["tags"]
-        assert heard.events[0].value["title"] == "Says"
-        assert heard.events[0].rtptime is None
+        assert [(e.kind, e.value) for e in heard.events] == [("conn", None)]
 
     async def test_a_payload_that_is_not_base64_is_treated_as_absent(self):
         """A client name whose payload does not decode carries nothing, and the
@@ -918,57 +983,23 @@ class TestTheWireFormat:
         assert heard.kinds() == ["client_name"]
         assert heard.events[0].value == "Mac mini de Léo"
 
-    async def test_the_tags_a_sender_can_send_all_land(self, world):
-        await _on_air(world)
-
-        await world.send(
-            ssnc("mdst", _stamp(RTP_A)),
-            ("core", "minm", b"Says"),
-            ("core", "asar", b"Nils Frahm"),
-            ("core", "asal", b"Spaces"),
-            ("core", "asgn", b"Modern Classical"),
-            ssnc("mden", _stamp(RTP_A)),
-        )
-
-        meta = _shown(world.state())
-        assert meta["title"] == "Says"
-        assert meta["artist"] == "Nils Frahm"
-        assert meta["album"] == "Spaces"
-
-    async def test_a_bundle_that_gathered_nothing_is_not_published_as_a_track(self, world):
-        """An empty mdst/mden pair is routine. What it must not do is replace
-        the track on screen: published as a bundle under its new rtptime, it
-        would own all three tags and strip them for the rest of the track."""
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"))
-
-        await world.send(ssnc("mdst", _stamp(RTP_B)), ssnc("mden", _stamp(RTP_B)))
-
-        assert _shown(world.state())["title"] == "Says"
-        assert _shown(world.state())["artist"] == "Nils Frahm"
-
-    async def test_a_picture_of_sixteen_bytes_or_less_is_the_sender_withdrawing_it(self):
-        """shairport-sync keeps a picture only when it is longer than 16 bytes
-        (metadata/hub.c) and clears the cover otherwise; an iPhone sends an
-        empty one before every picture. Dropped as "no data", the withdrawal
-        never reached the source."""
+    async def test_the_raw_plists_and_the_old_metadata_are_not_events(self):
+        """5.6 writes the sender's item raw (`copl`, and a picture inside one
+        can be hundreds of kB) — it is read decoded over D-Bus instead, so the
+        reader passes over it, and over the 5.5 `core`/`PICT`/`prgr` a classic
+        sender may still produce."""
         heard = _Collector()
         reader = MetadataReader("/nonexistent", on_event=heard)
 
-        await reader._process_buffer("".join(
-            _item(*i) for i in (ssnc("PICT"), ssnc("PICT", b"x" * 16), ssnc("PICT", b"x" * 17))
-        ).encode())
+        await reader._process_buffer("".join([
+            _item("ssnc", "copl", b"bplist00" + b"x" * 4096),
+            _item("core", "minm", b"Says"),
+            _item("ssnc", "PICT", b"x" * 64),
+            _item("ssnc", "prgr", b"1/2/3"),
+            _item("ssnc", "pbeg"),
+        ]).encode())
 
-        assert heard.kinds() == ["artwork_withdrawn", "artwork_withdrawn", "artwork"]
-        assert heard.events[2].value == b"x" * 17
-
-    async def test_a_picture_with_no_bytes_is_not_published_as_a_cover(self, world):
-        await _on_air(world)
-
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, None))
-
-        assert world.source.get_artwork() is None
-        assert _shown(world.state())["artwork"] is None
+        assert heard.kinds() == ["stream_begin"]
 
 
 class TestTheReadLoop:
@@ -1143,31 +1174,9 @@ class TestTheMetadataPipe:
             await world.source.shutdown()
 
 
-class TestArtworkHandoff:
-    async def test_the_cover_is_served_with_the_type_it_arrived_as(self, world):
-        await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
-
-        data, mime = world.source.get_artwork()
-
-        assert data[:8] == b"\x89PNG\r\n\x1a\n"
-        assert mime == "image/png"
-
-    async def test_a_jpeg_cover_is_labelled_jpeg(self, world):
-        await _on_air(world)
-        jpeg = b"\xff\xd8\xff\xe0" + b"J" * 2048
-
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, jpeg))
-
-        assert world.source.get_artwork()[1] == "image/jpeg"
-
-    async def test_no_cover_yet_is_no_answer_at_all(self, world):
-        await _on_air(world)
-        assert world.source.get_artwork() is None
-
 
 class TestTheArtworkRoute:
-    """`GET /api/airplay/artwork` — the cover the pipe delivered, served to the
+    """`GET /api/airplay/artwork` — the cover shairport-sync wrote, served to the
     player. `session.artwork` points at it with a `?v=<hash>` so the
     browser refetches exactly when the bytes change.
     """
@@ -1183,7 +1192,7 @@ class TestTheArtworkRoute:
 
     async def test_the_cover_is_served_with_the_type_it_arrived_as(self, world):
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Says")
 
         resp = self._client(world.source).get(_shown(world.state())["artwork"])
 
@@ -1196,7 +1205,7 @@ class TestTheArtworkRoute:
         change; `private` keeps a shared proxy from serving one household's
         cover to another."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Says")
 
         cache = self._client(world.source).get(_shown(world.state())["artwork"]).headers["cache-control"]
 
@@ -1217,12 +1226,13 @@ class TestTheArtworkRoute:
         cover served after its goodbye is what a page still holding the old
         URL would keep drawing."""
         await _on_air(world)
-        await world.send(*_bundle(RTP_A, "Says"), *_picture(RTP_A, _cover("navy")))
+        await _plays(world, "Says")
         url = _shown(world.state())["artwork"]
 
         await world.leaves(PHONE)
 
         assert self._client(world.source).get(url).status_code == 404
+
 
 
 class TestLifecycle:

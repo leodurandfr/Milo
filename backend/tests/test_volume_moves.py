@@ -291,6 +291,21 @@ async def test_a_state_already_sent_is_not_sent_again():
     assert service.state_machine.broadcast.await_count == 2
 
 
+async def test_a_state_listener_hears_each_state_that_goes_out_and_only_those():
+    """AirPlay moves the sender's slider from it: a state not sent again is a
+    level both sliders already show, and the listener reads the level the
+    screens were sent, not one recomputed beside it."""
+    service = make_service({LOCAL: -40.0}, online=[LOCAL])
+    heard = []
+    service.add_state_listener(lambda level, muted: heard.append((level, muted)))
+
+    await service.broadcast_volume_state(show_bar=False)
+    await service.broadcast_volume_state(show_bar=False)
+
+    sent = service.state_machine.broadcast.await_args_list[0].args[0].state
+    assert heard == [(sent["global_volume"], sent["global_mute"])]
+
+
 async def test_two_broadcasts_of_one_state_in_flight_together_send_it_once():
     """The admission's broadcast and the one its registry event raises run
     together; each sends while the other's send is still in flight."""

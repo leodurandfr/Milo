@@ -698,8 +698,8 @@ def test_the_controls_extractor_reads_every_override():
 
 
 # The sources that take the base's controls, none: the passive senders, whose
-# transport is the sender's own.
-BASE_CONTROLS = {"airplay", "mac", "qobuz"}
+# transport is the sender's own (AirPlay relays the sender's, since 5.6).
+BASE_CONTROLS = {"mac", "qobuz"}
 
 
 def test_the_sources_on_the_base_controls_are_the_named_ones():

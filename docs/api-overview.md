@@ -112,7 +112,7 @@ key. Durations and positions are integer milliseconds; instants are UTC seconds 
 | `session` | `null` or object | The selected source's live session: `id`, `phase` (`loading`, `playing`, `paused`, `connected`), `title`, `artist`, `album`, `artwork`, `senders` (display names, `[]` when none), `duration_ms`, `position` |
 | `controls` | command names | What `POST /api/audio/control/{source}` accepts *now* and would act on. `[]` under `none`, while `switching`, and whenever `service` is not `running`. `skip` (`{"seconds": ±n}`, relative, bounded to `[0, duration_ms]`) is listed wherever `seek` is |
 | `resume` | `null` or object | What a play press would bring back; set only while `session` is `null` |
-| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (the episode), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width) |
+| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (the episode), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width, the sender's shuffle and repeat) |
 | `multiroom_enabled`, `equalizer_effects_enabled` | bool | The two global flags |
 
 An empty string is never published: it is `null`.
@@ -145,7 +145,7 @@ sources keep a resume point, Radio, Podcast, Music Library and CD; for the six a
 `resume` is always `null`.
 
 The phase is what the player or the sender announced, never what a command guessed. `connected` is
-a sender Milō cannot call playing or paused — an AirPlay Realtime stream, a Bluetooth device with no
+a sender Milō cannot call playing or paused — an AirPlay Realtime stream with no item, a Bluetooth device with no
 AVRCP player, every Mac — and the card reads "Connected to X" from `senders`, unless the session
 names a cover, a title and an artist, which the full player draws instead (D14).
 

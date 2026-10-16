@@ -101,15 +101,34 @@ class TestPublicDispatchMethods:
 
     @pytest.mark.asyncio
     async def test_dispatch_play_pause_unsupported_source_is_noop(self):
-        # AirPlay does not support play/pause via backend
+        # Qobuz takes no transport from Milō: the app is the only remote
         source = MagicMock()
         source.command = AsyncMock()
-        sm = _make_state_machine(AudioSource.AIRPLAY, source)
+        sm = _make_state_machine(AudioSource.QOBUZ, source)
 
         dispatcher = PlaybackDispatcher(sm)
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("controls, expected", [
+        (("pause", "next", "prev"), [("pause", {}), ("next", {})]),
+        ((), []),      # a Mac's system audio lists nothing: the press is no command
+    ])
+    async def test_airplay_is_sent_only_what_its_sender_listed(self, controls, expected):
+        """The sender holds the transport; a command it did not list is a
+        Play/Next shairport-sync accepts and the sender ignores."""
+        source = MagicMock()
+        source.command = AsyncMock()
+        source.is_playing = True
+        source.view.controls = controls
+        dispatcher = PlaybackDispatcher(_make_state_machine(AudioSource.AIRPLAY, source))
+
+        await dispatcher.dispatch_play_pause()
+        await dispatcher.dispatch_track("next")
+
+        assert [c.args for c in source.command.await_args_list] == expected
 
     @pytest.mark.asyncio
     async def test_dispatch_track_next_spotify(self):

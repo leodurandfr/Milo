@@ -550,7 +550,7 @@ This is an excellent reference for building a complex audio source with external
 ### Sidecar source: Qobuz (Family B)
 
 Qobuz Connect (`backend/sources/qobuz/`) is a **Family B** source (passive
-receiver with no commands, like AirPlay) backed by a reverse-engineered
+receiver with no commands) backed by a reverse-engineered
 sidecar, **qobuz-proxy**. It is the reference for wiring a source whose playback
 is driven entirely by an external app:
 
@@ -566,10 +566,6 @@ is driven entirely by an external app:
   published. `AudioPlayerFull` draws what the state carries: `controls` is always
   empty (there is no local control channel, so no transport and no seek), and the
   session's duration and position give a **read-only** bar above the source bar.
-  **A Realtime AirPlay sender draws no bar at all**: a Mac's system audio or
-  Spotify never says it paused, so its session is `connected` and shown by the
-  status card; only a Buffered sender (iPhone Music) is `playing`/`paused`
-  (`AirPlaySource`'s docstring lists what was measured).
 - **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
   [provisioning/qobuz-proxy.sh](../provisioning/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
@@ -1009,7 +1005,7 @@ the ones that do not.
 
 | Dependency | Exercise | The check that is **not** "it works" |
 |---|---|---|
-| `SHAIRPORT_SYNC_VERSION` | Play from an iPhone | **Title, artist, album and cover reach the player.** This is the 5.1 case; audio proves nothing. Also confirm AirPlay 2 (not 1) still negotiates — that is `nqptp` and the `--with-airplay-2` build flag together |
+| `SHAIRPORT_SYNC_VERSION` | Play from an iPhone (Music, then Spotify) and a Mac | **Title, artist, album and cover reach the player.** This is the 5.1 case; audio proves nothing — and since 5.6 they come over D-Bus (`busctl get-property org.gnome.ShairportSync /org/gnome/ShairportSync org.gnome.ShairportSync.Client NowPlayingInformation`), so a renamed property is the same silence. Then the sender obeys pause/next/prev and shuffle/repeat from Milō, and the two volume sliders follow each other. Also confirm AirPlay 2 (not 1) still negotiates — that is `nqptp` and the `--with-airplay-2` build flag together |
 | `NQPTP_VERSION` | Play from an iPhone, then leave it playing ~5 min | No drift and no re-sync stutter. NQPTP is the AirPlay 2 clock; a bad one degrades slowly rather than failing. It has no row: the shairport-sync update installs it, so a bump of it alone reaches no running unit until shairport-sync moves too, and a shairport-sync whose shared memory interface it does not speak is refused before anything stops — `nqptp -V` prints the SMI, `nqptp-shm-structures.h` declares it in both repos. 5.6 needs 1.2.9 (smi11); bump both lines in one commit |
 | `GO_LIBRESPOT_VERSION` | Hand off from the Spotify app | Artwork + title + artist appear **and change on track change**; the device still appears in the picker after a source switch (zeroconf via Avahi, not the embedded responder — see `provisioning/go-librespot.sh`) — and the error wording `sources/spotify/source.py::login_failure` and `_handle_log_line` match on still exists in the new release (grep it in the tag's source): a renamed message leaves a refused login with no banner, silently. **The browser couples to more of it:** the `state.json` shape (`credentials.{username,data}`, which `SpotifySource` reads and writes), the `credentials`/`metadata` config keys it manages, `/context/tracks`' readiness fields (`ready`, `cached`, `length`), `/library/playlists` paging, `/library/liked`, and `POST /token` with spclient's `user-profile-view` — browse a playlist and Liked Songs, switch profile, read a profile's picture |
 | `CAMILLADSP_VERSION` | Change volume, switch an EQ preset | Volume attenuates **in CamillaDSP** and the card mixer stays at unity; a preset change is audible; `bypass_effects()`/`restore_effects()` still round-trip. Check `/proc/asound/card0/pcm0p/sub0/status` reads `RUNNING`, not `PAUSED` — the silence-pause failure leaves no log line |

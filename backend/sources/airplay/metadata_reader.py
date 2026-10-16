@@ -1,6 +1,6 @@
 # backend/sources/airplay/metadata_reader.py
 """
-Async reader for shairport-sync metadata pipe.
+Async reader for shairport-sync metadata pipe: the session's events.
 
 Shairport-sync outputs metadata as XML-like items to a named pipe.
 Each item contains a type, code, and optional base64-encoded data.
@@ -10,17 +10,19 @@ Item format:
 
 Type/code are hex-encoded 4-char strings (e.g., 73736e63 = "ssnc", 70626567 = "pbeg").
 
-Important codes:
-  Core metadata (type "core"):
-    - asar: artist
-    - minm: title (track name)
-    - asal: album name
-    - asgn: genre
+What the sender is playing does not come through here any more. Since 5.6 an
+AirPlay 2 sender sends it as plists (`ssnc`/`copl`, raw), and shairport-sync
+publishes them decoded on D-Bus, which is where Milō reads them (remote.py);
+the `core` tags, `PICT` and `prgr` this reader used to parse are no longer
+sent at all. The pipe still carries the session itself, which D-Bus does not
+(no sender name, no goodbye):
 
   Session control (type "ssnc"), what shairport-sync 5.5.1 was measured to
-  send (2026-09-23; docs: source architecture, phase 3a):
-    - conn / disc: a sender connected / left (data: its IP)
-    - snam: client name (X-Apple-Client-Name, e.g. "Mac mini de Léo")
+  send (2026-09-23; docs: source architecture, phase 3a) and 5.6 still sends:
+    - conn / disc: a sender connected / left (data: its IP). In 5.6 `conn`
+      comes with the second SETUP (the one carrying `streams`), so a player
+      that only checks the receiver is there no longer sends it
+    - snam: client name (e.g. "Mac mini de Léo")
     - pbeg / pend: a stream began / ended — a paused iPhone ends its stream
       after 29-184 s and stays connected, so `pend` is not a goodbye
     - paus / pres: a Buffered stream (iPhone Music) paused / resumed; a skip or
@@ -28,22 +30,9 @@ Important codes:
       system audio, Spotify) never sends them.
     - pffr: the stream's first frame arrived; `styp` ("Buffered", "Realtime")
       follows it in the same millisecond
-    - PICT: artwork (data is raw image bytes); one of NO_PICTURE_MAX_BYTES or
-      less is the sender withdrawing its picture, and an iPhone sends one
-      before every picture
-    - prgr: progress (start/current/end in sample frames at 44100Hz)
-    - mdst: metadata start   (data: the bundle's rtptime, when the sender gave one)
-    - mden: metadata end
   `pfls` (a flush) is not a pause and is not read: it never appeared in the
   measurements, and treating it as one armed the idle timeout under a sender
-  that was playing (E54). `prsm` and `flsr` say nothing the above do not, and
-  neither do `pcst`/`pcen`, which bracket a picture with its rtptime.
-
-A picture is read the way shairport-sync reads it (metadata/hub.c): it
-replaces the cover, and one of 16 bytes or less clears it. Its rtptime is not
-read — see the source's docstring for why. The bundle's rides out with the
-tags, and is None when the sender sent no RTP-Info (which shairport-sync
-tolerates and so do we).
+  that was playing (E54).
 """
 import asyncio
 import contextlib
@@ -65,26 +54,13 @@ def _hex_to_str(hex_str: str) -> str:
         return hex_str
 
 
-# The largest PICT shairport-sync reads as "no picture" (metadata/hub.c keeps a
-# picture only when `length > 16`): the sender's empty image body.
-NO_PICTURE_MAX_BYTES = 16
-
-
-def _rtptime(data: Optional[bytes]) -> Optional[str]:
-    """The rtptime carried by mdst, or None when the sender omitted it."""
-    return data.decode("ascii", errors="replace") if data else None
-
-
 @dataclass(frozen=True)
 class PipeEvent:
     """One thing shairport-sync announced. `value` depends on `kind`:
-    conn/disc: the IP (or None); client_name, stream_type: text; tags: a dict
-    of title/artist/album/genre; artwork: the image bytes; artwork_withdrawn:
-    nothing; progress: the (start, current, end) frames. `rtptime` rides with
-    tags."""
+    conn/disc: the IP (or None); client_name, stream_type: text; the stream
+    events carry nothing."""
     kind: str
     value: Any = None
-    rtptime: Optional[str] = None
 
 
 # ssnc codes that are a state change with no payload, by the event they are.
@@ -114,12 +90,6 @@ class MetadataReader:
         self._on_event = on_event
         self._task: Optional[asyncio.Task] = None
         self._running = False
-
-        # Accumulate metadata between mdst/mden boundaries
-        self._pending_metadata: dict = {}
-
-        # The rtptime stamped on the current bundle — see the module docstring.
-        self._bundle_id: Optional[str] = None
 
     async def start(self) -> None:
         """Start reading metadata pipe."""
@@ -201,9 +171,9 @@ class MetadataReader:
         code = _hex_to_str(code_match.group(1))
         data_length = int(length_match.group(1)) if length_match else 0
 
-        # Decode data if present
+        # Decode data only where it is read: a `copl` can carry a picture.
         raw_data = None
-        if data_match and data_length > 0:
+        if data_match and data_length > 0 and code in _TEXT_CODES:
             try:
                 raw_data = base64.b64decode(data_match.group(1).strip())
             except Exception:
@@ -216,12 +186,10 @@ class MetadataReader:
         """Route parsed item to appropriate handler."""
         if item_type == "ssnc":
             await self._handle_ssnc(code, data)
-        elif item_type == "core":
-            self._handle_core(code, data)
 
     async def _handle_ssnc(self, code: str, data: Optional[bytes]) -> None:
         """Handle shairport-sync control codes."""
-        # Text only where it is text: a PICT is hundreds of kB of image.
+        # Text only where it is text: a `copl` is a binary plist.
         text = data.decode("utf-8", errors="replace") if data and code in _TEXT_CODES else None
         if code in _STATE_CODES:
             await self._on_event(PipeEvent(_STATE_CODES[code]))
@@ -231,45 +199,5 @@ class MetadataReader:
             await self._on_event(PipeEvent("client_name", text))
         elif code == "styp" and text:
             await self._on_event(PipeEvent("stream_type", text))
-        elif code == "PICT":
-            if data and len(data) > NO_PICTURE_MAX_BYTES:
-                await self._on_event(PipeEvent("artwork", data))
-            else:
-                await self._on_event(PipeEvent("artwork_withdrawn"))
-        elif code == "prgr" and data:
-            await self._handle_progress(data)
-        elif code == "mdst":
-            self._pending_metadata = {}
-            self._bundle_id = _rtptime(data)
-        elif code == "mden":
-            if self._pending_metadata:
-                await self._on_event(
-                    PipeEvent("tags", dict(self._pending_metadata), self._bundle_id)
-                )
         elif code == "snua" and text:
             logger.debug(f"AirPlay device: {text}")
-
-    def _handle_core(self, code: str, data: Optional[bytes]) -> None:
-        """Handle core metadata codes (track info)."""
-        if not data:
-            return
-
-        text = data.decode("utf-8", errors="replace")
-
-        if code == "minm":
-            self._pending_metadata["title"] = text
-        elif code == "asar":
-            self._pending_metadata["artist"] = text
-        elif code == "asal":
-            self._pending_metadata["album"] = text
-        elif code == "asgn":
-            self._pending_metadata["genre"] = text
-
-    async def _handle_progress(self, data: bytes) -> None:
-        """Parse progress data (three frame counts) into a progress event."""
-        try:
-            parts = [int(p) for p in data.decode("utf-8", errors="replace").strip().split("/")]
-        except ValueError:
-            return
-        if len(parts) == 3:
-            await self._on_event(PipeEvent("progress", tuple(parts)))

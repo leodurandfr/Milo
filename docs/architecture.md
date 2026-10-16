@@ -106,8 +106,9 @@ Three things are worth spelling out:
   announces it. Only a transition drops the source's publishes (the post-start
   resync re-reads `source.view`); a reroute's publish reaches the wire live.
 - **`connected` is a phase, not a service state.** It is a sender Milō cannot
-  call playing or paused: an AirPlay Realtime stream, a Bluetooth device with no
-  AVRCP player (or one saying `playing` over a stream that stopped), every Mac.
+  call playing or paused: an AirPlay Realtime stream with no item (a Mac's system
+  audio), a Bluetooth device with no AVRCP player (or one saying `playing` over a
+  stream that stopped), every Mac.
 
 **Two kinds of error, two mechanisms, no overlap.** A source that will not start
 is the service axis: the failed transition leaves the source **selected** with
@@ -410,15 +411,26 @@ Spotify app, and guests join the way the app offers.
 **How does it work?**
 - `shairport-sync` announces Milō as an AirPlay 2 receiver via mDNS
 - NQPTP daemon provides precision timing required by AirPlay 2
-- Metadata (title, artist, album, artwork, device name) is read from the
-  named pipe `/tmp/shairport-sync-metadata` by `MetadataReader`
-- Artwork arrives as binary JPEG/PNG (PICT items)
-- No remote playback control (AirPlay 2 protocol limitation) — controls are
-  hidden in the UI; the source bar shows the connected device name
+- Two feeds (shairport-sync 5.6). The session — who connected and left, the
+  device name, each stream's begin, end, pause and type — is read from the named
+  pipe `/tmp/shairport-sync-metadata` by `MetadataReader`. What the sender plays
+  — title, artist, album, duration, its playhead, the picture (a file
+  shairport-sync writes), the commands it takes, its shuffle/repeat and its
+  volume slider — is read from shairport-sync's D-Bus object
+  (`org.gnome.ShairportSync`, `Client.NowPlayingInformation` and friends) by
+  `remote.py`, which since 5.6 is the only place it is decoded
+- The transport is the sender's own, relayed over D-Bus: pause/resume,
+  next/prev, shuffle and repeat, listed in `controls` only when the sender says
+  it takes them. No seek: shairport-sync 5.6 has no request that carries a
+  position, so the bar is read-only
+- The volume is one level on both sides: the sender's slider moves Milō's volume
+  and Milō's moves the sender's slider (`ignore_volume_control` stays on:
+  CamillaDSP is the only attenuation)
 - The session is shairport-sync's: Milō follows what it announces
-  (`reconcile`). A Buffered stream (iPhone Music) reports its pauses (`paus` /
-  `pres`); a Realtime one (a Mac's system audio, Spotify) does not and is shown
-  as connected. A long pause is ended by asking the daemon (D-Bus
+  (`reconcile`). A pause is a Buffered stream's `paus` (iPhone Music) or the
+  item's PlaybackRate 0 (a Mac, Spotify); a track change is loading, not a
+  pause; a Realtime stream with no item (a Mac's system audio) is shown as
+  connected. A long pause is ended by asking the daemon (D-Bus
   `DropSession`), which hands the sender back its own speaker; a daemon killed
   outright ends the session when its process exits (pidfd)
 
@@ -471,8 +483,8 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 **How does it work?**
 - `qobuz-proxy` announces Milō as a Qobuz Connect device via mDNS and receives
   the Qobuz cloud's play/pause/seek commands (protobuf) — there is **no local
-  playback-control API**, so control belongs to the Qobuz app (Family B, like
-  AirPlay); the UI hides controls and shows only now-playing
+  playback-control API**, so control belongs to the Qobuz app (Family B); the
+  UI hides controls and shows only now-playing
 - The proxy's `local` (PortAudio) backend renders to the named ALSA PCM
   `milo_qobuz`; Milō's `QobuzMonitor` **polls `GET http://127.0.0.1:8689/api/status`**
   (~1 Hz) for `now_playing` (title/artist/album/album-art URL + position/duration).

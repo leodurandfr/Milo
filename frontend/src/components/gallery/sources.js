@@ -879,17 +879,17 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull',
     via: 'dispatcher',
     summary:
-      'The receiver whose phase depends on the stream: a Buffered sender (iPhone Music) says when it pauses, a Realtime one (a Mac\'s system audio) never does, so that session stays `connected` — "Connecté à <sender>", never a player whose bar runs on through a pause. The untrusted-sender gate lives here too: a title AND `details.artwork_width` above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. No command is declared, so `controls` is empty and the player draws the source bar, naming the sender from `senders`.',
+      'The receiver whose phase depends on what the sender says: a Buffered sender (iPhone Music) says when it pauses, and so does any sender whose item carries a playback rate (Music on a Mac, Spotify); a Realtime one with no item (a Mac\'s system audio) never does, so that session stays `connected` — "Connecté à <sender>", never a player whose bar runs on through a pause. The untrusted-sender gate lives here too: a title AND `details.artwork_width` above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. The transport is the sender\'s own, relayed: `controls` lists what it says it takes (pause or resume, next, prev, shuffle, repeat — never seek, which shairport-sync cannot send), and the player draws the source bar, naming the sender from `senders`.',
     scenarios: [
       starting('airplay'),
       published('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
       published('airplay', 'Connected, no track', 'A Realtime sender — a Mac casting its system audio — or a sender connected before any audio: nothing to name and no pause to hear of, so the phase is connected and the card names the sender from `senders`.', {
         session: session({ phase: 'connected', senders: ['Leo’s MacBook'] }),
-        details: { kind: 'airplay', artwork_width: null }
+        details: { kind: 'airplay', artwork_width: null, shuffle: false, repeat: 'off' }
       }),
       published('airplay', 'Loading, no cover yet', 'The track is named before its cover arrives, and artwork_width is null until it does — so the gate declines the player and the card stands in, naming the sender, rather than drawing a player with an empty artwork slot.', {
         session: session({ ...ZARATHOUSTRA, phase: 'loading' }),
-        details: { kind: 'airplay', artwork_width: null }
+        details: { kind: 'airplay', artwork_width: null, shuffle: false, repeat: 'off' }
       }),
       published(
         'airplay',
@@ -897,16 +897,18 @@ export const SOURCE_PAGES = [
         `artwork_width ${FAVICON_COVER_PX} is under UNTRUSTED_SENDER_MIN_ARTWORK_PX (300, and the only number here that is a rule), so the rich display is declined and the card names the sender instead. This is what browser audio looks like — a page favicon where a media app would push a real cover — and it is the only reason the gate exists.`,
         {
           session: session({ ...ZARATHOUSTRA, phase: 'playing', artwork: musicPlaceholder, duration_ms: 297000, position: anchor(41000) }),
-          details: { kind: 'airplay', artwork_width: FAVICON_COVER_PX }
+          details: { kind: 'airplay', artwork_width: FAVICON_COVER_PX, shuffle: false, repeat: 'off' }
         }
       ),
-      published('airplay', 'Playing', 'Title and a cover wide enough: AudioPlayerFull, with the sender named in the source bar and a read-only bar drawn from the anchor — a Buffered sender reports its pauses, so this bar stops when the music does.', {
+      published('airplay', 'Playing', 'Title and a cover wide enough: AudioPlayerFull, with the sender named in the source bar, the sender\'s transport and modes, and a read-only bar drawn from the anchor — the sender reports its pauses, so this bar stops when the music does.', {
         session: session({ ...ZARATHOUSTRA, phase: 'playing', artwork: musicPlaceholder, duration_ms: 297000, position: anchor(41000) }),
-        details: { kind: 'airplay', artwork_width: MEDIA_APP_COVER_PX }
+        controls: ['pause', 'next', 'prev', 'set_shuffle', 'set_repeat'],
+        details: { kind: 'airplay', artwork_width: MEDIA_APP_COVER_PX, shuffle: false, repeat: 'off' }
       }),
       published('airplay', 'Paused', 'The sender paused and said so. The gate reads no phase — the player stays, and the card is not the answer to a pause — so what changes is the playhead, frozen at the anchor.', {
         session: session({ ...ZARATHOUSTRA, phase: 'paused', artwork: musicPlaceholder, duration_ms: 297000, position: anchor(41000) }),
-        details: { kind: 'airplay', artwork_width: MEDIA_APP_COVER_PX }
+        controls: ['resume', 'next', 'prev', 'set_shuffle', 'set_repeat'],
+        details: { kind: 'airplay', artwork_width: MEDIA_APP_COVER_PX, shuffle: true, repeat: 'context' }
       }),
       offline(
         'airplay',

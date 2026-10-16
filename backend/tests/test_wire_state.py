@@ -194,7 +194,7 @@ async def _airplay(mp, tmp, *, music=False, system_audio=False, pause=False):
     if music:
         await w.music_plays()
     if system_audio:
-        await w.system_audio_plays()
+        await w.realtime_plays(title=None)
     if pause:
         await w.pauses()
     return w
@@ -354,20 +354,24 @@ SCENARIOS: List[Scenario] = [
              session_has={"phase": "playing", "senders": []}),
     Scenario("qobuz paused", lambda mp, t: _qobuz(mp, t, pause=True), expect={"controls": []},
              session_has={"phase": "paused"}),
-    # AirPlay — named by its sender; a Realtime stream is CONNECTED.
+    # AirPlay — named by its sender; the transport is what the sender lists,
+    # and a Realtime stream with no item is CONNECTED.
     Scenario("airplay connected", _airplay, expect={
         "session": {
             "id": "<id>", "phase": "connected", "title": None, "artist": None, "album": None,
             "artwork": None, "senders": ["iPhone de Léo"], "duration_ms": None, "position": None,
         },
-        "controls": [], "details": {"kind": "airplay", "artwork_width": None},
+        "controls": ["resume", "next", "prev", "set_shuffle", "set_repeat"],
+        "details": {"kind": "airplay", "artwork_width": None, "shuffle": False, "repeat": "off"},
     }),
-    Scenario("airplay playing", lambda mp, t: _airplay(mp, t, music=True), expect={"controls": []},
-             session_has={"phase": "playing", "senders": ["iPhone de Léo"]}),
+    Scenario("airplay playing", lambda mp, t: _airplay(mp, t, music=True),
+             expect={"controls": ["pause", "next", "prev", "set_shuffle", "set_repeat"]},
+             session_has={"phase": "playing", "senders": ["iPhone de Léo"], "title": "Soul Officer"}),
     Scenario("airplay paused", lambda mp, t: _airplay(mp, t, music=True, pause=True),
-             expect={"controls": []}, session_has={"phase": "paused"}),
+             expect={"controls": ["resume", "next", "prev", "set_shuffle", "set_repeat"]},
+             session_has={"phase": "paused"}),
     Scenario("airplay realtime", lambda mp, t: _airplay(mp, t, system_audio=True),
-             expect={"controls": []}, session_has={"phase": "connected"}),
+             session_has={"phase": "connected"}),
     # Bluetooth — the transport when the linked phone has a player (E33).
     Scenario("bluetooth playing", _bluetooth,
              expect={"controls": ["pause", "next", "prev", "disconnect"], "details": None},

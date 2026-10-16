@@ -8,7 +8,7 @@
          transport and no seek, so it gets the buttons and a read-only bar);
        - neither for radio (a live stream: no duration, and its stop/next/prev
          change the station, not the track) — name/artist only.
-       Receivers (AirPlay, Qobuz) list no command, so they get the bar alone.
+       A receiver that lists no command (Qobuz) gets the bar alone.
      Always visible by default; swipes down to hide, swipes up from the bottom
      edge to show again (useSwipeVisibility — the same gesture the Dock would
      normally own, freed up because useDockDrag ignores .lyrics-view). The

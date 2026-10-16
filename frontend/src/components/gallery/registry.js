@@ -311,8 +311,8 @@ const NOW_PLAYING = {
       duration_ms: 297000,
       position: anchor(41000)
     },
-    controls: [],
-    details: { kind: 'airplay', artwork_width: 600 }
+    controls: ['pause', 'next', 'prev', 'set_shuffle', 'set_repeat'],
+    details: { kind: 'airplay', artwork_width: 600, shuffle: false, repeat: 'off' }
   },
   // The one shape that reaches this player with no artist: a disc no lookup
   // identified comes back with a real "Track N" title and nothing else, and a

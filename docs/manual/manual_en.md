@@ -261,7 +261,7 @@ Milō is AirPlay 2 compatible and appears as a speaker on your network.
 
 ### Display
 
-Milō shows the artwork, title, artist, and the name of the connected device (e.g. "Léo's iPhone"). Playback is controlled solely from the Apple device — Milō does not show control buttons.
+Milō shows the artwork, title, artist, and the name of the connected device (e.g. "Léo's iPhone"), with the controls the app on the Apple device accepts: play/pause, previous/next, shuffle and repeat. The progress bar advances but cannot be dragged — seek from the Apple device. The volume is shared: the Apple device's volume moves Milō's, and Milō's moves the Apple device's. Sound sent from a Mac's system output with nothing playing in an app shows only the device's name, with no controls.
 
 
 ---
@@ -302,7 +302,7 @@ Before Milō can appear in Qobuz, you sign in once with your Qobuz account in [S
 
 ### Display
 
-Milō shows the album artwork, track title, artist, and album. Playback is controlled from the Qobuz app — like AirPlay, Milō shows no control buttons, and the progress bar stays inactive.
+Milō shows the album artwork, track title, artist, and album. Playback is controlled from the Qobuz app — Milō shows no control buttons, and the progress bar stays inactive.
 
 > *Related settings:* [*Settings > Qobuz*](#qobuz)
 
@@ -322,7 +322,7 @@ Milō appears as a Tidal Connect device on your network, so you can cast to it s
 
 ### Display
 
-Milō shows the album artwork, track title, artist, and album, together with play/pause and previous/next buttons — unlike AirPlay or Qobuz, playback can be driven from Milō as well as from the app. The progress bar advances but cannot be dragged: Tidal Connect offers no seek, so you skip within a track from the Tidal app.
+Milō shows the album artwork, track title, artist, and album, together with play/pause and previous/next buttons — unlike Qobuz, playback can be driven from Milō as well as from the app. The progress bar advances but cannot be dragged: Tidal Connect offers no seek, so you skip within a track from the Tidal app.
 
 
 ---

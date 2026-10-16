@@ -122,7 +122,8 @@ const {
   currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized, setTrackWidth
 } = useSourceProgress(props.source);
 
-// The receivers (AirPlay, Qobuz) list no main command and draw no transport.
+// A receiver that lists no main command (Qobuz, an AirPlay sender listing none)
+// draws no transport.
 const hasTransport = computed(() => shownControls.value.some(control => control.row === 'transport'));
 const canSeek = computed(() => liveControls.value.some(control => control.id === 'seek'));
 const hasProgress = computed(() => duration.value > 0 && isPositionInitialized.value);

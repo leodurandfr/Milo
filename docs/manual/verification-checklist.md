@@ -179,7 +179,7 @@ These are shared by every source; they break for all of them at once.
 | Unplug | Removing the USB drive leaves the UI in a coherent state (no spinner forever) | targeted |
 | Share liveness deadline ⚠ | With the NAS's cable pulled, `statvfs` on its mountpoint **returns before `_LIVENESS_TIMEOUT_S`**. Measured 2026-09-02: the kernel answered `EHOSTDOWN` after 10.18 s, against a 15 s deadline. This is an environmental fact no unit test can assert, and it decides whether the probe can tell a dead NAS from a merely slow one: if the kernel is slower than the deadline, every negative arrives as a timeout and a slow NAS is hidden like a dead one, stopping the music | targeted |
 
-### AirPlay (B — passive player)
+### AirPlay (B — passive player, the sender's transport)
 
 | Check | Expected observable | Set |
 |---|---|---|
@@ -187,8 +187,9 @@ These are shared by every source; they break for all of them at once.
 | Audio | Audio starts within a couple of seconds of selecting it | targeted |
 | Metadata | **Artwork**, title and artist appear in the full player within ~2 s of a track change | targeted |
 | Device name | The sender's name ("Léo's iPhone") is shown | targeted |
-| No controls | No transport buttons are rendered (control is sender-side) | targeted |
-| Progress | Position advances and re-syncs after a sender-side seek | targeted |
+| Controls | Pause, resume, next and prev from Milō act on the iPhone and on a Mac; the main button never flashes play during a next/prev; shuffle and repeat follow both ways | targeted |
+| Volume | The iPhone's volume moves Milō's, and Milō's moves the iPhone's slider; muting Milō does not drop the house to its floor | targeted |
+| Progress | Position advances, returns to 0:00 after a prev that restarts the track, and re-syncs after a sender-side seek | targeted |
 
 > Artwork is the historical silent-failure point here (shairport-sync 5.1 shipped without
 > metadata and nothing detected it). Never skip the metadata row.

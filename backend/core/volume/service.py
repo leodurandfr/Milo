@@ -66,6 +66,8 @@ class VolumeService:
         # is not sent again (the admission, and the registry event it raises,
         # publish the same one; a trim or delay edit changes nothing here).
         self._last_published = None
+        # Called with (global_volume, global_mute) after each state broadcast.
+        self._state_listeners: list = []
         self._push_lock = asyncio.Lock()
 
         # Volume configuration (loaded from settings in _load_volume_config)
@@ -1014,6 +1016,12 @@ class VolumeService:
             state=volume_state.to_dict()
         )
 
+    def add_state_listener(self, listener) -> None:
+        """Hear every volume state that goes out, as (global_volume 0..1,
+        global_mute) — whoever moved it. For a sender that shows the level on
+        its own slider (AirPlay); called synchronously, so it must not block."""
+        self._state_listeners.append(listener)
+
     async def broadcast_volume_state(self, show_bar: bool = True) -> None:
         """Broadcast volume state immediately to WebSocket clients.
 
@@ -1033,6 +1041,8 @@ class VolumeService:
             # (measured on the unit: two identical `volume_changed`).
             self._last_published = published
             await self.state_machine.broadcast(event)
+            for listener in self._state_listeners:
+                listener(event.state["global_volume"], event.state["global_mute"])
 
         except Exception as e:
             self._last_published = None  # not sent: the next one must go out

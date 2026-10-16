@@ -183,6 +183,10 @@ class AirPlayDetails(BaseModel):
     # The cover's width in pixels: the screen keeps an untrusted sender's
     # tiny covers off the full-screen player.
     artwork_width: Optional[int]
+    # The sender's own modes, as it reports them (they are drawn only while
+    # `controls` lists set_shuffle / set_repeat).
+    shuffle: bool
+    repeat: RepeatMode
 
 
 class SpotifyRemote(BaseModel):

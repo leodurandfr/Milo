@@ -1,39 +1,28 @@
 """AirPlay's wire, scenario by scenario (see harness.py for the rules).
 
-A stimulus is what shairport-sync writes to its metadata pipe — one
-(type, code, payload) item each, in the vocabulary of metadata_reader.py — plus
-the two things systemd knows about the daemon: its main pid, and whether that
-process is still alive.
+A stimulus is what shairport-sync emits: an item on its metadata pipe (the
+session) or a property on its D-Bus object (the sender's item, commands and
+modes), as tests/airplay_world.py models them from the 5.5.1 and 5.6
+measurements — plus what systemd knows about the daemon: its main pid, and
+whether that process is still alive.
 """
-import asyncio
-import base64
 import struct
 import zlib
-from typing import Optional, Tuple
-from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.core import audio_source
-from backend.core.models.audio_state import AudioSource
-from backend.sources.airplay import source as airplay_module
-from backend.sources.airplay.metadata_reader import MetadataReader
-from backend.sources.airplay.source import AirPlaySource
-from backend.tests.golden.harness import (
-    AsyncioProxy, VirtualClock, Wire, check_recording, make_settings,
-    make_state_machine, make_systemd, settle, use_virtual_wall,
+from backend.sources.airplay.remote import RemoteUpdate
+from backend.tests.airplay_world import (
+    IPHONE_MUSIC_COMMANDS, MAC, MAC_COMMANDS, PHONE, SPOTIFY_COMMANDS, AirPlayWorld, ssnc,
 )
+from backend.tests.golden.harness import Wire, check_recording
+from backend.sources.airplay.source import ARTWORK_SETTLE_SECONDS
 
-Item = Tuple[str, str, Optional[bytes]]
-
-PHONE = "192.168.1.20"
-LAPTOP = "192.168.1.31"
-DAEMON_PID = 4242
-RESTARTED_PID = 4343
+TICK_SECONDS = 10.0                  # one step of `seconds_pass`
 
 
 def _png(width: int, height: int, tag: bytes) -> bytes:
-    """A cover as the sender pushes it: a PNG whose header carries its size.
+    """A cover as the sender's picture file: a PNG whose header carries its size.
 
     Built by hand rather than encoded by Pillow, so the bytes — and the md5 the
     artwork URL carries onto the wire — cannot move with a library upgrade.
@@ -53,183 +42,25 @@ COVER_A = _png(1000, 1000, b"all melody")
 COVER_C = _png(600, 600, b"says")
 FAVICON = _png(64, 64, b"browser")
 
-RTP_A = 3222108659
-RTP_B = RTP_A + 44100 * 240          # the next track, four minutes on
-RTP_C = RTP_B + 44100 * 200
-RTP_LAPTOP = 17_000_000              # another sender, another RTP clock
-TRACK_START = 1_000_000              # prgr frames: where the track began
-TICK_SECONDS = 10.0                  # one step of `seconds_pass`
 
-
-# === What shairport-sync writes (one metadata item each) ===
-
-def ssnc(code: str, payload: Optional[bytes] = None) -> Item:
-    return ("ssnc", code, payload)
-
-
-def conn(ip: str) -> Item:
-    return ssnc("conn", ip.encode())
-
-
-def disc(ip: str) -> Item:
-    return ssnc("disc", ip.encode())
-
-
-def snam(name: str) -> Item:
-    return ssnc("snam", name.encode())
-
-
-def bundle(rtptime: int, title: str, artist: str, album: str) -> Tuple[Item, ...]:
-    stamp = str(rtptime).encode()
-    return (
-        ssnc("mdst", stamp),
-        ("core", "minm", title.encode()),
-        ("core", "asar", artist.encode()),
-        ("core", "asal", album.encode()),
-        ssnc("mden", stamp),
-    )
-
-
-def picture(rtptime: int, data: bytes) -> Tuple[Item, ...]:
-    stamp = str(rtptime).encode()
-    return (ssnc("pcst", stamp), ssnc("PICT", data), ssnc("pcen", stamp))
-
-
-def prgr(seconds_in: int, length_s: int) -> Item:
-    current = TRACK_START + 44100 * seconds_in
-    end = TRACK_START + 44100 * length_s
-    return ssnc("prgr", f"{TRACK_START}/{current}/{end}".encode())
-
-
-def _xml(item: Item) -> str:
-    item_type, code, payload = item
-    head = (
-        f"<item><type>{item_type.encode().hex()}</type>"
-        f"<code>{code.encode().hex()}</code>"
-        f"<length>{len(payload) if payload else 0}</length>"
-    )
-    if not payload:
-        return head + "</item>"
-    return head + f'<data encoding="base64">{base64.b64encode(payload).decode()}</data></item>'
-
-
-# === The adapter ===
-
-class AirPlay:
-    """Adapter: how each outside-world stimulus reaches AirPlaySource today.
-
-    Phase 3a: the source's timers (the cover hold, the idle timeout) are the
-    base's named timers on one virtual clock, which also stamps the position
-    anchors (phase 5b); the daemon's death reaches it through a pidfd watch;
-    the idle timeout asks the daemon for the end over D-Bus (DropSession),
-    which answers with a `disc`.
-    """
+class AirPlay(AirPlayWorld):
+    """The scenario world, recording its wire."""
 
     def __init__(self, monkeypatch, tmp_path, settings=None):
-        self.clock = VirtualClock()
-        self.live_pids = {DAEMON_PID}
-        self.daemon_pid = DAEMON_PID
-        self.watches: list = []
-        self.sender: Optional[str] = None
-        self.reader: Optional[MetadataReader] = None
-        adapter = self
-
-        class PipeReader(MetadataReader):
-            """The real parser; the FIFO transport is replaced by `pipe()`.
-
-            The read loop is parked instead of opening the pipe: bytes arriving
-            through a real FIFO land on an I/O callback whose timing `settle()`
-            cannot see, while handing the same bytes to the parser is exact.
-            """
-
-            def __init__(self, *a, **k):
-                super().__init__(*a, **k)
-                adapter.reader = self
-
-            async def _read_loop(self) -> None:
-                await asyncio.Event().wait()
-
-        class Watch:
-            """The pidfd watch: fires when the adapter kills that pid."""
-
-            def __init__(self, pid, on_exit):
-                self.on_exit = on_exit
-                adapter.watches.append((pid, on_exit))
-
-            def close(self):
-                adapter.watches[:] = [w for w in adapter.watches if w[1] is not self.on_exit]
-
-        async def drop_session() -> bool:
-            # As measured on shairport-sync 5.5.1: the goodbye follows at once.
-            if adapter.sender is not None:
-                asyncio.ensure_future(adapter._write(disc(adapter.sender)))
-            return True
-
-        async def sleep(delay: float, *a, **k):
-            if delay <= 1.0:                     # a unit's settle delay
-                return await asyncio.sleep(0)
-            return await adapter.clock.sleep(delay)
-
-        monkeypatch.setattr(airplay_module, "MetadataReader", PipeReader)
-        monkeypatch.setattr(airplay_module, "drop_session", drop_session)
-        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
-        monkeypatch.setattr(audio_source, "ProcessWatch", Watch)
-        # The position axis reads the wall clock: it runs on the scenario's.
-        use_virtual_wall(monkeypatch, self.clock)
-        systemd = make_systemd()
-        systemd.main_pid.side_effect = lambda *_: self.daemon_pid
-        # What systemd says of the unit once its process is gone: the only
-        # death here is a kill, which Restart= answers (measured 2026-09-24).
-        systemd.unit_state = AsyncMock(return_value=("activating", "signal"))
-        self.machine, recorder = make_state_machine()
-        self.wire = Wire(self.machine, recorder)
-        self.source = AirPlaySource(
-            {"metadata_pipe": str(tmp_path / "shairport-sync-metadata")},
-            state_machine=self.machine,
-            settings_service=make_settings(settings),
-            systemd_manager=systemd,
-        )
-        self.machine.register_source(AudioSource.AIRPLAY, self.source)
-
-    async def select(self):
-        await self.machine.transition_to_source(AudioSource.AIRPLAY)
-        await settle()
-
-    async def deselect(self):
-        await self.machine.transition_to_source(AudioSource.NONE)
-        await settle()
-
-    async def _write(self, *items: Item):
-        for _, code, payload in items:
-            if code == "conn":
-                self.sender = payload.decode()
-            elif code == "disc" and payload and payload.decode() == self.sender:
-                self.sender = None
-        await self.reader._process_buffer("".join(_xml(i) for i in items).encode())
-
-    async def pipe(self, *items: Item):
-        """shairport-sync writes these items to the metadata pipe, in order."""
-        await self._write(*items)
-        await settle()
+        super().__init__(monkeypatch, tmp_path, settings)
+        self.wire = Wire(self.machine, self.recorder)
 
     async def seconds_pass(self, ticks: int = 1):
         """Ten seconds go by, `ticks` times (the old position ticker's period)."""
         for _ in range(ticks):
-            await self.clock.advance(TICK_SECONDS)
+            await self.advance(TICK_SECONDS)
 
-    async def cover_hold_runs_out(self):
-        await self.clock.advance(airplay_module.ARTWORK_SETTLE_SECONDS)
-
-    def daemon_killed_and_restarted(self):
-        """shairport-sync is killed outright; systemd's Restart= brings up a new one."""
-        dead = self.daemon_pid
-        self.live_pids.discard(dead)
-        self.daemon_pid = RESTARTED_PID
-        self.live_pids.add(RESTARTED_PID)
-        self.sender = None
-        for pid, on_exit in list(self.watches):
-            if pid == dead:
-                on_exit()
+    async def plays(self, title: str, artist: str, album: str, length_s: float,
+                    cover: bytes = None, artwork_id: str = None, elapsed_s: float = 0.0):
+        item = self.item(title=title, artist=artist, album=album, length_s=length_s,
+                         elapsed_s=elapsed_s, artwork_id=artwork_id or f"art-{title}")
+        await self.publishes(item, self.cover(cover, title) if cover is not None else None)
+        return self.now_playing
 
 
 @pytest.fixture
@@ -237,189 +68,167 @@ def airplay(monkeypatch, tmp_path):
     return AirPlay(monkeypatch, tmp_path)
 
 
-async def _phone_starts_track_a(ap: AirPlay):
-    await ap.pipe(conn(PHONE))
-    await ap.pipe(snam("iPhone de Léo"))
-    await ap.pipe(ssnc("pbeg"))
-    await ap.pipe(*bundle(RTP_A, "All Melody", "Nils Frahm", "All Melody"))
-    await ap.pipe(*picture(RTP_A + 1056, COVER_A))
-    await ap.pipe(prgr(0, 253))
+async def _music_starts_track_a(ap: AirPlay):
+    await ap.connects(PHONE, "iPhone de Léo", IPHONE_MUSIC_COMMANDS)
+    await ap.send(ssnc("pbeg"), ssnc("pres"))
+    await ap.send(ssnc("prsm"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
+    return await ap.plays("All Melody", "Nils Frahm", "All Melody", 253, COVER_A)
 
 
 async def test_select_and_leave(airplay):
     await airplay.select()
     await airplay.wire.snapshot_rest()
-    await airplay.deselect()
+    await airplay.leave()
     check_recording("airplay", "select_and_leave", airplay.wire)
 
 
-async def test_sender_plays_a_track_with_cover(airplay):
+async def test_music_plays_a_track_with_cover(airplay):
     await airplay.select()
-    await _phone_starts_track_a(airplay)
+    item = await _music_starts_track_a(airplay)
     await airplay.wire.snapshot_rest()
     await airplay.seconds_pass(2)
-    await airplay.pipe(prgr(20, 253))            # confirms the interpolation: no push
-    await airplay.pipe(prgr(95, 253))            # a seek on the phone: pushed at once
+    await airplay.signal(RemoteUpdate("now_playing", airplay.moved(item)))   # confirms: no push
+    await airplay.signal(RemoteUpdate("now_playing", airplay.moved(item, elapsed_ms=95_000)))  # a seek
     await airplay.wire.snapshot_rest()
-    await airplay.deselect()
-    check_recording("airplay", "sender_plays_a_track_with_cover", airplay.wire)
-
-
-async def test_sender_pauses_and_resumes(airplay):
-    await airplay.select()
-    await _phone_starts_track_a(airplay)
-    await airplay.seconds_pass()
-    await airplay.pipe(ssnc("pfls"))
-    await airplay.wire.snapshot_rest()
-    await airplay.seconds_pass()                 # paused: the ticker stays quiet
-    await airplay.pipe(ssnc("prsm"))
-    await airplay.seconds_pass()
-    await airplay.wire.snapshot_rest()
-    await airplay.deselect()
-    check_recording("airplay", "sender_pauses_and_resumes", airplay.wire)
-
-
-async def test_track_changes_and_the_cover_follows(airplay):
-    await airplay.select()
-    await _phone_starts_track_a(airplay)
-    # Track B: its tags arrive, and neither a picture nor a withdrawal — the
-    # cover stays, since only the sender's withdrawal removes it.
-    await airplay.pipe(*bundle(RTP_B, "Sunson", "Nils Frahm", "All Melody"))
-    await airplay.pipe(prgr(0, 200))
-    await airplay.wire.snapshot_rest()
-    await airplay.cover_hold_runs_out()
-    await airplay.wire.snapshot_rest()
-    # Track C: the picture lands first, then its own tags.
-    await airplay.pipe(*picture(RTP_C - 1408, COVER_C))
-    await airplay.pipe(*bundle(RTP_C, "Says", "Nils Frahm", "Spaces"))
-    await airplay.pipe(prgr(0, 498))
-    await airplay.seconds_pass()
-    # The same track re-sent without an album tag amends rather than replaces.
-    await airplay.pipe(ssnc("mdst", str(RTP_C).encode()),
-                       ("core", "minm", b"Says (Live)"),
-                       ssnc("mden", str(RTP_C).encode()))
-    await airplay.wire.snapshot_rest()
-    await airplay.deselect()
-    check_recording("airplay", "track_changes_and_the_cover_follows", airplay.wire)
-
-
-async def test_sender_stops_and_disconnects(airplay):
-    await airplay.select()
-    await _phone_starts_track_a(airplay)
-    await airplay.pipe(ssnc("pend"))
-    await airplay.wire.snapshot_rest()
-    await airplay.pipe(disc(LAPTOP))             # a late goodbye from someone else: ignored
-    await airplay.pipe(disc(PHONE))
-    await airplay.wire.snapshot_rest()
-    # A browser tab with only a favicon for a cover takes over afterwards.
-    await airplay.pipe(conn(LAPTOP))
-    await airplay.pipe(ssnc("pbeg"))
-    await airplay.pipe(*bundle(RTP_LAPTOP, "Lecture", "YouTube", ""))
-    await airplay.pipe(*picture(RTP_LAPTOP, FAVICON))
-    await airplay.wire.snapshot_rest()
-    await airplay.deselect()
-    check_recording("airplay", "sender_stops_and_disconnects", airplay.wire)
-
-
-async def test_pause_auto_stops(monkeypatch, tmp_path):
-    airplay = AirPlay(monkeypatch, tmp_path, settings={"audio.auto_stop_delay": 1})
-    await airplay.select()
-    await _phone_starts_track_a(airplay)
-    await airplay.pipe(ssnc("pfls"))             # arms the 1 s timer, which restarts the daemon
-    await airplay.wire.snapshot_rest()
-    await airplay.seconds_pass()                 # the restarted source's ticker runs idle
-    await airplay.deselect()
-    check_recording("airplay", "pause_auto_stops", airplay.wire)
-
-
-async def test_daemon_dies_under_the_session(airplay):
-    await airplay.select()
-    await _phone_starts_track_a(airplay)
-    await airplay.seconds_pass()
-    airplay.daemon_killed_and_restarted()
-    await airplay.seconds_pass()                 # the ticker finds the pid gone
-    await airplay.wire.snapshot_rest()
-    await airplay.pipe(conn(PHONE))              # the sender reconnects to the new daemon
-    await airplay.pipe(ssnc("pbeg"))
-    await airplay.pipe(*bundle(RTP_B, "Sunson", "Nils Frahm", "All Melody"))
-    await airplay.wire.snapshot_rest()
-    await airplay.seconds_pass()
-    await airplay.deselect()
-    check_recording("airplay", "daemon_dies_under_the_session", airplay.wire)
-
-
-# === Phase 3a: the sequences shairport-sync 5.5.1 was measured to write ===
-#
-# The scenarios above predate the measurement: their stream opens with `pbeg`
-# alone, while every real one follows it with its first frame (`pffr`) and its
-# type (`styp`) 0.5-2 s later. They are kept as they were recorded; these use
-# what an iPhone (Music: Buffered) and a Mac (system audio: Realtime) sent.
-
-async def _music_starts_track_a(ap: AirPlay):
-    await ap.pipe(conn(PHONE), snam("iPhone de Léo"))
-    await ap.pipe(ssnc("pbeg"), ssnc("pres"))
-    await ap.pipe(ssnc("prsm"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
-    await ap.pipe(*bundle(RTP_A, "All Melody", "Nils Frahm", "All Melody"))
-    await ap.pipe(*picture(RTP_A + 1056, COVER_A))
-    await ap.pipe(prgr(0, 253))
+    await airplay.leave()
+    check_recording("airplay", "music_plays_a_track_with_cover", airplay.wire)
 
 
 async def test_music_pauses_resumes_and_skips(airplay):
     await airplay.select()
     await _music_starts_track_a(airplay)
     await airplay.seconds_pass()
-    await airplay.pipe(ssnc("paus"))
+    await airplay.pauses()
     await airplay.wire.snapshot_rest()
-    await airplay.pipe(ssnc("pres"), ssnc("prsm"))
-    await airplay.pipe(ssnc("pffr", b"1/2"))
     await airplay.seconds_pass()
-    # A skip: paus, then pres 160 ms later, the new track's tags and cover.
-    await airplay.pipe(ssnc("paus"))
-    await airplay.pipe(ssnc("pres"), ssnc("prsm"))
-    await airplay.pipe(*bundle(RTP_B, "Sunson", "Nils Frahm", "All Melody"),
-                       *picture(RTP_B, COVER_C), prgr(0, 200), ssnc("pffr", b"1/2"))
+    await airplay.resumes()                      # with the late pause report, then rate 1
+    await airplay.seconds_pass()
+    # A skip: paus, then pres 160 ms later, the new track's item and cover.
+    await airplay.send(ssnc("paus"))
+    await airplay.send(ssnc("pres"), ssnc("prsm"))
+    await airplay.plays("Sunson", "Nils Frahm", "All Melody", 200, COVER_C)
+    await airplay.send(ssnc("pffr", b"1/2"))
     await airplay.wire.snapshot_rest()
-    await airplay.deselect()
+    await airplay.leave()
     check_recording("airplay", "music_pauses_resumes_and_skips", airplay.wire)
+
+
+async def test_track_changes_and_the_cover_follows(airplay):
+    await airplay.select()
+    await _music_starts_track_a(airplay)
+    # Track B names a new picture that is never written: the cover is held,
+    # then goes once the settle runs out.
+    await airplay.signal(RemoteUpdate("now_playing", airplay.item(
+        "Sunson", "Nils Frahm", "All Melody", 200, artwork_id="art-sunson")))
+    await airplay.wire.snapshot_rest()
+    await airplay.advance(ARTWORK_SETTLE_SECONDS)
+    await airplay.wire.snapshot_rest()
+    # Track C: its item, then its picture.
+    await airplay.plays("Says", "Nils Frahm", "Spaces", 498, COVER_C)
+    await airplay.seconds_pass()
+    await airplay.wire.snapshot_rest()
+    await airplay.leave()
+    check_recording("airplay", "track_changes_and_the_cover_follows", airplay.wire)
+
+
+async def test_sender_stops_and_disconnects(airplay):
+    await airplay.select()
+    await _music_starts_track_a(airplay)
+    await airplay.send(ssnc("pend"))
+    await airplay.wire.snapshot_rest()
+    await airplay.says_goodbye(MAC)              # a late goodbye from someone else: ignored
+    await airplay.says_goodbye(PHONE)
+    await airplay.wire.snapshot_rest()
+    # A browser tab with only a favicon for a cover takes over afterwards.
+    await airplay.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await airplay.realtime_plays(title=None)
+    await airplay.plays("Lecture", "YouTube", "", 600, FAVICON)
+    await airplay.wire.snapshot_rest()
+    await airplay.leave()
+    check_recording("airplay", "sender_stops_and_disconnects", airplay.wire)
 
 
 async def test_a_music_pause_is_ended_by_the_daemon(monkeypatch, tmp_path):
     airplay = AirPlay(monkeypatch, tmp_path, settings={"audio.auto_stop_delay": 30})
     await airplay.select()
     await _music_starts_track_a(airplay)
-    await airplay.pipe(ssnc("paus"))
+    await airplay.pauses()
     await airplay.seconds_pass()
-    await airplay.pipe(ssnc("pend"))             # the phone tears its stream down, connected
+    await airplay.tears_the_stream_down()        # the phone drops its stream, connected
     await airplay.wire.snapshot_rest()
     await airplay.seconds_pass(2)                # the 30 s timeout asks for DropSession
     await airplay.wire.snapshot_rest()
-    await airplay.deselect()
+    await airplay.leave()
     check_recording("airplay", "a_music_pause_is_ended_by_the_daemon", airplay.wire)
 
 
-async def test_system_audio_is_connected(airplay):
+async def test_daemon_dies_under_the_session(airplay):
     await airplay.select()
-    await airplay.pipe(conn(LAPTOP), snam("Mac mini de Léo"))
-    await airplay.pipe(ssnc("pbeg"), ssnc("flsr", b"1"), ssnc("prsm"))
-    await airplay.pipe(ssnc("pffr", b"1/2"), ssnc("styp", b"Realtime"))
-    await airplay.pipe(*bundle(RTP_LAPTOP, "Energy", "Jean du Voyage", ""), prgr(0, 208))
+    await _music_starts_track_a(airplay)
+    await airplay.seconds_pass()
+    await airplay.kill_daemon()
+    await airplay.systemd_restarts_it()
+    await airplay.wire.snapshot_rest()
+    await airplay.connects(PHONE, "iPhone de Léo", IPHONE_MUSIC_COMMANDS)   # to the new daemon
+    await airplay.send(ssnc("pbeg"))
+    await airplay.plays("Sunson", "Nils Frahm", "All Melody", 200)
+    await airplay.wire.snapshot_rest()
+    await airplay.seconds_pass()
+    await airplay.leave()
+    check_recording("airplay", "daemon_dies_under_the_session", airplay.wire)
+
+
+async def test_a_mac_plays_and_pauses(airplay):
+    """Realtime: no pause on the pipe; the item's rate is the phase."""
+    await airplay.select()
+    await airplay.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await airplay.realtime_plays(title=None)
+    await airplay.plays("Energy", "Jean du Voyage", "Energy", 208, COVER_C)
     await airplay.seconds_pass()
     await airplay.wire.snapshot_rest()
-    await airplay.pipe(ssnc("pend"))
-    await airplay.pipe(disc(LAPTOP))
+    await airplay.realtime_pauses()
+    await airplay.seconds_pass()
     await airplay.wire.snapshot_rest()
-    await airplay.deselect()
-    check_recording("airplay", "system_audio_is_connected", airplay.wire)
+    await airplay.realtime_resumes()
+    await airplay.leaves(MAC)
+    await airplay.wire.snapshot_rest()
+    await airplay.leave()
+    check_recording("airplay", "a_mac_plays_and_pauses", airplay.wire)
+
+
+async def test_system_audio_with_no_item_is_connected(airplay):
+    await airplay.select()
+    await airplay.connects(MAC, "Mac mini de Léo", frozenset())
+    await airplay.realtime_plays(title=None)
+    await airplay.seconds_pass()
+    await airplay.wire.snapshot_rest()
+    await airplay.leaves(MAC)
+    await airplay.wire.snapshot_rest()
+    await airplay.leave()
+    check_recording("airplay", "system_audio_with_no_item_is_connected", airplay.wire)
 
 
 async def test_a_newcomer_before_the_late_goodbye(airplay):
     await airplay.select()
     await _music_starts_track_a(airplay)
-    await airplay.pipe(conn(LAPTOP), snam("Mac mini de Léo"))
+    await airplay.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
     await airplay.wire.snapshot_rest()
-    await airplay.pipe(disc(PHONE))              # a minute late, as measured 2026-09-03
-    await airplay.pipe(ssnc("pbeg"), ssnc("prsm"))
-    await airplay.pipe(ssnc("pffr", b"1/2"), ssnc("styp", b"Realtime"))
+    await airplay.says_goodbye(PHONE)            # a minute late, as measured 2026-09-03
+    await airplay.realtime_plays(title=None)
     await airplay.wire.snapshot_rest()
-    await airplay.deselect()
+    await airplay.leave()
     check_recording("airplay", "a_newcomer_before_the_late_goodbye", airplay.wire)
+
+
+async def test_spotify_takes_the_modes(airplay):
+    """The commands Spotify lists, and its modes as it echoes them."""
+    await airplay.select()
+    await airplay.connects(PHONE, "iPhone de Léo", SPOTIFY_COMMANDS)
+    await airplay.realtime_plays(title=None)
+    await airplay.plays("oh my love", "FKA twigs", "CAPRISONGS", 222.6, COVER_C)
+    await airplay.wire.snapshot_rest()
+    await airplay.command("set_shuffle", {"shuffle": True})
+    await airplay.command("set_repeat", {"mode": "context"})
+    await airplay.wire.snapshot_rest()
+    await airplay.leave()
+    check_recording("airplay", "spotify_takes_the_modes", airplay.wire)
