@@ -96,6 +96,10 @@ export function keepOutcome(scroll, destMax) {
  * @param {import('vue').Ref<HTMLElement|null>} [options.contentElRef]
  *   The scroller's content wrapper: measured for the destination's length and
  *   given the reserved height. Omitted (or no header) → the scroll is never kept.
+ * @param {(el: HTMLElement, fn: () => void) => boolean} [options.whenReady]
+ *   Runs `fn` once the entering view holds its content, returning true when it
+ *   waits (useNavigationStack's whenPageReady, for pages mounted late). Omitted →
+ *   every view is whole when it enters.
  */
 export function useViewTransition({
   scrollElRef,
@@ -104,6 +108,10 @@ export function useViewTransition({
   setNavHeight = null,
   headerRef = null,
   contentElRef = null,
+  whenReady = (el, fn) => {
+    fn();
+    return false;
+  },
 }) {
   let savedScrollTop = 0;
   let savedHeaderBottom = null; // header's bottom edge in scroll coordinates, before the nav
@@ -111,6 +119,7 @@ export function useViewTransition({
   let keptLeavingEl = null;     // the leaving view of a 'keep' navigation, measured around
   let frozenLeavingEl = null; // leaving view frozen at its old offset during a scroll move
   let frozenHeaderEl = null;  // header transform-held + faded out during back-to-scrolled
+  let heldEl = null;          // an entering view still empty, held at a kept scroll's height
   let reserve = null;         // { contentEl, scrollEl, base, destMax, height } while held
 
   function clearOffset(el) {
@@ -191,15 +200,15 @@ export function useViewTransition({
   // The destination's own length, read with the leaving view out of flow and no
   // reserve. Either may let the browser clamp scrollTop during the read, so a kept
   // scroll is written back afterwards (writeScroll).
-  function measureDestination(scrollEl, contentEl) {
+  function measureDestination(scrollEl, contentEl, leavingEl) {
     dropReserve();
-    const prevDisplay = keptLeavingEl.style.display;
-    keptLeavingEl.style.display = 'none';
+    const prevDisplay = leavingEl.style.display;
+    leavingEl.style.display = 'none';
     const base = contentEl.offsetHeight;
     const style = getComputedStyle(scrollEl);
     const destMax = base + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
       - scrollEl.clientHeight;
-    keptLeavingEl.style.display = prevDisplay;
+    leavingEl.style.display = prevDisplay;
     return { base, destMax };
   }
 
@@ -210,6 +219,7 @@ export function useViewTransition({
    * navigation still reads; each path releases it once its own scroll is written.
    */
   function prepareNavigation() {
+    releaseHold(); // a view left before it held its content never lands
     clearOffset(frozenLeavingEl);
     frozenLeavingEl = null;
     keptLeavingEl = null;
@@ -276,23 +286,51 @@ export function useViewTransition({
    * Called when the entering view starts its enter transition. One rAF lets Vue
    * finish laying out the stacked views, then we size the modal and land the
    * scroll in the mandated order: height → reflow → scrollTop → clip (§3.6).
+   *
+   * The navigation's decisions are read here, at once: a view that mounts its
+   * content late (whenReady) is landed after it has, which can be after the
+   * leave has ended and onAfterLeave has reset them. While such a view is still
+   * empty under a kept scroll, it holds the height that scroll needs, or the
+   * scroller would clamp and drop the header it is keeping still.
    */
-  function onEnter() {
+  function onEnter(el) {
+    const nav = {
+      mode,
+      kept: keptLeavingEl,
+      scroll: savedScrollTop,
+      headerBottom: savedHeaderBottom,
+      target: unref(pendingScrollRestore) ?? 0,
+      frozen: frozenLeavingEl,
+    };
+    const waits = whenReady(el, () => land(el, nav));
+    if (waits && nav.mode === 'keep') {
+      el.style.minHeight = `${(unref(scrollElRef)?.clientHeight ?? 0) + nav.scroll}px`;
+      heldEl = el;
+    }
+  }
+
+  function releaseHold() {
+    if (heldEl) heldEl.style.minHeight = '';
+    heldEl = null;
+  }
+
+  function land(el, nav) {
     requestAnimationFrame(() => {
+      // Let go in the frame that measures and writes the scroll, never one before.
+      if (heldEl === el) releaseHold();
       const scrollEl = unref(scrollElRef);
       const contentEl = unref(contentElRef);
-      const targetScroll = unref(pendingScrollRestore) ?? 0;
 
       let outcome = null;
       let destination = null;
-      if (mode === 'keep' && keptLeavingEl && scrollEl && contentEl) {
-        destination = measureDestination(scrollEl, contentEl);
-        outcome = keepOutcome(savedScrollTop, destination.destMax);
+      if (nav.mode === 'keep' && nav.kept && scrollEl && contentEl) {
+        destination = measureDestination(scrollEl, contentEl, nav.kept);
+        outcome = keepOutcome(nav.scroll, destination.destMax);
         if (outcome === 'reserve') {
           holdReserve(contentEl, scrollEl, destination.base, destination.destMax,
-            savedScrollTop - destination.destMax);
+            nav.scroll - destination.destMax);
         }
-      } else if (targetScroll > 0) {
+      } else if (nav.target > 0) {
         dropReserve(); // the restore below writes its own scroll
       }
 
@@ -309,13 +347,17 @@ export function useViewTransition({
           // The destination fits with no scroll: the scroller shrinks to it, so the
           // offset cannot stay. Move to 0 as a forward navigation does, and hold the
           // header where it was painted, then let it slide down to its place.
-          keptLeavingEl.style.position = 'relative';
-          keptLeavingEl.style.top = `-${savedScrollTop}px`;
-          frozenLeavingEl = keptLeavingEl;
+          // A view landed late may find the leaving one gone already (its leave
+          // over, its page in the cache): there is nothing left to hold.
+          if (nav.kept.isConnected) {
+            nav.kept.style.position = 'relative';
+            nav.kept.style.top = `-${nav.scroll}px`;
+            frozenLeavingEl = nav.kept;
+          }
           scrollEl.scrollTop = 0;
           const headerEl = resolveHeaderEl();
           headerEl.style.transition = 'none';
-          headerEl.style.transform = `translate3d(0, -${savedScrollTop}px, 0)`;
+          headerEl.style.transform = `translate3d(0, -${nav.scroll}px, 0)`;
           void headerEl.offsetHeight; // commit the held position before transitioning
           headerEl.style.transition = 'transform var(--transition-in-out)';
           headerEl.style.transform = 'translate3d(0, 0, 0)';
@@ -324,26 +366,26 @@ export function useViewTransition({
 
         if (outcome) {
           // Kept: write the scroll back, in case the measurement clamped it.
-          scrollEl.scrollTop = savedScrollTop;
+          scrollEl.scrollTop = nav.scroll;
           return;
         }
 
-        if (targetScroll > 0 && savedScrollTop !== targetScroll) {
+        if (nav.target > 0 && nav.scroll !== nav.target) {
           // Land the scroll first, then read back the value the browser settled on.
           // If the destination shrank since the scroll was saved, scrollTop clamps to
-          // maxScroll < targetScroll; the freeze offset and header hold must use the
-          // LANDED value, otherwise they're displaced by (targetScroll - landed) px.
-          scrollEl.scrollTop = targetScroll;
+          // maxScroll < nav.target; the freeze offset and header hold must use the
+          // LANDED value, otherwise they're displaced by (nav.target - landed) px.
+          scrollEl.scrollTop = nav.target;
           const landed = scrollEl.scrollTop;
 
-          if (frozenLeavingEl) {
-            frozenLeavingEl.style.position = 'relative';
-            frozenLeavingEl.style.top = `${landed - savedScrollTop}px`;
+          if (nav.frozen) {
+            nav.frozen.style.position = 'relative';
+            nav.frozen.style.top = `${landed - nav.scroll}px`;
           }
 
           const headerEl = resolveHeaderEl();
-          if (!headerEl || savedHeaderBottom === null) return;
-          if (savedScrollTop < savedHeaderBottom && landed >= savedHeaderBottom) {
+          if (!headerEl || nav.headerBottom === null) return;
+          if (nav.scroll < nav.headerBottom && landed >= nav.headerBottom) {
             // Header is about to scroll out of view. Hold it at the top with a transform
             // (counteracting the landed scroll) and fade the bar out so it doesn't pop.
             // Released in onAfterLeave once it is off-screen.
@@ -353,7 +395,7 @@ export function useViewTransition({
               transition: 'opacity var(--transition-fast-leave)',
             });
             frozenHeaderEl = headerEl;
-          } else if (savedScrollTop >= savedHeaderBottom && landed < savedHeaderBottom) {
+          } else if (nav.scroll >= nav.headerBottom && landed < nav.headerBottom) {
             // Header comes back into view part way down: fade it in where it lands.
             fadeHeaderIn(headerEl);
           }

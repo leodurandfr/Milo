@@ -21,8 +21,7 @@
 
         <!-- One page per stack entry, kept while the entry is on the stack. A
              branch reads its own entry, never the current view: a kept page
-             re-renders from it. No comment between the branches: in
-             development it is a node of its own. -->
+             re-renders from it. -->
         <template #pages>
           <KeepAlive :include="keptKeys" :max="KEPT_PAGES">
             <component :is="currentPage" :key="currentKey" v-slot="{ entry }">

@@ -5,7 +5,12 @@ import { NAVIGATION_ENTRY_STATE } from './useNavigationStack';
 // Rows mounted per step. A track list arrives whole (a Spotify listing, a
 // Navidrome playlist, a genre's 500 songs): this paces the RENDER, not the
 // fetch — 1159 rows mounted at once is what made Spotify's Liked Songs heavy.
-export const RENDER_CHUNK = 50;
+// About a screen and a half of rows: the first step is the page's mount, on
+// the tap that opens it (50 rows held a playlist's first frame ~200 ms, 12 hold
+// it ~65 ms, measured on the Pi), and a step taken while scrolling is short
+// enough not to drop frames (a 6000 px scroll down Liked Songs: 50 missed
+// frames at 50 rows, 30 at 12).
+export const RENDER_CHUNK = 12;
 
 /**
  * A long list mounted a chunk at a time, the next chunk mounted ahead of the

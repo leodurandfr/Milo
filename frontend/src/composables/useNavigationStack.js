@@ -1,4 +1,4 @@
-import { ref, computed, provide, onActivated, defineComponent, markRaw, toRaw } from 'vue';
+import { ref, computed, provide, nextTick, onActivated, onDeactivated, onMounted, onBeforeUnmount, defineComponent, markRaw, toRaw, h } from 'vue';
 
 /**
  * Injection key: a getter for the current entry's `state`, an object the view
@@ -11,13 +11,33 @@ export const NAVIGATION_ENTRY_STATE = Symbol('navigationEntryState');
 
 // Never reused: a page is cached under its entry's id, so an entry popped and
 // a new one pushed for the same view (album A, then album B) never share one.
+// `deferred`: the page is navigated to, so its content mounts a few frames late
+// (shellOf). The initial view never waits: it mounts with the source, is gone
+// back to, or is what a reset (a profile picked, a storage lost) starts over on.
 let lastEntryId = 0;
-const entry = (view, params = {}) => ({ id: `entry-${++lastEntryId}`, view, params, scrollTop: 0, state: {} });
+const entry = (view, params = {}, deferred = true) =>
+  ({ id: `entry-${++lastEntryId}`, view, params, scrollTop: 0, state: {}, deferred });
+
+// Set on a page's element while its content has not mounted yet.
+const PENDING = 'data-page-pending';
+
+// Frames a navigated-to page waits before mounting its content. Vue's
+// <Transition> starts the leaving page's fade at its second frame (nextFrame),
+// and a CSS opacity/transform transition runs on the compositor once started:
+// mounting after it lets the leave play while the main thread builds the page.
+// Measured on the panel (warm opens, first flip after the tap): a 50-row
+// playlist 231 -> 45 ms, an artist 154 -> 51 ms. At two frames the mount landed
+// on the frame the leave starts on, and held it.
+const DEFER_FRAMES = 3;
+
+// What waits for a pending page's content (whenPageReady), by its element.
+const waiting = new WeakMap();
 
 // One component per entry, named after its id, rendering its default slot for
 // that entry alone: KeepAlive's `include` matches component names, so the
 // stack's ids are what it keeps, and a popped entry's page unmounts (its loads
-// aborted, its watchers gone) instead of waiting in the cache.
+// aborted, its watchers gone) instead of waiting in the cache. Its own element
+// (.nav-page) is what the page transition moves.
 const shells = new WeakMap();
 function shellOf(e) {
   const raw = toRaw(e);
@@ -25,7 +45,44 @@ function shellOf(e) {
     shells.set(raw, markRaw(defineComponent({
       name: raw.id,
       setup(_, { slots }) {
-        return () => slots.default?.({ entry: e })[0];
+        // Only the entry's first mount waits: one evicted from the cache and
+        // gone back to is a back navigation, whose scroll restore needs the
+        // page whole.
+        const ready = ref(!raw.deferred);
+        raw.deferred = false;
+        const root = ref(null);
+        let frame = null;
+        const stop = () => {
+          if (frame) cancelAnimationFrame(frame);
+          frame = null;
+        };
+        const show = async () => {
+          stop();
+          ready.value = true;
+          await nextTick();
+          const callbacks = waiting.get(root.value) ?? [];
+          waiting.delete(root.value);
+          callbacks.forEach((fn) => fn());
+        };
+        const wait = (frames) => {
+          frame = requestAnimationFrame(() => (frames > 1 ? wait(frames - 1) : show()));
+        };
+        if (!ready.value) {
+          onMounted(() => wait(DEFER_FRAMES));
+          // Left before its content mounted (a tap, then back at once): it
+          // mounts nothing while out of sight, and at once if gone back to —
+          // where what waited for it belongs to the navigation that left it.
+          onDeactivated(() => {
+            stop();
+            waiting.delete(root.value);
+          });
+          onActivated(() => {
+            if (!ready.value && !frame) show();
+          });
+          onBeforeUnmount(stop);
+        }
+        return () => h('div', { ref: root, class: 'nav-page', [PENDING]: ready.value ? null : '' },
+          ready.value ? slots.default?.({ entry: e }) : []);
       },
     })));
   }
@@ -33,14 +90,36 @@ function shellOf(e) {
 }
 
 /**
+ * Runs `fn` once `el`, a page's element, holds its content: at once for any
+ * element but a navigated-to page still waiting to mount it (shellOf), else
+ * right after it has. For what measures the destination of a navigation.
+ *
+ * @returns {boolean} true when `fn` waits for the page
+ */
+export function whenPageReady(el, fn) {
+  if (!el?.hasAttribute?.(PENDING)) {
+    fn();
+    return false;
+  }
+  if (!waiting.has(el)) waiting.set(el, []);
+  waiting.get(el).push(fn);
+  return true;
+}
+
+/**
  * Runs `fn` when a page the cache kept is shown again (going back to it), never
  * on its first mount — for a page whose data can have moved while it was covered.
+ * Keyed on the page having been left, not on a first activation: a navigated-to
+ * page mounts its content after its shell was activated, so it hears no
+ * activation until it is gone back to.
  */
 export function onPageReturn(fn) {
-  let mounted = false;
+  let left = false;
+  onDeactivated(() => {
+    left = true;
+  });
   onActivated(() => {
-    if (mounted) fn();
-    mounted = true;
+    if (left) fn();
   });
 }
 
@@ -56,7 +135,7 @@ export function onPageReturn(fn) {
  * @returns {Object} Navigation state and methods
  */
 export function useNavigationStack(initialView = 'home', { scrollElRef = null } = {}) {
-  const stack = ref([entry(initialView)]);
+  const stack = ref([entry(initialView, {}, false)]);
 
   const currentView = computed(
     () => stack.value[stack.value.length - 1]?.view || initialView
@@ -130,7 +209,7 @@ export function useNavigationStack(initialView = 'home', { scrollElRef = null } 
    */
   function reset() {
     depart(stack.value);
-    stack.value = [entry(initialView)];
+    stack.value = [entry(initialView, {}, false)];
     pendingScrollRestore.value = null;
   }
 
@@ -140,7 +219,7 @@ export function useNavigationStack(initialView = 'home', { scrollElRef = null } 
    */
   function goTo(view, params = {}) {
     depart(stack.value);
-    stack.value = [entry(initialView), entry(view, params)];
+    stack.value = [entry(initialView, {}, false), entry(view, params)];
     pendingScrollRestore.value = null;
   }
 

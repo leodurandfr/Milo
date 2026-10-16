@@ -1000,6 +1000,14 @@
     align-self: start;
 }
 
+/* A navigation page's own element (useNavigationStack's shell), around the
+   view it draws: the box the swap moves, laid out as the cell was. */
+.nav-page {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
 /* The entering state starts once the leaving one is on its way up. */
 .swap-stack > .fade-slide-enter-active {
     transition-delay: 100ms;

@@ -10,13 +10,16 @@
  * page is unmounted mid-leave and its leave cut short (let go before the pages
  * settled).
  *
- * A host component is mounted only for `provide`; nothing is rendered or
- * asserted on the DOM. Reading `currentPage` stands for the source rendering it.
+ * The kept-pages tests mount a host only for `provide`; reading `currentPage`
+ * stands for the source rendering it. The navigated-to page tests render the
+ * shells in a KeepAlive, as a source does, and find a pending page by the
+ * attribute whenPageReady keys on; they assert what mounted and what ran, never
+ * the markup.
  */
-import { describe, it, expect } from 'vitest';
-import { defineComponent } from 'vue';
+import { describe, it, expect, afterEach } from 'vitest';
+import { defineComponent, h, KeepAlive, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
-import { useNavigationStack } from '@/composables/useNavigationStack';
+import { useNavigationStack, onPageReturn, whenPageReady } from '@/composables/useNavigationStack';
 
 function host() {
   let nav;
@@ -97,5 +100,112 @@ describe('useNavigationStack — kept pages', () => {
     show();
     nav.back();
     expect(show()).toBe(shell);
+  });
+});
+
+// A navigated-to page mounts its content a few frames after its shell. What
+// breaks if these fail: a podcast or library page gone back to shows stale data
+// (onPageReturn never fires on its first return), or a page opened and left at
+// once builds itself during its own leave — the jank the deferral removes.
+//
+// A source's #pages, as SpotifySource renders them: one shell per entry in a
+// KeepAlive, the page reading what it is given.
+const mounted = [];
+afterEach(() => {
+  mounted.splice(0).forEach((wrapper) => wrapper.unmount());
+});
+
+function source(Page) {
+  let nav;
+  mounted.push(mount(defineComponent({
+    setup() {
+      nav = useNavigationStack('home');
+      return () => h(KeepAlive, { include: nav.keptKeys.value }, [
+        h(nav.currentPage.value, { key: nav.currentKey.value }, { default: ({ entry }) => [h(Page, { view: entry.view })] }),
+      ]);
+    },
+  }), { attachTo: document.body }));
+  return nav;
+}
+
+// The page element of the entry on top: what AudioSourceLayout's transition hands
+// to whenPageReady.
+const pageOnTop = () => document.querySelector('[data-page-pending]');
+
+const frames = async (n) => {
+  for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r));
+  await nextTick();
+};
+
+describe('useNavigationStack — a navigated-to page', () => {
+  it('refreshes on its return only, though its content mounted after the shell was shown', async () => {
+    const returns = [];
+    const Page = defineComponent({
+      props: { view: String },
+      setup(props) {
+        onPageReturn(() => returns.push(props.view));
+        return () => null;
+      },
+    });
+    const nav = source(Page);
+    nav.push('album');
+    await frames(5);
+    expect(returns).toEqual([]);
+
+    nav.push('artist');
+    await frames(5);
+    nav.back();
+    await frames(5);
+    expect(returns).toEqual(['album']);
+  });
+
+  it('mounts nothing once left before its content mounted, and mounts at once when gone back to', async () => {
+    const built = [];
+    const Page = defineComponent({
+      props: { view: String },
+      setup(props) {
+        built.push(props.view);
+        return () => null;
+      },
+    });
+    const nav = source(Page);
+    nav.push('album');
+    await nextTick();
+    nav.push('artist');
+    await frames(5);
+    expect(built).toEqual(['home', 'artist']);
+
+    nav.back();
+    await nextTick();
+    await nextTick();
+    expect(built).toEqual(['home', 'artist', 'album']);
+  });
+
+  it('lands a navigation once the page holds its content, and drops a landing whose page was left first', async () => {
+    const built = [];
+    const Page = defineComponent({
+      props: { view: String },
+      setup(props) {
+        built.push(props.view);
+        return () => null;
+      },
+    });
+    const nav = source(Page);
+    const landed = [];
+
+    nav.push('album');
+    await nextTick();
+    whenPageReady(pageOnTop(), () => landed.push(built.includes('album')));
+    await frames(5);
+    expect(landed).toEqual([true]);
+
+    nav.push('artist');
+    await nextTick();
+    whenPageReady(pageOnTop(), () => landed.push('artist, left before it was built'));
+    nav.push('queue');
+    await frames(5);
+    nav.back();
+    await frames(5);
+    expect(landed).toEqual([true]);
   });
 });

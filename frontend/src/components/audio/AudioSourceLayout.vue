@@ -48,8 +48,8 @@
           <!-- #pages: a source with a navigation stack hands in its own keyed
                page, in a KeepAlive, so a page gone back to is shown again
                rather than built anew — a wrapper keyed here would be rebuilt
-               with the cache inside it. Each page has one element root, the
-               transition's. #content: plain content, keyed here. -->
+               with the cache inside it. Its shell's element (.nav-page) is
+               the transition's. #content: plain content, keyed here. -->
           <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave"
             @leave-cancelled="leaveEnded">
             <slot v-if="$slots.pages" name="pages" :is-mobile="isMobile" />
@@ -96,6 +96,7 @@ import NavigationHeader from '@/components/ui/NavigationHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useViewTransition } from '@/composables/useViewTransition'
+import { whenPageReady } from '@/composables/useNavigationStack'
 import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/services/i18n'
 
@@ -214,6 +215,9 @@ const { prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLea
   },
   headerRef,
   contentElRef: contentRef,
+  // A page navigated to mounts its content a few frames after it enters
+  // (useNavigationStack): the destination is measured once it holds it.
+  whenReady: whenPageReady,
 })
 
 // The gradient hangs off the frame, so the scroll offset it used to inherit is

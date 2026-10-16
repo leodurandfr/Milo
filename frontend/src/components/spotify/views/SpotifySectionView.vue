@@ -1,6 +1,4 @@
-<!-- One of Spotify's sections whole, its row's cards in a grid. Outside the
-     template: a root comment makes the page a fragment in development, which
-     its KeepAlive and transition cannot animate. -->
+<!-- One of Spotify's sections whole, its row's cards in a grid. -->
 <template>
   <SpotifyCardGrid :items="items" @select="$emit('select', $event)" />
 </template>
