@@ -8,14 +8,14 @@
 
 <template>
   <div class="lyrics-view">
-    <!-- Blurred, darkened current-track artwork as the backdrop. Same
-         technique as AudioPlayerFull's .artwork-blur, scaled to fill the slot
-         and dimmed so the lyrics stay legible over it. Keyed on the URL so a
-         track change crossfades the two covers, and the layer drifts slowly on
-         its own for a living backdrop. -->
-    <Transition name="lyrics-bg" appear>
-      <div class="lyrics-view-bg" :key="artworkUrl"
-        :style="{ backgroundImage: artworkUrl ? `url(${artworkUrl})` : 'none' }">
+    <!-- Blurred, darkened current-track artwork as the backdrop, scaled to fill
+         the slot and dimmed so the lyrics stay legible over it. Keyed on the URL
+         so a track change crossfades the two covers, and the layer drifts
+         slowly on its own for a living backdrop — a drift that moves a cover
+         blurred once (BlurredArtwork), never one blurred again each frame. -->
+    <Transition name="lyrics-bg" appear @before-enter="startDrift" @after-leave="stopDrift">
+      <div class="lyrics-view-bg" :key="artworkUrl">
+        <BlurredArtwork v-if="artworkUrl" :src="artworkUrl" blur="--blur-05" :saturate="1.4" :brightness="0.38" />
       </div>
     </Transition>
 
@@ -65,6 +65,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
 
 import IconButton from '@/components/ui/IconButton.vue';
+import BlurredArtwork from '@/components/audio/BlurredArtwork.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LyricsContent from './LyricsContent.vue';
 import LyricsPlaybackBar from './LyricsPlaybackBar.vue';
@@ -99,6 +100,41 @@ const showLoader = computed(() =>
 watch(() => lyricsStore.loading, (isLoading) => {
   if (isLoading) contentReady.value = false;
 });
+
+// The backdrop's slow drift — scale 1.12 → 1.24 and up 3 %, there and back
+// every 24 s on CSS's ease-in-out — stepped DRIFT_HZ times a second rather
+// than animated every frame. It moves ~10 device px a second at its fastest, so
+// a frame-rate animation redrew the whole screen 60 times a second for
+// 0.05 px each: half the Pi's GPU while Lyrics was open (53 % → 5–11 % at 8 Hz,
+// measured). A step of about a pixel on a cover blurred this much is not seen.
+// Each layer — both while a track change crossfades two covers — holds a paused
+// animation that the browser evaluates on its own curve; the tick only moves its
+// clock, so nothing else in the view re-renders.
+const DRIFT_HZ = 8;
+const DRIFT_KEYFRAMES = [
+  { transform: 'scale(1.12) translate3d(0, 0, 0)' },
+  { transform: 'scale(1.24) translate3d(0, -3%, 0)' }
+];
+const DRIFT_TIMING = { duration: 24000, direction: 'alternate', iterations: Infinity, easing: 'ease-in-out' };
+const driftStart = performance.now();
+const drifts = new Map();
+
+function startDrift(el) {
+  const drift = el.animate(DRIFT_KEYFRAMES, DRIFT_TIMING);
+  drift.pause();
+  drift.currentTime = performance.now() - driftStart;
+  drifts.set(el, drift);
+}
+
+function stopDrift(el) {
+  drifts.get(el)?.cancel();
+  drifts.delete(el);
+}
+
+timer.setInterval(() => {
+  const elapsed = performance.now() - driftStart;
+  drifts.forEach((drift) => { drift.currentTime = elapsed; });
+}, 1000 / DRIFT_HZ);
 
 // One key for every source: the session's artwork is already the source's own
 // pick (radio's recognized track, else its station favicon), so the backdrop is
@@ -202,21 +238,13 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   position: absolute;
   inset: -40px;
   z-index: 1;
-  background-size: cover;
-  background-position: center;
-  /* Darken + soften so large light lyrics stay legible over any cover. */
-  filter: blur(var(--blur-05)) saturate(1.4) brightness(0.38);
+  /* Darkened and softened (BlurredArtwork's filter) so large light lyrics
+     stay legible over any cover. */
   opacity: 0.62;
   will-change: transform, opacity;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  /* Slow ambient drift so the backdrop keeps changing gently. */
-  animation: lyrics-bg-drift 24s ease-in-out infinite alternate;
-}
-
-@keyframes lyrics-bg-drift {
-  from { transform: scale(1.12) translate3d(0, 0, 0); }
-  to { transform: scale(1.24) translate3d(0, -3%, 0); }
+  /* The slow ambient drift is stepped from script (startDrift). */
 }
 
 /* Crossfade the two covers when the track changes (both layers overlap). */

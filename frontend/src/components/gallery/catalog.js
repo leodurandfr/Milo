@@ -247,6 +247,12 @@ export const ENTRIES = [
     summary: 'Artwork with a fallback chain: src, then fallbackName (a deterministic generated avatar) or fallback (a static asset). lazy defers the fetch; skeleton draws a shimmer while it loads, which hands over to the image — or to the fallback — with the reveal; the default slot overlays the image. An image ready before the first frame is drawn at once.',
   },
   {
+    id: 'BlurredArtwork',
+    group: 'media',
+    file: 'components/audio/BlurredArtwork.vue',
+    summary: 'An artwork blurred once and drawn as a plain picture: the cover goes through blur, saturate and brightness into a canvas only as fine as the blur leaves detail for, stretched to fill the box like object-fit: cover. A CSS filter would blur the image again on every redraw of its layer — each step of the Lyrics drift. The backdrop of the Lyrics view; blur is a design token. A browser without canvas filters (WebKit) gets the CSS filter on the canvas instead.',
+  },
+  {
     id: 'LikedCover',
     group: 'media',
     file: 'components/audio/LikedCover.vue',

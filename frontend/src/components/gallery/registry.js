@@ -73,6 +73,7 @@ import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import LikedCover from '@/components/audio/LikedCover.vue';
+import BlurredArtwork from '@/components/audio/BlurredArtwork.vue';
 import SvgIcon, { ICON_NAMES } from '@/components/ui/SvgIcon.vue';
 import AppIcon, { APP_ICON_NAMES, TILE_SIZE_PX } from '@/components/ui/AppIcon.vue';
 import Logo from '@/components/ui/Logo.vue';
@@ -575,6 +576,12 @@ export const REGISTRY = {
     // `on-contrast` drops the card and colours every line white, for the blurred
     // artwork the Lyrics view lays it over.
     surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
+  },
+
+  BlurredArtwork: {
+    component: BlurredArtwork,
+    // Sized by the class: the canvas fills its box.
+    args: { src: musicPlaceholder, class: 'canvas-artwork', saturate: 1.6 }
   },
 
   LikedCover: {
