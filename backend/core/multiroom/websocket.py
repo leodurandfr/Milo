@@ -59,6 +59,7 @@ class SnapcastWebSocketService:
         crossover_service=None,
         equalizer_client_proxy_service=None,
         pending_clients_service=None,
+        satellite_wifi_service=None,
     ):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -101,6 +102,7 @@ class SnapcastWebSocketService:
         self._crossover_service = crossover_service
         self._equalizer_client_proxy_service = equalizer_client_proxy_service
         self._pending_clients_service = pending_clients_service
+        self._satellite_wifi_service = satellite_wifi_service
         self._volume_service = None
 
     @property
@@ -1070,6 +1072,13 @@ class SnapcastWebSocketService:
                             self._push_snapclient_config(client.ip),
                             label=f"push_snapclient_config_{client.ip}",
                         )
+                        # The server's WiFi as a standby link, for when the
+                        # satellite's cable goes.
+                        if self._satellite_wifi_service is not None:
+                            self._bg.spawn(
+                                self._satellite_wifi_service.push(client.ip),
+                                label=f"push_wifi_{client.ip}",
+                            )
 
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:

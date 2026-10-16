@@ -9,6 +9,9 @@
 #   2. /boot/firmware/cmdline.txt   — persists cfg80211.ieee80211_regdom=<CC>
 #
 # Must be run as root (via sudoers rule).
+#
+# Twin of milo-client/rootfs/usr/local/bin/milo-set-wifi-country — a satellite
+# applies the server's country when it joins the server's WiFi.
 
 set -euo pipefail
 

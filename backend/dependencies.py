@@ -117,7 +117,8 @@ def _create_service(name: str) -> Any:
             snapcast_service=get_service("snapcast_service"),
             crossover_service=get_service("crossover_service"),
             equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),
-            pending_clients_service=get_service("pending_clients_service")
+            pending_clients_service=get_service("pending_clients_service"),
+            satellite_wifi_service=get_service("satellite_wifi_service"),
         ),
         "equalizer_client_proxy_service": lambda: _import("backend.core.equalizer", "EqualizerClientProxyService")(
             routing_service=get_service("audio_routing_service")
@@ -182,6 +183,10 @@ def _create_service(name: str) -> Any:
         "network_service": lambda: _import("backend.core.network.service", "NetworkService")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
+        ),
+        "satellite_wifi_service": lambda: _import("backend.core.multiroom.satellite_wifi", "SatelliteWifiService")(
+            network_service=get_service("network_service"),
+            client_registry_service=get_service("client_registry_service"),
         ),
         "wifi_adoption_service": lambda: _import("backend.core.multiroom.wifi_adoption", "WifiAdoptionService")(
             network_service=get_service("network_service")
@@ -394,6 +399,10 @@ async def initialize_services() -> None:
     # measurement showed it does not move when an uplink dies while IPv6 keeps
     # answering. A link change is the only other signal the appliance gets.
     network_service.set_connectivity_service(connectivity_service)
+    # Cycle: network_service ↔ satellite_wifi_service
+    #   the satellites are handed the server's WiFi credentials, which this
+    #   service reads; it is also the one that sees that WiFi come up.
+    network_service.set_satellite_wifi_service(get_service("satellite_wifi_service"))
     # Plain assignment, like its three siblings above: broadcast() calls into
     # it synchronously, and the service needs the machine back to read the
     # state it publishes. Both directions are set here, nothing else reads them.

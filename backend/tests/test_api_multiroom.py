@@ -1907,3 +1907,4 @@ class TestSatelliteRemoteAccess:
         assert response.status_code == 502
         assert "not JSON" in response.json()["detail"]
         mock_registry_service.set_client_online.assert_not_awaited()
+

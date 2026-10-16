@@ -156,9 +156,15 @@ class NetworkService:
         # Set after construction: this service sees link changes, and
         # ConnectivityService is the only thing that can turn one into a verdict.
         self._connectivity_service = None
+        # Set after construction, for the same reason: this service is the one
+        # that sees the server's WiFi come up or change network.
+        self._satellite_wifi_service = None
 
     def set_connectivity_service(self, connectivity_service) -> None:
         self._connectivity_service = connectivity_service
+
+    def set_satellite_wifi_service(self, satellite_wifi_service) -> None:
+        self._satellite_wifi_service = satellite_wifi_service
 
     @property
     def hotspot_active(self) -> bool:
@@ -403,6 +409,20 @@ class NetworkService:
         only the setup hotspot is up). ``password`` is an empty string for
         open networks.
         """
+        profile = await self.get_active_wifi_profile()
+        if profile is None:
+            return None
+        return {"ssid": profile["ssid"], "password": profile["password"]}
+
+    async def get_active_wifi_profile(self) -> Optional[dict]:
+        """The credentials of the active WiFi connection, with what a copy of it needs.
+
+        ``{"ssid", "password", "hidden": bool, "key_mgmt": str}``, or ``None``
+        as for the credentials. ``key_mgmt`` is empty for an open network (the
+        profile then has no security setting at all), ``wpa-psk`` for WPA2 —
+        anything else (SAE alone, 802.1X, WEP) is a network an SSID and a PSK
+        cannot rebuild.
+        """
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"
         )
@@ -429,7 +449,8 @@ class NetworkService:
 
         rc, stdout, stderr = await self._run_nmcli(
             "-s", "-t",
-            "-f", "802-11-wireless.ssid,802-11-wireless-security.psk",
+            "-f", "802-11-wireless.ssid,802-11-wireless.hidden,"
+                  "802-11-wireless-security.key-mgmt,802-11-wireless-security.psk",
             "connection", "show", active_name,
         )
         if rc != 0:
@@ -440,6 +461,8 @@ class NetworkService:
 
         ssid: Optional[str] = None
         password: str = ""
+        hidden = False
+        key_mgmt = ""
         for line in stdout.split("\n"):
             if not line:
                 continue
@@ -451,11 +474,15 @@ class NetworkService:
                 ssid = value
             elif key == "802-11-wireless-security.psk":
                 password = value
+            elif key == "802-11-wireless.hidden":
+                hidden = value == "yes"
+            elif key == "802-11-wireless-security.key-mgmt":
+                key_mgmt = value
 
         if not ssid:
             return None
 
-        return {"ssid": ssid, "password": password}
+        return {"ssid": ssid, "password": password, "hidden": hidden, "key_mgmt": key_mgmt}
 
     async def get_country(self) -> str:
         """Return the stored WiFi country code, or empty string if not set."""
@@ -1227,6 +1254,7 @@ class NetworkService:
             if status == self._last_broadcast:
                 return
 
+            previous = self._last_broadcast
             self._last_broadcast = status
 
             # After the dedup, deliberately: this costs one IPv4 request and a
@@ -1239,6 +1267,16 @@ class NetworkService:
                     self._connectivity_service.recheck("link change"),
                     label="connectivity_recheck",
                 )
+
+            # The server's WiFi came up or moved to another network: every
+            # satellite keeps it as a standby link. A reconnection to the same
+            # network counts too — it is how a changed password reaches them.
+            joined = status.wifi.connected and not (
+                previous is not None and previous.wifi.connected
+                and previous.wifi.ssid == status.wifi.ssid
+            )
+            if joined and self._satellite_wifi_service is not None:
+                self._bg.spawn(self._satellite_wifi_service.push_all(), label="satellite_wifi")
 
         await self.state_machine.broadcast(
             NetworkStatusChanged(**status.model_dump())

@@ -1,0 +1,124 @@
+#!/bin/bash
+# milo-client-join-wifi — Keep the server's WiFi network as a standby link
+#
+# Usage: printf '%s\n%s\n%s\n' "<COUNTRY>" "<SSID>" "<PSK>" | milo-client-join-wifi
+#   COUNTRY: two uppercase characters (FR, US…), or empty to leave the
+#            regulatory domain alone
+#   SSID:    1–32 bytes
+#   PSK:     8–63 printable characters or 64 hex digits; empty = open network
+#
+# The server pushes the network it is on itself (`PUT /api/system/wifi`) every
+# time this satellite is admitted and every time its own WiFi changes, so a
+# satellite wired over Ethernet also holds the WiFi and falls back to it when
+# the cable or its switch goes. Being called that often decides the shape:
+#
+#   - **Idempotent.** A profile already carrying this SSID and PSK is left
+#     alone. Replacing it would drop the link of a satellite that is on WiFi
+#     only — on every reconnection.
+#   - **Never forced up.** The profile autoconnects; NetworkManager brings it up
+#     on an idle wlan0 and never pulls a wlan0 that is already on another
+#     network (a satellite placed on a repeater stays there).
+#
+# The credentials come on **stdin, never argv**: sudo writes every command line
+# it runs to the journal, so a PSK passed as an argument would be kept there.
+# Past sudo, nmcli takes it as an argument — the profile it writes is root-only,
+# and every account on a satellite already holds the app's copy of it.
+#
+# The image boots in the world domain (`00`), where an access point on a DFS
+# channel or on 2.4 GHz channels 12-13 cannot be joined, so the server's country
+# comes along — applied only when cmdline.txt does not already carry it.
+#
+# Prints `unchanged` or `saved`. Must be run as root (via sudoers rule).
+
+set -euo pipefail
+
+IFACE="wlan0"
+SET_COUNTRY="/usr/local/bin/milo-set-wifi-country"
+
+# A terminal on stdin means the caller passed nothing to read; `read` would
+# block forever holding a sudo session open.
+if [[ -t 0 ]]; then
+    echo "ERROR: the country, SSID and PSK must be piped on stdin" >&2
+    exit 1
+fi
+
+IFS= read -r COUNTRY || true
+IFS= read -r SSID || true
+IFS= read -r PSK || true
+
+if [[ -n "$COUNTRY" && ! "$COUNTRY" =~ ^[A-Z0-9]{2}$ ]]; then
+    echo "ERROR: invalid country code" >&2
+    exit 1
+fi
+
+# Byte length, not character length: 802.11 bounds the SSID at 32 octets.
+ssid_bytes=$(printf '%s' "$SSID" | LC_ALL=C wc -c)
+if (( ssid_bytes < 1 || ssid_bytes > 32 )); then
+    echo "ERROR: the SSID must be 1 to 32 bytes" >&2
+    exit 1
+fi
+
+if [[ -n "$PSK" ]]; then
+    if [[ "$PSK" =~ ^[0-9A-Fa-f]{64}$ ]]; then
+        :
+    elif (( ${#PSK} < 8 || ${#PSK} > 63 )) || [[ "$PSK" =~ [^[:print:]] ]]; then
+        echo "ERROR: the PSK must be 8 to 63 printable characters or 64 hex digits" >&2
+        exit 1
+    fi
+fi
+
+if [[ ! -e "/sys/class/net/$IFACE" ]]; then
+    echo "ERROR: this unit has no $IFACE" >&2
+    exit 1
+fi
+
+if [[ -n "$COUNTRY" ]]; then
+    cmdline="/boot/firmware/cmdline.txt"
+    [[ -f "$cmdline" ]] || cmdline="/boot/cmdline.txt"
+    if ! grep -qw "cfg80211.ieee80211_regdom=$COUNTRY" "$cmdline" 2>/dev/null; then
+        "$SET_COUNTRY" "$COUNTRY" >/dev/null
+    fi
+fi
+
+nmcli radio wifi on
+# A `device disconnect` leaves wlan0 refusing autoconnect until told otherwise.
+nmcli device set "$IFACE" autoconnect yes
+
+# Profiles are matched on the SSID they carry, not on their name: the adoption
+# flow, an older Milō and netplan each name theirs differently, and two
+# profiles for one network leave NetworkManager to pick the stale one.
+#
+# One that already carries this PSK is kept — the one wlan0 is on, when it is —
+# and only the others go: deleting the profile a WiFi-only satellite is
+# associated with would cut its link, and the request with it.
+active=$(nmcli -e no -g GENERAL.CON-UUID device show "$IFACE" 2>/dev/null || true)
+matching=()
+keep=""
+while IFS=: read -r uuid type; do
+    [[ "$type" == "802-11-wireless" ]] || continue
+    [[ "$(nmcli -e no -g 802-11-wireless.ssid connection show "$uuid")" == "$SSID" ]] || continue
+    matching+=("$uuid")
+    psk=$(nmcli -s -e no -g 802-11-wireless-security.psk connection show "$uuid")
+    autoconnect=$(nmcli -e no -g connection.autoconnect connection show "$uuid")
+    if [[ "$psk" == "$PSK" && "$autoconnect" == "yes" ]] && [[ -z "$keep" || "$uuid" == "$active" ]]; then
+        keep="$uuid"
+    fi
+done < <(nmcli -e no -g UUID,TYPE connection show)
+
+for uuid in "${matching[@]}"; do
+    [[ "$uuid" == "$keep" ]] || nmcli connection delete "$uuid" >/dev/null
+done
+
+if [[ -n "$keep" ]]; then
+    (( ${#matching[@]} == 1 )) && echo "unchanged" || echo "saved"
+    exit 0
+fi
+
+add_args=(connection add type wifi ifname "$IFACE" con-name "milo-$SSID" ssid "$SSID"
+          connection.autoconnect yes)
+if [[ -n "$PSK" ]]; then
+    add_args+=(wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PSK" wifi-sec.psk-flags 0)
+fi
+nmcli "${add_args[@]}" >/dev/null
+
+echo "saved"

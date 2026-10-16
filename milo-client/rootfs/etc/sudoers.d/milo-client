@@ -38,3 +38,8 @@ milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl restart milo-client.service
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now ssh.service
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl disable --now ssh.service
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password
+
+# Joining the server's WiFi, driven from the same panel (routes/system.py). The
+# app holds no NetworkManager right of its own: the polkit rule is the server's,
+# for the `milo` user only.
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-join-wifi

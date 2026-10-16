@@ -658,6 +658,23 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     }
   }
 
+  // === CLIENT NETWORK ===
+  // The links a satellite is on. Its WiFi is never set from here: the server
+  // hands every satellite its own network on its own (SatelliteWifiService).
+
+  /** @returns {Promise<{ethernet: {ip}|null, wifi: {ssid, ip}|null}|null>} null when unreadable */
+  async function fetchClientNetwork(macId, { errorRef } = {}) {
+    const result = await apiCall.get(`/api/multiroom/clients/${encodeURIComponent(macId)}/network`, {
+      category: 'store',
+      message: 'Failed to load client network links',
+      // A satellite whose app predates the route answers 404 until its next
+      // update; the panel then only hides two rows.
+      logLevel: 'debug',
+      errorRef,
+    });
+    return result.ok ? result.data.data : null;
+  }
+
   // === PENDING CLIENTS ===
 
   /**
@@ -791,6 +808,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     fetchClientSsh,
     setClientSsh,
     setClientPassword,
+    fetchClientNetwork,
 
     // Pending clients
     fetchPendingClients,

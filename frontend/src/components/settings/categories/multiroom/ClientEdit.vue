@@ -156,6 +156,22 @@
             <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
             <span class="info-value text-mono-medium">{{ client?.ip || 'Unknown' }}</span>
           </div>
+          <!-- A satellite on both links can lose its cable: the server hands
+               every satellite its own WiFi, and these two say whether it holds. -->
+          <template v-if="networkState">
+            <div class="info-item">
+              <span class="info-label text-mono-medium">{{ t('network.ethernet') }}</span>
+              <span class="info-value text-mono-medium">
+                {{ networkState.ethernet ? t('network.connected') : t('network.notConnected') }}
+              </span>
+            </div>
+            <div class="info-item">
+              <span class="info-label text-mono-medium">{{ t('network.wifi') }}</span>
+              <span class="info-value text-mono-medium">
+                {{ networkState.wifi ? (networkState.wifi.ssid || t('network.connected')) : t('network.notConnected') }}
+              </span>
+            </div>
+          </template>
         </div>
       </SectionCard>
 
@@ -243,6 +259,9 @@ const crossoverFrequency = ref(80);
 const sshState = ref(null);
 const sshBusy = ref(false);
 const sshError = ref(null);
+// null until the satellite answered, and for good on one whose app predates the
+// route (the rows stay hidden).
+const networkState = ref(null);
 
 const client = computed(() =>
   snapcastStore.clients.find(c => c.mac_id === props.macId)
@@ -598,13 +617,22 @@ async function handleSshToggle(enabled) {
 }
 
 // Read whenever the satellite is (back) online with no state yet: the panel can
-// open on a speaker that is rebooting, or before the client list arrived.
+// open on a speaker that is rebooting, or before the client list arrived. The
+// links are read again on every return: a satellite that lost its cable comes
+// back on the WiFi, and that is exactly what the rows are there to show.
 watch(
   () => !!client.value && !client.value.is_local && client.value.online,
   async (reachable) => {
-    if (!reachable || sshState.value) return;
-    sshError.value = null;
-    sshState.value = await multiroomClientStore.fetchClientSsh(props.macId, { errorRef: sshError });
+    if (!reachable) return;
+    await Promise.all([
+      !sshState.value && (async () => {
+        sshError.value = null;
+        sshState.value = await multiroomClientStore.fetchClientSsh(props.macId, { errorRef: sshError });
+      })(),
+      (async () => {
+        networkState.value = await multiroomClientStore.fetchClientNetwork(props.macId) ?? networkState.value;
+      })(),
+    ]);
   },
   { immediate: true }
 );

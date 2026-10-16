@@ -31,7 +31,7 @@ import contextlib
 import logging
 import types
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -2440,3 +2440,35 @@ async def test_a_link_change_is_harmless_before_the_service_is_wired(service):
     with patcher:
         await service._refresh_and_broadcast()
         await _settle_bg(service)
+
+
+# --------------------------------------------------------------------------- #
+# The server's WiFi handed to the satellites
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_satellites_are_handed_the_wifi_when_it_comes_up_or_moves_and_only_then(service):
+    """Every satellite keeps the server's WiFi as a standby link.
+
+    A push on every link change would run the satellites' helper for an
+    Ethernet flap that moved nothing; no push on a change of network would
+    leave them holding one the server has left.
+    """
+    satellite_wifi = Mock()
+    satellite_wifi.push_all = AsyncMock()
+    service.set_satellite_wifi_service(satellite_wifi)
+    links = {"eth": ("Wired connection 1", "192.168.1.10"), "wlan": ("--", None)}
+    fake, patcher = with_nmcli(lambda args: _status_router(**links)(args))
+
+    async def link_change(**moved):
+        links.update(moved)
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+        return satellite_wifi.push_all.await_count
+
+    with patcher:
+        assert await link_change() == 0                                        # Ethernet only
+        assert await link_change(wlan=("milo-Home", "192.168.1.11")) == 1      # WiFi comes up
+        assert await link_change(eth=("--", None)) == 1                        # cable out, same WiFi
+        assert await link_change(wlan=("milo-Office", "192.168.1.12")) == 2    # another network
+        await service.cleanup()

@@ -650,6 +650,21 @@ def create_multiroom_router(
             logger.info(f"Password updated on client {mac_id}")
             return reply
 
+    @router.get("/clients/{mac_id}/network")
+    async def get_client_network(mac_id: str):
+        """The links a satellite is on: Ethernet and WiFi, each null when down."""
+        async with api_error_handler(f"Error reading the network links of client {mac_id}", logger):
+            client = _satellite(mac_id)
+            async with _reaching_satellite(registry_service, mac_id, client.ip):
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/system/network") as resp:
+                        # An app that predates the route is expected until its next
+                        # update, and the panel only hides the two rows: no error.
+                        if resp.status == 404:
+                            logger.debug(f"Client {mac_id} does not report its network links yet")
+                            raise HTTPException(status_code=404, detail="This satellite does not report its network links yet")
+                        return await _satellite_reply(resp, mac_id)
+
     # === ZONE ENDPOINTS ===
 
     @router.post("/zones", status_code=201, response_model=ZoneMutationResponse)
