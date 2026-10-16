@@ -185,8 +185,8 @@ class TestTheScreenResolution:
             assert service.get_screen_info()["color_correction"] is None, screen_type
 
     def test_every_registry_correction_only_attenuates_and_keeps_one_channel_whole(self):
-        """A multiply layer can only darken: a gain above 1 is clamped by the
-        blend in silence, and a correction whose largest gain is under 1 dims the
+        """The kiosk's color matrix can only darken: a gain above 1 is clipped at
+        white in silence, and a correction whose largest gain is under 1 dims the
         panel for nothing — the white it aims at is reached with one channel at 1."""
         for screen_id, screen in SCREENS.items():
             gains = screen.get("color_correction")

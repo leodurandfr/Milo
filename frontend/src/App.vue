@@ -43,16 +43,14 @@
     <!-- Global Virtual Keyboard (available in wizard too) -->
     <VirtualKeyboard />
 
-    <!-- Screen color layer: the panel's measured correction (screen registry)
-         × the warm filter (screen settings). Teleported to <body> so the multiply blend
-         reaches teleported elements (Dropdown menus) that are siblings of #app. -->
-    <Teleport to="body">
-      <div
-        v-if="colorLayerGains"
-        class="color-filter-overlay"
-        :style="colorLayerStyle"
-      />
-    </Teleport>
+    <!-- Screen color: the panel's measured correction (screen registry) × the
+         warm filter (screen settings), a filter on the root element (html.screen-color)
+         so it reaches teleported elements (Dropdown menus) that are siblings of #app. -->
+    <svg v-if="colorLayerGains" class="screen-color-defs" aria-hidden="true">
+      <filter id="screen-color" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" :values="colorMatrix" />
+      </filter>
+    </svg>
 
     <!-- Sleep shield: intercepts touch when screen is off to prevent accidental UI interaction -->
     <div
@@ -466,11 +464,11 @@ watch(isReady, (ready) => {
   }
 });
 
-// === Screen color layer: the panel's measured correction × the warm filter ===
+// === Screen color: the panel's measured correction × the warm filter ===
 // Only applied on the Pi kiosk (localhost): both belong to its panel, and remote
 // browsers (e.g. milo.local from another device) keep their native colors.
 // App furniture the current route may opt out of: the Dock and the warm colour
-// overlay. Declared by the route (`meta.chrome: false`) rather than matched on a
+// filter. Declared by the route (`meta.chrome: false`) rather than matched on a
 // path here, so the shell carries no knowledge of which page wants it — today
 // only /components does, where both would sit over the component being judged.
 const showChrome = computed(() => route.meta.chrome !== false);
@@ -490,10 +488,17 @@ const kioskZoomStyle = computed(() => (
   isKiosk() ? { '--kiosk-zoom': settingsStore.screenUiScale?.ui_scale ?? 1 } : null
 ));
 
-const colorLayerStyle = computed(() => {
-  const [r, g, b] = colorLayerGains.value.map(gain => (gain * 255).toFixed(1));
-  return { backgroundColor: `rgb(${r}, ${g}, ${b})` };
+// The gains on the diagonal, applied to gamma-encoded values (sRGB
+// interpolation), as the multiply layer this replaced did: the same pixels,
+// measured, at next to no GPU cost on the panel (V3D 20 % while scrolling,
+// against 27 % for the layer and 19 % with no correction at all).
+const colorMatrix = computed(() => {
+  const [r, g, b] = colorLayerGains.value.map(gain => gain.toFixed(4));
+  return `${r} 0 0 0 0  0 ${g} 0 0 0  0 0 ${b} 0 0  0 0 0 1 0`;
 });
+watch(colorLayerGains, (gains) => {
+  document.documentElement.classList.toggle('screen-color', !!gains);
+}, { immediate: true });
 
 const isEqualizerOpen = ref(false);
 const isMultiroomOpen = ref(false);
@@ -820,14 +825,17 @@ onUnmounted(() => {
   height: 100%;
 }
 
-.color-filter-overlay {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  mix-blend-mode: multiply;
-  /* Above every full-screen view (the hostname conflict sits at 10000), below
-     only the sleep shield, which draws nothing. */
-  z-index: 99998;
+/* On the root element a filter creates no containing block for fixed
+   descendants, so nothing moves; on #app it would, and it measured as costly
+   as the multiply layer it replaced. */
+html.screen-color {
+  filter: url("#screen-color");
+}
+
+.screen-color-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
 }
 
 .sleep-shield {

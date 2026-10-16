@@ -101,7 +101,7 @@ def is_dac_card(audio_id: str) -> bool:
 # - label: Human-readable name for the UI dropdown
 # - resolution: "WIDTHxHEIGHT" string (None for "none")
 # - color_correction: optional (R, G, B) gains the kiosk multiplies every pixel
-#   by (gamma-encoded, as a CSS multiply blend applies them) to bring the
+#   by (gamma-encoded, as its sRGB color matrix applies them) to bring the
 #   panel's white to D65. Only a panel measured with a colorimeter carries one:
 #   neither DSI nor Chromium-on-cage offers a native place for it (rp1-dsi has
 #   no gamma LUT, cage implements no color-management protocol).

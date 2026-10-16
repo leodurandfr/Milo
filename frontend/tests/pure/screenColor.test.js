@@ -1,8 +1,8 @@
 // frontend/tests/pure/screenColor.test.js
 /**
- * utils/screenColor.js decides the kiosk's one color layer: the panel's
- * measured correction times the warm filter. A failure here is a kiosk drawing
- * a full-screen blend for nothing (GPU cost, measured), or a warm filter that
+ * utils/screenColor.js decides the kiosk's one color transform: the panel's
+ * measured correction times the warm filter. A failure here is a kiosk filtering
+ * every frame for nothing (GPU cost, measured), or a warm filter that
  * no longer does on a corrected panel what it did on a raw one.
  */
 import { describe, it, expect } from 'vitest';
