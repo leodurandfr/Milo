@@ -28,6 +28,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEEK_AGREEMENT_MS, positionAt, useSourceProgress } from '@/composables/useSourceProgress';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useModalPresence } from '@/composables/useModalPresence';
 import { resetApiCallMock, ok } from '../helpers/apiCallMock';
 import { apiCall } from '@/services/apiCall';
 import { makeSession, publishState } from '../helpers/audioState';
@@ -216,6 +217,74 @@ describe('useSourceProgress', () => {
       await nextTick();
 
       expect(progress.currentPosition.value).toBe(4000);
+    });
+
+    it('redraws a bar that told its width once per pixel, the second on time', async () => {
+      // 200 000 ms over 200 device pixels: a pixel per second, the slowest tick.
+      // Anchored half a second into a second, so the first redraw waits for it
+      // to turn rather than for a whole step: the elapsed time never lags.
+      publish({ session: playing(anchor(1500)) });
+      const { progress } = mountProgress('spotify');
+      progress.setTrackWidth(200);
+      await nextTick();
+
+      vi.advanceTimersByTime(400);
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(1500);
+
+      vi.advanceTimersByTime(101);
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(2001);
+
+      vi.advanceTimersByTime(900);
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(2001);
+
+      vi.advanceTimersByTime(100);
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(3001);
+    });
+
+    it('holds still under a modal and lands where it belongs once it closes', async () => {
+      publish({ session: playing(anchor(1000)) });
+      const { progress } = mountProgress('spotify');
+      const ModalHost = defineComponent({
+        setup() {
+          useModalPresence().setOpen(true);
+          return () => h('div');
+        },
+      });
+      const modal = mount(ModalHost);
+      await nextTick();
+
+      vi.advanceTimersByTime(3000);
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(1000);
+
+      modal.unmount();
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(4000);
+    });
+
+    it('reads an anchor that arrives under a modal from the clock, not from when it opened', async () => {
+      publish({ session: playing(anchor(1000)) });
+      const { progress } = mountProgress('spotify');
+      const ModalHost = defineComponent({
+        setup() {
+          useModalPresence().setOpen(true);
+          return () => h('div');
+        },
+      });
+      const modal = mount(ModalHost);
+      await nextTick();
+
+      // A new track 30 s later, its anchor taken now.
+      vi.advanceTimersByTime(30000);
+      publish({ session: playing(anchor(5000, { at: T0 + 30 }), { title: 'Next' }) });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(5000);
+      modal.unmount();
     });
 
     it('holds still while paused or loading', async () => {

@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useI18n } from '@/services/i18n';
 import { seekPositionAt } from '@/utils/scrub';
@@ -104,7 +104,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['seek', 'skip']);
+const emit = defineEmits(['seek', 'skip', 'track-width']);
 const { t } = useI18n();
 
 const longLoad = useDelayedFlag(() => props.loading);
@@ -134,6 +134,25 @@ let pointerId = null;
 // and a measure per pointermove would force a layout on every event.
 let trackRect = null;
 
+// The track's width in device pixels, told to whoever ticks the playhead
+// (useSourceProgress): a tick that moves the fill by less than one draws nothing
+// new. Observed rather than measured per tick, so it costs a layout only when
+// the bar changes size.
+let widthObserver = null;
+watch(container, (el) => {
+  widthObserver?.disconnect();
+  widthObserver = null;
+  if (!el) return;
+  widthObserver = new ResizeObserver(([entry]) => {
+    emit('track-width', entry.contentRect.width * window.devicePixelRatio);
+  });
+  widthObserver.observe(el);
+});
+onBeforeUnmount(() => {
+  widthObserver?.disconnect();
+  emit('track-width', 0);
+});
+
 const shownPosition = computed(() => dragMs.value ?? props.currentPosition);
 const shownPercent = computed(() => (
   scrubbing.value ? (dragMs.value / props.duration) * 100 : progressPercent.value
@@ -149,12 +168,12 @@ const sliderAttrs = computed(() => (props.interactive ? {
   'aria-valuetext': formatTime(shownPosition.value)
 } : {}));
 
-// The full-width fill is translated rather than resized so the 10 Hz progress
-// ticks animate on the compositor (no layout). The visible region is [0, p%]
-// with the rounded right cap emerging at low percentages, and the percentage
-// is relative to the fill's own width — no pixel measurement needed. No CSS
-// transition on purpose: at 10 Hz each tick moves the fill by a fraction of a
-// pixel, so a transition only makes the bar lag behind the real position.
+// The full-width fill is translated rather than resized so the progress ticks
+// cost no layout. The visible region is [0, p%] with the rounded right cap
+// emerging at low percentages, and the percentage is relative to the fill's own
+// width. No CSS transition on purpose: a tick moves the fill by about one device
+// pixel (useSourceProgress ticks per pixel, from `track-width`), so a
+// transition would only add frames that draw nothing new.
 const progressStyle = computed(() => ({
   transform: `translateX(${shownPercent.value - 100}%)`
 }));

@@ -71,7 +71,7 @@
         <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
           :isReady="isPositionInitialized" :interactive="seekable" :loading="phase === 'loading'"
           :variant="surface === 'card' ? 'on-contrast' : 'default'" :live="isLive" :onAir="phase === 'playing'"
-          :animateIn="surface === 'full'" @seek="seekTo" @skip="skip" />
+          :animateIn="surface === 'full'" @seek="seekTo" @skip="skip" @track-width="setTrackWidth" />
       </div>
       <div v-if="hasTransport" class="body-transport" :class="{ 'transport-scale--compact': surface === 'card' }">
         <PlayerTransport :source="source" :surface="surface === 'card' ? 'card' : 'plate'" @skip="skip">
@@ -119,7 +119,7 @@ const { metadata, controls: sourceControls } = usePlayerState(props.source);
 const { title, secondaryLine, sourceLabel, sourceImage, sourceOnCard } = metadata;
 const { controls, phase, liveControls, shownControls, sendSourceCommand } = sourceControls;
 const {
-  currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized
+  currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized, setTrackWidth
 } = useSourceProgress(props.source);
 
 // The receivers (AirPlay, Qobuz) list no main command and draw no transport.

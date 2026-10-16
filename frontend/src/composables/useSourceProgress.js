@@ -12,10 +12,17 @@
 import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
+import { anyModalOpen } from '@/composables/useModalPresence';
 import { remoteRecordOf } from '@/utils/nowPlayingMetadata';
 
-// How often the bar is redrawn while the playhead moves.
+// How often the playhead is read while it moves, at most and at least. Between
+// the two, a bar that told its width is redrawn when its fill gains a device
+// pixel, and every reader when the elapsed time turns a second: a redraw in
+// between changes nothing on screen, and on the kiosk each one re-blurs the
+// glass the player sits on — the playing card's 10 Hz kept the Pi's GPU at
+// 22 % over a still screen.
 const TICK_MS = 100;
+const MAX_TICK_MS = 1000;
 
 // How long a target is held after the last press when no anchor agreeing with
 // it arrives (a source that publishes nothing keeps its own).
@@ -61,7 +68,10 @@ export function useSourceProgress(source) {
   const live = computed(() => session.value ?? remote.value);
 
   const now = ref(Date.now());
-  let intervalId = null;
+  let tickId = null;
+  // The width of the bar this playhead is drawn on, in device pixels (0: none
+  // told, every tick is TICK_MS — the lyrics follow the playhead finer than a bar).
+  const trackWidthPx = ref(0);
   // Where the last press put the playhead, as an anchor of its own: it moves
   // with the session's phase and is re-stamped when the phase changes, exactly
   // like the backend's (`_rebase_anchor`).
@@ -92,15 +102,38 @@ export function useSourceProgress(source) {
     return (currentPosition.value / duration.value) * 100;
   });
 
-  // Redraw while the playhead moves, and only then.
+  function nextTickMs() {
+    const pixelMs = trackWidthPx.value && duration.value ? duration.value / trackWidthPx.value : TICK_MS;
+    const step = Math.min(MAX_TICK_MS, Math.max(TICK_MS, pixelMs));
+    if (step === TICK_MS) return TICK_MS;
+    const rate = live.value?.position?.rate || 1;
+    const toNextSecond = (1000 - (currentPosition.value % 1000)) / rate;
+    return Math.max(1, Math.min(step, Math.ceil(toNextSecond) + 1));
+  }
+
+  function scheduleTick() {
+    tickId = timer.setTimeout(() => {
+      now.value = Date.now();
+      scheduleTick();
+    }, nextTickMs());
+  }
+
+  // Redraw while the playhead moves, and only then. Not under a modal either:
+  // its overlay blurs the page beneath, where the bar's motion cannot be seen
+  // but each redraw re-blurs the whole screen; the formula puts the bar back
+  // where it belongs the moment the modal closes.
+  const moving = computed(() => live.value?.phase === 'playing' && !!live.value?.position && !anyModalOpen.value);
+
+  // Read the clock afresh whenever what the formula reads changes — even with
+  // no tick running, or an anchor taken under a modal would be extrapolated
+  // from the instant the modal opened — and plan the next tick from there,
+  // since a seek, a new track or a new width moves the next pixel and second.
   watch(
-    () => live.value?.phase === 'playing' && !!live.value?.position,
-    (moving) => {
+    [moving, () => live.value?.position, () => live.value?.phase, seekTarget, duration, trackWidthPx],
+    () => {
       stopTicking();
       now.value = Date.now();
-      if (moving) {
-        intervalId = timer.setInterval(() => { now.value = Date.now(); }, TICK_MS);
-      }
+      if (moving.value) scheduleTick();
     },
     { immediate: true },
   );
@@ -136,10 +169,14 @@ export function useSourceProgress(source) {
   });
 
   function stopTicking() {
-    if (intervalId) {
-      timer.clear(intervalId);
-      intervalId = null;
+    if (tickId) {
+      timer.clear(tickId);
+      tickId = null;
     }
+  }
+
+  function setTrackWidth(px) {
+    trackWidthPx.value = px;
   }
 
   function clearSeek() {
@@ -184,5 +221,6 @@ export function useSourceProgress(source) {
     seekTo,
     skip,
     isPositionInitialized,
+    setTrackWidth,
   };
 }
