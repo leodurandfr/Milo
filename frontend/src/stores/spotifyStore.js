@@ -164,7 +164,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // =========================================================================
   // ARTISTS — an artist's page as Spotify's apps draw it, but its popular tracks
   // =========================================================================
-  // uri → { name, image, listeners, popular_title, sections }
+  // uri → { name, image, monthly_listeners, popular_title, sections }
   const artists = ref({});
   // uri → 'not_signed_in' | 'unavailable'
   const artistErrors = ref({});

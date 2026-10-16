@@ -161,8 +161,8 @@ async def get_artist(
         logger.warning("Spotify artist: nobody is signed in")
         raise HTTPException(status_code=409, detail="Spotify is not signed in")
     async with _library_errors("Spotify artist"):
-        view, releases, latest_type = await source.library.artist(uri, locale)
-    return {"status": "success", "uri": uri, **artist_page(view, releases, latest_type)}
+        view, releases, latest_type, listeners = await source.library.artist(uri, locale)
+    return {"status": "success", "uri": uri, **artist_page(view, releases, latest_type, listeners)}
 
 
 @router.get("/contexts/{uri}/cover")

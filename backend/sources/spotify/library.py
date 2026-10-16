@@ -16,7 +16,7 @@ import aiohttp
 
 from backend.sources.spotify.catalog import (
     MOSAIC_TILES, artist_portrait, described_tracks, latest_release_uri, leading_covers, playlist_cover,
-    release_type, spotify_gid,
+    monthly_listeners, release_type, spotify_gid,
 )
 
 logger = logging.getLogger("source.spotify.library")
@@ -237,27 +237,40 @@ class SpotifyLibrary:
 
     async def artist(
         self, uri: str, locale: str,
-    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], Optional[str]]:
-        """An artist's page, its discography, and what its latest release is.
-        The page and the discography are read at once (~0.13 s each,
-        measured); the page is the one that matters: a discography that failed
-        leaves it with its own popular releases (None here)."""
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], Optional[str], Optional[int]]:
+        """An artist's page, its discography, what its latest release is, and
+        its monthly listeners. The page and the discography are read at once
+        (~0.13 s each, measured), with the page in English beside them when
+        `locale` is another language, since only its English line carries a
+        number Milō can read (catalog.monthly_listeners). The page is the one
+        that matters: a discography that failed leaves it with its own popular
+        releases (None here), an English page that failed with no listeners."""
         artist_id = uri.rsplit(":", 1)[1]
         params = {"platform": "android", "locale": locale}
-        view, releases = await asyncio.gather(
+        reads = [
             self._spotify_service(ARTIST_URL.format(id=artist_id), params, "artist"),
             self._spotify_service(ARTIST_RELEASES_URL.format(id=artist_id), params, "discography"),
-            return_exceptions=True,
-        )
+        ]
+        english = locale.lower().startswith("en")
+        if not english:
+            reads.append(self._spotify_service(
+                ARTIST_URL.format(id=artist_id), {**params, "locale": "en"}, "artist listeners"))
+        view, releases, *rest = await asyncio.gather(*reads, return_exceptions=True)
         if isinstance(view, BaseException):
             raise view
         if not isinstance(view, dict):
             raise SpotifyLibraryError("Spotify's artist service answered no view")
+        english_view = view if english else rest[0]
+        if isinstance(english_view, BaseException) or not isinstance(english_view, dict):
+            logger.warning(f"Spotify artist page in English unavailable: {english_view}; no monthly listeners")
+            listeners = None
+        else:
+            listeners = monthly_listeners(english_view)
         if isinstance(releases, BaseException) or not isinstance(releases, dict):
             logger.warning(f"Spotify discography unavailable: {releases}; the page keeps its popular releases")
-            return view, None, None
+            return view, None, None, listeners
         latest = latest_release_uri(releases)
-        return view, releases, (await self.read_release_type(latest) if latest else None)
+        return view, releases, (await self.read_release_type(latest) if latest else None), listeners
 
     async def read_release_type(self, uri: str) -> Optional[str]:
         """What Spotify files a release as ("album" or "single"), from its

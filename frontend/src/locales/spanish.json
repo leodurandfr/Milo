@@ -418,6 +418,7 @@
     "noTracks": "Sin pistas",
     "playlist": "Playlist",
     "popular": "Populares",
+    "monthlyListeners": "{count} oyentes mensuales",
     "profiles": "Perfiles",
     "queue": "Cola",
     "queueEmpty": "Nada en la cola",

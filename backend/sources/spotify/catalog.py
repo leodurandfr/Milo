@@ -472,8 +472,26 @@ def _discography(popular: Dict[str, Any], releases: Optional[Dict[str, Any]],
             "groups": [group for group in shaped if group["items"]]}
 
 
+# Spotify's header line in English, the one wording it gives a parseable
+# number: "79.8M monthly listeners", "12,345 monthly listeners". Its other
+# languages say it in words Milō does not choose ("auditeurs et auditrices par
+# mois", "Hörer*innen") and place the number anywhere in the sentence.
+_LISTENERS = re.compile(r"^([\d.,]+)\s*([KMB]?) monthly listeners$")
+_LISTENER_SCALE = {"": 1, "K": 10**3, "M": 10**6, "B": 10**9}
+
+
+def monthly_listeners(view: Dict[str, Any]) -> Optional[int]:
+    """The artist's monthly listeners, read from its page in English; None
+    when the line is missing or not worded as measured."""
+    accessory = ((view.get("header") or {}).get("text") or {}).get("accessory")
+    match = _LISTENERS.match(accessory or "")
+    if not match:
+        return None
+    return round(float(match.group(1).replace(",", "")) * _LISTENER_SCALE[match.group(2)])
+
+
 def artist_page(view: Dict[str, Any], releases: Optional[Dict[str, Any]],
-                latest_type: Optional[str] = None) -> Dict[str, Any]:
+                latest_type: Optional[str] = None, listeners: Optional[int] = None) -> Dict[str, Any]:
     """The artist page as Spotify's apps draw it, minus its popular tracks —
     the browser lists those from the artist's own listing, whose first ten they
     are (measured) — and with its four popular releases turned, in place, into
@@ -497,7 +515,7 @@ def artist_page(view: Dict[str, Any], releases: Optional[Dict[str, Any]],
     return {
         "name": text.get("title") or view.get("title") or None,
         "image": _artist_photo(((header.get("images") or {}).get("main") or {}).get("uri")),
-        "listeners": text.get("accessory") or None,
+        "monthly_listeners": listeners,
         "popular_title": popular_title,
         "sections": sections,
     }

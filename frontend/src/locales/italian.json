@@ -418,6 +418,7 @@
     "noTracks": "Nessun brano",
     "playlist": "Playlist",
     "popular": "Popolari",
+    "monthlyListeners": "{count} ascoltatori mensili",
     "profiles": "Profili",
     "queue": "Coda",
     "queueEmpty": "Coda vuota",

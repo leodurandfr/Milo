@@ -32,7 +32,7 @@
             :image-src="headerImage"
             :fallback="musicPlaceholder"
             :title="headerTitle"
-            :subtitle-meta="page?.listeners || ''"
+            :subtitle-meta="listeners"
             :show-play="tracks.length > 0"
             :show-shuffle="tracks.length > 0"
             @play="play()"
@@ -143,7 +143,7 @@ defineEmits(['select', 'select-artist', 'select-album', 'select-radio', 'show-di
 const POPULAR = 10;
 const POPULAR_FIRST = 5;
 
-const { t } = useI18n();
+const { t, formatNumber } = useI18n();
 const store = useSpotifyStore();
 // A row shows a quarter less than a column count: holding as many, it hides some.
 const { columns } = useCardGridColumns();
@@ -185,6 +185,10 @@ const headerTitle = computed(() =>
   || tracks.value[0]?.artists.find((a) => a.uri === props.uri)?.name
   || ''
 );
+// Spotify's count under Milō's words, compact as its apps write it.
+const listeners = computed(() => (page.value?.monthly_listeners == null ? '' : t('spotify.monthlyListeners', {
+  count: formatNumber(page.value.monthly_listeners, { notation: 'compact', maximumFractionDigits: 1 }),
+})));
 const headerImage = computed(() => page.value?.image || props.image || '');
 
 let controller = null;

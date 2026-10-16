@@ -6,7 +6,7 @@ artist's page with its discography (spclient artistview, 2026-10-05).
 """
 from backend.sources.spotify.catalog import (
     ARTIST_POPULAR_RELEASES_SECTION, ARTIST_TOP_TRACKS_SECTION, SHORTCUTS_SECTION, artist_page, artist_portrait,
-    artist_shelf_seeds, described_tracks, head_artist_shelves, release_type, home_shelves, leading_covers, library_sections,
+    artist_shelf_seeds, described_tracks, head_artist_shelves, release_type, home_shelves, leading_covers, library_sections, monthly_listeners,
     normalize_playlist, normalize_track, playlist_cover, spotify_gid, thumbnail_url,
 )
 
@@ -485,4 +485,18 @@ def test_the_artist_header_is_the_artists_photo_not_a_cover():
 
     assert page["name"] == "FKA twigs"
     assert page["image"] == "https://i.scdn.co/image/ab6761610000e5ebphoto"
-    assert page["listeners"] == "3 M auditeurs et auditrices par mois"
+    assert page["monthly_listeners"] is None
+
+
+def test_monthly_listeners_are_read_from_the_english_line_spotify_words():
+    """The page shows the count under Milō's own words; a line read wrong
+    would show a wrong number, one not worded as measured shows none."""
+    def view(line):
+        return {"header": {"text": {"accessory": line}}}
+
+    assert monthly_listeners(view("79.8M monthly listeners")) == 79_800_000
+    assert monthly_listeners(view("12.3K monthly listeners")) == 12_300
+    assert monthly_listeners(view("12,345 monthly listeners")) == 12_345
+    assert monthly_listeners(view("823 monthly listeners")) == 823
+    assert monthly_listeners(view("3 M auditeurs et auditrices par mois")) is None
+    assert monthly_listeners({"header": {}}) is None

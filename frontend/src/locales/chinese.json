@@ -418,6 +418,7 @@
     "noTracks": "没有曲目",
     "playlist": "歌单",
     "popular": "热门",
+    "monthlyListeners": "每月有 {count} 名听众",
     "profiles": "个人资料",
     "queue": "播放队列",
     "queueEmpty": "播放队列为空",

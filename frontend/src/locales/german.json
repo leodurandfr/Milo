@@ -418,6 +418,7 @@
     "noTracks": "Keine Titel",
     "playlist": "Playlist",
     "popular": "Beliebt",
+    "monthlyListeners": "{count} monatliche Hörer",
     "profiles": "Profile",
     "queue": "Warteschlange",
     "queueEmpty": "Warteschlange leer",
