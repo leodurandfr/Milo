@@ -7,13 +7,14 @@
 # sibling file rather than a path into the repo.
 source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 
-# NQPTP (AirPlay 2 timing daemon)
+# NQPTP (AirPlay 2 timing daemon). No --with-systemd-startup: its unit is
+# Milō's (system/nqptp.service), copied in by 02-install-milo.
 on_chroot << CHROOT
 cd /tmp
 git clone --branch ${NQPTP_VERSION} --depth 1 https://github.com/mikebrady/nqptp.git
 cd nqptp
 autoreconf -fi
-./configure --with-systemd-startup
+./configure
 make -j\$(nproc)
 make install
 cd /tmp && rm -rf nqptp

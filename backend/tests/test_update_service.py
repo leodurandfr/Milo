@@ -25,6 +25,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 import pytest
+from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 from backend.core.updates.catalog import PROGRAMS
@@ -1891,11 +1892,12 @@ class TestUpdateShairportSync:
         returns = {
             "_is_service_active": True,
             "_backup_shairport_sync": {"success": True},
-            "_download_shairport_sync_source": {
+            "_download_source": {
                 "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"
             },
-            "_configure_shairport_sync": {"success": True},
-            "_compile_shairport_sync": {"success": True},
+            "_configure_source": {"success": True},
+            "_compile_source": {"success": True},
+            "_prepare_nqptp": {"success": True, "build": None, "expected": ("1.2.4", 10)},
             "_install_shairport_sync": install or {"success": True},
             "_verify_shairport_sync_update": {"success": True},
             "_stop_service": True,
@@ -2327,7 +2329,7 @@ class TestDownloadShairportSource:
         with downloading() as session, spawning(), \
                 patch("tempfile.mkdtemp", return_value=str(tmp_path)):
             (tmp_path / "shairport-sync-4.3.7").mkdir()
-            result = await update_service._download_shairport_sync_source("4.3.7")
+            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
 
         assert session.urls == [
             "https://github.com/mikebrady/shairport-sync/archive/refs/tags/4.3.7.tar.gz"
@@ -2344,7 +2346,7 @@ class TestDownloadShairportSource:
         staging.mkdir()
         with downloading(status=404), spawning(), \
                 patch("tempfile.mkdtemp", return_value=str(staging)):
-            result = await update_service._download_shairport_sync_source("9.9.9")
+            result = await update_service._download_source("mikebrady/shairport-sync", "9.9.9")
 
         assert result["success"] is False
         assert "404" in result["error"]
@@ -2356,7 +2358,7 @@ class TestDownloadShairportSource:
         staging.mkdir()
         with downloading(), spawning(lambda argv: (2, b"", b"gzip: unexpected end of file")), \
                 patch("tempfile.mkdtemp", return_value=str(staging)):
-            result = await update_service._download_shairport_sync_source("4.3.7")
+            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
 
         assert result["success"] is False
         assert "unexpected end of file" in result["error"]
@@ -2369,7 +2371,7 @@ class TestDownloadShairportSource:
         staging = tmp_path / "dl"
         staging.mkdir()
         with downloading(), spawning(), patch("tempfile.mkdtemp", return_value=str(staging)):
-            result = await update_service._download_shairport_sync_source("4.3.7")
+            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
 
         assert result["success"] is False
         assert "No directory" in result["error"]
@@ -2384,7 +2386,7 @@ class TestDownloadShairportSource:
         with downloading(body=payload) as _, spawning() as spawn, \
                 patch("tempfile.mkdtemp", return_value=str(tmp_path)):
             (tmp_path / "shairport-sync-4.3.7").mkdir()
-            await update_service._download_shairport_sync_source("4.3.7")
+            await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
 
         archive = Path(spawn.argv_for("tar")[2])
         assert archive.read_bytes() == payload
@@ -2403,7 +2405,7 @@ class TestConfigureShairportSync:
         against the catalog rather than a literal, so dropping one there is a
         red test and not a quieter appliance."""
         with spawning() as spawn:
-            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+            result = await update_service._configure_source("/src", self.FLAGS)
 
         assert result["success"] is True
         assert spawn.argv_for("./configure") == ("./configure", *self.FLAGS)
@@ -2414,7 +2416,7 @@ class TestConfigureShairportSync:
         from the backend's own cwd they would regenerate the build system of
         this repository."""
         with spawning() as spawn:
-            await update_service._configure_shairport_sync("/src", self.FLAGS)
+            await update_service._configure_source("/src", self.FLAGS)
 
         assert spawn.call_for("autoreconf")["cwd"] == "/src"
         assert spawn.call_for("./configure")["cwd"] == "/src"
@@ -2430,7 +2432,7 @@ class TestConfigureShairportSync:
             return (0, b"", b"")
 
         with spawning(router) as spawn:
-            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+            result = await update_service._configure_source("/src", self.FLAGS)
 
         assert result["success"] is False
         assert "aclocal" in result["error"]
@@ -2447,7 +2449,7 @@ class TestConfigureShairportSync:
             return (0, b"", b"")
 
         with spawning(router):
-            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+            result = await update_service._configure_source("/src", self.FLAGS)
 
         assert result["success"] is False
         assert "Avahi library not found" in result["error"]
@@ -2459,7 +2461,7 @@ class TestConfigureShairportSync:
         key in `active_updates` for ever and the UI shows a build in progress
         that will never end."""
         with spawning(hang=[stalled]) as spawn:
-            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+            result = await update_service._configure_source("/src", self.FLAGS)
 
         assert result["success"] is False
         assert "timed out" in result["error"]
@@ -2478,7 +2480,7 @@ class TestCompileShairportSync:
             return (0, b"", b"")
 
         with spawning(router) as spawn:
-            result = await update_service._compile_shairport_sync("/src")
+            result = await update_service._compile_source("/src")
 
         assert result["success"] is True
         assert spawn.argv_for("make") == ("make", "-j4")
@@ -2489,7 +2491,7 @@ class TestCompileShairportSync:
         """`make -j` with an empty argument is `make -j`, which spawns an
         unbounded number of compilers and takes the Pi's memory with it."""
         with spawning(lambda argv: (0, b"", b"")) as spawn:
-            await update_service._compile_shairport_sync("/src")
+            await update_service._compile_source("/src")
 
         assert spawn.argv_for("make") == ("make", "-j2")
 
@@ -2499,7 +2501,7 @@ class TestCompileShairportSync:
         head would be the banner. 500 characters is what reaches the UI banner."""
         noise = b"warning: unused variable\n" * 500
         with spawning(lambda argv: (2, b"", noise + b"error: ao.h: No such file")):
-            result = await update_service._compile_shairport_sync("/src")
+            result = await update_service._compile_source("/src")
 
         assert result["success"] is False
         assert "ao.h: No such file" in result["error"]
@@ -2507,7 +2509,7 @@ class TestCompileShairportSync:
     @pytest.mark.asyncio
     async def test_a_build_that_never_finishes_is_killed_and_reaped(self, update_service):
         with spawning(hang=["make"]) as spawn:
-            result = await update_service._compile_shairport_sync("/src")
+            result = await update_service._compile_source("/src")
 
         assert result["success"] is False
         assert "timed out" in result["error"]
@@ -2633,11 +2635,12 @@ class TestUpdateShairportSyncFlow:
         returns = {
             "_is_service_active": was_active,
             "_backup_shairport_sync": {"success": True},
-            "_download_shairport_sync_source": {
+            "_download_source": {
                 "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"
             },
-            "_configure_shairport_sync": {"success": True},
-            "_compile_shairport_sync": {"success": True},
+            "_configure_source": {"success": True},
+            "_compile_source": {"success": True},
+            "_prepare_nqptp": {"success": True, "build": None, "expected": ("1.2.4", 10)},
             "_install_shairport_sync": {"success": True},
             "_verify_shairport_sync_update": {"success": True},
             "_stop_service": True,
@@ -2710,7 +2713,7 @@ class TestUpdateShairportSyncFlow:
             result = await update_service._update_shairport_sync(self.STATUS)
 
         assert result["success"] is False
-        flow["_download_shairport_sync_source"].assert_not_called()
+        flow["_download_source"].assert_not_called()
         flow["_rollback_shairport_sync"].assert_not_called()
 
     @pytest.mark.asyncio
@@ -2718,7 +2721,7 @@ class TestUpdateShairportSyncFlow:
         """It cleaned up its own temp dir already, and nothing was replaced, so
         neither a cleanup nor a rollback belongs here."""
         with self._flow(update_service, overrides={
-            "_download_shairport_sync_source": {"success": False, "error": "HTTP 404"},
+            "_download_source": {"success": False, "error": "HTTP 404"},
         }) as flow:
             result = await update_service._update_shairport_sync(self.STATUS)
 
@@ -2727,7 +2730,7 @@ class TestUpdateShairportSyncFlow:
         flow["_rollback_shairport_sync"].assert_not_called()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("phase", ["_configure_shairport_sync", "_compile_shairport_sync"])
+    @pytest.mark.parametrize("phase", ["_configure_source", "_compile_source"])
     async def test_a_build_failure_cleans_up_without_rolling_back(self, update_service, phase):
         """Nothing has been installed yet, and the running binary was never
         stopped. A rollback here would stop a working AirPlay receiver to
@@ -2762,7 +2765,7 @@ class TestUpdateShairportSyncFlow:
 
         assert result["success"] is False
         flow["_rollback_shairport_sync"].assert_called_once_with(
-            PROGRAMS["shairport-sync"], True
+            PROGRAMS["shairport-sync"], True, restore_nqptp=False
         )
         flow["_cleanup_temp_files"].assert_called_once_with("/tmp/sps")
 
@@ -2789,6 +2792,275 @@ class TestUpdateShairportSyncFlow:
 
         assert result["success"] is False
         flow["_cleanup_temp_files"].assert_called_once_with("/tmp/sps")
+
+    NEW_NQPTP = {"binary": "/tmp/sps/n/nqptp-1.2.9/nqptp", "version": "1.2.9"}
+
+    @staticmethod
+    def _record_order(flow, order, names):
+        for name in names:
+            mock, value = flow[name], flow[name].return_value
+            mock.side_effect = lambda *a, _n=name, _v=value, **k: (order.append(_n), _v)[1]
+
+    @pytest.mark.asyncio
+    async def test_nqptp_goes_in_after_airplay_stops_and_before_shairport_sync(self, update_service):
+        """Upstream's order for 5.6 (NQPTP first), and the only one that works:
+        NQPTP's binary cannot be replaced while it runs, and the new
+        shairport-sync cannot start against the old one."""
+        order = []
+        with self._flow(update_service, overrides={
+            "_prepare_nqptp": {"success": True, "build": self.NEW_NQPTP, "expected": ("1.2.9", 11)},
+            "_install_nqptp": {"success": True},
+        }) as flow:
+            self._record_order(flow, order, (
+                "_stop_service", "_install_nqptp", "_install_shairport_sync", "_start_service",
+            ))
+            assert await update_service._update_shairport_sync(self.STATUS) == {"success": True}
+
+        assert order == ["_stop_service", "_install_nqptp", "_install_shairport_sync", "_start_service"]
+        flow["_install_nqptp"].assert_called_once_with(self.NEW_NQPTP)
+        assert flow["_verify_shairport_sync_update"].call_args.kwargs == {"expected_nqptp": ("1.2.9", 11)}
+
+    @pytest.mark.asyncio
+    async def test_a_pair_that_cannot_be_formed_stops_nothing(self, update_service):
+        """Refused while the running receiver is still untouched: stopping it
+        to discover that the pair is impossible would cut a room's sound for
+        an install that was never going to happen."""
+        with self._flow(update_service, overrides={
+            "_prepare_nqptp": {"success": False, "error": "needs NQPTP interface smi11"},
+        }) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result == {"success": False, "error": "needs NQPTP interface smi11"}
+        flow["_stop_service"].assert_not_called()
+        flow["_install_shairport_sync"].assert_not_called()
+        flow["_rollback_shairport_sync"].assert_not_called()
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/sps")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing", ["_install_nqptp", "_install_shairport_sync"])
+    async def test_a_failure_once_nqptp_moved_puts_both_back(self, update_service, failing):
+        """The old shairport-sync speaks the old interface only: restoring it
+        over the new NQPTP is a receiver that cannot start either."""
+        with self._flow(update_service, overrides={
+            "_prepare_nqptp": {"success": True, "build": self.NEW_NQPTP, "expected": ("1.2.9", 11)},
+            "_install_nqptp": {"success": True},
+            failing: {"success": False, "error": "install-binary refused"},
+        }) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["success"] is False
+        flow["_rollback_shairport_sync"].assert_called_once_with(
+            PROGRAMS["shairport-sync"], True, restore_nqptp=True
+        )
+
+
+class TestShairportSyncNqptpPair:
+    """What the shairport-sync update decides about NQPTP, and how it undoes it.
+
+    The two share one ABI, the shared memory interface (SMI) each source tree
+    declares in `nqptp-shm-structures.h`; shairport-sync 5.6 moved it from 10
+    to 11 and refuses to start against any other.
+    """
+
+    NQPTP = PROGRAMS["shairport-sync"]["nqptp"]
+
+    @staticmethod
+    def _tree(root: Path, name: str, smi: Optional[int]) -> str:
+        """A source tree carrying the header as both repositories ship it."""
+        tree = root / name
+        tree.mkdir()
+        if smi is not None:
+            (tree / "nqptp-shm-structures.h").write_text(
+                '#define NQPTP_INTERFACE_NAME "/nqptp"\n\n'
+                f"#define NQPTP_SHM_STRUCTURES_VERSION {smi}\n"
+                "#define NQPTP_CONTROL_PORT 9000\n"
+            )
+        return str(tree)
+
+    @contextmanager
+    def _world(self, service, tmp_path, *, installed, nqptp_smi=11, capabilities=1 << 10):
+        source = self._tree(tmp_path, "nqptp-src", nqptp_smi)
+        (Path(source) / "nqptp").write_bytes(b"\x7fELF")
+        with ExitStack() as stack:
+            def patched(name, value):
+                return stack.enter_context(patch.object(service, name, AsyncMock(return_value=value)))
+            yield {
+                "_installed_nqptp": patched("_installed_nqptp", installed),
+                "_download_source": patched("_download_source", {
+                    "success": True, "temp_dir": str(tmp_path), "source_dir": source,
+                }),
+                "_configure_source": patched("_configure_source", {"success": True}),
+                "_compile_source": patched("_compile_source", {"success": True}),
+                "ambient_capabilities": stack.enter_context(patch.object(
+                    service._systemd, "ambient_capabilities", AsyncMock(return_value=capabilities),
+                )),
+                "source": source,
+            }
+
+    @pytest.mark.asyncio
+    async def test_the_installed_pair_is_read_from_nqptp_itself(self, update_service):
+        """The line `nqptp -V` prints, as measured on the unit (1.2.4)."""
+        with patch.object(update_service, "_run_local", AsyncMock(
+                return_value=(True, "Version: 1.2.4. Shared Memory Interface Version: smi10."))):
+            assert await update_service._installed_nqptp(self.NQPTP["binary_path"]) == ("1.2.4", 10)
+        with patch.object(update_service, "_run_local", AsyncMock(return_value=(False, "not found"))):
+            assert await update_service._installed_nqptp(self.NQPTP["binary_path"]) is None
+
+    @pytest.mark.asyncio
+    async def test_an_nqptp_that_already_pairs_is_left_alone(self, update_service, tmp_path):
+        """Restarting the AirPlay clock for nothing is a restart nobody needed."""
+        shairport = self._tree(tmp_path, "sps", 11)
+        pinned = (self.NQPTP["validated_version"], 11)
+        with self._world(update_service, tmp_path, installed=pinned) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        assert result == {"success": True, "build": None, "expected": pinned}
+        world["_download_source"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_validated_nqptp_is_built_when_another_runs(self, update_service, tmp_path):
+        shairport = self._tree(tmp_path, "sps", 11)
+        with self._world(update_service, tmp_path, installed=("1.2.3", 10)) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        target = self.NQPTP["validated_version"]
+        assert result == {
+            "success": True,
+            "build": {"binary": str(Path(world["source"]) / "nqptp"), "version": target},
+            "expected": (target, 11),
+        }
+        world["_download_source"].assert_called_once_with(
+            self.NQPTP["repo"], target, parent_dir=str(tmp_path)
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_trial_that_moves_the_interface_is_refused_before_any_build(
+            self, update_service, tmp_path):
+        """A shairport-sync from upstream that needs an SMI the manifest's NQPTP
+        does not speak: the pair is the manifest's to declare, both lines in
+        one edit."""
+        shairport = self._tree(tmp_path, "sps", 11)
+        with self._world(update_service, tmp_path,
+                         installed=(self.NQPTP["validated_version"], 10)) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        assert result["success"] is False
+        assert "smi11" in result["error"] and "NQPTP_VERSION" in result["error"]
+        world["_download_source"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_validated_nqptp_on_another_interface_is_refused_before_compiling(
+            self, update_service, tmp_path):
+        shairport = self._tree(tmp_path, "sps", 11)
+        with self._world(update_service, tmp_path, installed=("1.2.3", 10), nqptp_smi=10) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        assert result["success"] is False
+        assert "smi10" in result["error"]
+        world["_compile_source"].assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("capabilities", [0, None])
+    async def test_a_unit_that_grants_no_port_capability_is_refused_before_downloading(
+            self, update_service, tmp_path, capabilities):
+        """NQPTP's right to ports 319/320 used to be a file capability on its
+        binary. A replaced binary has none, nor does the backup a rollback puts
+        back, so the swap would kill the clock and the rollback with it."""
+        shairport = self._tree(tmp_path, "sps", 11)
+        with self._world(update_service, tmp_path, installed=("1.2.3", 10),
+                         capabilities=capabilities) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        assert result["success"] is False
+        assert "CAP_NET_BIND_SERVICE" in result["error"]
+        world["ambient_capabilities"].assert_called_once_with(self.NQPTP["service_name"])
+        world["_download_source"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_shairport_tree_that_declares_no_interface_is_refused(self, update_service, tmp_path):
+        """A header that moved or was renamed must not read as "no constraint"."""
+        shairport = self._tree(tmp_path, "sps", None)
+        with self._world(update_service, tmp_path, installed=("1.2.3", 10)) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        assert result["success"] is False
+        world["_installed_nqptp"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_nqptp_that_exits_once_started_is_a_failed_install(self, update_service):
+        """It binds its ports after it starts and exits when it cannot, so the
+        start returning is not the clock running."""
+        build = {"binary": "/tmp/sps/nqptp", "version": "1.2.9"}
+        with patch.object(update_service, "_stop_service", AsyncMock(return_value=True)), \
+                patch.object(update_service, "_start_service", AsyncMock(return_value=True)), \
+                patch.object(update_service, "_is_service_active", AsyncMock(return_value=False)), \
+                patch.object(update_service, "_run_deploy", AsyncMock(return_value=(True, ""))) as deploy, \
+                patch("backend.core.updates.update.asyncio.sleep", AsyncMock()):
+            result = await update_service._install_nqptp(build)
+
+        assert result == {"success": False, "error": "NQPTP exited after update"}
+        deploy.assert_called_once_with("install-binary", build["binary"], self.NQPTP["binary_path"])
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_puts_nqptp_back_before_shairport_sync(self, update_service, tmp_path):
+        (tmp_path / "shairport-sync.backup").write_bytes(b"old sps")
+        (tmp_path / "nqptp.backup").write_bytes(b"old nqptp")
+        config = {**PROGRAMS["shairport-sync"], "backup_path": str(tmp_path)}
+        events = []
+
+        async def deploy(*argv, **kwargs):
+            events.append(("install", argv[2]))
+            return True, ""
+
+        def service(verb):
+            async def act(name):
+                events.append((verb, name))
+                return True
+            return act
+
+        with patch.object(update_service, "_run_deploy", side_effect=deploy), \
+                patch.object(update_service, "_stop_service", side_effect=service("stop")), \
+                patch.object(update_service, "_start_service", side_effect=service("start")), \
+                patch("backend.core.updates.update.asyncio.sleep", AsyncMock()):
+            assert await update_service._rollback_shairport_sync(
+                config, service_was_active=True, restore_nqptp=True
+            ) is True
+
+        assert events == [
+            ("stop", config["service_name"]),
+            ("stop", self.NQPTP["service_name"]),
+            ("install", self.NQPTP["binary_path"]),
+            ("start", self.NQPTP["service_name"]),
+            ("install", config["binary_path"]),
+            ("start", config["service_name"]),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_owed_an_nqptp_backup_it_lacks_still_restores_shairport_sync(
+            self, update_service, tmp_path):
+        """A unit that had no NQPTP before the update has none to go back to.
+        Refusing outright left the new shairport-sync in place as well; the
+        old one goes back, and the rollback is not claimed."""
+        (tmp_path / "shairport-sync.backup").write_bytes(b"old sps")
+        config = {**PROGRAMS["shairport-sync"], "backup_path": str(tmp_path)}
+        with patch.object(update_service, "_run_deploy", AsyncMock(return_value=(True, ""))) as deploy, \
+                patch.object(update_service, "_stop_service", AsyncMock(return_value=True)), \
+                patch.object(update_service, "_start_service", AsyncMock(return_value=True)), \
+                patch("backend.core.updates.update.asyncio.sleep", AsyncMock()):
+            assert await update_service._rollback_shairport_sync(config, restore_nqptp=True) is False
+
+        assert [c.args[2] for c in deploy.await_args_list] == [config["binary_path"]]
+
+    async def test_an_older_runs_nqptp_backup_is_not_kept(self, update_service, tmp_path):
+        """With no NQPTP installed now, a backup left by an earlier update would
+        be restored by this one's rollback as if it were current."""
+        (tmp_path / "nqptp.backup").write_bytes(b"from another update")
+        config = {**PROGRAMS["shairport-sync"], "backup_path": str(tmp_path),
+                  "binary_path": str(tmp_path / "shairport-sync"),
+                  "nqptp": {**PROGRAMS["shairport-sync"]["nqptp"], "binary_path": str(tmp_path / "nqptp")}}
+
+        assert (await update_service._backup_shairport_sync(config))["success"]
+        assert not (tmp_path / "nqptp.backup").exists()
 
 
 # =========================================================================== #

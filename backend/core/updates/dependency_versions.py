@@ -61,7 +61,9 @@ def apply_validated_versions(programs: dict, versions: dict[str, str] | None = N
     """
     resolved = versions if versions is not None else load_dependency_versions()
     for config in programs.values():
-        key = config.get("validated_version_key")
-        if key:
-            config["validated_version"] = resolved[key]
+        # shairport-sync's NQPTP is pinned like a program but installed with it.
+        for entry in (config, config.get("nqptp") or {}):
+            key = entry.get("validated_version_key")
+            if key:
+                entry["validated_version"] = resolved[key]
     return programs

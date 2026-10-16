@@ -276,6 +276,23 @@ class SystemdServiceManager:
             return None
         return values[0] or None
 
+    async def ambient_capabilities(self, service: str) -> Optional[int]:
+        """The capability bitmask the unit hands its process (`AmbientCapabilities=`,
+        bit N = capability N), 0 when it grants none or is not loaded, None when it
+        cannot be read.
+
+        What it is for: a daemon that needs a privileged port gets the right
+        either from its unit or from a file capability on its binary, and the
+        second does not survive the binary being replaced. The updater asks
+        before it replaces one.
+        """
+        values = await self._unit_properties(
+            service, (("Service", "AmbientCapabilities"),), "the ambient capabilities",
+        )
+        if values is _NOT_LOADED:
+            return 0
+        return None if values is None else values[0]
+
     async def _unit_properties(self, service: str, props, what: str):
         """The values of `props` ((interface, property), …) on `service`'s unit,
         `_NOT_LOADED` when systemd knows no such unit, None when they cannot be

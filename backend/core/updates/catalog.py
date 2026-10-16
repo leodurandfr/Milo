@@ -104,7 +104,16 @@ PROGRAMS = {
             # than inherit it.
             "--with-metadata-pipe",
             "--with-airplay-2", "--with-dbus-interface"
-        ]
+        ],
+        # The AirPlay 2 clock. It shares an ABI with the shairport-sync build
+        # (the shared memory interface), so it is installed by the same update
+        # and never on its own: no row, one version line.
+        "nqptp": {
+            "repo": "mikebrady/nqptp",
+            "validated_version_key": "NQPTP_VERSION",
+            "binary_path": "/usr/local/bin/nqptp",
+            "service_name": "nqptp.service",
+        },
     },
     "multiroom": {
         "name": "Multiroom",

@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 from backend.core.updates.version import VersionService
@@ -22,6 +23,15 @@ from backend.config.constants import DEPLOY_UPDATE_CMD
 # a release still offers what they bind to.
 QOBUZ_PROXY_REPO_URL = "https://github.com/leolobato/qobuz-proxy"
 QOBUZ_ADAPTER = "/usr/local/bin/milo-qobuz"
+
+# The shared memory interface shairport-sync and NQPTP must agree on: declared
+# by both source trees, and reported by `nqptp -V` as
+# "Version: 1.2.4. Shared Memory Interface Version: smi10."
+_SMI_DEFINE_RE = re.compile(r"^#define\s+NQPTP_SHM_STRUCTURES_VERSION\s+(\d+)", re.MULTILINE)
+_NQPTP_VERSION_RE = re.compile(r"Version: (\S+?)\. Shared Memory Interface Version: smi(\d+)")
+CAP_NET_BIND_SERVICE = 10
+# NQPTP opens its ports within milliseconds of starting, and exits if it cannot.
+NQPTP_SETTLE_S = 1.0
 
 
 class UpdateService(VersionService):
@@ -936,7 +946,18 @@ class UpdateService(VersionService):
     # === SHAIRPORT-SYNC (compile from source) ===
 
     async def _update_shairport_sync(self, status: Dict[str, Any]) -> Dict[str, Any]:
-        """Updates shairport-sync by compiling from source"""
+        """Updates shairport-sync by compiling from source, with the NQPTP it pairs with.
+
+        NQPTP is the AirPlay 2 clock, and the two builds share one ABI: the
+        shared memory interface (SMI) each declares in `nqptp-shm-structures.h`.
+        shairport-sync refuses to start against any other ("The NQPTP service
+        (SMI Version 10) on this system is too old for this version of Shairport
+        Sync"), and 5.6 moved it from 10 to 11. Installed alone it would compile,
+        install and verify — an inactive milo-airplay is not started — and leave
+        a receiver that dies the next time AirPlay is selected. So the pair is
+        settled before anything is stopped (`_prepare_nqptp`), installed in
+        upstream's order (NQPTP first), and rolled back together.
+        """
         config = self.programs["shairport-sync"]
         latest_version = status["latest"]["version"]
         tag_name = status["latest"]["tag_name"]
@@ -945,6 +966,7 @@ class UpdateService(VersionService):
         self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
 
         temp_dir = None
+        nqptp_swapped = False
 
         try:
             # Phase 1: Backup (5%)
@@ -953,20 +975,28 @@ class UpdateService(VersionService):
                 return backup_result
 
             # Phase 2: Download source (10%)
-            download_result = await self._download_shairport_sync_source(tag_name)
+            download_result = await self._download_source(config["repo"], tag_name)
             if not download_result["success"]:
                 return download_result
             temp_dir = download_result["temp_dir"]
             source_dir = download_result["source_dir"]
 
+            # Phase 2b: the NQPTP this source runs against, built under temp_dir.
+            # The tree declares its interface already, so an impossible pair is
+            # refused before minutes of compiling.
+            pair = await self._prepare_nqptp(source_dir, latest_version, temp_dir)
+            if not pair["success"]:
+                await self._cleanup_temp_files(temp_dir)
+                return pair
+
             # Phase 3: Configure (20%)
-            configure_result = await self._configure_shairport_sync(source_dir, config["configure_flags"])
+            configure_result = await self._configure_source(source_dir, config["configure_flags"])
             if not configure_result["success"]:
                 await self._cleanup_temp_files(temp_dir)
                 return configure_result
 
             # Phase 4: Compile (30%)
-            compile_result = await self._compile_shairport_sync(source_dir)
+            compile_result = await self._compile_source(source_dir)
             if not compile_result["success"]:
                 await self._cleanup_temp_files(temp_dir)
                 return compile_result
@@ -978,10 +1008,23 @@ class UpdateService(VersionService):
                     await self._cleanup_temp_files(temp_dir)
                     return {"success": False, "error": "Failed to stop service"}
 
+            # Phase 5b: NQPTP, when it has to move
+            if pair["build"] is not None:
+                nqptp_swapped = True
+                nqptp_result = await self._install_nqptp(pair["build"])
+                if not nqptp_result["success"]:
+                    rolled_back = await self._rollback_shairport_sync(
+                        config, service_was_active, restore_nqptp=True
+                    )
+                    await self._cleanup_temp_files(temp_dir)
+                    return self._failure_after_rollback(f"{nqptp_result['error']}.", rolled_back)
+
             # Phase 6: Install (80%)
             install_result = await self._install_shairport_sync(source_dir)
             if not install_result["success"]:
-                rolled_back = await self._rollback_shairport_sync(config, service_was_active)
+                rolled_back = await self._rollback_shairport_sync(
+                    config, service_was_active, restore_nqptp=nqptp_swapped
+                )
                 await self._cleanup_temp_files(temp_dir)
                 return self._failure_after_rollback(f"{install_result['error']}.", rolled_back)
 
@@ -989,16 +1032,22 @@ class UpdateService(VersionService):
             if service_was_active:
                 start_result = await self._start_service(config["service_name"])
                 if not start_result:
-                    rolled_back = await self._rollback_shairport_sync(config, service_was_active)
+                    rolled_back = await self._rollback_shairport_sync(
+                        config, service_was_active, restore_nqptp=nqptp_swapped
+                    )
                     await self._cleanup_temp_files(temp_dir)
                     return self._failure_after_rollback(
                         "Failed to start service after update.", rolled_back
                     )
 
             # Phase 8: Verify (90%)
-            verify_result = await self._verify_shairport_sync_update(config, service_was_active)
+            verify_result = await self._verify_shairport_sync_update(
+                config, service_was_active, expected_nqptp=pair["expected"]
+            )
             if not verify_result["success"]:
-                rolled_back = await self._rollback_shairport_sync(config, service_was_active)
+                rolled_back = await self._rollback_shairport_sync(
+                    config, service_was_active, restore_nqptp=nqptp_swapped
+                )
                 await self._cleanup_temp_files(temp_dir)
                 return self._failure_after_rollback(f"{verify_result['error']}.", rolled_back)
 
@@ -1016,13 +1065,15 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"shairport-sync update failed: {e}")
-            rolled_back = await self._rollback_shairport_sync(config, service_was_active)
+            rolled_back = await self._rollback_shairport_sync(
+                config, service_was_active, restore_nqptp=nqptp_swapped
+            )
             if temp_dir:
                 await self._cleanup_temp_files(temp_dir)
             return self._failure_after_rollback(f"{e}.", rolled_back)
 
     async def _backup_shairport_sync(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Backs up the shairport-sync binary"""
+        """Backs up the shairport-sync binary, and the NQPTP binary it runs against"""
         try:
             backup_dir = Path(config["backup_path"])
             backup_dir.mkdir(parents=True, exist_ok=True)
@@ -1032,18 +1083,158 @@ class UpdateService(VersionService):
                 binary_backup = backup_dir / "shairport-sync.backup"
                 shutil.copy2(config["binary_path"], binary_backup)
 
+            nqptp_path = Path(config["nqptp"]["binary_path"]) if "nqptp" in config else None
+            if nqptp_path is not None:
+                # One taken now or none: an older run's would be restored as current.
+                (backup_dir / "nqptp.backup").unlink(missing_ok=True)
+                if nqptp_path.exists():
+                    shutil.copy2(nqptp_path, backup_dir / "nqptp.backup")
+
             return {"success": True, "backup_dir": str(backup_dir)}
 
         except Exception as e:
             return {"success": False, "error": f"Backup failed: {e}"}
 
-    async def _download_shairport_sync_source(self, tag_name: str) -> Dict[str, Any]:
-        """Downloads and extracts shairport-sync source tarball from GitHub"""
-        temp_dir = tempfile.mkdtemp(dir="/tmp")
-        try:
-            url = f"https://github.com/mikebrady/shairport-sync/archive/refs/tags/{tag_name}.tar.gz"
+    # === NQPTP (built and installed by the shairport-sync update only) ===
 
-            self.update_logger.info(f"Downloading shairport-sync source from {url}...")
+    @staticmethod
+    async def _declared_smi(source_dir: str) -> Optional[int]:
+        """The shared memory interface a source tree was written against, or None.
+
+        Both repositories carry the same header at their root, so the one
+        reader serves both sides of the pair.
+        """
+        header = Path(source_dir) / "nqptp-shm-structures.h"
+        try:
+            async with aiofiles.open(header, errors="replace") as f:
+                text = await f.read()
+        except OSError:
+            return None
+        match = _SMI_DEFINE_RE.search(text)
+        return int(match.group(1)) if match else None
+
+    async def _installed_nqptp(self, binary_path: str) -> Optional[tuple[str, int]]:
+        """(version, SMI) of the installed NQPTP, from `nqptp -V`, or None."""
+        ok, output = await self._run_local(binary_path, "-V", timeout=10)
+        match = _NQPTP_VERSION_RE.search(output) if ok else None
+        return (match.group(1), int(match.group(2))) if match else None
+
+    async def _prepare_nqptp(
+        self, shairport_source: str, shairport_version: str, parent_dir: str,
+    ) -> Dict[str, Any]:
+        """Settle the NQPTP the new shairport-sync will run against, stopping nothing.
+
+        NQPTP follows the manifest: `NQPTP_VERSION` is the only one Milō installs,
+        whichever shairport-sync release is going in, so a version above or
+        below it is brought back the same way. Returns `build` — the compiled
+        binary to install, or None when the installed one is already the
+        manifest's and speaks the interface — and `expected`, the
+        (version, SMI) the verification reads back.
+
+        Refused before any service is stopped:
+        - a pair the manifest cannot form: the shairport-sync going in needs an
+          SMI the validated NQPTP does not provide, which is what a trial of an
+          upstream release that moved the interface looks like. NQPTP_VERSION
+          has to move in the same edit as SHAIRPORT_SYNC_VERSION.
+        - a unit whose nqptp.service does not grant CAP_NET_BIND_SERVICE. The
+          right used to be a file capability on the binary (upstream's install
+          hook ran `setcap`), and a replaced binary carries none — nor does the
+          backup a rollback would put back — so NQPTP would exit on port 319.
+        """
+        nqptp = self.programs["shairport-sync"]["nqptp"]
+        target = nqptp["validated_version"]
+        required = await self._declared_smi(shairport_source)
+        if required is None:
+            return {"success": False, "error": (
+                f"shairport-sync {shairport_version} declares no NQPTP interface version"
+            )}
+
+        def unpairable(provided: Optional[int]) -> Dict[str, Any]:
+            return {"success": False, "error": (
+                f"shairport-sync {shairport_version} needs NQPTP interface smi{required}, "
+                f"and the validated NQPTP {target} provides smi{provided}: "
+                "NQPTP_VERSION has to move with SHAIRPORT_SYNC_VERSION"
+            )}
+
+        installed = await self._installed_nqptp(nqptp["binary_path"])
+        if installed == (target, required):
+            return {"success": True, "build": None, "expected": installed}
+        if installed is not None and installed[0] == target:
+            return unpairable(installed[1])
+
+        capabilities = await self._systemd.ambient_capabilities(nqptp["service_name"])
+        if not (capabilities or 0) & (1 << CAP_NET_BIND_SERVICE):
+            return {"success": False, "error": (
+                f"{nqptp['service_name']} does not grant CAP_NET_BIND_SERVICE, so a "
+                "replaced NQPTP could not open its ports; install Milo's own unit "
+                "(system/nqptp.service, synced by a Milo update) first"
+            )}
+
+        download = await self._download_source(nqptp["repo"], target, parent_dir=parent_dir)
+        if not download["success"]:
+            return download
+        source_dir = download["source_dir"]
+
+        provided = await self._declared_smi(source_dir)
+        if provided != required:
+            return unpairable(provided)
+
+        configured = await self._configure_source(source_dir, [])
+        if not configured["success"]:
+            return configured
+        compiled = await self._compile_source(source_dir)
+        if not compiled["success"]:
+            return compiled
+
+        binary = Path(source_dir) / "nqptp"
+        if not binary.is_file():
+            return {"success": False, "error": "nqptp binary not found after the build"}
+        return {
+            "success": True,
+            "build": {"binary": str(binary), "version": target},
+            "expected": (target, required),
+        }
+
+    async def _install_nqptp(self, build: Dict[str, Any]) -> Dict[str, Any]:
+        """Swap the NQPTP binary and bring its unit back up.
+
+        Stopping nqptp.service also stops milo-airplay (`Requires=`), which the
+        caller has already stopped when it was running and starts again after.
+        """
+        nqptp = self.programs["shairport-sync"]["nqptp"]
+        service = nqptp["service_name"]
+        if not await self._stop_service(service):
+            return {"success": False, "error": "NQPTP did not stop"}
+        # Let the kernel release the running image, or install-binary hits
+        # "Text file busy".
+        await asyncio.sleep(0.5)
+
+        success, output = await self._run_deploy("install-binary", build["binary"], nqptp["binary_path"])
+        if not success:
+            return {"success": False, "error": f"NQPTP installation failed: {output}"}
+
+        if not await self._start_service(service):
+            return {"success": False, "error": "NQPTP did not start after update"}
+        # NQPTP opens ports 319/320 right after it starts and exits when it
+        # cannot: a start that returned is not yet a running clock.
+        await asyncio.sleep(NQPTP_SETTLE_S)
+        if not await self._is_service_active(service):
+            return {"success": False, "error": "NQPTP exited after update"}
+
+        self.update_logger.info(f"NQPTP {build['version']} installed")
+        return {"success": True}
+
+    # === Source builds (shairport-sync and its NQPTP) ===
+
+    async def _download_source(
+        self, repo: str, tag_name: str, parent_dir: str = "/tmp",
+    ) -> Dict[str, Any]:
+        """Downloads and extracts a GitHub tag's source tarball"""
+        temp_dir = tempfile.mkdtemp(dir=parent_dir)
+        try:
+            url = f"https://github.com/{repo}/archive/refs/tags/{tag_name}.tar.gz"
+
+            self.update_logger.info(f"Downloading source from {url}...")
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1052,7 +1243,7 @@ class UpdateService(VersionService):
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
 
-                    archive_path = Path(temp_dir) / "shairport-sync-source.tar.gz"
+                    archive_path = Path(temp_dir) / "source.tar.gz"
                     async with aiofiles.open(archive_path, 'wb') as f:
                         async for chunk in response.content.iter_chunked(8192):
                             await f.write(chunk)
@@ -1069,7 +1260,7 @@ class UpdateService(VersionService):
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return {"success": False, "error": f"Failed to extract archive: {stderr.decode()}"}
 
-            # Find the extracted directory (shairport-sync-{tag})
+            # Find the extracted directory ({repo name}-{tag})
             extracted_dirs = [d for d in Path(temp_dir).iterdir() if d.is_dir()]
             if not extracted_dirs:
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1088,8 +1279,8 @@ class UpdateService(VersionService):
             shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
-    async def _configure_shairport_sync(self, source_dir: str, configure_flags: list) -> Dict[str, Any]:
-        """Runs autoreconf and configure for shairport-sync"""
+    async def _configure_source(self, source_dir: str, configure_flags: list) -> Dict[str, Any]:
+        """Runs autoreconf and configure in a source tree"""
         try:
             # Step 1: autoreconf -fi
             self.update_logger.info("Running autoreconf -fi...")
@@ -1111,7 +1302,7 @@ class UpdateService(VersionService):
                 return {"success": False, "error": f"autoreconf failed: {stderr.decode()}"}
 
             # Step 2: ./configure with flags
-            self.update_logger.info(f"Running ./configure with flags: {configure_flags}")
+            self.update_logger.info(f"Running ./configure in {Path(source_dir).name} with flags: {configure_flags}")
             proc = await asyncio.create_subprocess_exec(
                 "./configure", *configure_flags,
                 cwd=source_dir,
@@ -1134,8 +1325,8 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Configure failed: {e}"}
 
-    async def _compile_shairport_sync(self, source_dir: str) -> Dict[str, Any]:
-        """Compiles shairport-sync with make"""
+    async def _compile_source(self, source_dir: str) -> Dict[str, Any]:
+        """Compiles a configured source tree with make"""
         try:
             # Get number of CPU cores for parallel build
             nproc_proc = await asyncio.create_subprocess_exec(
@@ -1146,7 +1337,7 @@ class UpdateService(VersionService):
             nproc_stdout, _ = await nproc_proc.communicate()
             num_cores = nproc_stdout.decode().strip() or "2"
 
-            self.update_logger.info(f"Compiling shairport-sync with make -j{num_cores}...")
+            self.update_logger.info(f"Compiling {Path(source_dir).name} with make -j{num_cores}...")
             proc = await asyncio.create_subprocess_exec(
                 "make", f"-j{num_cores}",
                 cwd=source_dir,
@@ -1168,6 +1359,8 @@ class UpdateService(VersionService):
 
         except Exception as e:
             return {"success": False, "error": f"Compilation failed: {e}"}
+
+    # === shairport-sync's install, verification and rollback ===
 
     async def _install_shairport_sync(self, source_dir: str) -> Dict[str, Any]:
         """Installs compiled shairport-sync via DESTDIR staging + install-binary.
@@ -1213,12 +1406,23 @@ class UpdateService(VersionService):
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
-    async def _verify_shairport_sync_update(self, config: Dict[str, Any], service_was_active: bool) -> Dict[str, Any]:
-        """Verifies that shairport-sync was updated successfully"""
+    async def _verify_shairport_sync_update(
+        self, config: Dict[str, Any], service_was_active: bool,
+        expected_nqptp: Optional[tuple[str, int]] = None,
+    ) -> Dict[str, Any]:
+        """Verifies that shairport-sync was updated successfully, and that the
+        NQPTP beside it is the (version, SMI) the update settled on"""
         try:
             binary_path = Path(config["binary_path"])
             if not binary_path.exists():
                 return {"success": False, "error": "shairport-sync binary not found after update"}
+
+            if expected_nqptp is not None:
+                installed = await self._installed_nqptp(config["nqptp"]["binary_path"])
+                if installed != expected_nqptp:
+                    return {"success": False, "error": (
+                        f"NQPTP reads {installed} after update, expected {expected_nqptp}"
+                    )}
 
             # Check service is running (only if it was active before)
             if service_was_active:
@@ -1231,13 +1435,26 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Verification failed: {e}"}
 
-    async def _rollback_shairport_sync(self, config: Dict[str, Any], service_was_active: bool = True) -> bool:
-        """Rollback shairport-sync to the backed up version."""
+    async def _rollback_shairport_sync(
+        self, config: Dict[str, Any], service_was_active: bool = True,
+        restore_nqptp: bool = False,
+    ) -> bool:
+        """Rollback shairport-sync to the backed up version — and NQPTP with it
+        when the update had already replaced it, since the old shairport-sync
+        speaks the old interface only."""
         try:
-            binary_backup = Path(config["backup_path"]) / "shairport-sync.backup"
+            backup_dir = Path(config["backup_path"])
+            binary_backup = backup_dir / "shairport-sync.backup"
+            nqptp_backup = backup_dir / "nqptp.backup"
             if not binary_backup.exists():
                 self.update_logger.error("No backup found for rollback")
                 return False
+            # A unit that had no NQPTP before has none to go back to: the
+            # shairport-sync binary is still put back, and the rollback is
+            # not claimed.
+            nqptp_restorable = not restore_nqptp or nqptp_backup.exists()
+            if not nqptp_restorable:
+                self.update_logger.error("No NQPTP backup to roll back to")
 
             # Same as _rollback_binary_program: a unit that will not stop makes
             # the restore unverifiable, so it is not claimed.
@@ -1245,29 +1462,43 @@ class UpdateService(VersionService):
                 self.update_logger.error("shairport-sync did not stop, cannot restore its binary")
                 return False
 
-            # Copy backup to /tmp for install-binary (requires temp path)
-            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
-            shutil.copy2(binary_backup, tmp_backup)
-            try:
-                success, output = await self._run_deploy(
-                    "install-binary", str(tmp_backup), config["binary_path"]
-                )
-                if not success:
-                    self.update_logger.error(f"Rollback install failed: {output}")
+            if restore_nqptp and nqptp_restorable:
+                nqptp = config["nqptp"]
+                if not await self._stop_service(nqptp["service_name"]):
+                    self.update_logger.error("NQPTP did not stop, cannot restore its binary")
                     return False
-            finally:
-                tmp_backup.unlink(missing_ok=True)
+                await asyncio.sleep(0.5)
+                if not await self._install_backup(nqptp_backup, nqptp["binary_path"]):
+                    return False
+                if not await self._start_service(nqptp["service_name"]):
+                    self.update_logger.error("NQPTP binary restored but the service did not start")
+                    return False
+
+            if not await self._install_backup(binary_backup, config["binary_path"]):
+                return False
 
             if service_was_active and not await self._start_service(config["service_name"]):
                 self.update_logger.error("shairport-sync binary restored but the service did not start")
                 return False
 
             self.update_logger.info(f"shairport-sync rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
-            return True
+            return nqptp_restorable
 
         except Exception as e:
             self.update_logger.error(f"shairport-sync rollback failed: {e}")
             return False
+
+    async def _install_backup(self, backup: Path, binary_path: str) -> bool:
+        """Put a backed-up binary back, through /tmp as install-binary requires."""
+        tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
+        shutil.copy2(backup, tmp_backup)
+        try:
+            success, output = await self._run_deploy("install-binary", str(tmp_backup), binary_path)
+            if not success:
+                self.update_logger.error(f"Rollback install failed: {output}")
+            return success
+        finally:
+            tmp_backup.unlink(missing_ok=True)
 
     # === QOBUZ-PROXY (pip venv upgrade + source patch) ===
 

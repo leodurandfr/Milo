@@ -77,6 +77,10 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: AirplaySource
 - **Notes**: Config comes from `rootfs/etc/shairport-sync.conf` at image-build time, not runtime-managed by the backend
 
+#### nqptp.service
+- **Role**: NQPTP, the PTP clock AirPlay 2 needs (enabled at boot, always running)
+- **Notes**: Upstream's unit, shipped by Milō so the port capability lives in the unit (`AmbientCapabilities=`) rather than on the binary — the shairport-sync update replaces that binary whenever the two must move together (they share one shared memory interface version)
+
 #### milo-cd.service
 - **Role**: CD player via mpv, fed raw PCM over a FIFO from the ioctl disc reader
 - **IPC Socket**: /run/milo/cd-ipc.sock

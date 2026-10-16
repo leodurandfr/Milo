@@ -1,0 +1,20 @@
+# NQPTP, the AirPlay 2 clock milo-airplay requires. Milō ships this unit rather
+# than relying on the one NQPTP's `make install` writes: that one is never
+# replaced once present, and before 1.2.9 it relied on a `setcap` on the binary
+# for ports 319/320 — which the in-app shairport-sync update loses the moment it
+# replaces the binary (backend/core/updates/update.py::_prepare_nqptp refuses a
+# unit that does not grant the capability itself). Upstream's 1.2.9 unit, with
+# the /usr/local prefix both build paths install to.
+[Unit]
+Description=NQPTP -- Not Quite PTP
+Wants=network-online.target
+After=network.target network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/nqptp
+DynamicUser=yes
+LimitRTPRIO=6
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
