@@ -97,9 +97,13 @@ async function forget(profile) {
 </script>
 
 <style scoped>
+/* Two columns at most, one when a row would be narrower than 400px: the
+   avatar, the trash and the paddings take ~176px, the signed-in badge up to
+   ~155px (Italian, German), and the name keeps what is left beside it rather
+   than being drawn over. On the kiosk the player's pane alone tips it. */
 .profiles-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(max(min(400px, 100%), calc((100% - var(--space-02)) / 2)), 1fr));
   align-items: start;
   gap: var(--space-02);
 }
