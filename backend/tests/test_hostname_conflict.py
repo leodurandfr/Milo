@@ -15,10 +15,9 @@ Two boundaries are doubled here, both of them the **outside world**:
     plain reboot the unit compared a pre-DHCP address list against an answer
     naming its own fresh lease, failed to recognise itself, and put the takeover
     on the screen. `TestTheBootRace` replays that exact boot.
-  * **The three programs it spawns** (`avahi-browse`, `avahi-resolve`, `ip`).
-    The browse now serves one question only — is another, already renamed
-    `milo-N.local` server on the LAN — `avahi-resolve` only decides the reclaim,
-    and `ip` only picks the address printed in the takeover.
+  * **The two programs it spawns** (`avahi-browse`, `ip`). The browse serves
+    one question only — is another, already renamed `milo-N.local` server on
+    the LAN — and `ip` only picks the address printed in the takeover.
 
 Every canned stdout below is a verbatim capture from this appliance against the
 live LAN (browse + `ip` on 2026-08-26, D-Bus answers on 2026-08-31):
@@ -33,7 +32,7 @@ live LAN (browse + `ip` on 2026-08-26, D-Bus answers on 2026-08-31):
     busctl call org.freedesktop.Avahi / org.freedesktop.Avahi.Server GetHostNameFqdn
     s "milo.local"
 
-A spawn of anything other than those three programs raises, and so does a real
+A spawn of anything other than those two programs raises, and so does a real
 `MessageBus`: this file drives the service that browses the LAN's mDNS and
 restarts avahi-daemon, and the repo is checked out on the appliance itself.
 """
@@ -133,13 +132,13 @@ class FakeProc:
 
 
 class FakeSpawn:
-    """Stands in for the three binaries the service shells out to.
+    """Stands in for the two binaries the service shells out to.
 
     Anything else raises: this service browses the appliance's own LAN and
     restarts avahi-daemon, so an un-doubled spawn must fail, not be spied on.
     """
 
-    ALLOWED = ("avahi-resolve", "avahi-browse", "ip")
+    ALLOWED = ("avahi-browse", "ip")
 
     def __init__(self, router):
         self.calls: list[tuple[str, ...]] = []
@@ -160,16 +159,13 @@ class FakeSpawn:
         return [c for c in self.calls if c[:len(prefix)] == prefix]
 
 
-def default_router(*, resolve_name=("milo.local\t192.168.1.55", 0),
-                   browse=(BROWSE_SELF_ONLY, 0), ip_out=(IP_ADDR_SHOW, 0)):
-    """Build a router from the three answers the service can ask for."""
+def default_router(*, browse=(BROWSE_SELF_ONLY, 0), ip_out=(IP_ADDR_SHOW, 0)):
+    """Build a router from the two answers the service can ask for."""
     def route(argv):
         if argv[0] == "ip":
             return FakeProc(ip_out[1], ip_out[0])
         if argv[0] == "avahi-browse":
             return FakeProc(browse[1], browse[0])
-        if argv[0] == "avahi-resolve" and "-n" in argv:
-            return FakeProc(resolve_name[1], resolve_name[0])
         raise AssertionError(f"unrouted argv: {argv}")
 
     return route
@@ -368,21 +364,17 @@ class TestWeOwnMiloLocal:
         assert state["advertised_name"] == EXPECTED_FQDN
         assert state["other_milos"] == []
 
-    async def test_owning_the_name_costs_no_resolve(self, service):
-        """`avahi-resolve` is a 3 s multicast wait and now answers one question
-        only — does anybody still hold the name we lost. A unit that never lost
-        it must not pay for it on every five-minute cycle."""
-        with on_unit() as (spawn, _bus):
-            await service.check()
-        assert spawn.argv_starting("avahi-resolve") == []
-
-    async def test_a_parasite_renamed_server_is_a_conflict_even_when_we_own_the_name(self, service):
+    async def test_a_parasite_renamed_server_is_a_conflict_even_when_we_own_the_name(self, service, systemd):
         """The whole reason the browse survives. We hold `milo.local`, but a
         second Milō renamed itself to `milo-2.local`: it will stay orphaned for
-        ever unless the owner is told, so this is reported as a conflict."""
+        ever unless the owner is told, so this is reported as a conflict — and
+        the name being ours, there is nothing to reclaim: restarting avahi here
+        would drop this unit's advertisements over someone else's box."""
         browse = BROWSE_SELF_ONLY + browse_record("milo-2.local", "192.168.1.77") + "\n"
         with on_unit(default_router(browse=(browse, 0))):
             assert await service.check() is True
+            await asyncio.sleep(0)
+        systemd.restart.assert_not_awaited()
 
         state = service.get_state()
         assert state["other_milos"] == ["milo-2.local"]
@@ -481,7 +473,7 @@ class TestAvahiRenamedUs:
         """Its own `milo-2.local` record is in the browse, in both address
         families. Reporting it would be the appliance telling its owner to
         unplug the box they are looking at."""
-        with on_unit(default_router(browse=(BROWSE_RENAMED_SELF, 0), resolve_name=("", 1)),
+        with on_unit(default_router(browse=(BROWSE_RENAMED_SELF, 0)),
                      dbus=avahi(fqdn="milo-2.local")):
             await service.check()
             await service.cleanup()
@@ -734,7 +726,7 @@ class TestBroadcast:
 
     async def test_the_transition_into_conflict_is_broadcast_once(self, service):
         """The takeover mounts on this event and on nothing else."""
-        with on_unit(default_router(browse=(BROWSE_RENAMED_SELF, 0), resolve_name=("", 1)),
+        with on_unit(default_router(browse=(BROWSE_RENAMED_SELF, 0)),
                      dbus=avahi(fqdn="milo-2.local")):
             await service.check()
             await service.check()
@@ -776,7 +768,7 @@ class TestBroadcast:
         """`set_state_machine` is a STEP 2 injection; a check that ran before it
         (or in a unit test) must not raise on the broadcast."""
         bare = HostnameConflictService(systemd_manager=systemd)
-        with on_unit(default_router(browse=(BROWSE_RENAMED_SELF, 0), resolve_name=("", 1)),
+        with on_unit(default_router(browse=(BROWSE_RENAMED_SELF, 0)),
                      dbus=avahi(fqdn="milo-2.local")):
             assert await bare.check() is True
             await bare.cleanup()
@@ -793,16 +785,21 @@ class TestAvahiReclaim:
     `milo.local` without a reboot."""
 
     @staticmethod
-    def _orphaned():
-        """Nobody at all holds `milo.local` — the forward resolve fails."""
-        return default_router(resolve_name=("", 1), browse=(BROWSE_RENAMED_SELF, 0))
+    def _lan():
+        return default_router(browse=(BROWSE_RENAMED_SELF, 0))
 
     @staticmethod
     def _renamed():
         return avahi(fqdn="milo-2.local")
 
-    async def test_a_renamed_orphan_restarts_avahi_to_reprobe(self, service, systemd):
-        with on_unit(self._orphaned(), dbus=self._renamed()):
+    async def test_a_renamed_unit_restarts_avahi_to_reprobe(self, service, systemd):
+        """No second opinion before the restart: the re-probe is the test. On
+        2026-10-17 a pre-check through `avahi-resolve` saw a holder in the
+        seconds after the rename, with one Milō on the LAN, and none five
+        minutes later — so the takeover stayed on screen for those five.
+        The spawn double refuses any program but the browse and `ip`, so a
+        resolve creeping back in fails here."""
+        with on_unit(self._lan(), dbus=self._renamed()):
             assert await service.check() is True
             await settle(lambda: systemd.restart.await_count == 1)
             await service.cleanup()
@@ -821,7 +818,7 @@ class TestAvahiReclaim:
             return True
 
         systemd.restart = AsyncMock(side_effect=slow_restart)
-        with on_unit(self._orphaned(), dbus=self._renamed()):
+        with on_unit(self._lan(), dbus=self._renamed()):
             assert await service.check() is True
             # The reclaim is still parked on `released`; a second check must not
             # block behind it.
@@ -835,7 +832,7 @@ class TestAvahiReclaim:
         cycle for as long as the rename sticks — and each restart drops every
         mDNS advertisement the unit has, AirPlay included."""
         clock, clock_patch = frozen_clock()
-        with on_unit(self._orphaned(), dbus=self._renamed()), clock_patch:
+        with on_unit(self._lan(), dbus=self._renamed()), clock_patch:
             await service.check()
             clock.now += RECLAIM_COOLDOWN_S - 1
             await service.check()
@@ -848,7 +845,7 @@ class TestAvahiReclaim:
         """It is a cooldown, not a one-shot: a reclaim that did not take must be
         retried, or a unit that lost a probe race stays on `milo-2` for ever."""
         clock, clock_patch = frozen_clock()
-        with on_unit(self._orphaned(), dbus=self._renamed()), clock_patch:
+        with on_unit(self._lan(), dbus=self._renamed()), clock_patch:
             await service.check()
             clock.now += RECLAIM_COOLDOWN_S + 1
             await service.check()
@@ -856,19 +853,6 @@ class TestAvahiReclaim:
             await service.cleanup()
 
         assert systemd.restart.await_count == 2
-
-    async def test_a_peer_really_holding_the_name_is_not_reclaimed(self, service, systemd):
-        """The reclaim is for the *orphan* case only. Re-probing while another
-        device genuinely owns `milo.local` just loses the race again and drops
-        this unit's advertisements for nothing."""
-        with on_unit(default_router(resolve_name=("milo.local\t192.168.1.99", 0),
-                                    browse=(BROWSE_RENAMED_SELF, 0)),
-                     dbus=self._renamed()):
-            assert await service.check() is True
-            await asyncio.sleep(0)
-            await service.cleanup()
-
-        systemd.restart.assert_not_awaited()
 
     async def test_a_unit_that_is_not_in_conflict_is_never_reclaimed(self, service, systemd):
         with on_unit():
@@ -928,7 +912,7 @@ class TestPeriodicLoop:
             await parked.wait()
 
         systemd.restart = AsyncMock(side_effect=never_returns)
-        with on_unit(TestAvahiReclaim._orphaned(), dbus=TestAvahiReclaim._renamed()):
+        with on_unit(TestAvahiReclaim._lan(), dbus=TestAvahiReclaim._renamed()):
             await service.check()
             with patch.object(service, "check", new=AsyncMock(return_value=False)):
                 service.start_periodic()

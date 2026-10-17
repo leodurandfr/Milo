@@ -22,6 +22,15 @@ Avahi cannot answer one question about itself: whether *another*, already
 renamed `milo-N.local` server is sitting on the LAN. That is the browse's only
 remaining job.
 
+Whether anybody still holds `milo.local` after a rename is left to mDNS itself:
+a restart of avahi-daemon re-probes the name (RFC 6762 §8), and a device that
+really owns it defends it, so the unit is renamed again. Asking `avahi-resolve`
+first was a second opinion answered through the daemon's own cache: on
+2026-10-17, with one Milō on the LAN, both checks in the seconds after a rename
+got an answer for `milo.local` and the one five minutes later none — most
+likely the conflicting record, cached for its TTL — so the takeover stayed five
+minutes for nothing.
+
 Detection runs at backend startup, on Avahi's own StateChanged signal, every
 five minutes, and on demand from the API.
 """
@@ -44,7 +53,6 @@ logger = logging.getLogger(__name__)
 
 EXPECTED_SERVER_HOSTNAME = "milo"
 EXPECTED_FQDN = f"{EXPECTED_SERVER_HOSTNAME}.local"
-RESOLVE_TIMEOUT_S = 3.0
 BROWSE_TIMEOUT_S = 5.0
 IP_LOCAL_TIMEOUT_S = 2.0
 DBUS_TIMEOUT_S = 3.0
@@ -84,8 +92,8 @@ class HostnameConflictService:
         self._last_checked: Optional[float] = None
         self._advertised_name: Optional[str] = None
         self._local_ip: Optional[str] = None
-        self._milo_local_orphan: bool = False
         self._other_milos: List[str] = []
+        self._renamed: bool = False
         self._reclaim_attempted_ts: Optional[float] = None
         self._lock = asyncio.Lock()
         self._periodic_task: Optional[asyncio.Task] = None
@@ -182,8 +190,9 @@ class HostnameConflictService:
 
             await self._broadcast_if_changed(previous)
 
-            # Self-healing: if we got renamed but nobody else owns milo.local,
-            # the survivor is just stuck on milo-N — restart Avahi to re-probe.
+            # Self-healing: Avahi never takes its name back once renamed, so
+            # restart it to re-probe; a peer that really holds the name wins
+            # the probe again.
             # Stamp the cooldown inside the lock, but run the restart outside
             # so we don't block concurrent check() callers (boot init, manual
             # recheck) for up to 10 s.
@@ -202,11 +211,13 @@ class HostnameConflictService:
         return conflict
 
     async def _detect_conflict(self) -> bool:
+        # Reset before anything that can raise: a stale True from an earlier
+        # check would restart avahi on a unit reporting no conflict.
+        self._renamed = False
         # Display only: which of this host's addresses the takeover prints so
         # the owner can tell which box is speaking. No verdict reads it.
         self._local_ip = self._display_address(await self._get_local_ips())
         self._other_milos = []
-        self._milo_local_orphan = False
 
         fqdn, state = await self._avahi_identity()
         self._advertised_name = fqdn
@@ -231,9 +242,8 @@ class HostnameConflictService:
             # turn it off before it stays orphaned forever.
             return bool(self._other_milos)
 
-        # Avahi renamed us. Whether anybody actually holds milo.local decides
-        # the reclaim, not the verdict.
-        self._milo_local_orphan = await self._avahi_resolve_name(EXPECTED_FQDN) is None
+        # Avahi settled on milo-N: it renamed us.
+        self._renamed = True
         return True
 
     async def _avahi_identity(self) -> tuple:
@@ -392,18 +402,15 @@ class HostnameConflictService:
         return out
 
     def _should_attempt_reclaim(self) -> bool:
-        """True iff we got renamed but nobody else owns milo.local on the LAN.
+        """True iff Avahi renamed us and no reclaim was tried recently.
 
         Avahi never reclaims the principal name once it has been renamed —
         even after the conflicting peer disappears. A restart of avahi-daemon
-        forces it to re-probe milo.local. Cooldown avoids restart loops if the
-        reclaim doesn't take (e.g. another race on the next probe).
+        forces it to re-probe milo.local, and the probe is what decides: a
+        peer still holding the name defends it. The cooldown bounds that case
+        to one restart per half hour.
         """
-        if not self._conflict:
-            return False
-        if not self._milo_local_orphan:
-            return False
-        if self._advertised_name is None or self._advertised_name == EXPECTED_FQDN:
+        if not (self._conflict and self._renamed):
             return False
         if self._reclaim_attempted_ts is not None:
             elapsed = time.time() - self._reclaim_attempted_ts
@@ -413,7 +420,7 @@ class HostnameConflictService:
 
     async def _attempt_avahi_reclaim(self, renamed_to: Optional[str]) -> None:
         logger.warning(
-            "Restarting avahi-daemon to reclaim '%s' (advertised as '%s', no peer holds it)",
+            "Restarting avahi-daemon to reclaim '%s' (advertised as '%s')",
             EXPECTED_FQDN, renamed_to,
         )
         # restart() logs + returns False on failure (fail-loud); the caller can't
@@ -429,34 +436,6 @@ class HostnameConflictService:
             local_ip=self._local_ip,
             expected_name=EXPECTED_FQDN,
         ))
-
-    async def _avahi_resolve_name(self, name: str) -> Optional[str]:
-        """Does anybody at all answer for `name`? Only the reclaim reads this."""
-        return await self._run_avahi(["avahi-resolve", "-4", "-n", name])
-
-    @staticmethod
-    async def _run_avahi(cmd) -> Optional[str]:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            return None
-        try:
-            stdout, _ = await asyncio.wait_for(
-                proc.communicate(), timeout=RESOLVE_TIMEOUT_S
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return None
-        if proc.returncode != 0:
-            return None
-        # Output format: "<query>\t<answer>"
-        parts = stdout.decode("utf-8", errors="ignore").strip().split()
-        return parts[1] if len(parts) >= 2 else None
 
     @staticmethod
     async def _get_local_ips() -> Set[str]:
