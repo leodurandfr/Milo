@@ -451,11 +451,13 @@ async def initialize_services() -> None:
     volume_service.set_routing_service(routing_service)
     routing_service.set_volume_service(volume_service)
 
-    # Cycle: airplay_source ↔ volume_service
+    # Cycle: airplay_source / spotify_source ↔ volume_service
     #   the sender's slider sets Milō's volume, and every volume state that goes
-    #   out moves the sender's slider back. Not a factory dep: a source's
-    #   constructor is the same four arguments for every source.
+    #   out moves the sender's slider back (Spotify's only while the settings
+    #   allow its app's slider). Not a factory dep: a source's constructor is
+    #   the same four arguments for every source.
     get_service("airplay_source").set_volume_service(volume_service)
+    get_service("spotify_source").set_volume_service(volume_service)
 
     # Fail loud on a missing state back-reference. state() reads
     # multiroom_enabled / equalizer_effects_enabled / the connectivity level

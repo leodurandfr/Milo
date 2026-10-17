@@ -40,7 +40,7 @@
               @play="play({ skipToUri: track.uri })"
             >
               <template #menu>
-                <SpotifyTrackMenu :track="track" :kind="kind"
+                <SpotifyTrackMenu :track="track" :kind="kind" :editable-uri="editable ? uri : null"
                   @artist="$emit('select-artist', $event)"
                   @album="$emit('select-album', track.album)"
                   @radio="$emit('select-radio', $event)" />
@@ -104,6 +104,8 @@ const tracks = computed(() => listing.value?.tracks ?? []);
 // The rows mounted, out of the tracks described so far.
 const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
 const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+// A list the account may edit offers to remove a row from it.
+const editable = computed(() => props.kind !== 'album' && store.canEdit(props.uri));
 // While the rest is described, the listing's own length.
 const trackCount = computed(() => (listing.value?.complete ? tracks.value.length : listing.value?.length ?? 0));
 

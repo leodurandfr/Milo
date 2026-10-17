@@ -214,6 +214,11 @@ class Librespot:
         self.transfer_refused = False   # Spotify refused the transfer (a 500 from go-librespot)
         self.paused = True
         self.buffering = False
+        # The app's slider, in steps (0.10.5: kept across sessions, set with no
+        # session too; an event 100 ms after a change, only with a session).
+        self.volume = 42
+        self.volume_steps = 100
+        self.volume_without_session = True   # False: 0.10.4 and before, a 204
         self.status_answers = True      # False: /status answers 503 (learned nothing)
         self.refused_outputs: set = set()   # devices POST /player/output answers 500 for
         self.output = "milo_spotify"    # the ALSA device it writes to
@@ -225,6 +230,11 @@ class Librespot:
         # The library, as the signed-in account sees it.
         self.playlists: List[Dict[str, Any]] = []
         self.listings: Dict[str, List[Dict[str, Any]]] = {}   # uri -> tracks
+        self.liked: set = set()                                # Liked Songs' track uris
+        # Every write to the library (0.10.5's routes), as (path, body).
+        self.library_writes: List[Tuple[str, Dict[str, Any]]] = []
+        self.contains_refused: set = set()                     # playlists /contains answers 503 for
+        self.liked_refused = False                             # GET /library/liked answers 503
         self.listing_calls_until_ready = 1   # /context/tracks answers ready on this call
         # go-librespot describes a listing front to back while it is read
         # (batches of 100 a second): None describes it whole at once, n
@@ -319,6 +329,7 @@ class Librespot:
                     "username": self.stored, "stopped": False, "paused": False,
                     "buffering": False, "track": None, **self._player_flags(),
                     "remote": copy.deepcopy(self.remote), "device_id": self.device_id,
+                    "volume": self.volume, "volume_steps": self.volume_steps,
                 }))
             context_uri, context_name = self.context or (None, None)
             return _Exchange(_Response(200, {
@@ -326,6 +337,7 @@ class Librespot:
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
                 "context_uri": context_uri, "context_name": context_name,
                 **self._player_flags(), "remote": None, "device_id": self.device_id,
+                "volume": self.volume, "volume_steps": self.volume_steps,
             }))
         if url.endswith("/player/queue"):
             self.queue_reads += 1
@@ -359,6 +371,13 @@ class Librespot:
             if body["device"] in self.refused_outputs:
                 return _Exchange(_Response(500))
             self.output = body["device"]
+            return _Exchange(_Response(200))
+        if command == "volume":
+            if not self.session and not self.volume_without_session:
+                return _Exchange(_Response(204))
+            self.volume = max(0, min(self.volume_steps, body["volume"]))
+            if self.session:
+                self._later(self.volume_event())
             return _Exchange(_Response(200))
         if not self.session and not self.signed_in:
             return _Exchange(_Response(204))
@@ -428,7 +447,55 @@ class Librespot:
         if path == "/token":
             self.token_reads += 1
             return _Exchange(_Response(200, {"token": "access-token"}))
+        if path.startswith("/library/"):
+            return _Exchange(self._library(method, path, params, json or {}))
         return _Exchange(_Response(404))
+
+    def _library(self, method: str, path: str, params: Dict[str, Any], body: Dict[str, Any]) -> _Response:
+        """go-librespot 0.10.5's library writes and the reads that go with
+        them: 403 for a playlist the account may not edit, 404 for one that
+        does not exist (or that no longer holds the item to remove), 409 for
+        an entry no longer at the position named."""
+        if path == "/library/liked":
+            if method == "GET" and self.liked_refused:
+                return _Response(503)
+            if method == "GET":
+                return _Response(200, {"items": [
+                    {"uri": u, "liked": u in self.liked} for u in params["uris"].split(",")
+                ]})
+            self.library_writes.append((path, body))
+            for uri in body["uris"]:
+                (self.liked.add if body["liked"] else self.liked.discard)(uri)
+            return _Response(200)
+        playlist_uri = params.get("playlist_uri") or body.get("playlist_uri")
+        playlist = next((p for p in self.playlists if p["uri"] == playlist_uri), None)
+        if playlist is None:
+            return _Response(404)
+        entries = self.listings.setdefault(playlist_uri, [])
+        if path == "/library/playlists/contains":
+            if playlist_uri in self.contains_refused:
+                return _Response(503)
+            held = {e["uri"] for e in entries}
+            return _Response(200, {"items": [
+                {"uri": u, "contained": u in held} for u in params["uris"].split(",")
+            ]})
+        if not playlist.get("can_edit"):
+            return _Response(403)
+        self.library_writes.append((path, body))
+        if path == "/library/playlists/add_tracks":
+            entries.extend({"uri": u, "track": {"uri": u, "name": u}} for u in body["uris"])
+            return _Response(200)
+        if path == "/library/playlists/remove_track":
+            position = body.get("position")
+            if position is None:
+                position = next((i for i, e in enumerate(entries) if e["uri"] == body["uri"]), None)
+                if position is None:
+                    return _Response(404)
+            elif position >= len(entries) or entries[position]["uri"] != body["uri"]:
+                return _Response(409)
+            del entries[position]
+            return _Response(200)
+        return _Response(404)
 
     def ws_connect(self, url: str, *a: Any, **k: Any) -> _Exchange:
         if url.startswith("wss://"):
@@ -490,6 +557,9 @@ class Librespot:
             "context_uri": context_uri, "uri": self.track["uri"], "resume": resume,
             "play_origin": "go-librespot",
         }}
+
+    def volume_event(self) -> Dict[str, Any]:
+        return {"type": "volume", "data": {"value": self.volume, "max": self.volume_steps}}
 
     def says(self, *events: Dict[str, Any]) -> None:
         if self.socket is not None:
@@ -772,6 +842,11 @@ class SpotifyWorld(WireReader):
     async def phone_resumes(self) -> None:
         self.daemon.paused = False
         await self._says(self.daemon.playing(resume=True))
+
+    async def phone_moves_volume(self, value: int) -> None:
+        """The Spotify app's slider, moved on the phone (in steps)."""
+        self.daemon.volume = value
+        await self._says(self.daemon.volume_event())
 
     async def phone_seeks(self, position_ms: int) -> None:
         self.daemon.track["position"] = position_ms

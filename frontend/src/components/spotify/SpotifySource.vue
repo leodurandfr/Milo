@@ -1,67 +1,72 @@
 <template>
-  <!-- The navigation, and the full player it expands into: BrowserSourceViews
-       swaps the two. -->
-  <BrowserSourceViews source="spotify" :playback="playback"
-    :can-open-album="!!nowPlaying?.albumUri" :artists="playerArtists"
-    @title-click="openPlayerAlbum" @secondary-click="openArtist">
-    <template #navigation="{ bar }">
-      <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
-        :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView) && currentView !== 'section'"
-        header-icon="spotify" gradient="spotify"
-        :header-actions-key="currentView" :content-key="currentKey"
-        :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
-        @header-back="back" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
+  <div class="spotify-source">
+    <!-- The navigation, and the full player it expands into: BrowserSourceViews
+         swaps the two. -->
+    <BrowserSourceViews source="spotify" :playback="playback"
+      :can-open-album="!!nowPlaying?.albumUri" :artists="playerArtists"
+      @title-click="openPlayerAlbum" @secondary-click="openArtist">
+      <template #navigation="{ bar }">
+        <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
+          :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView) && currentView !== 'section'"
+          header-icon="spotify" gradient="spotify"
+          :header-actions-key="currentView" :content-key="currentKey"
+          :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
+          @header-back="back" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
 
-        <!-- Home only: the play order, whose library this is, and the way to
-             the others. -->
-        <template v-if="currentView === 'home'" #header-actions>
-          <IconButton icon="queue" :aria-label="t('spotify.queue')" @click="push('queue')" />
-          <button v-if="activeProfile" v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
-            @click="goTo('profiles')">
-            <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" />
-          </button>
-        </template>
+          <!-- Home only: the play order, whose library this is, and the way to
+               the others. -->
+          <template v-if="currentView === 'home'" #header-actions>
+            <IconButton icon="queue" :aria-label="t('spotify.queue')" @click="push('queue')" />
+            <button v-if="activeProfile" v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
+              @click="goTo('profiles')">
+              <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" />
+            </button>
+          </template>
 
-        <!-- One page per stack entry, kept while the entry is on the stack. A
-             branch reads its own entry, never the current view: a kept page
-             re-renders from it. -->
-        <template #pages>
-          <KeepAlive :include="keptKeys" :max="KEPT_PAGES">
-            <component :is="currentPage" :key="currentKey" v-slot="{ entry }">
-              <SpotifyHome v-if="entry.view === 'home'" @select="openItem" @show-section="openSection" />
+          <!-- One page per stack entry, kept while the entry is on the stack. A
+               branch reads its own entry, never the current view: a kept page
+               re-renders from it. -->
+          <template #pages>
+            <KeepAlive :include="keptKeys" :max="KEPT_PAGES">
+              <component :is="currentPage" :key="currentKey" v-slot="{ entry }">
+                <SpotifyHome v-if="entry.view === 'home'" @select="openItem" @show-section="openSection" />
 
-              <SpotifyProfilesView v-else-if="entry.view === 'profiles'" @picked="reset" />
+                <SpotifyProfilesView v-else-if="entry.view === 'profiles'" @picked="reset" />
 
-              <SpotifyContextView v-else-if="entry.view === 'context'"
-                :uri="entry.params.uri" :kind="entry.params.kind" :name="entry.params.name"
-                :image="entry.params.image" :owner="entry.params.owner"
-                @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
+                <SpotifyContextView v-else-if="entry.view === 'context'"
+                  :uri="entry.params.uri" :kind="entry.params.kind" :name="entry.params.name"
+                  :image="entry.params.image" :owner="entry.params.owner"
+                  @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
 
-              <SpotifyArtistView v-else-if="entry.view === 'artist'"
-                :uri="entry.params.uri" :name="entry.params.name" :image="entry.params.image"
-                @select="openItem" @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio"
-                @show-discography="push('discography', $event)" @show-section="openSection" />
+                <SpotifyArtistView v-else-if="entry.view === 'artist'"
+                  :uri="entry.params.uri" :name="entry.params.name" :image="entry.params.image"
+                  @select="openItem" @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio"
+                  @show-discography="push('discography', $event)" @show-section="openSection" />
 
-              <SpotifyDiscographyView v-else-if="entry.view === 'discography'"
-                :uri="entry.params.uri" :group="entry.params.group" @select="openItem" />
+                <SpotifyDiscographyView v-else-if="entry.view === 'discography'"
+                  :uri="entry.params.uri" :group="entry.params.group" @select="openItem" />
 
-              <SpotifySectionView v-else-if="entry.view === 'section'"
-                :items="entry.params.items" @select="openItem" />
+                <SpotifySectionView v-else-if="entry.view === 'section'"
+                  :items="entry.params.items" @select="openItem" />
 
-              <SpotifyQueueView v-else-if="entry.view === 'queue'" />
-            </component>
-          </KeepAlive>
-        </template>
+                <SpotifyQueueView v-else-if="entry.view === 'queue'" />
+              </component>
+            </KeepAlive>
+          </template>
 
-        <!-- Docked player: it reads what it draws from the state; the album
-             and the artist it emits open here, in the navigation. -->
-        <template #player>
-          <AudioPlayer v-bind="bar" source="spotify"
-            @title-click="openPlayerAlbum" @secondary-click="openArtist" />
-        </template>
-      </AudioSourceLayout>
-    </template>
-  </BrowserSourceViews>
+          <!-- Docked player: it reads what it draws from the state; the album
+               and the artist it emits open here, in the navigation. -->
+          <template #player>
+            <AudioPlayer v-bind="bar" source="spotify"
+              @title-click="openPlayerAlbum" @secondary-click="openArtist" />
+          </template>
+        </AudioSourceLayout>
+      </template>
+    </BrowserSourceViews>
+
+    <!-- Add-to-playlist picker, opened from any track row's ⋯ menu (store-driven). -->
+    <SpotifyAddToPlaylistModal />
+  </div>
 </template>
 
 <script setup>
@@ -76,6 +81,7 @@ import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ProfileAvatar from './ProfileAvatar.vue';
+import SpotifyAddToPlaylistModal from './SpotifyAddToPlaylistModal.vue';
 import SpotifyHome from './views/SpotifyHome.vue';
 import SpotifyContextView from './views/SpotifyContextView.vue';
 import SpotifyArtistView from './views/SpotifyArtistView.vue';
@@ -172,6 +178,11 @@ watch(() => store.account, (now, before) => {
 </script>
 
 <style scoped>
+.spotify-source {
+  width: 100%;
+  height: 100%;
+}
+
 /* The height of a medium IconButton (icon + padding), so the avatar fills the
    header's actions row exactly as the buttons beside it do. */
 .profile-button {

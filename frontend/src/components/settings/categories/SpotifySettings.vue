@@ -1,13 +1,13 @@
 <!-- frontend/src/components/settings/categories/SpotifySettings.vue -->
 <!--
   Spotify Connect screen. go-librespot needs no login (zeroconf handoff from the
-  phone), so the only things to configure here are playback: the crossfade and
-  whether the Spotify app's slider may change the volume, both of which the
-  daemon reads from its config.yml.
+  phone), so the only things to configure here are playback: the crossfade, and
+  whether the Spotify app's slider and Milō's volume are one level.
 
-  That file is parsed once, at process start, hence the two-step shape: the
-  values are stored immediately (and picked up by the next start on its own),
-  while a sticky button offers the restart that makes them audible right now.
+  The crossfade is read from go-librespot's config.yml, parsed once at process
+  start, hence its two-step shape: stored immediately (and picked up by the
+  next start on its own), while a sticky button offers the restart that makes
+  it audible right now. The app volume is Milō's to follow and applies at once.
 -->
 <template>
   <SectionStack>
@@ -29,8 +29,8 @@
       />
     </ToggleSection>
 
-    <!-- Off (default) runs go-librespot with external_volume: samples stay at
-         unity and CamillaDSP is the only volume authority. -->
+    <!-- Either way go-librespot leaves the samples at unity: CamillaDSP is the
+         only attenuation, and on, the slider moves Milō's volume. -->
     <ToggleSection
       :title="t('spotifySettings.appVolumeTitle')"
       :description="t('spotifySettings.appVolumeDescription')"
@@ -78,17 +78,14 @@ const allowAppVolume = ref(false);
 // Remembers the last audible duration so toggling OFF then ON restores it.
 const lastCrossfadeSeconds = ref(DEFAULT_SECONDS);
 // What the running daemon plays with, as far as this screen can know: the
-// stored values when it opened. Re-based only by an explicit restart — never by
-// the WS echo of our own write, which would hide the button we just earned.
+// stored crossfade when it opened. Re-based only by an explicit restart — never
+// by the WS echo of our own write, which would hide the button we just earned.
 const appliedSeconds = ref(0);
-const appliedAppVolume = ref(false);
 const isApplying = ref(false);
 
 const crossfadeEnabled = computed(() => crossfadeSeconds.value !== 0);
 const spotifyRunning = computed(() => unifiedStore.systemState.source === 'spotify');
-const needsRestart = computed(() => spotifyRunning.value && (
-  crossfadeSeconds.value !== appliedSeconds.value || allowAppVolume.value !== appliedAppVolume.value
-));
+const needsRestart = computed(() => spotifyRunning.value && crossfadeSeconds.value !== appliedSeconds.value);
 
 function save(applyNow) {
   return updateSetting('spotify-settings', {
@@ -124,7 +121,6 @@ async function applyNow() {
   try {
     await save(true);
     appliedSeconds.value = crossfadeSeconds.value;
-    appliedAppVolume.value = allowAppVolume.value;
   } finally {
     isApplying.value = false;
   }
@@ -148,7 +144,6 @@ onMounted(() => {
   readStored(settingsStore.spotifySettings.crossfade_duration);
   allowAppVolume.value = settingsStore.spotifySettings.allow_app_volume;
   appliedSeconds.value = crossfadeSeconds.value;
-  appliedAppVolume.value = allowAppVolume.value;
 });
 </script>
 

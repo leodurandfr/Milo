@@ -388,7 +388,7 @@
     "restartToApply": "लागू करने के लिए पुनरारंभ करें",
     "restarting": "पुनः आरंभ हो रहा है…",
     "appVolumeTitle": "Spotify ऐप से वॉल्यूम नियंत्रण",
-    "appVolumeDescription": "Spotify ऐप को वॉल्यूम बदलने दें। बंद होने पर, Milō Spotify को पूर्ण वॉल्यूम पर रखता है और अपना वॉल्यूम नियंत्रण स्तर सेट करता है।"
+    "appVolumeDescription": "Spotify ऐप का वॉल्यूम स्लाइडर Milō का वॉल्यूम सेट करता है और उसके हर बदलाव के साथ चलता है। बंद होने पर, यह स्लाइडर कोई असर नहीं करता और केवल Milō का अपना वॉल्यूम नियंत्रण स्तर सेट करता है।"
   },
   "spotify": {
     "accountSpotify": "{name} का Spotify",
@@ -396,6 +396,7 @@
     "jamOthers": "{count} अन्य",
     "playingOn": "{device} पर चल रहा है",
     "pausedOn": "{device} पर रुका हुआ",
+    "addToPlaylist": "प्लेलिस्ट में जोड़ें",
     "album": "एल्बम",
     "artist": "कलाकार",
     "cancel": "रद्द करें",
@@ -424,6 +425,8 @@
     "queueEmpty": "कतार में कुछ नहीं",
     "recentlyPlayed": "हाल ही में सुने गए",
     "recentlyPlayedEmpty": "हाल ही में सुना गया कोई ट्रैक नहीं",
+    "removeFromLikedSongs": "पसंद किए गए गानों से हटाएं",
+    "removeFromPlaylist": "इस प्लेलिस्ट से हटाएं",
     "retry": "पुनः प्रयास करें",
     "showMore": "और दिखाएं",
     "signingIn": "Spotify में साइन इन हो रहा है…",

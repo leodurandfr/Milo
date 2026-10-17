@@ -388,7 +388,7 @@
     "restartToApply": "Redémarrer pour appliquer",
     "restarting": "Redémarrage…",
     "appVolumeTitle": "Contrôle du volume depuis l'application Spotify",
-    "appVolumeDescription": "Laisser l'application Spotify modifier le volume. Si désactivé, Milō conserve Spotify au volume maximal et son propre contrôle du volume définit le niveau."
+    "appVolumeDescription": "Le curseur de volume de l'application Spotify règle le volume de Milō et suit chacun de ses changements. Si désactivé, ce curseur est sans effet et seul le contrôle du volume de Milō définit le niveau."
   },
   "spotify": {
     "accountSpotify": "Spotify de {name}",
@@ -396,6 +396,7 @@
     "jamOthers": "{count} autre | {count} autres",
     "playingOn": "Lecture sur {device}",
     "pausedOn": "En pause sur {device}",
+    "addToPlaylist": "Ajouter à une playlist",
     "album": "Album",
     "artist": "Artiste",
     "cancel": "Annuler",
@@ -424,6 +425,8 @@
     "queueEmpty": "File d'attente vide",
     "recentlyPlayed": "Écoutés récemment",
     "recentlyPlayedEmpty": "Aucun titre écouté récemment",
+    "removeFromLikedSongs": "Retirer des Titres likés",
+    "removeFromPlaylist": "Retirer de cette playlist",
     "retry": "Réessayer",
     "showMore": "Afficher plus",
     "signingIn": "Connexion à Spotify…",

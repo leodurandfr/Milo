@@ -163,14 +163,19 @@ def history_entry(track: Dict[str, Any], playing: Dict[str, Any], played_at: int
     }
 
 
-def normalize_track(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """One /context/tracks entry; None while its metadata is not cached yet."""
+def normalize_track(entry: Dict[str, Any], position: int) -> Optional[Dict[str, Any]]:
+    """One /context/tracks entry, at `position` in the listing; None while its
+    metadata is not cached yet. `listed_uri` and `position` name the entry as
+    the playlist holds it, which is what a removal must name: the track's own
+    uri differs for a relinked track, and a playlist may hold it twice."""
     track = entry.get("track")
     if not track:
         return None
     artwork = track.get("album_cover_url") or None
     return {
         "uri": track.get("uri") or entry.get("uri"),
+        "listed_uri": entry.get("uri") or track.get("uri"),
+        "position": position,
         "title": track.get("name"),
         "artists": artists_of(track),
         "album": {"name": track.get("album_name") or None, "uri": track.get("album_uri") or None},
@@ -191,8 +196,8 @@ def described_tracks(entries: List[Dict[str, Any]], complete: bool) -> List[Dict
     screen would push them down. Once `complete`, such an entry is a track
     Spotify no longer describes, and is left out."""
     tracks: List[Dict[str, Any]] = []
-    for entry in entries:
-        track = normalize_track(entry)
+    for position, entry in enumerate(entries):
+        track = normalize_track(entry, position)
         if track is None:
             if complete:
                 continue
@@ -214,6 +219,12 @@ def _has_tracks(item: Dict[str, Any]) -> bool:
     return False
 
 
+def is_mine(playlist: Dict[str, Any], account: Optional[str]) -> bool:
+    """Whether a normalized playlist is the account's to edit: its own, or
+    one it may edit (collaborative, shared with it)."""
+    return playlist["owner"] == account or playlist["editable"]
+
+
 def library_sections(items: List[Dict[str, Any]], account: Optional[str]) -> Dict[str, List[Dict[str, Any]]]:
     """The account's playlists, in library order: the ones it owns or may edit,
     and every other it saved (Spotify's included). `items` are raw
@@ -224,8 +235,7 @@ def library_sections(items: List[Dict[str, Any]], account: Optional[str]) -> Dic
         if not _has_tracks(item):
             continue
         playlist = normalize_playlist(item)
-        mine = playlist["owner"] == account or playlist["editable"]
-        sections["mine" if mine else "followed"].append(playlist)
+        sections["mine" if is_mine(playlist, account) else "followed"].append(playlist)
     return sections
 
 

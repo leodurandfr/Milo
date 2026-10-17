@@ -6,7 +6,7 @@
  * album offered as a page of one track.
  */
 import { describe, it, expect } from 'vitest';
-import { trackMenuActions, menuArtists, albumKnownToHoldMore, canHaveRadio } from '@/utils/spotifyTrackMenu';
+import { trackMenuActions, trackEditActions, menuArtists, albumKnownToHoldMore, canHaveRadio } from '@/utils/spotifyTrackMenu';
 
 const TRACK = {
   uri: 'spotify:track:0yNttAVwMr39qyODHNIkrY',
@@ -45,6 +45,21 @@ describe('trackMenuActions', () => {
   it('leaves out a page the track names no uri for', () => {
     const bare = { ...TRACK, artists: [], album: {} };
     expect(trackMenuActions(bare, 'playlist', { albumLength: 36, radioUri: RADIO })).toEqual(['radio']);
+  });
+});
+
+describe('trackEditActions', () => {
+  const PLAYLIST = 'spotify:playlist:1mineabcdefghijklmnopq';
+  const ROW = { ...TRACK, listed_uri: TRACK.uri };
+
+  it('offers to add any track, and to remove it only from a list the account may edit', () => {
+    expect(trackEditActions(ROW)).toEqual(['addToPlaylist']);
+    expect(trackEditActions(ROW, PLAYLIST)).toEqual(['addToPlaylist', 'removeFromPlaylist']);
+  });
+
+  it('never offers a local file, which go-librespot cannot add or remove', () => {
+    const local = { uri: 'spotify:local:Artist:Album:Title:200', listed_uri: 'spotify:local:Artist:Album:Title:200' };
+    expect(trackEditActions(local, PLAYLIST)).toEqual([]);
   });
 });
 

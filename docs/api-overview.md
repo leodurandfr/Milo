@@ -55,7 +55,9 @@ artwork; `/api/cd` serves disc covers. `/api/spotify` is the browser's: the sign
 home sections, a context's tracks (`/contexts/{uri}?after=N`, the tracks past the N the
 browser has as go-librespot describes them, until `complete`), an artist's page (`/artists/{uri}`:
 Spotify's own sections, the discography in place of its popular releases), a track's radio
-(`/tracks/{uri}/radio`), and the profiles Milō keeps (forget,
+(`/tracks/{uri}/radio`), the account's playlists written from a row's ⋯ menu (`GET
+/tracks/{uri}/playlists` for the picker, `POST /contexts/{uri}/tracks` to add, `DELETE
+/contexts/{uri}/tracks/{item}?position=N` to remove one entry — Liked Songs included), and the profiles Milō keeps (forget,
 `PUT /active-profile` to sign the daemon in as one) — playback itself is the `play_context`
 command. Music Library is the richest (Subsonic-backed browsing,
 cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the

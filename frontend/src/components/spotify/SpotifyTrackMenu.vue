@@ -1,6 +1,8 @@
 <!-- frontend/src/components/spotify/SpotifyTrackMenu.vue -->
-<!-- A track row's ⋯ menu in the Spotify browser: the pages the track leads
-     to. It opens them by emitting; the source's navigation does the rest. -->
+<!-- A track row's ⋯ menu in the Spotify browser: adding the track to one of
+     the account's playlists, removing its row from the list on screen, then
+     the pages the track leads to. It opens those by emitting; the source's
+     navigation does the rest. -->
 <template>
   <Dropdown v-if="mayLead" model-value="" :options="options" size="small" placement="top-end"
     icon-placement="start" @change="choose">
@@ -20,11 +22,15 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useTimer } from '@/composables/useTimer';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import { albumKnownToHoldMore, canHaveRadio, menuArtists, trackMenuActions } from '@/utils/spotifyTrackMenu';
+import {
+  albumKnownToHoldMore, canHaveRadio, menuArtists, trackEditActions, trackMenuActions,
+} from '@/utils/spotifyTrackMenu';
 
 // How long a press waits for Spotify before the menu opens with what is known.
 const ANSWER_WAIT_MS = 1500;
 const ENTRIES = {
+  addToPlaylist: { label: 'spotify.addToPlaylist', icon: 'plusCircle' },
+  removeFromPlaylist: { label: 'spotify.removeFromPlaylist', icon: 'minus' },
   radio: { label: 'spotify.goToSongRadio', icon: 'broadcast' },
   artist: { label: 'spotify.goToArtist', icon: 'userSound' },
   album: { label: 'spotify.goToAlbum', icon: 'vinylRecord' },
@@ -46,6 +52,12 @@ const props = defineProps({
     type: String,
     default: null,
   },
+  // The list the row is on, when the account may edit it: the row can be
+  // removed from it.
+  editableUri: {
+    type: String,
+    default: null,
+  },
 });
 
 const emit = defineEmits(['artist', 'album', 'radio']);
@@ -54,8 +66,10 @@ const { t } = useI18n();
 const store = useSpotifyStore();
 const timer = useTimer();
 
+const edits = computed(() => trackEditActions(props.track, props.editableUri));
+
 // Whether the menu could hold anything, were every answer the best one.
-const mayLead = computed(() => trackMenuActions(props.track, props.kind, {
+const mayLead = computed(() => edits.value.length > 0 || trackMenuActions(props.track, props.kind, {
   albumLength: Infinity,
   radioUri: canHaveRadio(props.track) ? 'not asked yet' : null,
   pageUri: props.pageUri,
@@ -75,7 +89,10 @@ onBeforeUnmount(() => { alive = false; });
 const artists = computed(() => menuArtists(props.track, props.pageUri));
 
 const options = computed(() => shown.value.flatMap((action) => {
-  const { label, icon } = ENTRIES[action];
+  const { icon } = ENTRIES[action];
+  const label = action === 'removeFromPlaylist' && props.kind === 'liked'
+    ? 'spotify.removeFromLikedSongs'
+    : ENTRIES[action].label;
   if (action === 'artist' && props.track.artists.length > 1) {
     return artists.value.map((artist, index) => ({ value: `artist:${index}`, label: artist.name, icon }));
   }
@@ -102,12 +119,14 @@ async function press(toggle, isOpen) {
   asking.value = false;
   if (!alive) return;
   radioUri.value = answers.radioUri;
-  shown.value = trackMenuActions(track, props.kind, { ...answers, pageUri: props.pageUri });
+  shown.value = [...edits.value, ...trackMenuActions(track, props.kind, { ...answers, pageUri: props.pageUri })];
   if (shown.value.length) toggle();
 }
 
 function choose(action) {
-  if (action === 'radio') emit('radio', { uri: radioUri.value, track: props.track });
+  if (action === 'addToPlaylist') store.requestAddToPlaylist(props.track);
+  else if (action === 'removeFromPlaylist') store.removeFromPlaylist(props.editableUri, props.track, { row: true });
+  else if (action === 'radio') emit('radio', { uri: radioUri.value, track: props.track });
   else if (action === 'artist') emit('artist', artists.value[0]);
   else if (action.startsWith('artist:')) emit('artist', artists.value[Number(action.slice('artist:'.length))]);
   else emit(action, props.track);

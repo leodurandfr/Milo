@@ -118,6 +118,23 @@ class LibrespotStatus:
     repeat: str = "off"
     remote: Optional[Dict[str, Any]] = None
     device_id: Optional[str] = None
+    # The Spotify app's slider, in go-librespot's steps (0..volume_steps).
+    volume: Optional[int] = None
+    volume_steps: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class MiloVolume:
+    """Milō's volume moved (VolumeService's listener): the level to put the
+    Spotify app's slider at."""
+    level: float
+
+
+@dataclass(frozen=True)
+class AppVolumeSetting:
+    """The settings page stored whether the app's slider is one level with
+    Milō's volume."""
+    allowed: bool
 
 
 @dataclass
@@ -266,11 +283,10 @@ class SpotifySource(BaseAudioSource):
     RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
     SESSION_DAEMON = True
 
-    # The four go-librespot config keys Milō owns: crossfade_duration and
-    # external_volume (from settings), credentials and metadata (constant,
-    # below). Every other key in config.yml (device_name, zeroconf_backend,
-    # server) is written once by provisioning/go-librespot.sh and never touched
-    # here.
+    # The four go-librespot config keys Milō owns: crossfade_duration (from
+    # settings), external_volume, credentials and metadata (constant, below).
+    # Every other key in config.yml (device_name, zeroconf_backend, server) is
+    # written once by provisioning/go-librespot.sh and never touched here.
     #
     # Deliberately NOT owned: flac_enabled. go-librespot 0.8.0 fixed the FLAC
     # decoder (it normalised samples by 2^bps instead of 2^(bps-1), so lossless
@@ -279,19 +295,31 @@ class SpotifySource(BaseAudioSource):
     # implementation" (measured on the unit, 2026-08-03). It is a fatal
     # misconfiguration, not an inert flag: enabling it costs Spotify entirely.
     CROSSFADE_SETTINGS_KEY = "spotify.crossfade_duration"
-    # external_volume: true leaves the samples at unity (the app's slider moves
-    # nothing, CamillaDSP is the only attenuation); false lets go-librespot
-    # scale them by the slider, squared. The daemon restores the slider from its
-    # own state.json (last_volume), which it keeps saving while external — so
-    # turning this on plays at the level the phone already shows.
+    # Whether the Spotify app's slider and Milō's volume are one level, as an
+    # AirPlay sender's are: the slider moves Milō's volume, and Milō's volume —
+    # whoever moved it — moves the slider. go-librespot never scales the
+    # samples either way (external_volume, below): CamillaDSP stays the only
+    # attenuation (invariant 7). Off, the slider moves nothing. Read at each
+    # start and on each settings write, so it applies without a restart.
     APP_VOLUME_SETTINGS_KEY = "spotify.allow_app_volume"
+    # go-librespot's own default; /status says the daemon's.
+    DEFAULT_VOLUME_STEPS = 100
+    # How long after Milō put the slider somewhere the daemon's reports are
+    # taken for that push written back: go-librespot says a volume 100 ms after
+    # the last change, so during a knob turn it reports a level Milō has
+    # already moved past.
+    VOLUME_ECHO_S = 1.0
+    # Two levels this close are the same position on either slider.
+    VOLUME_EPSILON = 0.005
     # persist_credentials: the first cast's account is kept in state.json and
     # signs the daemon back in at every start and after every session end, so
     # Milō can browse and play with no phone. metadata: the cache behind
     # /context/tracks; max_tracks bounds a listing, sized on the owner's 1159
     # Liked Songs (measured 2026-10-03: 3000 cost 17 MB of RSS, `length`
     # never shows what was cut off).
+    # external_volume: the samples stay at unity, whatever the app's slider.
     MANAGED_CONSTANT_CONFIG = {
+        "external_volume": True,
         "credentials": {"type": "zeroconf", "zeroconf": {"persist_credentials": True}},
         "metadata": {"enabled": True, "max_tracks": 1500},
     }
@@ -431,6 +459,34 @@ class SpotifySource(BaseAudioSource):
         self._jam: Optional[SpotifyJam] = None
         self._device_id: Optional[str] = None
 
+        # The Spotify app's slider, while it is one level with Milō's volume
+        # (APP_VOLUME_SETTINGS_KEY).
+        self._volume_service = None
+        self._app_volume = False
+        self._reset_volume_mirror()
+
+    def _reset_volume_mirror(self) -> None:
+        """What this run of the daemon said of the slider: its steps, the
+        position /status last reported, and the one Milō last put it at (when)."""
+        self._volume_steps = self.DEFAULT_VOLUME_STEPS
+        self._volume_seen: Optional[int] = None
+        self._volume_sent: Optional[int] = None
+        self._volume_sent_at = 0.0
+        # The level the house landed on when it followed the phone.
+        self._volume_landed: Optional[float] = None
+
+    def set_volume_service(self, volume_service) -> None:
+        """The volume the Spotify app's slider and Milō's share (dependencies.py)."""
+        self._volume_service = volume_service
+        volume_service.add_state_listener(self.on_volume_changed)
+
+    def on_volume_changed(self, level: float, muted: bool) -> None:
+        """VolumeService's listener: runs outside the actor, so it posts. A
+        mute is not shown: the slider has none, and putting it at 0 would make
+        the next move of it on the phone start from silence."""
+        if self._app_volume and self._http is not None:
+            self._post_feed(MiloVolume(level))
+
     @property
     def library(self) -> SpotifyLibrary:
         return self._library
@@ -467,6 +523,7 @@ class SpotifySource(BaseAudioSource):
             # 1b. Push Milō-owned keys into config.yml BEFORE the daemon reads
             # it — go-librespot parses its config once, at process start.
             await self._apply_managed_config()
+            self._app_volume = await self._get_allow_app_volume()
 
             # 1c. Stored credentials sign the daemon in on its own, with no
             # event to say so: the account is known from them until /status
@@ -829,8 +886,8 @@ class SpotifySource(BaseAudioSource):
         go-librespot parses its config once, at process start, so this runs from
         _do_start() before the unit is launched: whatever the settings page
         stored in the meantime is live on the next start, and there is no reload
-        path to maintain. Only the four keys Milō owns are touched (crossfade and
-        external_volume from settings, credentials and metadata constant); a
+        path to maintain. Only the four keys Milō owns are touched (crossfade from
+        settings, external_volume, credentials and metadata constant); a
         start that would change nothing leaves the file alone, so the daemon
         never reads a file rewritten for nothing.
 
@@ -845,7 +902,6 @@ class SpotifySource(BaseAudioSource):
 
         managed = {
             "crossfade_duration": await self._get_crossfade_duration(),
-            "external_volume": not await self._get_allow_app_volume(),
             **self.MANAGED_CONSTANT_CONFIG,
         }
 
@@ -876,8 +932,8 @@ class SpotifySource(BaseAudioSource):
         return int(value) if value is not None else 0
 
     async def _get_allow_app_volume(self) -> bool:
-        """Whether the Spotify app's slider may scale the samples; False
-        (unity, CamillaDSP owns volume) when unreadable."""
+        """Whether the Spotify app's slider is one level with Milō's volume;
+        False (the slider moves nothing) when unreadable."""
         if not self._settings_service:
             return False
 
@@ -910,7 +966,8 @@ class SpotifySource(BaseAudioSource):
         The value always reaches config.yml, so it is live at the next daemon
         start whatever happens here. `apply_now` additionally restarts the unit
         — what the settings page's "restart to apply" button asks for, and the
-        only way to change crossfade or the app volume on a running daemon.
+        only way to change crossfade on a running daemon. The app volume needs
+        none: it is Milō's to follow, and a running daemon follows it at once.
 
         A stopped daemon is left stopped: `systemctl restart` on an inactive
         unit STARTS it, which would raise a Spotify Connect speaker named after
@@ -921,11 +978,75 @@ class SpotifySource(BaseAudioSource):
         it belongs, since a route may not rely on a v-if.
         """
         await self._apply_managed_config()
+        self._post_feed(AppVolumeSetting(await self._get_allow_app_volume()))
 
         if not apply_now:
             return True
 
         return await self._submit(Result(self._restart_for_settings))
+
+    # === The Spotify app's slider ===
+
+    async def _follow_app_volume(self, status: LibrespotStatus) -> None:
+        """The slider moved on the phone: Milō's volume follows. Only a move
+        is followed, never a position: the first one a run of the daemon
+        reports is where Milō put it (go-librespot 0.10.5 starts a session from
+        the last volume it was given), and a read for another reason reports
+        the same one again."""
+        if status.volume is None:
+            return
+        self._volume_steps = status.volume_steps or self._volume_steps
+        seen, self._volume_seen = self._volume_seen, status.volume
+        volume = self._volume_service
+        if not self._app_volume or volume is None or seen is None or status.volume == seen:
+            return
+        if status.volume == self._volume_sent:
+            return
+        echo_ends = self._volume_sent_at + self.VOLUME_ECHO_S
+        if audio_source.wall_time() < echo_ends:
+            # Perhaps an older push written back, perhaps the phone: looked at
+            # again once the window has passed. go-librespot says nothing more
+            # of a slider that stopped moving, so the read is Milō's to make.
+            self._volume_seen = seen
+            if not self._timer_armed("status"):
+                self._arm_timer("status", echo_ends - audio_source.wall_time())
+            return
+        # Milō's level moves to the slider's, and is not sent back to it —
+        # neither the step the phone chose nor the level the house landed on,
+        # which differs from it by a rounding or a room held at its limit.
+        self._volume_sent = status.volume
+        level = status.volume / self._volume_steps
+        await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
+        state = await volume.get_volume_state()
+        self._volume_landed = volume.volume_config.normalize(state.global_volume_db)
+
+    async def _sync_app_volume(self) -> None:
+        """Put the slider at Milō's level, whatever it was last put at."""
+        volume = self._volume_service
+        if not self._app_volume or volume is None:
+            return
+        state = await volume.get_volume_state()
+        self._volume_sent = self._volume_landed = None
+        await self._push_app_volume(volume.volume_config.normalize(state.global_volume_db))
+
+    async def _push_app_volume(self, level: float) -> None:
+        """Milō's volume moved: the slider follows. A position the slider was
+        already put at is not sent again — including the one the phone's own
+        move just put Milō at. go-librespot takes it with no session too, and
+        the next session starts from it."""
+        if not self._app_volume:
+            return
+        if self._volume_landed is not None and abs(level - self._volume_landed) < self.VOLUME_EPSILON:
+            return
+        self._volume_landed = None
+        steps = round(max(0.0, min(1.0, level)) * self._volume_steps)
+        if steps == self._volume_sent:
+            return
+        self._volume_sent, self._volume_sent_at = steps, audio_source.wall_time()
+        result = await self._send_api_command("volume", {"volume": steps})
+        if not result.get("success"):
+            self._volume_sent = None
+            self._logger.warning(f"Spotify app slider not moved to {steps}: {result.get('error')}")
 
     async def _restart_for_settings(self) -> bool:
         """The restart itself, in the mailbox: it ends the session it restarts
@@ -1075,6 +1196,29 @@ class SpotifySource(BaseAudioSource):
         """
         if self._http is None:
             return
+        # Milō's own volume moves arrive on the same mailbox: a knob turn is
+        # dozens of states, and the slider goes to the last.
+        mine = (MiloVolume, AppVolumeSetting)
+        milo = [e for e in events if isinstance(e, mine)]
+        events = [e for e in events if not isinstance(e, mine)]
+        sync = False
+        for e in milo:
+            if isinstance(e, AppVolumeSetting):
+                sync = sync or (e.allowed and not self._app_volume)
+                self._app_volume = e.allowed
+        if events:
+            await self._handle_daemon_events(events)
+        # A daemon that answers again (a start, a restart) is put at Milō's
+        # level: the volume may have moved while it was down.
+        if any(e.get("type") == "connected" for e in events):
+            sync = True
+        moves = [e for e in milo if isinstance(e, MiloVolume)]
+        if sync:
+            await self._sync_app_volume()
+        elif moves:
+            await self._push_app_volume(moves[-1].level)
+
+    async def _handle_daemon_events(self, events) -> None:
         gone = False
         for event in events:
             kind = event.get("type")
@@ -1143,6 +1287,7 @@ class SpotifySource(BaseAudioSource):
         else:
             self._device_id = status.device_id or self._device_id
             await self._apply_session(status)
+            await self._follow_app_volume(status)
         await self._follow_account(status)
         self._follow_remote(status)
         self._list_started_tracks()
@@ -1599,6 +1744,8 @@ class SpotifySource(BaseAudioSource):
             repeat=repeat_mode(bool(data.get("repeat_context")), bool(data.get("repeat_track"))),
             remote=data.get("remote"),
             device_id=data.get("device_id") or None,
+            volume=data.get("volume"),
+            volume_steps=data.get("volume_steps") or None,
         )
 
     async def _read_order(self) -> None:
@@ -1820,6 +1967,7 @@ class SpotifySource(BaseAudioSource):
         self._loaded_track, self._pending_starts = None, []
         self._release_remote_hold()
         self._shuffle, self._repeat = False, "off"
+        self._reset_volume_mirror()
         self._harvested.clear()
         await self._stop_jam_feed()
         await self._library.close()

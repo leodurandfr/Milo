@@ -12,17 +12,18 @@ the browser reads as "signing in" or "cast from your phone", never as a fault.
 import asyncio
 import contextlib
 import logging
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.spotify.catalog import (
-    artist_page, artist_shelf_seeds, head_artist_shelves, home_shelves, library_sections, liked_songs_uri,
+    artist_page, artist_shelf_seeds, head_artist_shelves, home_shelves, is_mine, library_sections,
+    liked_songs_uri, normalize_playlist,
 )
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
-from backend.sources.spotify.models import ActiveProfileRequest
+from backend.sources.spotify.models import ITEM_URI, ActiveProfileRequest, AddTracksRequest
 from backend.sources.spotify.source import SpotifySource
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,30 @@ async def _library_errors(context: str):
     except SpotifyLibraryError as exc:
         logger.error(f"{context}: {exc}")
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@contextlib.asynccontextmanager
+async def _write_errors(context: str):
+    """A write refused for a reason the browser says keeps its status: 403
+    (not the account's to edit), 404 (the playlist is gone, or no longer
+    holds the item), 409 (it changed meanwhile: list it again). Any other
+    refusal is a failure, as for a read."""
+    async with _library_errors(context):
+        try:
+            yield
+        except SpotifyLibraryError as exc:
+            if exc.status not in (403, 404, 409):
+                raise
+            logger.warning(f"{context}: {exc}")
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+
+
+def _signed_in(source: SpotifySource, context: str) -> str:
+    """The account signed in, or 409: the state the browser draws as "signing in"."""
+    if source.account is None:
+        logger.warning(f"{context}: nobody is signed in")
+        raise HTTPException(status_code=409, detail="Spotify is not signed in")
+    return source.account
 
 
 def _require_profiles(source: SpotifySource):
@@ -197,6 +222,121 @@ async def get_track_radio(
         logger.debug("Spotify track radio: Spotify answered none for this track")
         raise HTTPException(status_code=404, detail="No radio for this track")
     return {"status": "success", "uri": radio}
+
+
+# === The account's playlists, written ===
+
+# A playlist the browser writes to: one of the account's, or its Liked Songs.
+WRITABLE_URI = r"^spotify:(playlist:[A-Za-z0-9]{22}|user:[^:]+:collection)$"
+# How many playlists the picker asks about at once: go-librespot reads each
+# one whole from Spotify on every call.
+CONTAINS_AT_ONCE = 6
+
+
+@router.get("/tracks/{uri}/playlists")
+async def get_track_playlists(
+    uri: Annotated[str, Path(pattern=ITEM_URI)],
+    source: SpotifySource = Depends(get_source),
+):
+    """The "Add to playlist" picker: the playlists the account may edit, in
+    library order (an empty one included: it is the one being filled), each
+    saying whether it holds the item already, read fresh. `liked` is whether
+    the item is in Liked Songs, null for an episode (the collection holds
+    tracks only) or where the read failed; a playlist's `contains` is null
+    where its read failed. Each opening reads every editable playlist whole
+    from Spotify (23 on the owner's account, the longest 503 tracks)."""
+    account = _signed_in(source, "Spotify playlist picker")
+    async with _library_errors("Spotify playlist picker"):
+        playlists = [
+            playlist for playlist in map(normalize_playlist, await source.library.playlists())
+            if is_mine(playlist, account)
+        ]
+        gate = asyncio.Semaphore(CONTAINS_AT_ONCE)
+
+        async def holds(playlist_uri: str):
+            async with gate:
+                return await source.library.playlist_contains(playlist_uri, uri)
+
+        answers = await asyncio.gather(*(holds(p["uri"]) for p in playlists), return_exceptions=True)
+        for answer in answers:
+            if isinstance(answer, SpotifyUnavailable):
+                raise answer
+            if isinstance(answer, SpotifyLibraryError):
+                logger.warning(f"Spotify playlist picker: {answer}")
+            elif isinstance(answer, BaseException):
+                raise answer
+        liked = None
+        if uri.startswith("spotify:track:"):
+            try:
+                liked = await source.library.liked(uri)
+            except SpotifyLibraryError as exc:
+                # The row it costs, never the picker: the playlists are read.
+                logger.warning(f"Spotify playlist picker: {exc}")
+    return {
+        "status": "success",
+        "liked_songs_uri": liked_songs_uri(account),
+        "liked": liked,
+        "playlists": [
+            {"uri": p["uri"], "name": p["name"], "image": p["image"],
+             "contains": answer if isinstance(answer, bool) else None}
+            for p, answer in zip(playlists, answers)
+        ],
+    }
+
+
+def _liked_songs(uri: str, account: str, items, context: str) -> bool:
+    """Whether the write is to Liked Songs, which holds tracks only (422)."""
+    if uri != liked_songs_uri(account):
+        if not uri.startswith("spotify:playlist:"):
+            logger.error(f"{context}: another account's Liked Songs ({uri})")
+            raise HTTPException(status_code=422, detail="Not this account's Liked Songs")
+        return False
+    if any(not item.startswith("spotify:track:") for item in items):
+        logger.error(f"{context}: Liked Songs holds tracks only")
+        raise HTTPException(status_code=422, detail="Liked Songs holds tracks only")
+    return True
+
+
+@router.post("/contexts/{uri}/tracks")
+async def add_tracks(
+    uri: Annotated[str, Path(pattern=WRITABLE_URI)],
+    payload: AddTracksRequest,
+    source: SpotifySource = Depends(get_source),
+):
+    """Add items to the end of a playlist the account may edit, or to Liked
+    Songs. A playlist may hold an item twice: the picker says when it does."""
+    context = "Spotify add to playlist"
+    account = _signed_in(source, context)
+    liked = _liked_songs(uri, account, payload.uris, context)
+    async with _write_errors(context):
+        if liked:
+            await source.library.set_liked(payload.uris, True)
+        else:
+            await source.library.add_to_playlist(uri, payload.uris)
+    return {"status": "success"}
+
+
+@router.delete("/contexts/{uri}/tracks/{item}")
+async def remove_track(
+    uri: Annotated[str, Path(pattern=WRITABLE_URI)],
+    item: Annotated[str, Path(pattern=ITEM_URI)],
+    position: Annotated[Optional[int], Query(
+        ge=0, description="The entry's place in the listing; without it, the first copy"
+    )] = None,
+    source: SpotifySource = Depends(get_source),
+):
+    """Remove one entry from a playlist the account may edit — the one at
+    `position` as the listing gave it, which must still be `item` (409: list
+    it again) — or the item from Liked Songs."""
+    context = "Spotify remove from playlist"
+    account = _signed_in(source, context)
+    liked = _liked_songs(uri, account, [item], context)
+    async with _write_errors(context):
+        if liked:
+            await source.library.set_liked([item], False)
+        else:
+            await source.library.remove_from_playlist(uri, item, position)
+    return {"status": "success"}
 
 
 # === Profiles ===

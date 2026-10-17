@@ -5,7 +5,7 @@ Pydantic command-parameter models for the Spotify audio source.
 These validate the `data` of `/api/audio/control/spotify` commands at the
 command() boundary; see SpotifySource.COMMANDS.
 """
-from typing import Optional
+from typing import Annotated, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -43,3 +43,14 @@ class PlayContextParams(BaseModel):
 class ActiveProfileRequest(BaseModel):
     """`PUT /api/spotify/active-profile`: the profile to sign go-librespot in as."""
     username: str = Field(min_length=1)
+
+
+# What go-librespot can add to a playlist or remove from one: a track or a
+# podcast episode, never a local file.
+ITEM_URI = r"^spotify:(track|episode):[A-Za-z0-9]{22}$"
+
+
+class AddTracksRequest(BaseModel):
+    """`POST /api/spotify/contexts/{uri}/tracks`: the items to add, at the end
+    of a playlist or to Liked Songs (go-librespot takes 1 to 50 at once)."""
+    uris: List[Annotated[str, Field(pattern=ITEM_URI)]] = Field(min_length=1, max_length=50)

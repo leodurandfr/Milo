@@ -244,7 +244,7 @@ def test_an_artists_metadata_is_addressed_by_its_hex_gid_and_read_for_its_small_
 
 def test_a_track_whose_metadata_is_not_cached_yet_is_left_out():
     """go-librespot lists such an entry with `track: null` while its sweep runs."""
-    assert normalize_track({"uri": "spotify:track:x", "track": None}) is None
+    assert normalize_track({"uri": "spotify:track:x", "track": None}, 0) is None
 
 
 def test_a_track_carries_each_artist_with_its_uri():
@@ -255,7 +255,7 @@ def test_a_track_carries_each_artist_with_its_uri():
         "uri": "spotify:track:t", "name": "Seven", "artist_names": ["A", "B"],
         "artist_uris": ["spotify:artist:a"], "album_name": "Album", "album_uri": "spotify:album:al",
         "album_cover_url": "https://i.scdn.co/image/ab67616d0000b273abcdef", "duration": 269533,
-    }})
+    }}, 0)
 
     assert track["artists"] == [{"name": "A", "uri": "spotify:artist:a"}, {"name": "B", "uri": None}]
     assert track["album"] == {"name": "Album", "uri": "spotify:album:al"}
@@ -320,6 +320,23 @@ def test_a_track_not_described_yet_ends_the_listing_until_it_is_complete():
 
     assert [t["title"] for t in described_tracks(listing, complete=False)] == ["a"]
     assert [t["title"] for t in described_tracks(listing, complete=True)] == ["a", "c"]
+
+
+def test_a_track_names_the_entry_the_playlist_holds():
+    """A removal names the entry by its place in the listing and its listed
+    uri. A row counted on screen is off by every entry left out before it, and
+    a relinked track's own uri is not the one the playlist holds: either way
+    go-librespot answers 409, or removes another copy of the same track."""
+    relinked = {"uri": "spotify:track:listed", "track": {"uri": "spotify:track:played", "name": "c"}}
+    listing = [
+        {"uri": "spotify:track:a", "track": {"uri": "spotify:track:a", "name": "a"}},
+        {"uri": "spotify:track:gap", "track": None},
+        relinked,
+    ]
+
+    last = described_tracks(listing, complete=True)[-1]
+    assert (last["listed_uri"], last["position"]) == ("spotify:track:listed", 2)
+    assert last["uri"] == "spotify:track:played"
 
 
 # === Artist page ===

@@ -388,7 +388,7 @@
     "restartToApply": "Reiniciar para aplicar",
     "restarting": "Reiniciando…",
     "appVolumeTitle": "Control del volumen desde la aplicación Spotify",
-    "appVolumeDescription": "Permite que la aplicación Spotify cambie el volumen. Si está desactivado, Milō mantiene Spotify al volumen máximo y su propio control de volumen define el nivel."
+    "appVolumeDescription": "El control de volumen de la aplicación Spotify ajusta el volumen de Milō y sigue cada uno de sus cambios. Si está desactivado, ese control no tiene efecto y solo el control de volumen de Milō define el nivel."
   },
   "spotify": {
     "accountSpotify": "Spotify de {name}",
@@ -396,6 +396,7 @@
     "jamOthers": "{count} más",
     "playingOn": "Reproduciendo en {device}",
     "pausedOn": "En pausa en {device}",
+    "addToPlaylist": "Añadir a una playlist",
     "album": "Álbum",
     "artist": "Artista",
     "cancel": "Cancelar",
@@ -424,6 +425,8 @@
     "queueEmpty": "Nada en la cola",
     "recentlyPlayed": "Escuchado recientemente",
     "recentlyPlayedEmpty": "No hay canciones escuchadas recientemente",
+    "removeFromLikedSongs": "Quitar de Canciones favoritas",
+    "removeFromPlaylist": "Quitar de esta playlist",
     "retry": "Reintentar",
     "showMore": "Mostrar más",
     "signingIn": "Iniciando sesión en Spotify…",

@@ -126,9 +126,9 @@ class SettingsService:
                 # keeps go-librespot's original gapless read path untouched.
                 # SpotifySource writes it into go-librespot's config.yml.
                 "crossfade_duration": 0,
-                # False → go-librespot runs with external_volume (samples left at
-                # unity, the Spotify app's slider inert: CamillaDSP owns volume).
-                # True → the app slider scales go-librespot's samples.
+                # go-librespot always leaves the samples at unity (CamillaDSP
+                # owns volume). False → the Spotify app's slider is inert.
+                # True → it and Milō's volume are one level, both ways.
                 "allow_app_volume": False
             },
             "wifi": {

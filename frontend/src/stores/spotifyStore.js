@@ -251,6 +251,97 @@ export const useSpotifyStore = defineStore('spotify', () => {
   }
 
   // =========================================================================
+  // PLAYLISTS — what a row's ⋯ menu adds to the account's playlists, and
+  // removes from the one on screen
+  // =========================================================================
+  // The track the "Add to playlist" picker is open for; null while closed.
+  const pickerTrack = ref(null);
+
+  function requestAddToPlaylist(track) {
+    pickerTrack.value = track;
+  }
+
+  function closePlaylistPicker() {
+    pickerTrack.value = null;
+  }
+
+  // Whether the account may edit a list: its Liked Songs, or a playlist its
+  // home lists as its own (owned, or one it may edit).
+  function canEdit(uri) {
+    const library = home.value;
+    if (!library) return false;
+    return uri === library.liked_songs_uri || (library.playlists?.mine ?? []).some((p) => p.uri === uri);
+  }
+
+  // The picker's rows: the playlists the account may edit, each saying
+  // whether it holds the track already, and whether Liked Songs does (null
+  // for an episode). Read fresh at each opening.
+  async function trackPlaylists(uri) {
+    const result = await apiCall.get(`${BASE}/tracks/${encodeURIComponent(uri)}/playlists`, {
+      category: 'spotify',
+      message: 'Error loading the playlists a Spotify track can be added to',
+    });
+    return result.ok ? result.data : null;
+  }
+
+  // go-librespot lists a list again after a write: the listing kept here is
+  // read again from the top, by the page that shows it or the next to open it.
+  function relist(uri) {
+    contextLengths.delete(uri);
+    if (!contexts.value[uri]) return;
+    const { [uri]: _dropped, ...rest } = contexts.value;
+    contexts.value = rest;
+    loadContext(uri);
+  }
+
+  // The row removed leaves the listing at once; the entries after it move up
+  // one place, as they now are in the playlist.
+  function dropRow(uri, position) {
+    const entry = contexts.value[uri];
+    if (!entry) return;
+    const tracks = entry.tracks
+      .filter((track) => track.position !== position)
+      .map((track) => (track.position > position ? { ...track, position: track.position - 1 } : track));
+    contexts.value = {
+      ...contexts.value,
+      [uri]: { ...entry, tracks, length: Math.max(0, entry.length - 1), cached: Math.max(0, entry.cached - 1) },
+    };
+  }
+
+  // Added as the list it came from names it, which is what the picker asks
+  // the playlists about.
+  async function addToPlaylist(playlistUri, track) {
+    const result = await apiCall.post(`${BASE}/contexts/${encodeURIComponent(playlistUri)}/tracks`, {
+      uris: [track.listed_uri ?? track.uri],
+    }, {
+      category: 'spotify',
+      message: 'Error adding a track to a Spotify playlist',
+    });
+    if (result.ok) relist(playlistUri);
+    return result.ok;
+  }
+
+  /**
+   * Remove a track from a playlist or Liked Songs. From its row (`row`), the
+   * entry that row is — a playlist may hold a track twice; from the picker,
+   * the first copy. Either way the item is named as the playlist lists it,
+   * which a relinked track's own uri is not. A row moved meanwhile (409:
+   * edited on another device) removes nothing, and the listing is read again.
+   */
+  async function removeFromPlaylist(playlistUri, track, { row = false } = {}) {
+    const item = track.listed_uri ?? track.uri;
+    const result = await apiCall.delete(
+      `${BASE}/contexts/${encodeURIComponent(playlistUri)}/tracks/${encodeURIComponent(item)}`, {
+        params: row ? { position: track.position } : undefined,
+        category: 'spotify',
+        message: 'Error removing a track from a Spotify playlist',
+      });
+    if (result.ok && row) dropRow(playlistUri, track.position);
+    else if (result.ok || result.error?.status === 409) relist(playlistUri);
+    return result.ok;
+  }
+
+  // =========================================================================
   // PROFILES — the accounts that cast to Milō
   // =========================================================================
   // Pushed whole (`source/profiles_changed`) when one is kept, described or
@@ -339,6 +430,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
     forgetArtists();
     radios = new Map();
     contextLengths = new Map();
+    pickerTrack.value = null;
     historyReads += 1;
     history.value = [];
     historyError.value = false;
@@ -385,6 +477,9 @@ export const useSpotifyStore = defineStore('spotify', () => {
     artists, artistErrors, loadArtist,
     // track menu
     trackRadio, contextLength,
+    // playlists
+    pickerTrack, requestAddToPlaylist, closePlaylistPicker, canEdit, trackPlaylists,
+    addToPlaylist, removeFromPlaylist,
     // profiles
     profiles, loadProfiles, applyProfiles, switchProfile, forgetProfile,
     resync,

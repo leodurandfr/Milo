@@ -485,7 +485,7 @@ export const ENTRIES = [
     id: 'SectionCard',
     group: 'settings',
     file: 'components/ui/SectionCard.vue',
-    summary: 'The card of every settings screen and modal panel, and the most-imported component in the frontend (32). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+    summary: 'The card of every settings screen and modal panel, and the most-imported component in the frontend (33). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
     id: 'ToggleSection',

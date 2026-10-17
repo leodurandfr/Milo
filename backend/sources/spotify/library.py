@@ -52,7 +52,13 @@ class SpotifyNoSession(SpotifyUnavailable):
 
 
 class SpotifyLibraryError(Exception):
-    """The daemon answered, and refused."""
+    """The daemon answered, and refused. `status` is its HTTP answer, where
+    one says why: a write refused 403 (not the user's to edit), 404 (gone) or
+    409 (changed under it)."""
+
+    def __init__(self, message: str, status: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class SpotifyLibrary:
@@ -118,7 +124,7 @@ class SpotifyLibrary:
                 if resp.status == 204:
                     raise SpotifyNoSession("Spotify is not signed in")
                 if resp.status >= 400:
-                    raise SpotifyLibraryError(f"{method} {path.split('?')[0]} answered {resp.status}")
+                    raise SpotifyLibraryError(f"{method} {path.split('?')[0]} answered {resp.status}", resp.status)
                 if resp.content_type == "application/json":
                     return await resp.json()
                 return None
@@ -138,6 +144,38 @@ class SpotifyLibrary:
             items.extend(batch)
             if not batch or len(items) >= (page.get("total") or 0):
                 return items
+
+    # === The account's playlists and Liked Songs, written ===
+    # Through go-librespot's internal playlist and collection services, never
+    # the Web API. Each write drops the daemon's cached listing of what it
+    # wrote, so the next /context/tracks read lists it as it now is.
+
+    async def playlist_contains(self, playlist_uri: str, uri: str) -> bool:
+        """Whether the playlist holds the item at least once, read fresh."""
+        answer = await self._request("GET", "/library/playlists/contains",
+                                     params={"playlist_uri": playlist_uri, "uris": uri})
+        return any(item.get("contained") for item in answer.get("items") or [])
+
+    async def liked(self, uri: str) -> bool:
+        """Whether the track is in Liked Songs, asked of the collection itself."""
+        answer = await self._request("GET", "/library/liked", params={"uris": uri})
+        return any(item.get("liked") for item in answer.get("items") or [])
+
+    async def add_to_playlist(self, playlist_uri: str, uris: List[str]) -> None:
+        """Append the items at the end, as Spotify's apps do."""
+        await self._request("POST", "/library/playlists/add_tracks",
+                            json={"playlist_uri": playlist_uri, "uris": uris})
+
+    async def remove_from_playlist(self, playlist_uri: str, uri: str, position: Optional[int]) -> None:
+        """Remove one entry: the one at `position` as /context/tracks listed
+        it, which must still be `uri` (409 otherwise), else the first one."""
+        body: Dict[str, Any] = {"playlist_uri": playlist_uri, "uri": uri}
+        if position is not None:
+            body["position"] = position
+        await self._request("POST", "/library/playlists/remove_track", json=body)
+
+    async def set_liked(self, uris: List[str], liked: bool) -> None:
+        await self._request("POST", "/library/liked", json={"uris": uris, "liked": liked})
 
     async def context(self, uri: str, after: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """A context's tracks as far as they are described, and the listing

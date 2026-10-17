@@ -388,7 +388,7 @@
     "restartToApply": "Zum Anwenden neu starten",
     "restarting": "Neustart…",
     "appVolumeTitle": "Lautstärkeregelung von der Spotify-App",
-    "appVolumeDescription": "Der Spotify-App erlauben, die Lautstärke zu ändern. Wenn deaktiviert, hält Milō Spotify auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
+    "appVolumeDescription": "Der Lautstärkeregler der Spotify-App stellt die Lautstärke von Milō ein und folgt jeder ihrer Änderungen. Wenn deaktiviert, hat dieser Regler keine Wirkung und nur die Lautstärkeregelung von Milō bestimmt den Pegel."
   },
   "spotify": {
     "accountSpotify": "Spotify von {name}",
@@ -396,6 +396,7 @@
     "jamOthers": "{count} weiteren Person | {count} weiteren Personen",
     "playingOn": "Wiedergabe auf {device}",
     "pausedOn": "Pausiert auf {device}",
+    "addToPlaylist": "Zur Playlist hinzufügen",
     "album": "Album",
     "artist": "Künstler",
     "cancel": "Abbrechen",
@@ -424,6 +425,8 @@
     "queueEmpty": "Warteschlange leer",
     "recentlyPlayed": "Zuletzt gehört",
     "recentlyPlayedEmpty": "Keine zuletzt gehörten Titel",
+    "removeFromLikedSongs": "Aus Lieblingssongs entfernen",
+    "removeFromPlaylist": "Aus dieser Playlist entfernen",
     "retry": "Erneut versuchen",
     "showMore": "Mehr anzeigen",
     "signingIn": "Anmeldung bei Spotify…",
