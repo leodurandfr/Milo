@@ -499,7 +499,6 @@ function onTouchEnd(e) {
   display: flex;
   flex-direction: column;
   padding: var(--space-02) 0 var(--space-05) 0;
-  gap: var(--space-04);
   overflow-y: auto;
 }
 

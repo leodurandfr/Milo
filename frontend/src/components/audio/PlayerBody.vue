@@ -196,6 +196,7 @@ defineExpose({ swipe });
   flex-direction: column;
   justify-content: center;
   min-width: 0;
+  padding: 0 var(--space-04);
 }
 
 .player-body-bottom {
@@ -311,7 +312,7 @@ defineExpose({ swipe });
 
 .player-body--card .player-body-info {
   flex: 1;
-  padding: 0 var(--space-04);
+  padding: var(--space-04);
 }
 
 /* The source bar's slot opens from nothing: its row from 0 to its height,
