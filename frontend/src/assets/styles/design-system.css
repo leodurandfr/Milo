@@ -99,9 +99,10 @@
     /* What an inset holds — the icon tile of a row, a value pill in an info
        box — one step above it. */
     --color-tile: light-dark(var(--gray-0), var(--gray-850));
-    /* A screen's header: the surface in light, a translucent gray in dark so
-       it reads the same over the ground and over a source's wash. */
-    --color-header: light-dark(var(--gray-0), var(--gray-500-a9));
+    /* A surface laid on a screen that may carry a source's wash — a screen's
+       header, a shortcut tile: the surface in light, a translucent gray in
+       dark so it reads the same over the ground and over the wash. */
+    --color-surface-on-wash: light-dark(var(--gray-0), var(--gray-500-a9));
 
     /* === FILLS === */
     /* Three strengths of a neutral fill. The strong one: progress, a Toggle
