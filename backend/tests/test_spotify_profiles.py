@@ -524,6 +524,7 @@ async def test_the_artist_route_reads_the_page_and_its_discography_in_the_langua
     answer = await routes.get_artist(uri=ARTIST_URI, locale="fr-FR", source=world.source)
 
     assert sorted(world.daemon.artist_asked) == [
+        ("https://spclient.wg.spotify.com/artistview/v1/artist/6nB0iY1cjSY1KyhYyuIIKH", "en"),
         ("https://spclient.wg.spotify.com/artistview/v1/artist/6nB0iY1cjSY1KyhYyuIIKH", "fr-FR"),
         ("https://spclient.wg.spotify.com/artistview/v1/artist/6nB0iY1cjSY1KyhYyuIIKH/releases", "fr-FR"),
     ]
