@@ -788,7 +788,7 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'spotify',
-        'go-librespot not coming up. The source stays selected — that is what makes the retry possible — and the card says so: "Spotify / Error", with a Retry CTA that re-posts the source selection and re-runs the start the state machine gave up on. The message itself is the banner\'s.',
+        'go-librespot not coming up. The source stays selected — that is what makes the retry possible — and the card says so: "Spotify / Failed to start", with a Retry CTA that re-posts the source selection and re-runs the start the state machine gave up on. The message itself is the banner\'s.',
         'go-librespot failed to start'
       )
     ]
@@ -913,11 +913,11 @@ export const SOURCE_PAGES = [
       offline(
         'airplay',
         'no_network',
-        'The LAN-only source\'s own case: shairport-sync needs the local network and nothing beyond it, so a router with no internet leaves it working and this scenario never fires. What does fire is the link disappearing entirely — no sender can reach the unit, and "Ready to connect" would be an invitation to nothing.'
+        'The LAN-only source\'s own case: shairport-sync needs the local network and nothing beyond it, so a router with no internet leaves it working and this scenario never fires. What does fire is the link disappearing entirely — no sender can reach the unit, and "Select Milō in AirPlay" would be an invitation to nothing.'
       ),
       errored(
         'airplay',
-        'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. No session, so no sender to name: the source that most depends on naming its sender falls back to naming itself, "AirPlay / Error", with the retry.',
+        'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. No session, so no sender to name: the source that most depends on naming its sender falls back to naming itself, "AirPlay / Failed to start", with the retry.',
         'shairport-sync failed to start'
       )
     ]

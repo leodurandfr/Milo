@@ -103,8 +103,8 @@ const STARTING_MIN_MS = 500;
  *             unavailableReason: import('vue').ComputedRef<string|null> }}
  *   displayState — one of DISPLAY_STATES, already through the anti-flash floor.
  *   unavailableReason — one of UNAVAILABLE_REASONS, or null when the source can
- *   work. When set it replaces the state on the card: "Prêt à lire" under a
- *   dead link is the same lie the old terminal fallback told.
+ *   work. When set it replaces the state on the card: an invitation to connect
+ *   under a dead link is the same lie the old terminal fallback told.
  */
 export function useSourceStatusDisplay() {
   const unifiedStore = useUnifiedAudioStore();

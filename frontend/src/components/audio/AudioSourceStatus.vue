@@ -74,7 +74,7 @@ const props = defineProps({
     validator: (value) => DISPLAY_STATES.includes(value)
   },
   // What stops the source from working, or null when nothing does. Set, it
-  // replaces the state's phrase: there is no point saying "Ready to play" on a
+  // replaces the state's phrase: there is no point inviting a connection to a
   // source whose every command will fail. Derived in useSourceStatusDisplay.
   unavailableReason: {
     type: String,
@@ -111,8 +111,8 @@ const PHRASE_KEYS = {
   loading: 'status.buffering',
   playing: 'status.playing',
   paused: 'status.paused',
-  connected: 'status.ready',    // a sender with no name to show: it is there
-  error: 'status.error',
+  connected: 'status.connected', // a sender with no name to show: it is there
+  error: 'status.startFailed',  // the service only fails at its start (failed or timed out)
   loading_disc: 'status.loadingAlbum',
   ejecting: 'status.ejecting'
 };
@@ -130,20 +130,26 @@ const UNAVAILABLE_PHRASE_KEYS = {
   no_network: 'status.noNetwork',
   no_internet: 'status.noInternet',
   no_account: 'status.accountNotConnected',
-  no_drive: 'audioSources.cdSource.noDriveConnected',
-  no_disc: 'status.noDisc',
+  no_drive: 'status.plugInDrive',
+  no_disc: 'status.insertDisc',
   unreadable_disc: 'audioSources.errors.discUnreadable'
 };
 
 /**
- * The sources a session is opened *to*, from the other end: a phone picks the
- * speaker (Spotify, Qobuz), a sender casts (AirPlay), a device pairs
- * (Bluetooth, Mac). Their idle line invites that connection. The other four —
- * Radio, Podcasts, CD, Music Library — are played from Milō itself and say they
- * are ready to play. Two phrases derived from who starts a session, instead of
- * one written per source.
+ * The idle line, which says what opens a session — so it is per source, where
+ * every other phrase is per state. Only the sources a session is opened *to*
+ * from the other end ever show it: the four played from Milō itself (Radio,
+ * Podcasts, CD, Music Library) leave "starting" for their own view, and a CD
+ * with nothing to play is answered by its availability instead.
  */
-const SENDER_DRIVEN_SOURCES = ['spotify', 'qobuz', 'tidal', 'airplay', 'bluetooth', 'mac'];
+const READY_PHRASE_KEYS = {
+  spotify: 'status.selectInApp',
+  tidal: 'status.selectInApp',
+  qobuz: 'status.selectInApp',
+  airplay: 'status.selectInAirplay',
+  mac: 'status.selectAsOutput',
+  bluetooth: 'status.connectDevice'
+};
 
 /**
  * "Démarrage de <source>" reads as one sentence broken over two lines, and
@@ -177,9 +183,8 @@ const phrase = computed(() => {
 
   if (props.displayState !== 'ready') return t(PHRASE_KEYS[props.displayState]);
 
-  return SENDER_DRIVEN_SOURCES.includes(props.sourceType)
-    ? t('status.ready')
-    : t('status.readyToPlay');
+  const key = READY_PHRASE_KEYS[props.sourceType];
+  return key ? t(key) : '';
 });
 
 /**
