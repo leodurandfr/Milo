@@ -2,11 +2,11 @@
 
 ### Turns a Raspberry Pi and an audio board into a complete music system.
 
-I built Milō OS for my own amplifier, and this repository is the software alone. It installs
-from a single image: a setup wizard takes care of the network, the language and the audio
-board, with no terminal step. After that it behaves like a hi-fi appliance, with one interface
-on its touchscreen, your phone and your Mac, every source in one place, and as many rooms as
-you have Raspberry Pis.
+Play Spotify, Qobuz, TIDAL, AirPlay, Bluetooth, internet radio, podcasts, CDs and your own
+music library, all from one interface on its touchscreen, your phone and your Mac. Add a
+Raspberry Pi per room and every room plays in sync, each with its own volume and equalizer.
+It installs from a single image, and a setup wizard takes care of the rest, with no terminal
+step.
 
 <p align="center">
   <img src="docs/images/readme/hero.png" alt="Milō OS on its touchscreen playing a CD, and on a phone playing Leaves by Robohands from the music library" width="100%">
@@ -16,37 +16,42 @@ you have Raspberry Pis.
 
 ## Audio sources
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/readme/spotify.png" alt="Spotify in the dark theme: the account's home, browsed from the screen, beside the track playing"></td>
-    <td width="50%"><img src="docs/images/readme/radio.png" alt="Internet radio in the light theme: favorite stations, FIP playing a track Milō recognized, and the dock open"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/images/readme/spotify.png" width="49%" alt="Spotify in the dark theme: the account's home, browsed from the screen, beside the track playing">
+  <img src="docs/images/readme/radio.png" width="49%" alt="Internet radio in the light theme: favorite stations, FIP playing a track Milō recognized, and the dock open">
+</p>
 
-- **Spotify Connect**, with your library, playlists and profiles to browse from the screen
-- **Qobuz Connect**, lossless
-- **TIDAL Connect**
-- **AirPlay 2**, from an iPhone, iPad or Mac
-- **Bluetooth**, from any phone
-- **Internet radio**, 50,000+ stations, with favorites and track recognition by Shazam
-- **Podcasts**, search, subscribe and resume where you left off
-- **CD player**, with track and album lookup
-- **Music library**, your own files from a USB drive or a network share (SMB, NFS)
-- **Your Mac's sound**, with low latency, through [Milō Mac](https://github.com/leodurandfr/Milo-Mac)
+<img src="docs/images/icons/spotify.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Spotify Connect**, with your library, playlists and profiles
+
+<img src="docs/images/icons/qobuz.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Qobuz Connect**, lossless
+
+<img src="docs/images/icons/tidal.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**TIDAL Connect**
+
+<img src="docs/images/icons/airplay.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**AirPlay 2**, from an iPhone, iPad or Mac
+
+<img src="docs/images/icons/bluetooth.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Bluetooth**, from any phone
+
+<img src="docs/images/icons/radio.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Internet radio**, 50,000+ stations, with favorites and track recognition by Shazam
+
+<img src="docs/images/icons/podcast.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Podcasts**, search, subscribe and resume where you left off
+
+<img src="docs/images/icons/cd.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**CD player**, with track and album lookup
+
+<img src="docs/images/icons/music-library.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Music library**, your own files from a USB drive or a network share (SMB, NFS)
+
+<img src="docs/images/icons/macos.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Your Mac's sound**, with low latency, through [Milō Mac](https://github.com/leodurandfr/Milo-Mac)
 
 ## Features
 
 <p align="center">
   <img src="docs/images/readme/lyrics.png" alt="Synced lyrics on the touchscreen, dark theme, and the network settings on a phone, light theme" width="100%">
 </p>
-<table>
-  <tr>
-    <td width="25%"><img src="docs/images/readme/multiroom.png" alt="Multiroom on a phone, dark theme: a zone and a volume per room"></td>
-    <td width="25%"><img src="docs/images/readme/equalizer.png" alt="The 10-band equalizer on a phone, dark theme, Rock preset"></td>
-    <td width="25%"><img src="docs/images/readme/settings.png" alt="Milō's settings on a phone, dark theme"></td>
-    <td width="25%"><img src="docs/images/readme/updates.png" alt="Updates on a phone, light theme: Milō and its programs, one with a new version"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/images/readme/multiroom.png" width="24%" alt="Multiroom on a phone, dark theme: a zone and a volume per room">
+  <img src="docs/images/readme/equalizer.png" width="24%" alt="The 10-band equalizer on a phone, dark theme, Rock preset">
+  <img src="docs/images/readme/settings.png" width="24%" alt="Milō's settings on a phone, dark theme">
+  <img src="docs/images/readme/updates.png" width="24%" alt="Updates on a phone, light theme: Milō and its programs, one with a new version">
+</p>
 
 - **Multiroom**: every room on the same song, in sync. An extra Raspberry Pi finds your Milō
   and joins it as a speaker on its own. Zones group rooms, each speaker keeps its own volume,
