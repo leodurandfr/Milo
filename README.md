@@ -9,7 +9,7 @@ on its touchscreen, your phone and your Mac, every source in one place, and as m
 you have Raspberry Pis.
 
 <p align="center">
-  <img src="docs/images/readme/hero.png" alt="Milō OS on its touchscreen, playing a CD" width="100%">
+  <img src="docs/images/readme/hero.png" alt="Milō OS on its touchscreen playing a CD, and on a phone playing Leaves by Robohands from the music library" width="100%">
 </p>
 
 📖 **[Documentation](https://milo-audio.com/docs)**: hardware, installation, every source and every setting.
@@ -19,7 +19,7 @@ you have Raspberry Pis.
 <table>
   <tr>
     <td width="50%"><img src="docs/images/readme/spotify.png" alt="Spotify in the dark theme: the account's home, browsed from the screen, beside the track playing"></td>
-    <td width="50%"><img src="docs/images/readme/radio.png" alt="Internet radio in the light theme: favorite stations, and FIP playing a track Milō recognized"></td>
+    <td width="50%"><img src="docs/images/readme/radio.png" alt="Internet radio in the light theme: favorite stations, FIP playing a track Milō recognized, and the dock open"></td>
   </tr>
 </table>
 
