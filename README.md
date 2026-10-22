@@ -37,13 +37,14 @@ you have Raspberry Pis.
 ## Features
 
 <p align="center">
-  <img src="docs/images/readme/lyrics.png" alt="Synced lyrics on the touchscreen, dark theme, the current line lit" width="100%">
+  <img src="docs/images/readme/lyrics.png" alt="Synced lyrics on the touchscreen, dark theme, and the network settings on a phone, light theme" width="100%">
 </p>
 <table>
   <tr>
-    <td width="33%"><img src="docs/images/readme/multiroom.png" alt="Multiroom on a phone, dark theme: a zone and a volume per room"></td>
-    <td width="33%"><img src="docs/images/readme/equalizer.png" alt="The 10-band equalizer on a phone, dark theme, Rock preset"></td>
-    <td width="33%"><img src="docs/images/readme/settings.png" alt="Milō's settings on a phone, dark theme"></td>
+    <td width="25%"><img src="docs/images/readme/multiroom.png" alt="Multiroom on a phone, dark theme: a zone and a volume per room"></td>
+    <td width="25%"><img src="docs/images/readme/equalizer.png" alt="The 10-band equalizer on a phone, dark theme, Rock preset"></td>
+    <td width="25%"><img src="docs/images/readme/settings.png" alt="Milō's settings on a phone, dark theme"></td>
+    <td width="25%"><img src="docs/images/readme/updates.png" alt="Updates on a phone, light theme: Milō and its programs, one with a new version"></td>
   </tr>
 </table>
 
