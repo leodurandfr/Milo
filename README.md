@@ -1,198 +1,116 @@
-<picture>
-  <img src="https://github.com/user-attachments/assets/799eac15-d66f-4166-8ba9-86f44eb381f5" />
-</picture>
+# Milō OS
 
-# Milō
+### Turns a Raspberry Pi and an audio board into a complete music system.
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Tidal Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, your own Music Library, and Mac streaming.
+I built Milō OS for my own amplifier, and this repository is the software alone. It installs
+from a single image: a setup wizard takes care of the network, the language and the audio
+board, with no terminal step. After that it behaves like a hi-fi appliance, with one interface
+on its touchscreen, your phone and your Mac, every source in one place, and as many rooms as
+you have Raspberry Pis.
 
-## Audio Sources
+<p align="center">
+  <img src="docs/images/readme/hero.png" alt="Milō OS on its touchscreen, playing a CD" width="100%">
+</p>
+
+📖 **[Documentation](https://milo-audio.com/docs)**: hardware, installation, every source and every setting.
+
+## Audio sources
 
 <table>
   <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/spotify.png" width="48"></td>
-    <td><b>Spotify</b><br>Spotify Connect receiver with artwork and full playback control</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/qobuz.png" width="48"></td>
-    <td><b>Qobuz</b><br>Qobuz Connect receiver with lossless audio and rich metadata</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/tidal.png" width="48"></td>
-    <td><b>TIDAL</b><br>Tidal Connect receiver with artwork and playback control</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
-    <td><b>Internet Radio</b><br>Browse 50,000+ stations, save favorites, and identify tracks with Shazam</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/bluetooth.png" width="48"></td>
-    <td><b>Bluetooth</b><br>Pair any device and stream audio</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/airplay.png" width="48"></td>
-    <td><b>AirPlay</b><br>Stream from any Apple device (iPhone, iPad, Mac)</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/podcast.png" width="48"></td>
-    <td><b>Podcasts</b><br>Search, subscribe, and resume episodes where you left off</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd.png" width="48"></td>
-    <td><b>CD Player</b><br>Play audio CDs with automatic track and metadata lookup</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/music-library.png" width="48"></td>
-    <td><b>Music Library</b><br>Play your own music from a USB drive or network share (SMB/NFS), indexed by artists, albums, genres, and playlists</td>
-  </tr>
-    <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
-    <td><b>macOS receiver</b><br>Stream your Mac's system audio with low latency (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
+    <td width="50%"><img src="docs/images/readme/spotify.png" alt="Spotify in the dark theme: the account's home, browsed from the screen, beside the track playing"></td>
+    <td width="50%"><img src="docs/images/readme/radio.png" alt="Internet radio in the light theme: favorite stations, and FIP playing a track Milō recognized"></td>
   </tr>
 </table>
+
+- **Spotify Connect**, with your library, playlists and profiles to browse from the screen
+- **Qobuz Connect**, lossless
+- **TIDAL Connect**
+- **AirPlay 2**, from an iPhone, iPad or Mac
+- **Bluetooth**, from any phone
+- **Internet radio**, 50,000+ stations, with favorites and track recognition by Shazam
+- **Podcasts**, search, subscribe and resume where you left off
+- **CD player**, with track and album lookup
+- **Music library**, your own files from a USB drive or a network share (SMB, NFS)
+- **Your Mac's sound**, with low latency, through [Milō Mac](https://github.com/leodurandfr/Milo-Mac)
 
 ## Features
 
+<p align="center">
+  <img src="docs/images/readme/lyrics.png" alt="Synced lyrics on the touchscreen, dark theme, the current line lit" width="100%">
+</p>
 <table>
   <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/multiroom.png" width="48"></td>
-    <td><b>Multiroom Audio</b><br>Synchronized playback across speakers with zone management and per-speaker volume</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/equalizer.png" width="48"></td>
-    <td><b>Equalizer</b><br>10-band parametric EQ with presets, compressor, and loudness compensation (CamillaDSP)</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/lyrics.png" width="48"></td>
-    <td><b>Lyrics</b><br>Time-synced lyrics that follow the current track, with a plain-text fallback</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/settings.png" width="48"></td>
-    <td><b>Settings</b><br>Control how Milō reacts: now playing, volume management, and more</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/languages.png" width="48"></td>
-    <td><b>8 Languages</b><br>English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/updates.png" width="48"></td>
-    <td><b>OTA Updates</b><br>Check and install updates autonomously, including multi-room client speakers</td>
+    <td width="33%"><img src="docs/images/readme/multiroom.png" alt="Multiroom on a phone, dark theme: a zone and a volume per room"></td>
+    <td width="33%"><img src="docs/images/readme/equalizer.png" alt="The 10-band equalizer on a phone, dark theme, Rock preset"></td>
+    <td width="33%"><img src="docs/images/readme/settings.png" alt="Milō's settings on a phone, dark theme"></td>
   </tr>
 </table>
+
+- **Multiroom**: every room on the same song, in sync. An extra Raspberry Pi finds your Milō
+  and joins it as a speaker on its own. Zones group rooms, each speaker keeps its own volume,
+  and a subwoofer gets the low end automatically.
+- **Equalizer**: 10 bands, 22 presets, a compressor and loudness compensation, on every
+  speaker separately (CamillaDSP).
+- **Lyrics**: synced line by line with the track, from Spotify, TIDAL, your library, a CD or
+  the radio.
+- **Light and dark themes**, or Auto, which turns dark from sunset to sunrise. The screenshots
+  on this page show both.
+- **Updates**: one press updates Milō and every multiroom speaker.
+- **8 languages**: English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi.
 
 ## Hardware
 
-<table>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/board.png" width="48"></td>
-    <td><b>Board</b><br><b>Main unit:</b> Raspberry Pi 5 (8 GB) recommended<br><b>Multiroom client:</b> Raspberry Pi 4 (2 GB) or Pi 5</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/audio.png" width="48"></td>
-    <td><b>Audio</b><br>Any supported HiFiBerry HAT — amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate 4CA) or DACs (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).<br><b>Amp4 Pro is required if a screen is connected</b> (power delivery).</td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/display.png" width="48"></td>
-    <td><b>Display</b><br>Waveshare 7" USB (1024×600) or Waveshare 8" DSI (1280×800) <i>(optional)</i></td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/volume.png" width="48"></td>
-    <td><b>Volume</b><br>Rotary encoder with push button (KY-040 / HW-040) <i>(optional)</i></td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/remote.png" width="48"></td>
-    <td><b>Remotes</b><br>Apple Remote (A1156) via a TSOP4838 IR receiver, or an ANTICATER VK-01 Bluetooth remote <i>(optional)</i></td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd-hardware.png" width="48"></td>
-    <td><b>CD Player</b><br>USB CD drive, e.g. Apple USB SuperDrive <i>(optional)</i></td>
-  </tr>
-</table>
+- **Raspberry Pi 5** (8 GB recommended) for the main unit; a Raspberry Pi 4 (2 GB) is enough
+  for a multiroom speaker.
+- **A HiFiBerry board**: an amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100,
+  Beocreate 4CA) or a DAC for an amplifier you already own (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).
+  With a screen, the Amp4 Pro is the only amplifier that can power it.
+- **Optional**: a Waveshare touchscreen (7" USB or 8" DSI), a volume knob, an Apple Remote or a
+  Bluetooth remote, a USB CD drive.
+
+Parts list and wiring: [Required hardware](https://milo-audio.com/docs/quick-start/hardware).
 
 ## Installation
 
-### Quick Start
+1. Download the latest `.img.xz` from [Releases](https://github.com/leodurandfr/Milo/releases).
+2. Write it to a microSD card (32 GB or more) with
+   [Raspberry Pi Imager](https://www.raspberrypi.com/software/) ("Use custom").
+3. Insert the card and power the Raspberry Pi on.
+4. Reach the setup wizard:
+   - **with an Ethernet cable**, open **http://milo.local** from a phone or computer on the
+     same network;
+   - **without a cable**, join the open **Milō** Wi-Fi network, and the setup page opens on its
+     own.
+5. Follow the wizard, then Milō restarts, ready to play.
 
-1. Download the latest `.img.xz` from [Releases](https://github.com/leodurandfr/Milo/releases)
-2. Flash it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (select "Use custom" → choose the `.img.xz` file)
-3. Insert the SD card and power on your Raspberry Pi
-4. Reach the setup wizard — which of the two depends on how the Pi is connected:
-   - **No Ethernet cable:** connect to the **Milō** WiFi network that appears (open, no
-     password). The setup page opens on its own.
-   - **Ethernet cable plugged in:** no WiFi network appears, because the Pi is already
-     reachable. Open **http://milo.local** in a browser on the same network.
-5. Follow the wizard to configure language, WiFi, audio card, and screen
-6. Milō reboots and is ready to use
+**Multiroom speakers** use the same image. Connect them with an Ethernet cable for their first
+boot: that is how they find your Milō and become its speakers. Without a cable there is nothing
+to search on, and the Pi sets itself up as a second main unit instead.
 
-The time zone is picked up from the phone or computer you set Milō up from; Settings →
-Language and region changes it. The WiFi country is asked for in the wizard and cannot be
-skipped — it is what the radio's legal transmit power depends on.
+Step by step: [Installation](https://milo-audio.com/docs/quick-start/install) and
+[First boot](https://milo-audio.com/docs/quick-start/first-boot).
 
-### Multiroom (Additional Speakers)
+## Control it from anywhere
 
-Flash the same image on additional Raspberry Pis. On first boot the device looks for your
-existing Milō server on the network and configures itself as a client, on its own.
+Any phone, tablet or computer on the same network opens Milō at **http://milo.local**. Two
+companion apps go further:
 
-**Connect the new Pi with an Ethernet cable for that first boot.** Finding the server is what
-decides the role, and the search runs before any WiFi the device has not been told about yet —
-with no cable there is nothing to search on, so it keeps the server role and you end up with
-two servers instead of a speaker. If that happens, Settings → System → Reset setup puts it
-back to first boot without touching your radio favourites or podcast subscriptions.
+- **[Milō Mac](https://github.com/leodurandfr/Milo-Mac)**: sources, volume and multiroom from
+  the menu bar or keyboard shortcuts, and your Mac's own sound streamed to Milō.
+- **[Milō iOS](https://github.com/leodurandfr/Milo-iOS)**: a Home Screen widget, Shortcuts, and
+  Milō's playback on the iPhone's lock screen.
 
-Keep them on Ethernet afterwards, too — network jitter is what makes rooms drift apart.
+## For developers
 
-## Companion Apps
+- [Architecture](docs/architecture.md): technologies and how Milō works
+- [API overview](docs/api-overview.md): the REST and WebSocket surface
+- [Developer guide](docs/development.md): setup, adding a source, testing
+- [Wiring reference](docs/hardware/wiring.md): physical connections
 
-Control Milō from your other devices:
-
-<table>
-  <tr>
-    <td><b>macOS</b></td>
-    <td>Menu Bar app + audio output</td>
-    <td><a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a></td>
-  </tr>
-  <tr>
-    <td><b>iOS</b></td>
-    <td>Fullscreen web interface</td>
-    <td><a href="https://github.com/leodurandfr/Milo-iOS">Milō iOS</a></td>
-  </tr>
-  <tr>
-    <td><b>Android</b></td>
-    <td>Fullscreen web interface</td>
-    <td><a href="https://github.com/leodurandfr/Milo-Android">Milō Android</a></td>
-  </tr>
-</table>
-
-## Built With
-
-<table>
-  <tr>
-    <td><b>Backend</b></td>
-    <td>Python, FastAPI, asyncio</td>
-  </tr>
-  <tr>
-    <td><b>Frontend</b></td>
-    <td>Vue 3, Pinia, Vite</td>
-  </tr>
-  <tr>
-    <td><b>Audio</b></td>
-    <td>ALSA, CamillaDSP, Snapcast, mpv, Navidrome, go-librespot, qobuz-proxy, tidal-connect, shairport-sync, bluez-alsa, ROC</td>
-  </tr>
-  <tr>
-    <td><b>Platform</b></td>
-    <td>Raspberry Pi OS (64-bit), systemd</td>
-  </tr>
-</table>
-
-## Documentation
-
-- [🏗️ Architecture](docs/architecture.md) — Technologies and how Milō works
-- [🔌 API Overview](docs/api-overview.md) — REST + WebSocket surface at a glance
-- [💻 Developer Guide](docs/development.md) — Setup, adding sources, testing, contributing
-- [🔧 Wiring Reference](docs/hardware/wiring.md) — Physical connections (Pi + HiFiBerry)
-- [📖 User Manual](docs/manual/manual_en.md) — End-user guide
+Backend in Python (FastAPI, asyncio), frontend in Vue 3, audio on ALSA, CamillaDSP and Snapcast.
 
 ## License
 
-[PolyForm Shield 1.0.0](LICENSE) — source-available. Read it, run it, change it and
-self-host it, at home or in your business.
+[PolyForm Shield 1.0.0](LICENSE): source-available. Read it, run it, change it and self-host
+it, at home or in your business.
