@@ -460,6 +460,30 @@
     animation-duration: 400ms;
 }
 
+/* The same fade in WebKit, which drops every backdrop-filter from a view
+   transition's captures: useTheme lays a copy of the screen in the old theme
+   over the live one and fades it out. The copy would replay its entrance
+   animations: they are shown at their end — never animation: none, which
+   leaves an entrance that starts from opacity 0 invisible. Text that sets no
+   color inherits the root's CanvasText, already resolved in the new theme:
+   the copy resolves it again under its own color-scheme. */
+.theme-ghost {
+    color: CanvasText;
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    pointer-events: none;
+    animation: theme-ghost-out 400ms ease forwards;
+}
+
+.theme-ghost * {
+    animation-delay: -60s !important;
+}
+
+@keyframes theme-ghost-out {
+    to { opacity: 0; }
+}
+
 
 
 
