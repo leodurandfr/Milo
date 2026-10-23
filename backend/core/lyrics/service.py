@@ -20,10 +20,10 @@ Three answers, and the whole point of this module is keeping them apart:
 - **LRCLIB did not answer** — `LyricsUnavailable`, cached nowhere, so the next
   open retries (the route maps it to a 200 + status=error, which the frontend
   also skips caching). *Any* status other than 200 or the `/get` 404 is this
-  case: lrclib.net answers `503 ServerOverloaded` to a few percent of calls,
-  and reading that as "this track has no lyrics" is what wrote permanent
-  negatives to disk. A 5xx is retried once before it counts as an outage at all
-  (see `_request`), which is what makes this answer rare rather than weekly.
+  case: lrclib.net answers `503 ServerOverloaded` to many calls, and reading
+  that as "this track has no lyrics" is what wrote permanent negatives to disk.
+  A refusal that says when to ask again is asked again (see `_request`), so
+  this answer means LRCLIB did not answer within the lookup's budget.
 
 The **album is deliberately not part of the query or the cache key**. LRCLIB
 filters `album_name` by exact string match with no tolerance, against free text
@@ -38,12 +38,14 @@ protocol. A file not carrying the expected keys reads as a miss, so a shape
 change costs one refetch per track rather than a migration.
 """
 import asyncio
+import email.utils
 import hashlib
 import json
 import logging
 import os
 import re
 import time
+import weakref
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -54,11 +56,14 @@ import aiohttp
 logger = logging.getLogger("core.lyrics")
 
 _LRCLIB_BASE = "https://lrclib.net/api"
-_HTTP_TIMEOUT = 8
 _MIN_INTERVAL = 0.3  # polite spacing between LRCLIB calls (serialised by lock)
-# How long a 5xx waits before its one retry. Long enough to clear the overload
-# that caused it, short enough to stay inside the lookup the reader is waiting on.
-_RETRY_DELAY = 0.8
+# How long a whole lookup may take — every call, every Retry-After honored —
+# before it counts as LRCLIB not answering. The reader watches the loader for
+# that long at worst.
+_LOOKUP_BUDGET = 10
+# The statuses whose Retry-After means "ask again then" (RFC 9110 §10.2.3,
+# RFC 6585 §4).
+_RETRYABLE = (429, 503)
 _MEM_CACHE_MAX = 256
 # How long a "this track has no lyrics" answer is trusted. A week is one query
 # per lyricless track per week — nothing against a cache that otherwise answers
@@ -141,6 +146,20 @@ def _is_well_formed(record: Any) -> bool:
     )
 
 
+def _retry_after(headers: Any) -> Optional[float]:
+    """Seconds a Retry-After header asks to wait — delay-seconds or HTTP-date
+    (RFC 9110 §10.2.3) — or None when it is absent or unreadable."""
+    value = (headers.get("Retry-After") or "").strip()
+    if not value:
+        return None
+    if value.isascii() and value.isdigit():
+        return float(value)
+    try:
+        return max(0.0, email.utils.parsedate_to_datetime(value).timestamp() - time.time())
+    except (TypeError, ValueError):
+        return None
+
+
 def _clean(text: str) -> str:
     """Strip parentheticals, trailing suffixes and featuring credits for matching
     (display keeps them).
@@ -214,7 +233,14 @@ class LyricsService:
         # sha1(artist|title|duration_s) → {found, synced, plain, checked_at}.
         # Misses cached too, but only until they expire.
         self._mem: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
-        self._lock = asyncio.Lock()
+        # One lock per track in flight, so two viewers of one track query LRCLIB
+        # once, while a lookup waiting out a Retry-After never holds up another
+        # track's — the view aborts its request on a skip, the lookup runs on.
+        self._track_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
+            weakref.WeakValueDictionary()
+        )
+        # Serialises the politeness spacing across those concurrent lookups.
+        self._call_lock = asyncio.Lock()
         self._last_call = 0.0
         try:
             self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -247,9 +273,10 @@ class LyricsService:
         if cached is not None:
             return _payload(cached)
 
-        # Serialise + throttle network calls; a peer may have populated the mem
-        # cache (via _store_mem on write) while we waited on the lock.
-        async with self._lock:
+        # A peer on the same track may have populated the mem cache (via
+        # _store_mem on write) while we waited on its lock.
+        lock = self._track_locks.setdefault(key, asyncio.Lock())
+        async with lock:
             cached = self._from_mem(key)
             if cached is not None:
                 return _payload(cached)
@@ -265,14 +292,14 @@ class LyricsService:
     ) -> Dict[str, Any]:
         """Resolve a track via LRCLIB: exact match first, fuzzy search on a miss.
 
-        A "miss" is three things, not one: LRCLIB has no such track (404), it
-        refused to answer (5xx, after `_request` spent the retry), or it answered
-        with a record carrying no lyrics at all. The third is the one that reads
-        like success and is not — see below.
+        This is LRCLIB's documented client flow: `/get` for the exact
+        signature, `/search` when it has none. Measured against a sample of the
+        library, the search alone finds the same tracks but not always the same
+        recording — the exact record is sometimes missing from its results.
 
         Returns the normalized result — found may be False, which is an answer
-        and is cached. Raises LyricsUnavailable only if LRCLIB answered neither
-        call, which is not an answer and is cached nowhere.
+        and is cached. Raises LyricsUnavailable if LRCLIB did not answer within
+        `_LOOKUP_BUDGET`, which is not an answer and is cached nowhere.
         """
         # The credit only, never the full `_clean` — see `_strip_credit`. Measured:
         # "Dr. Dre Feat. Mary J. Blige" 404s here where "Dr. Dre" answers, because
@@ -282,25 +309,11 @@ class LyricsService:
         if duration_ms:
             params["duration"] = str(round(duration_ms / 1000))
         try:
-            timeout = aiohttp.ClientTimeout(total=_HTTP_TIMEOUT)
-            headers = {"User-Agent": _USER_AGENT}
-            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                try:
-                    record = await self._get(session, params)
-                except LyricsUnavailable as e:
-                    # A refusal on the exact match is not fatal. The two are
-                    # separate endpoints and a burst hits them independently —
-                    # measured on this unit: /get answering 503 while /search
-                    # answered 200 for the same track, in the same window. So a
-                    # refusal here takes the same road as a 404 and lets the
-                    # search decide; only both refusing means LRCLIB did not
-                    # answer, and only then is nothing cached.
-                    logger.info("LRCLIB exact match unavailable (%s) — searching", e)
-                    record = None
-                # Resolved here rather than at the return, because whether the
-                # exact record actually carries lyrics is what decides if the
-                # search still gets its turn.
-                #
+            async with (
+                asyncio.timeout(_LOOKUP_BUDGET),
+                aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT}) as session,
+            ):
+                record = await self._get(session, params)
                 # An exact record with nothing in it is not an answer. LRCLIB's
                 # copy for a given (artist, title, duration) can be a stub, and
                 # it can be flagged `instrumental` on a track that plainly is not
@@ -308,48 +321,43 @@ class LyricsService:
                 # `instrumental: true` with both lyric fields null, while the
                 # search has the synced lyrics for the same song. Treating that
                 # as a result is a "no lyrics found" on a track LRCLIB has; so a
-                # stub takes the same road as the 404 and the refusal.
+                # stub takes the same road as the 404.
                 resolved = _from_record(record)
                 if not resolved["found"]:
                     resolved = _from_record(await self._search(session, artist, title))
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.warning("Lyrics lookup failed for %s - %s: %s", artist, title, e)
-            raise LyricsUnavailable(f"{artist} - {title}: {e}") from e
+        except (aiohttp.ClientError, TimeoutError) as e:
+            reason = str(e) or f"no answer within {_LOOKUP_BUDGET} s"
+            logger.warning("Lyrics lookup failed for %s - %s: %s", artist, title, reason)
+            raise LyricsUnavailable(f"{artist} - {title}: {reason}") from e
         return resolved
 
     async def _request(
         self, session: aiohttp.ClientSession, path: str, params: Dict[str, str]
     ) -> Tuple[int, Any]:
-        """One LRCLIB call, retried once on a 5xx. Returns (status, body or None).
+        """One LRCLIB call, asked again whenever LRCLIB says when to.
+        Returns (status, body or None).
 
-        lrclib.net does not fail in sustained outages — it refuses a few percent
-        of calls at random with 503 ServerOverloaded. Measured on this unit: one
-        call in twenty, and the immediate retry succeeded. A lookup spends two
-        calls, so that was ~10 % of tracks reaching the reader as "no lyrics
-        found" for a track LRCLIB had all along — 40 % of every empty Lyrics
-        screen over a week. One retry takes it to ~0.25 %; a second would buy a
-        thousandth of that and delay a real outage by another second. So: one.
-
-        A 429 is deliberately NOT retried. That one is LRCLIB asking for less
-        traffic, and answering it with a second call is the wrong reply; it
-        propagates as the outage it is, cached nowhere, retried on the next open.
+        lrclib.net sheds load by refusing calls with `503 ServerOverloaded`
+        ("please retry in a moment") and `Retry-After: 1`. Measured 2026-10-23:
+        about one call in two on a query it has not computed yet — exactly what
+        a track's first open sends — and never on one it has. So the refusal is
+        honored as HTTP defines it; a refusal without a Retry-After stands, and
+        `_lookup`'s timeout bounds the whole exchange.
 
         The politeness spacing lives here rather than in `_lookup` so that it
-        counts the retry too — it is an LRCLIB call like any other.
+        counts the retries too — they are LRCLIB calls like any other.
         """
-        status = 0
-        for attempt in (1, 2):
-            if attempt == 2:
-                await asyncio.sleep(_RETRY_DELAY)
+        while True:
             await self._throttle()
             async with session.get(f"{_LRCLIB_BASE}/{path}", params=params) as resp:
                 if resp.status == 200:
                     return resp.status, await resp.json(content_type=None)
                 status = resp.status
-            if status < 500:
+                wait = _retry_after(resp.headers) if status in _RETRYABLE else None
+            if wait is None:
                 return status, None
-            logger.info("LRCLIB /%s answered HTTP %s — retrying once", path, status)
-        return status, None
+            logger.info("LRCLIB /%s answered HTTP %s — retrying in %g s", path, status, wait)
+            await asyncio.sleep(wait)
 
     async def _get(
         self, session: aiohttp.ClientSession, params: Dict[str, str]
@@ -451,7 +459,8 @@ class LyricsService:
                 pass
 
     async def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_call
-        if elapsed < _MIN_INTERVAL:
-            await asyncio.sleep(_MIN_INTERVAL - elapsed)
-        self._last_call = time.monotonic()
+        async with self._call_lock:
+            elapsed = time.monotonic() - self._last_call
+            if elapsed < _MIN_INTERVAL:
+                await asyncio.sleep(_MIN_INTERVAL - elapsed)
+            self._last_call = time.monotonic()

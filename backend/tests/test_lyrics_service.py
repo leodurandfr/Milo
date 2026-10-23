@@ -9,15 +9,16 @@ minimal fake session, like test_music_library_navidrome.py does.
 Two of the rules here were paid for in the field, on a track whose lyrics LRCLIB
 had all along (Moussa - Laguna, 62 synced lines):
 
-- an answer that is not 200 is NOT "this track has no lyrics". lrclib.net serves
-  `503 ServerOverloaded` in bursts, and reading one as a miss wrote a permanent
+- an answer that is not 200 is NOT "this track has no lyrics". lrclib.net sheds
+  load with `503 ServerOverloaded`, and reading one as a miss wrote a permanent
   negative to disk — the track then showed "no lyrics found" forever.
 - the album is not part of the query. LRCLIB matched `album_name` exactly, and
   its own record for that track carries a mojibake album (`La nuit je r^ve`, an
   ASCII caret), so the correct string 404s and every lookup fell through to the
-  fuzzy search — the very call that was 503ing.
+  fuzzy search.
 """
 import asyncio
+import email.utils
 import json
 import logging
 import os
@@ -38,6 +39,7 @@ from backend.core.lyrics.service import (
     _is_fresh,
     _is_well_formed,
     _parse_lrc,
+    _retry_after,
 )
 
 
@@ -461,9 +463,10 @@ class TestGetLyricsCaching:
 class _Resp:
     """Minimal aiohttp response stand-in (async context manager)."""
 
-    def __init__(self, status, body):
+    def __init__(self, status, body, headers=None):
         self.status = status
         self._body = body
+        self.headers = headers or {}
 
     async def __aenter__(self):
         return self
@@ -500,42 +503,39 @@ class TestGetEndpoint:
         assert await service._get(_session(200, record), {}) == record
 
 
-class TestRetry:
-    """`_request` — the one retry a 5xx earns, and the one a 429 does not.
+_RETRY_NOW = {"Retry-After": "0"}
 
-    Measured on this unit: lrclib.net refuses ~5 % of calls at random with 503
-    ServerOverloaded, and the immediate retry succeeds. A lookup spends two
-    calls, so without this the reader saw "no lyrics found" on ~10 % of tracks
-    LRCLIB had — 40 % of every empty Lyrics screen over a week of listening.
+
+class TestRetry:
+    """`_request` — a refusal that says when to ask again is asked again then.
+
+    Measured 2026-10-23: lrclib.net refuses about one call in two on a query it
+    has not computed yet, with `503` + `Retry-After: 1` — exactly the query a
+    track's first open sends. Without honoring it, the reader saw "service
+    unavailable" on a track that a reopen a second later resolved.
     """
 
-    async def test_a_5xx_is_retried_and_the_second_answer_stands(self, service):
-        session = _SessionRecorder([(503, None), (200, {"plainLyrics": "words"})])
+    async def test_a_503_with_retry_after_is_asked_again_until_it_answers(self, service):
+        session = _SessionRecorder(
+            [(503, None, _RETRY_NOW)] * 3 + [(200, {"plainLyrics": "words"})]
+        )
 
         record = await service._get(session, {})
 
         assert record == {"plainLyrics": "words"}
+        assert len(session.requests) == 4
+
+    async def test_a_429_with_retry_after_is_asked_again_too(self, service):
+        """A 429 carrying Retry-After is LRCLIB saying how much less traffic it
+        wants — waiting that long is the reply it asks for."""
+        session = _SessionRecorder([(429, None, _RETRY_NOW), (200, [])])
+
+        assert await service._search(session, "A", "B") is None
         assert len(session.requests) == 2
 
-    async def test_a_retried_exact_match_never_reaches_the_search(
-        self, service, monkeypatch, no_throttle
-    ):
-        """The point of the retry: a 503 that clears must resolve on the exact
-        match, which carries the duration. Falling through to the fuzzy search
-        anyway would keep the failure mode the retry exists to remove."""
-        session = _SessionRecorder([(503, None), (200, {"plainLyrics": "words"})])
-        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
-
-        result = await service._lookup("Artist", "Title", 200_000)
-
-        assert result["found"] is True
-        assert [url for url, _ in session.requests] == ["https://lrclib.net/api/get"] * 2
-
-    async def test_a_429_is_not_retried(self, service):
-        """A 429 is LRCLIB asking for less traffic. Answering it with a second
-        call is the wrong reply, so it propagates as the outage it is — which
-        caches nothing and is retried on the next open instead."""
-        session = _SessionRecorder([(429, None)])
+    @pytest.mark.parametrize("status", [429, 500, 502, 503])
+    async def test_a_refusal_without_retry_after_stands(self, service, status):
+        session = _SessionRecorder([(status, None)])
 
         with pytest.raises(LyricsUnavailable):
             await service._get(session, {})
@@ -545,10 +545,27 @@ class TestRetry:
     async def test_a_404_is_not_retried(self, service):
         """It is an answer, not a refusal — retrying it would double every
         lookup for a track LRCLIB genuinely does not have."""
-        session = _SessionRecorder([(404, None)])
+        session = _SessionRecorder([(404, None, _RETRY_NOW)])
 
         assert await service._get(session, {}) is None
         assert len(session.requests) == 1
+
+
+class TestRetryAfter:
+    @pytest.mark.parametrize("value, expected", [
+        ("1", 1.0), ("0", 0.0), (" 2 ", 2.0),
+        ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),  # a date already past
+        ("soon", None), ("-1", None), ("²", None), ("", None),
+    ])
+    def test_reads_delay_seconds_and_http_dates(self, value, expected):
+        assert _retry_after({"Retry-After": value}) == expected
+
+    def test_a_future_http_date_is_the_time_until_it(self):
+        when = email.utils.formatdate(time.time() + 30, usegmt=True)
+        assert 28 <= _retry_after({"Retry-After": when}) <= 30
+
+    def test_absent_is_none(self):
+        assert _retry_after({}) is None
 
 
 class TestSearchSelection:
@@ -592,9 +609,8 @@ class _SessionRecorder:
 
     `_lookup` builds the session itself (`async with aiohttp.ClientSession(...)`),
     so exercising it means standing in for the constructor as well as the calls.
-    Both the timeout and the headers are captured, because both are contractual:
-    LRCLIB asks callers to identify themselves, and the timeout is what keeps a
-    lyrics fetch from outliving the track.
+    The headers are captured because they are contractual: LRCLIB asks callers
+    to identify themselves.
     """
 
     def __init__(self, replies):
@@ -618,18 +634,6 @@ class _SessionRecorder:
         if isinstance(reply, Exception):
             raise reply
         return _Resp(*reply)
-
-
-@pytest.fixture(autouse=True)
-def no_retry_delay(monkeypatch):
-    """Collapse the wait before a 5xx retry, everywhere.
-
-    Autouse because the retry is not a path a test opts into: any test feeding a
-    5xx pays it, including the parametrized outage cases on both endpoints. The
-    delay's value is never asserted — only that the second call happens — so
-    zeroing it here costs no coverage.
-    """
-    monkeypatch.setattr("backend.core.lyrics.service._RETRY_DELAY", 0)
 
 
 @pytest.fixture
@@ -748,49 +752,19 @@ class TestLookup:
         ]
         assert result["found"] is True
 
-    async def test_a_refused_exact_match_still_reaches_the_search(
+    async def test_a_refusal_that_stands_is_an_outage(
         self, service, monkeypatch, no_throttle
     ):
-        """A 503 on `/get` must take the same road as a 404, not end the lookup.
-
-        The two are separate endpoints and a burst hits them independently —
-        measured on this unit: `/get` answering 503 while `/search` answered 200
-        for the same track, in the same window. Raising on the first refusal
-        traded a poisoned cache for an empty Lyrics view on tracks the search
-        would have resolved, which is a smaller bug but still a bug.
-        """
-        session = _SessionRecorder([
-            (503, {"name": "ServerOverloaded"}),
-            (503, {"name": "ServerOverloaded"}),
-            (200, [{"syncedLyrics": "[00:01.00]found by search"}]),
-        ])
-        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
-
-        result = await service._lookup("Artist", "Title", None)
-
-        # Two `/get` calls, because a 5xx earns one retry before it counts as a
-        # refusal at all — and only then does the search get its turn.
-        assert [url for url, _ in session.requests] == [
-            "https://lrclib.net/api/get",
-            "https://lrclib.net/api/get",
-            "https://lrclib.net/api/search",
-        ]
-        assert result["found"] is True
-
-    async def test_only_both_calls_refusing_is_an_outage(
-        self, service, monkeypatch, no_throttle
-    ):
-        """The other half of the rule above: when neither endpoint answered,
-        there is no answer to cache and the next open must retry."""
-        session = _SessionRecorder([(503, None)] * 4)
+        """A refusal that stands ends the lookup: there is no answer to cache
+        and the next open must retry. The search is not asked behind a refused
+        exact match — it would be refused by the same overloaded server."""
+        session = _SessionRecorder([(503, None)])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
         with pytest.raises(LyricsUnavailable):
             await service._lookup("Artist", "Title", None)
 
-        # Both endpoints, each having spent its retry: four refusals is what it
-        # now takes for LRCLIB to have genuinely not answered.
-        assert len(session.requests) == 4
+        assert [url for url, _ in session.requests] == ["https://lrclib.net/api/get"]
 
     async def test_an_exact_match_carrying_no_lyrics_still_reaches_the_search(
         self, service, monkeypatch, no_throttle
@@ -827,12 +801,13 @@ class TestLookup:
 
         assert await service._lookup("Artist", "Title", None) == _miss()
 
-    async def test_a_refused_exact_match_then_an_empty_search_is_a_negative(
+    async def test_a_retried_exact_match_then_an_empty_search_is_a_negative(
         self, service, monkeypatch, no_throttle
     ):
         """The search answered — it searched and found nothing. That is a real
-        result even though the exact match refused, and it is cached."""
-        session = _SessionRecorder([(503, None), (503, None), (200, [])])
+        result even though the exact match was refused on the way, and it is
+        cached."""
+        session = _SessionRecorder([(503, None, _RETRY_NOW), (404, None), (200, [])])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
         assert await service._lookup("Artist", "Title", None) == _miss()
@@ -903,13 +878,20 @@ class TestLookup:
         self, service, monkeypatch, no_throttle
     ):
         """Unbounded, a lyrics fetch outlives the track it was for and the view
-        renders words for something that stopped playing minutes ago."""
-        session = _SessionRecorder([(200, {"plainLyrics": "x"})])
+        renders words for something that stopped playing minutes ago — and a
+        server asking for a minute's patience is not a reason to wait one. The
+        budget covers the whole exchange, waits included, so the outage it ends
+        in is the one the reader is told about."""
+        monkeypatch.setattr("backend.core.lyrics.service._LOOKUP_BUDGET", 0.05)
+        session = _SessionRecorder([(503, None, {"Retry-After": "60"}), (200, [])])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        await service._lookup("Artist", "Title", None)
+        started = time.monotonic()
+        with pytest.raises(LyricsUnavailable):
+            await service._lookup("Artist", "Title", None)
 
-        assert session.kwargs["timeout"].total == 8
+        assert time.monotonic() - started < 5
+        assert len(session.requests) == 1
 
     async def test_the_calls_are_spaced_by_the_politeness_interval(
         self, service, monkeypatch
@@ -1067,7 +1049,31 @@ class TestDiskCache:
 
 
 class TestConcurrentLookups:
-    """Two viewers, one track: the double-check inside the lock."""
+    """Two viewers, one track: the double-check inside the lock. Two tracks:
+    no lock in common."""
+
+    async def test_a_slow_lookup_does_not_hold_up_another_track(self, service):
+        """A lookup can spend `_LOOKUP_BUDGET` waiting out Retry-After, and the
+        view aborts its request on a skip while the lookup runs on. Behind one
+        shared lock, the track now on screen queued behind every track skipped
+        past, for up to the budget each."""
+        stuck = asyncio.Event()
+
+        async def _lookup(artist, title, duration_ms):
+            if title == "Skipped":
+                await stuck.wait()
+            return _found(title)
+
+        service._lookup = _lookup
+
+        skipped = asyncio.create_task(service.get_lyrics("Artist", "Skipped"))
+        await asyncio.sleep(0)
+        current = await asyncio.wait_for(service.get_lyrics("Artist", "Current"), 1)
+
+        assert current == _found("Current")
+        assert not skipped.done()
+        stuck.set()
+        await skipped
 
     async def test_two_viewers_on_one_track_query_lrclib_once(self, service):
         """The re-check INSIDE the lock, which the one before it cannot cover.
