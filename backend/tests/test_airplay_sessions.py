@@ -9,7 +9,7 @@ import pytest
 
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.airplay import source as airplay_source
-from backend.sources.airplay.remote import RemoteUpdate
+from backend.sources.airplay.remote import NowPlaying, RemoteUpdate
 from backend.tests.airplay_world import MAC, MAC_COMMANDS, PHONE, SPOTIFY_COMMANDS, AirPlayWorld, ssnc
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
@@ -427,6 +427,153 @@ async def test_a_mac_loading_the_next_track_is_not_paused(world):
 
     assert "paused" not in _phases_since(world, since)
     assert world.playing() and world.session()["title"] == "My Storm"
+
+
+async def test_a_mac_restarting_the_track_by_prev_is_not_paused(world):
+    """Measured 2026-10-23 (Mac Music, shairport-sync 5.6.1): prev a few
+    seconds into a track restarts it — the same item, at rate 0 and 0:00, for
+    0.9 s, then rate 1. Read as a pause, the main button showed play for that
+    long."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    await world.advance(7)
+    item = world.now_playing
+    since = len(world.published())
+
+    await world.command("prev")
+    await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=0, rate=0.0)))
+    assert world.phase() == "loading"
+    await world.advance(0.9)
+    await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=0, rate=1.0)))
+
+    assert "paused" not in _phases_since(world, since)
+    assert world.playing()
+
+
+async def test_a_restart_stamped_by_a_clock_slightly_behind_is_not_paused(world):
+    """The sender's clock and the Pi's disagree by milliseconds (CLOCK_SLACK_S):
+    a restart stamped just before Milō asked for it is still the restart."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    await world.advance(7)
+    item = world.now_playing
+
+    await world.command("prev")
+    restarted = world.moved(item, elapsed_ms=0, rate=0.0)
+    await world.signal(RemoteUpdate("now_playing", NowPlaying(**{**restarted.__dict__, "at": restarted.at - 0.05})))
+
+    assert world.phase() == "loading"
+
+
+async def test_a_pause_right_after_a_skip_is_a_pause(world):
+    """Next, then a pause a second into the new track — from Milō or on the
+    Mac: the same item at rate 0, inside the skip window. A pause, not a
+    ten-second load."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+
+    await world.command("next")
+    await world.publishes(world.item("My Storm"))
+    await world.advance(1.0)
+    await world.realtime_pauses()
+
+    assert world.phase() == "paused"
+
+
+async def test_an_emptied_item_over_a_paused_stream_shows_the_card(world):
+    """An app quitting after a pause (the stream torn down, a `paus` settled):
+    with its item gone the session is a link and nothing more — CONNECTED,
+    never a paused player with nothing in it."""
+    await _phone_plays(world)
+    await world.pauses()
+    await world.tears_the_stream_down()
+
+    await world.signal(RemoteUpdate("now_playing", None), RemoteUpdate("commands", frozenset()))
+    await world.advance(airplay_source.ITEM_GONE_S + 0.1)
+
+    assert world.phase() == "connected"
+    assert world.session()["title"] is None
+
+
+async def test_a_restart_by_prev_that_never_moves_becomes_a_pause(world):
+    """The restart's wait is bounded like a new track's: a sender that stops
+    there is paused after SKIP_LOADING_S, not loading for good."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    await world.advance(7)
+
+    await world.command("prev")
+    await world.signal(RemoteUpdate("now_playing", world.moved(world.now_playing, elapsed_ms=0, rate=0.0)))
+    await world.advance(airplay_source.SKIP_LOADING_S + 0.1)
+
+    assert world.phase() == "paused"
+
+
+async def test_a_mac_connecting_with_an_anonymous_item_has_a_playhead(world):
+    """Measured 2026-10-23 (Mac, shairport-sync 5.6.1): on connecting, the Mac
+    re-sends the item it had, with no identity at all and the stamp of minutes
+    ago, while the stream is still loading. Nothing anchored the playhead:
+    the bar stayed away until the next track."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.send(ssnc("pbeg"), ssnc("flsr", b"1"), ssnc("prsm"))
+    item = world.item("Let It Happen", length_s=464.6)
+    stale = NowPlaying(**{**item.__dict__, "track_id": None, "at": item.at - 300})
+    await world.signal(RemoteUpdate("now_playing", stale))
+    await world.advance(1.0)
+    await world.send(ssnc("pffr", b"1/2"), ssnc("styp", b"Realtime"))
+
+    assert world.playing()
+    assert world.session()["position"] is not None
+    assert abs(world.position_ms() - 301_000) <= 1000
+
+
+async def test_quitting_the_app_on_the_mac_clears_the_player(world):
+    """Measured 2026-10-23 (Mac, Music then Spotify, shairport-sync 5.6.1):
+    quitting the app sends the item at rate 0, then `{}` and no commands,
+    while the Mac stays connected. The last track stayed on screen for good."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+
+    await world.signal(RemoteUpdate("now_playing", world.moved(world.now_playing, rate=0.0)),
+                       RemoteUpdate("now_playing", None),
+                       RemoteUpdate("commands", frozenset()))
+    await world.advance(airplay_source.ITEM_GONE_S + 0.1)
+
+    session = world.session()
+    assert session["title"] is None and session["artwork"] is None
+    assert session["position"] is None
+    assert world.phase() == "connected"
+
+
+async def test_the_quitting_apps_buttons_leave_with_its_item(world):
+    """The commands empty at once and the item a second later: the transport
+    left the player before the player left the screen."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+
+    await world.signal(RemoteUpdate("now_playing", world.moved(world.now_playing, rate=0.0)),
+                       RemoteUpdate("now_playing", None),
+                       RemoteUpdate("commands", frozenset()))
+    assert {"next", "prev"} <= set(world.state()["controls"])
+    await world.advance(airplay_source.ITEM_GONE_S + 0.1)
+
+    assert world.state()["controls"] == []
+
+
+async def test_an_item_replaced_at_once_keeps_the_player(world):
+    """`{}` followed at once by the next item (a sender taking the receiver
+    again) never drops the player to the status card."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    since = len(world.published())
+
+    await world.signal(RemoteUpdate("now_playing", None))
+    await world.advance(0.1)
+    await world.publishes(world.item("My Storm"), world.cover(name="storm"))
+    await world.advance(airplay_source.ITEM_GONE_S + 0.1)
+
+    assert all(s["session"]["title"] for s in world.published()[since:] if s["session"])
+    assert world.session()["title"] == "My Storm"
 
 
 async def test_a_paused_phone_does_not_play_on_in_the_playhead(world):

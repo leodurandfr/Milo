@@ -51,6 +51,25 @@ def test_the_item_carries_the_track():
     assert item.track_id == 9811617133902594685
 
 
+def test_an_item_without_a_unique_identifier_is_named_by_its_content_item():
+    """Measured 2026-10-23 (a Mac, shairport-sync 5.6.1): some items carry no
+    UniqueIdentifier, only a ContentItemIdentifier. Without an identity every
+    track read as the same one, and the first one never got a playhead."""
+    keys = {k: v for k, v in IPHONE_ITEM.value.items() if k != "kMRMediaRemoteNowPlayingInfoUniqueIdentifier"}
+    keys["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] = Variant(
+        "s", "76F86BD5-2542-44CE-8AD5-AD4481AF5ECA")
+    item = _update(CLIENT_IFACE, "NowPlayingInformation", Variant("a{sv}", keys)).value
+    assert item.track_id == "76F86BD5-2542-44CE-8AD5-AD4481AF5ECA"
+
+
+def test_a_unique_identifier_of_zero_is_still_the_identity():
+    keys = dict(IPHONE_ITEM.value)
+    keys["kMRMediaRemoteNowPlayingInfoUniqueIdentifier"] = Variant("t", 0)
+    keys["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] = Variant("s", "176::180")
+    item = _update(CLIENT_IFACE, "NowPlayingInformation", Variant("a{sv}", keys)).value
+    assert item.track_id == 0
+
+
 def test_the_playhead_is_the_elapsed_time_at_its_stamp():
     """ElapsedTime is where the sender was at Timestamp — an ISO string on
     D-Bus — and it moves at PlaybackRate from there."""

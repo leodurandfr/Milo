@@ -90,7 +90,7 @@ class NowPlaying:
     elapsed_ms: Optional[int]
     at: Optional[float]
     rate: float
-    track_id: Optional[int]
+    track_id: Optional[int | str]
     artwork_id: Optional[str]
     artwork_path: Optional[str]
 
@@ -113,7 +113,9 @@ class NowPlaying:
             elapsed_ms=seconds_ms("ElapsedTime"),
             at=_epoch(info.get(_NPI + "Timestamp")),
             rate=float(info.get(_NPI + "PlaybackRate") or 0.0),
-            track_id=info.get(_NPI + "UniqueIdentifier"),
+            # Some items carry no UniqueIdentifier, only the ContentItemIdentifier
+            # (a Mac, measured 2026-10-23).
+            track_id=_first_present(info, "UniqueIdentifier", "ContentItemIdentifier"),
             artwork_id=info.get(_NPI + "ArtworkIdentifier") or None,
             artwork_path=path.removeprefix("file://") if isinstance(path, str) else None,
         )
@@ -134,6 +136,11 @@ class RemoteUpdate:
     repeat (a RepeatMode) or volume (the sender's slider in dB)."""
     kind: str
     value: Any
+
+
+def _first_present(info: dict, *keys: str):
+    """The first of `keys` the item carries, a 0 included."""
+    return next((info[_NPI + k] for k in keys if info.get(_NPI + k) is not None), None)
 
 
 def _epoch(stamp) -> Optional[float]:

@@ -89,6 +89,12 @@ from backend.shared.artwork import decode_artwork_dimensions
 # measured, a Mac's 5.4 s on a track change (5.5.1).
 ARTWORK_SETTLE_SECONDS = 8.0
 
+# Quitting the app on a Mac (Music, Spotify; measured 2026-10-23) leaves the Mac
+# connected and empties the item (`{}`) and the commands: nothing is playing any
+# more, and the player gives way to the status card. Held this long first, so a
+# `{}` the next item follows at once never drops the player.
+ITEM_GONE_S = 1.0
+
 # The stream type that reports its pauses; every other one (Realtime, a
 # classic AirPlay 1 stream) is CONNECTED while it flows with no item playing.
 BUFFERED = "Buffered"
@@ -104,6 +110,8 @@ BUFFERED = "Buffered"
 PAUS_SETTLE_S = 0.6
 SKIP_WINDOW_S = 2.0
 SKIP_LOADING_S = 10.0
+# Where a restarted track reports its playhead: 0:00 (measured, a Mac's prev).
+RESTART_AT_MS = 500
 
 # How far the sender's clock and the pipe's reception can disagree about one
 # moment. An item stamped at a resume reaches Milō with a stamp ~2 ms *before*
@@ -195,9 +203,10 @@ class AirPlaySession(Session):
     pause_asked_at: float = 0.0         # Milō's last pause
     track_wait_over: bool = False       # a new track at rate 0 outlived its wait
     now_playing: Optional[NowPlaying] = None
-    track_id: Optional[int] = None      # the item whose playhead is anchored
-    played_track: Optional[int] = None  # the last item seen moving
+    track_id: Optional[int | str] = None      # the item whose playhead is anchored
+    played_track: Optional[int | str] = None  # the last item seen moving
     cover: Optional[Cover] = None
+    item_gone: bool = False             # the sender emptied its item (an app quit)
     volume_synced: bool = False         # Milō's level was pushed to this sender
 
 
@@ -251,6 +260,9 @@ class AirPlaySource(BaseAudioSource):
         """What shairport-sync's D-Bus object says, for this run of the daemon."""
         self._now_playing: Optional[NowPlaying] = None
         self._commands: frozenset = frozenset()
+        # The commands an emptied list withdrew, shown while the item is held
+        # (ITEM_GONE_S) so the buttons leave with the player, not before it.
+        self._withdrawn: frozenset = frozenset()
         self._shuffle = False
         self._repeat: RepeatMode = "off"
         # The level both sliders were last put at, and until when the sender's
@@ -415,6 +427,8 @@ class AirPlaySource(BaseAudioSource):
         if update.kind == "now_playing":
             self._now_playing = update.value
         elif update.kind == "commands":
+            if not update.value and self._commands:
+                self._withdrawn = self._commands
             self._commands = update.value
         elif update.kind == "shuffle":
             self._shuffle = update.value
@@ -448,7 +462,7 @@ class AirPlaySource(BaseAudioSource):
         """The departed sender's item, commands and modes: shairport-sync
         clears the first two only when the next sender connects (and never
         writes the modes itself), and that one must not show them."""
-        self._now_playing, self._commands = None, frozenset()
+        self._now_playing, self._commands, self._withdrawn = None, frozenset(), frozenset()
         self._shuffle, self._repeat = False, "off"
 
     @staticmethod
@@ -456,11 +470,34 @@ class AirPlaySource(BaseAudioSource):
         """The last `paus` came with Milō's next/prev."""
         return 0.0 <= session.paused_at - session.skip_asked_at <= SKIP_WINDOW_S
 
+    @staticmethod
+    def _changing_track(session: AirPlaySession, item: NowPlaying) -> bool:
+        """An item at rate 0 that is a track change, not a pause: another
+        track than the one last seen moving, or the same one right after
+        Milō's next/prev — a prev that restarts the track keeps its item
+        (measured 2026-10-23, a Mac: 0.9 s at rate 0 and 0:00, then rate 1).
+        Only at the top of the track, and only if no pause was asked since:
+        a pause right after a skip is still a pause."""
+        if session.played_track is None:
+            return False
+        if item.track_id != session.played_track:
+            return True
+        return (
+            item.at is not None
+            and item.elapsed_ms is not None and item.elapsed_ms <= RESTART_AT_MS
+            and session.skip_asked_at > session.pause_asked_at
+            and -CLOCK_SLACK_S <= item.at - session.skip_asked_at <= SKIP_WINDOW_S
+        )
+
     def _phase_of(self, session: AirPlaySession) -> Phase:
         """The phase the announced facts give (owner decisions 2026-09-23,
         the item's rate and track changes since 5.6 — see the module docstring
         and SKIP_LOADING_S)."""
         item = session.now_playing
+        if session.item_gone:
+            # Linked, with nothing playing: the status card, whatever the
+            # stream did before the app quit.
+            return Phase.CONNECTED
         if session.paused:
             if self._skipping(session):
                 return Phase.PAUSED if session.paus_settled else Phase.LOADING
@@ -469,8 +506,7 @@ class AirPlaySource(BaseAudioSource):
                 return Phase.PAUSED
             # Within the hold: the stream's own facts below decide.
         if item is not None and item.rate <= 0 and (item.at or 0.0) >= session.resumed_at:
-            new_track = session.played_track is not None and item.track_id != session.played_track
-            if new_track and not session.track_wait_over:
+            if self._changing_track(session, item) and not session.track_wait_over:
                 return Phase.LOADING
             return Phase.PAUSED
         if not session.stream:
@@ -488,16 +524,22 @@ class AirPlaySource(BaseAudioSource):
     # === The sender's item ===
 
     async def _follow_now_playing(self, session: AirPlaySession) -> None:
-        """Take the item D-Bus last reported. An empty one (`{}`, what a sender
-        taking the receiver starts with) keeps what is on screen."""
+        """Take the item D-Bus last reported. An empty one (`{}`) under an item
+        on screen is the app quitting: the item goes after ITEM_GONE_S unless
+        another replaces it first."""
         item = self._now_playing
-        if item is None or item is session.now_playing:
+        if item is None:
+            if session.now_playing is not None and not self._timer_armed("item"):
+                self._arm_timer("item", ITEM_GONE_S, session)
             return
-        session.now_playing = item
+        self._disarm_timer("item")
+        if item is session.now_playing:
+            return
+        session.now_playing, session.item_gone = item, False
         if item.rate > 0:
             session.played_track = item.track_id
             self._disarm_timer("track")
-        elif session.played_track is not None and item.track_id != session.played_track:
+        elif self._changing_track(session, item):
             # A new track at rate 0: LOADING until it moves, or a pause.
             if not self._timer_armed("track"):
                 session.track_wait_over = False
@@ -563,7 +605,9 @@ class AirPlaySource(BaseAudioSource):
         position = item.position_ms(audio_source.wall_time())
         if position is None:
             return
-        if item.track_id != session.track_id:
+        # A session with no playhead takes the first one it is given: a Mac
+        # connecting re-sends its item while the stream is still loading.
+        if item.track_id != session.track_id or session.anchor is None:
             session.track_id = item.track_id
             self._anchor_position(position)
             return
@@ -581,6 +625,15 @@ class AirPlaySource(BaseAudioSource):
             self._logger.info("AirPlay artwork withdrawn and not replaced: removed")
             session.cover = None
             self._publish()
+        elif name == "item":
+            self._logger.info("AirPlay sender's item emptied and not replaced: cleared")
+            session.now_playing, session.cover = None, None
+            session.item_gone = True
+            self._clear_position()
+            self._disarm_timer("track")
+            self._disarm_timer("artwork")
+            await self.reconcile(DaemonSnapshot(session.sender, self._phase_of(session)))
+            self._publish_changes()
         elif name in ("paus", "track"):
             # A held `paus` or a track change ran out: what it is now. A pause
             # stopped the playhead when it came, not when it was believed.
@@ -638,6 +691,8 @@ class AirPlaySource(BaseAudioSource):
         if not isinstance(session, AirPlaySession):
             return []
         commands = self._commands
+        if not commands and self._timer_armed("item"):
+            commands = self._withdrawn
         playing = session.phase in (Phase.PLAYING, Phase.LOADING)
         offered = (
             ("pause", playing and bool(commands & {_PAUSE, _TOGGLE})),

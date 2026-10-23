@@ -6225,56 +6225,6 @@
    },
    {
     "category": "source",
-    "type": "state",
-    "origin": "airplay",
-    "data": {
-     "source": "airplay",
-     "switching": false,
-     "service": "running",
-     "service_error": null,
-     "availability": {
-      "radio": null,
-      "podcast": null,
-      "music_library": null,
-      "cd": null,
-      "spotify": null,
-      "tidal": null,
-      "qobuz": null,
-      "airplay": null,
-      "bluetooth": null,
-      "mac": null
-     },
-     "session": {
-      "id": "session-1",
-      "phase": "playing",
-      "title": "All Melody",
-      "artist": "Nils Frahm",
-      "album": "All Melody",
-      "artwork": "/api/airplay/artwork?v=1663d4543fe5",
-      "senders": [
-       "iPhone de Léo"
-      ],
-      "duration_ms": 253000,
-      "position": {
-       "ms": 0,
-       "at": 1790270000.0,
-       "rate": 1.0
-      }
-     },
-     "controls": [],
-     "resume": null,
-     "details": {
-      "kind": "airplay",
-      "artwork_width": 1000,
-      "shuffle": false,
-      "repeat": "off"
-     },
-     "multiroom_enabled": false,
-     "equalizer_effects_enabled": false
-    }
-   },
-   {
-    "category": "source",
     "type": "session_ended",
     "origin": "airplay",
     "data": {
