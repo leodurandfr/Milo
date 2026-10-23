@@ -573,15 +573,17 @@ class TestTheVolumePolicyFlag:
 
         assert flag.read_text() == "0"
 
-    async def test_unlocking_is_honoured_without_bouncing_the_sidecar(self, source,
-                                                                     flag):
-        """The running stream re-reads the flag on the next app volume command,
-        so unlocking is live — restarting would drop the Connect session for
-        nothing."""
+    async def test_unlocking_bounces_a_running_sidecar(self, source, flag):
+        """The app is told whether it owns the slider only when the sidecar
+        joins the session. Without the restart it keeps the inert slider it
+        was given while locked, until the next source switch."""
+        source._is_service_active = AsyncMock(return_value=True)
+        source._restart_service_and_wait = AsyncMock(return_value=True)
+
         assert await source.on_allow_app_volume_changed(True) is True
 
         assert flag.read_text() == "1"
-        source._service_manager.restart.assert_not_called()
+        source._restart_service_and_wait.assert_awaited_once()
 
     async def test_locking_bounces_a_running_sidecar(self, source, flag):
         """Locking must reset an already-lowered stream to unity at once, and
@@ -595,13 +597,26 @@ class TestTheVolumePolicyFlag:
         assert flag.read_text() == "0"
         source._restart_service_and_wait.assert_awaited_once()
 
-    async def test_locking_does_not_bounce_a_stopped_sidecar(self, source, flag):
-        """There is no stream to reset, and starting one here would bring Qobuz
-        up on a source nobody selected."""
+    @pytest.mark.parametrize("allowed", [True, False])
+    async def test_a_re_sent_value_does_not_bounce_the_sidecar(self, source, flag, allowed):
+        """A settings resync or a retry PUTs the value already in force: the
+        sidecar joined under it, and a restart would end the session playing."""
+        flag.write_text("1" if allowed else "0")
+        source._is_service_active = AsyncMock(return_value=True)
+        source._restart_service_and_wait = AsyncMock(return_value=True)
+
+        assert await source.on_allow_app_volume_changed(allowed) is True
+
+        source._restart_service_and_wait.assert_not_awaited()
+
+    @pytest.mark.parametrize("allowed", [True, False])
+    async def test_the_toggle_does_not_bounce_a_stopped_sidecar(self, source, flag, allowed):
+        """There is no stream to reset nor session to rejoin, and starting one
+        here would bring Qobuz up on a source nobody selected."""
         source._is_service_active = AsyncMock(return_value=False)
         source._restart_service_and_wait = AsyncMock(return_value=True)
 
-        assert await source.on_allow_app_volume_changed(False) is True
+        assert await source.on_allow_app_volume_changed(allowed) is True
 
         source._restart_service_and_wait.assert_not_awaited()
 

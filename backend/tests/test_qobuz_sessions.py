@@ -259,6 +259,7 @@ async def test_a_reroute_ends_the_session_without_a_banner(world):
 
 async def test_locking_the_app_volume_ends_the_session_it_restarts_under(world):
     """A restart the user asked for, not a death: no banner, one restart."""
+    world.volume_flag.write_text("1")
     await world.app_plays(ON_AND_ON)
     assert await world.source.on_allow_app_volume_changed(False)
     await world.advance(1)
@@ -272,6 +273,7 @@ async def test_a_poll_the_old_sidecar_answers_opens_nothing_after_a_lock(world):
     """The poll keeps running across the volume-lock restart: an answer the old
     sidecar gave in that window, handled after the session ended, reopened it
     — a session flashed between two idle states."""
+    world.volume_flag.write_text("1")
     await world.app_plays(ON_AND_ON)
     world.poll_lands_during_restart = True
     before = len(world.published())

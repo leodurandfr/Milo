@@ -45,10 +45,11 @@ install_qobuz_proxy() {
     log_success "qobuz-proxy installed"
 }
 
-# Milō runs qobuz-proxy through its own launcher, which applies three adaptations
+# Milō runs qobuz-proxy through its own launcher, which applies four adaptations
 # upstream offers no configuration for: unity-gain volume policy (flag-gated on
 # the "allow app volume" setting — CamillaDSP owns volume), position/duration
-# in /api/status, and the player's state and the app's selection beside them. They bind to method names rather than to source text, and
+# in /api/status, the player's state and the app's selection beside them, and
+# the app told its slider is inert while the flag is off. They bind to method names rather than to source text, and
 # `--check` refuses a release that moved any of them — the same gate the in-app
 # updater runs before restarting the service onto a new version.
 install_qobuz_adapter() {
@@ -83,6 +84,7 @@ speakers:
   - name: Milo
     backend: local
     max_quality: 27        # 5=MP3 6=CD 7=HiRes96 27=HiRes192 (capped to device support)
+    device_type: streamer  # the icon the Qobuz app draws for this output (upstream's default: speaker)
     audio_device: milo_qobuz   # named ALSA PCM → CamillaDSP (direct) / LoopbackDLNA (multiroom)
     audio_buffer_size: 2048
 EOF

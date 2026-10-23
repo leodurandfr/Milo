@@ -211,6 +211,13 @@ class QobuzSource(BaseAudioSource):
         except OSError as e:
             self._logger.warning(f"Could not write Qobuz volume-policy flag: {e}")
 
+    def _read_volume_flag(self) -> bool | None:
+        """The policy the flag holds now, None when it cannot be read."""
+        try:
+            return QOBUZ_VOLUME_FLAG.read_text().strip() == "1"
+        except OSError:
+            return None
+
     async def _sync_volume_flag(self) -> None:
         """Refresh the flag from the persisted qobuz.allow_app_volume setting."""
         allowed = False
@@ -222,17 +229,21 @@ class QobuzSource(BaseAudioSource):
     async def on_allow_app_volume_changed(self, allowed: bool) -> bool:
         """Apply the 'allow app volume' toggle (settings reload_callback).
 
-        The running stream re-reads the flag on the next app volume command, so
-        unlocking is honored live. Locking must reset an already-lowered stream to
-        unity immediately, which only a restart forces — bounce the sidecar when
-        it is running, in the mailbox, ending the session it restarts under.
+        Both directions bounce a running sidecar, in the mailbox, ending the
+        session it restarts under: the app learns whether it owns the slider
+        only from JOIN_SESSION (milo-qobuz's fourth adaptation), and locking
+        must also reset an already-lowered stream to unity, which only a
+        restart forces.
         """
+        previous = self._read_volume_flag()
         self._write_volume_flag(allowed)
-        if allowed:
+        if previous == allowed:
+            # The sidecar joined under this policy already: a re-sent value
+            # (a resync, a retry) must not end the session for nothing.
             return True
-        return await self._submit(Result(self._restart_for_volume_lock))
+        return await self._submit(Result(self._restart_for_volume_policy))
 
-    async def _restart_for_volume_lock(self) -> bool:
+    async def _restart_for_volume_policy(self) -> bool:
         """The user's own request, not a death: the app lets go of the speaker."""
         if not await self._is_service_active():
             return True

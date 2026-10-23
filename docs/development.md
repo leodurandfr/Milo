@@ -572,7 +572,7 @@ is driven entirely by an external app:
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
   backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
   restating the install (single source of truth).
-- **Three adaptations**, applied at runtime by the launcher the unit runs,
+- **Four adaptations**, applied at runtime by the launcher the unit runs,
   [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz): the
   local backend's stream is held at unity gain (CamillaDSP is the sole volume
   authority, flag-gated on the "allow app volume" setting);
@@ -581,7 +581,11 @@ is driven entirely by an external app:
   `player_state`/`renderer_active` are added to the speaker — the player's own
   state (upstream folds loading, failed and released into one `idle`) and
   whether the Qobuz cloud has this speaker as the app's output, which is what
-  the source's session follows. They wrap
+  the source's session follows; and, with the setting off, JOIN_SESSION tells
+  the app the volume is the device's (`volumeRemoteControl` DEVICE, which
+  upstream sends only for a fixed-volume DLNA renderer) rather than leaving it a
+  slider that does nothing. The app reads that only when the sidecar joins, so
+  the setting restarts a running sidecar in both directions. They wrap
   methods rather than rewriting installed sources, so nothing is edited inside
   site-packages and the venv matches the released package exactly. `--check`
   answers whether a release still offers what they bind to; the image build runs

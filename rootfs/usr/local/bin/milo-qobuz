@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run qobuz-proxy with Milō's three adaptations, bound to names instead of to source text.
+"""Run qobuz-proxy with Milō's four adaptations, bound to names instead of to source text.
 
-Milō needs three things upstream does not offer as configuration:
+Milō needs four things upstream does not offer as configuration:
 
 1. **Volume policy.** CamillaDSP is the only attenuation stage in the audio path
    — the role `external_volume` plays for go-librespot and `ignore_volume_control`
@@ -26,7 +26,14 @@ Milō needs three things upstream does not offer as configuration:
    told (measured 2026-09-24). Not upstream's `is_renderer_active`, which also
    drops while the cloud WebSocket reconnects, with the music still playing.
 
-Both used to be applied by rewriting upstream's installed sources, anchored on
+4. **The app told who owns the volume.** The JOIN_SESSION capabilities say
+   whether the app controls the level (CONTROLLER) or the device does (DEVICE).
+   Upstream advertises DEVICE only for a DLNA renderer at fixed volume, so with
+   the flag off the app kept offering a slider that adaptation 1 makes inert.
+   It now advertises DEVICE whenever the flag is off — read at join time, which
+   is why the backend restarts the sidecar when the setting changes either way.
+
+The first three used to be applied by rewriting upstream's installed sources, anchored on
 exact lines. qobuz-proxy 1.6.0 moved one of those lines — `"volume"` left the
 `now_playing` literal for a conditional assignment, for a DLNA-only feature —
 without changing a single name, a single signature or a single key. The update
@@ -35,7 +42,8 @@ reading formatting.
 
 So the adaptations wrap methods. What they bind to is `Speaker.get_status`,
 `AudioOutputStream.set_volume`, the player's state and two progress properties,
-and the WebSocket manager's `_renderer_active`, which
+the WebSocket manager's `_renderer_active` and the `supports_volume_control`
+argument of `ProtocolCodec.encode_join_session` (qobuz-proxy ≥ 1.7.4), which
 only a real refactor moves — and `--check` says which one did, before the
 service is restarted onto it.
 
@@ -49,6 +57,7 @@ from the Qobuz app and watch the level.
 Run by milo-qobuz.service through the venv's own interpreter; every argument is
 forwarded to qobuz-proxy untouched.
 """
+import inspect
 import os
 import sys
 
@@ -77,12 +86,26 @@ def _mentions_key(func, key):
     return False
 
 
+def _keyword_only(func, name):
+    """Whether `func` takes `name` as a keyword-only argument.
+
+    Keyword-only is what makes the JOIN_SESSION wrapper safe: it sets the value
+    in kwargs, so a release that made it positional would raise "multiple
+    values" on every join rather than fail here.
+    """
+    if not callable(func):
+        return False
+    param = inspect.signature(func).parameters.get(name)
+    return param is not None and param.kind is inspect.Parameter.KEYWORD_ONLY
+
+
 def _bindings():
     """Everything the adaptations touch, with what to say when one has moved."""
     from qobuz_proxy import cli
     from qobuz_proxy.backends import PlaybackState
     from qobuz_proxy.backends.local.stream import AudioOutputStream
     from qobuz_proxy.connect import WsManager
+    from qobuz_proxy.connect.protocol import ProtocolCodec
     from qobuz_proxy.playback.player import QobuzPlayer
     from qobuz_proxy.speaker import Speaker
 
@@ -148,6 +171,13 @@ def _bindings():
             "_volume" in AudioOutputStream.__init__.__code__.co_names,
             "the gain attribute the stream multiplies by was renamed",
         ),
+        (
+            "ProtocolCodec.encode_join_session takes supports_volume_control by keyword",
+            _keyword_only(getattr(ProtocolCodec, "encode_join_session", None),
+                          "supports_volume_control"),
+            "the app can no longer be told the volume is the device's — it would "
+            "offer a slider that does nothing",
+        ),
     ]
 
 
@@ -190,8 +220,30 @@ def _app_volume_allowed():
         return False
 
 
+def advertised_volume_control(upstream):
+    """What JOIN_SESSION says about the app's slider: upstream's answer, and the flag.
+
+    Upstream's own refusal (a fixed-volume DLNA renderer) is kept; the flag can
+    only take control away from the app, never grant it back.
+    """
+    return upstream and _app_volume_allowed()
+
+
+def with_volume_policy(encode_join_session):
+    """`ProtocolCodec.encode_join_session`, advertising the flag's volume policy."""
+
+    def encode_join_session_with_policy(self, *args, **kwargs):
+        kwargs["supports_volume_control"] = advertised_volume_control(
+            kwargs.get("supports_volume_control", True)
+        )
+        return encode_join_session(self, *args, **kwargs)
+
+    return encode_join_session_with_policy
+
+
 def apply():
     from qobuz_proxy.backends.local.stream import AudioOutputStream
+    from qobuz_proxy.connect.protocol import ProtocolCodec
     from qobuz_proxy.speaker import Speaker
 
     stream_init = AudioOutputStream.__init__
@@ -221,6 +273,8 @@ def apply():
         return status
 
     Speaker.get_status = get_status
+
+    ProtocolCodec.encode_join_session = with_volume_policy(ProtocolCodec.encode_join_session)
 
 
 def main():

@@ -2,9 +2,9 @@
 """The gate that decides whether a qobuz-proxy release can be shipped.
 
 `rootfs/usr/local/bin/milo-qobuz` adds position/duration and the session's
-state to the sidecar's status and holds its stream at unity gain — three things
-upstream offers no setting for.
-Both bind to names, and `--check` is what refuses a release that moved one,
+state to the sidecar's status, holds its stream at unity gain and tells the app
+when its slider is inert — things upstream offers no setting for.
+They bind to names, and `--check` is what refuses a release that moved one,
 before `_update_qobuz_proxy` restarts the service onto it.
 
 What breaks when this fails: the check answers "moved" for a release that is
@@ -81,6 +81,57 @@ def test_the_app_slider_is_honoured_only_behind_the_flag(adapter, tmp_path, monk
         (tmp_path / adapter.VOLUME_FLAG).write_text(flag)
 
     assert adapter._app_volume_allowed() is expected
+
+
+@pytest.mark.parametrize("flag,upstream,expected", [
+    ("1", True, True), ("0", True, False), (None, True, False), ("1", False, False),
+])
+def test_the_app_is_offered_the_slider_only_behind_the_flag(adapter, tmp_path, monkeypatch,
+                                                           flag, upstream, expected):
+    """JOIN_SESSION is where the app learns whether its slider does anything.
+
+    Locked, the app must be told the volume is the device's, or it shows a
+    slider the stream ignores; and the flag never re-grants a control upstream
+    itself withheld (a fixed-volume DLNA renderer).
+    """
+    monkeypatch.setenv("QOBUZPROXY_DATA_DIR", str(tmp_path))
+    if flag is not None:
+        (tmp_path / adapter.VOLUME_FLAG).write_text(flag)
+
+    assert adapter.advertised_volume_control(upstream) is expected
+
+
+def test_the_join_carries_the_policy_and_keeps_upstream_s_refusal(adapter, tmp_path,
+                                                                   monkeypatch):
+    """The wrapper is what reaches the wire: with the flag on, a fixed-volume
+    renderer's False from upstream must survive, and with it off every join
+    says the volume is the device's."""
+    monkeypatch.setenv("QOBUZPROXY_DATA_DIR", str(tmp_path))
+    sent = []
+
+    def encode_join_session(self, device_uuid, *, supports_volume_control=True, is_active=False):
+        sent.append(supports_volume_control)
+        return b"frame"
+
+    encode = adapter.with_volume_policy(encode_join_session)
+    (tmp_path / adapter.VOLUME_FLAG).write_text("1")
+    assert encode(None, "uuid", supports_volume_control=True, is_active=True) == b"frame"
+    encode(None, "uuid", supports_volume_control=False)
+    (tmp_path / adapter.VOLUME_FLAG).write_text("0")
+    encode(None, "uuid", supports_volume_control=True)
+
+    assert sent == [True, False, False]
+
+
+def test_a_positional_volume_argument_is_refused_by_the_check(adapter):
+    """The wrapper sets the value by keyword; a release taking it positionally
+    would fail every join with "multiple values", so the check must say so."""
+    def keyword_only(self, *, supports_volume_control=True): ...
+    def positional(self, supports_volume_control=True): ...
+
+    assert adapter._keyword_only(keyword_only, "supports_volume_control") is True
+    assert adapter._keyword_only(positional, "supports_volume_control") is False
+    assert adapter._keyword_only(None, "supports_volume_control") is False
 
 
 class _State:
