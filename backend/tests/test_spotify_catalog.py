@@ -128,6 +128,26 @@ def test_a_card_the_browser_cannot_open_is_left_out_with_the_shelf_it_empties():
     assert SHOWS not in {shelf["id"] for shelf in shelves}
 
 
+def test_a_cover_named_as_a_spotify_uri_is_given_the_address_the_apps_fetch():
+    """The home names the account's own playlists' covers spotify:image:… and
+    spotify:mosaic:…, which an <img> cannot load: the "Your playlists" shelf
+    drew ten empty tiles."""
+    yours = "spotify:section:0JQ5DAnM3wGh0gz1MXnu4d"
+    a, b, c, d = (f"ab67616d00001e02{n}" + "0" * 23 for n in "abcd")
+    _, shelves = home_shelves({"body": [
+        header(yours, "Your playlists"),
+        card(yours, "spotify:playlist:6hQVJNPRii1g1lWyY19l0E", "Cool Rap", image=f"spotify:image:{a}"),
+        card(yours, "spotify:playlist:6R2D6DDdpaIXsi61koHFz7", "Trip hop", image=f"spotify:mosaic:{a}:{b}:{c}:{d}"),
+        card(yours, "spotify:playlist:37i9dQZF1E35HBJ2wuuMhp", "Daily Mix 1"),
+    ]})
+
+    assert [card["image"] for card in shelves[0]["items"]] == [
+        f"https://i.scdn.co/image/{a}",
+        f"https://mosaic.scdn.co/300/{a}{b}{c}{d}",
+        "https://i.scdn.co/image/Daily Mix 1",
+    ]
+
+
 def test_a_hidden_shelf_is_left_out_whole():
     """Weekend playlists is Spotify's editorial hits, not the account's: the
     browser never draws it, header or cards."""

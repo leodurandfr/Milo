@@ -60,6 +60,8 @@ _ALBUM_COVER = re.compile(r"^(https://i\.scdn\.co/image/ab67616d0000)(b273|1e02|
 THUMBNAIL_SIZE = "4851"
 MOSAIC_URL = "https://mosaic.scdn.co/300/{}"
 MOSAIC_TILES = 4
+_IMAGE_URI = "spotify:image:"
+_MOSAIC_URI = "spotify:mosaic:"
 
 
 def spotify_gid(base62_id: str) -> str:
@@ -104,6 +106,20 @@ def leading_covers(entries: List[Dict[str, Any]], complete: bool = False) -> Lis
             if len(covers) == MOSAIC_TILES:
                 break
     return covers
+
+
+def image_address(uri: Optional[str]) -> Optional[str]:
+    """A picture the home or an artist page names as a Spotify uri, as the
+    address the apps fetch it from: the account's own playlists come as
+    spotify:image:<id> or spotify:mosaic:<id>:<id>:<id>:<id> (measured
+    2026-10-23, "Your playlists"), which no browser loads."""
+    if not uri:
+        return None
+    if uri.startswith(_IMAGE_URI):
+        return f"https://i.scdn.co/image/{uri[len(_IMAGE_URI):]}"
+    if uri.startswith(_MOSAIC_URI):
+        return MOSAIC_URL.format("".join(uri[len(_MOSAIC_URI):].split(":")))
+    return uri
 
 
 def playlist_cover(covers: List[str]) -> Optional[str]:
@@ -255,7 +271,7 @@ def _home_card(card: Dict[str, Any], section: str) -> Optional[Dict[str, Any]]:
     if kind is None:
         return None
     text = card.get("text") or {}
-    image = ((card.get("images") or {}).get("main") or {}).get("uri")
+    image = image_address(((card.get("images") or {}).get("main") or {}).get("uri"))
     return {
         "uri": uri,
         "kind": kind,
@@ -378,7 +394,7 @@ def _view_card(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     kind, item_id = match.groups()
     text = entry.get("text") or {}
-    image = ((entry.get("images") or {}).get("main") or {}).get("uri")
+    image = image_address(((entry.get("images") or {}).get("main") or {}).get("uri"))
     return {
         "uri": f"spotify:{kind}:{item_id}",
         "kind": _CARD_KINDS[kind],
