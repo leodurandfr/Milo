@@ -297,9 +297,13 @@ onUnmounted(() => {
 /* The dropdown fills its parent, and the actions slot sizes to its content: it
    needs a width of its own on desktop, and takes the rest of the row once the
    header stacks. `.dropdown` doubles the class to outrank the component's own
-   `flex: 1`, which would otherwise collapse it inside a content-sized slot. */
+   `flex: 1`, which would otherwise collapse it inside a content-sized slot.
+   The width is a `width`, not a flex-basis: WebKit sizes the slot from the
+   items' widths and ignores their basis, so a 256px basis overflowed the slot
+   to the right in Safari. */
 .eq-preset-dropdown.dropdown {
-  flex: 0 0 256px;
+  flex: none;
+  width: 256px;
 }
 
 /* Loudness / Compressor controls grid */
@@ -313,6 +317,7 @@ onUnmounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .eq-preset-dropdown.dropdown {
     flex: 1 1 auto;
+    width: 100%;
   }
 
   .effect-controls {
