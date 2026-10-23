@@ -58,11 +58,13 @@ step.
   and a subwoofer gets the low end automatically.
 - **Equalizer**: 10 bands, 22 presets, a compressor and loudness compensation, on every
   speaker separately (CamillaDSP).
-- **Lyrics**: synced line by line with the track, from Spotify, TIDAL, your library, a CD or
-  the radio.
+- **Lyrics**: synced line by line with the track, on Spotify, Qobuz, TIDAL, AirPlay, your
+  library, a CD, or the radio once the song is recognized.
 - **Light and dark themes**, or Auto, which turns dark from sunset to sunrise. The screenshots
   on this page show both.
-- **Updates**: one press updates Milō and every multiroom speaker.
+- **Updates**: one press updates Milō and every multiroom speaker. The programs behind the
+  sources (Spotify Connect, AirPlay, Qobuz Connect, the music library), multiroom and the
+  equalizer update the same way, each to the version tested with Milō.
 - **8 languages**: English, French, German, Spanish, Portuguese, Italian, Chinese, Hindi.
 
 ## Hardware
