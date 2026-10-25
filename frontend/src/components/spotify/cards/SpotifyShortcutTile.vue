@@ -46,8 +46,8 @@ defineEmits(['click']);
 }
 
 .tile-cover {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
   background: var(--color-surface-glass);
 }
