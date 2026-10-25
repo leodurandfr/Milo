@@ -18,7 +18,7 @@
     <Teleport to="body">
       <Transition name="dropdown-menu">
         <div v-if="isOpen" ref="menuRef" class="dropdown-menu glass-menu"
-          :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'open-upward': openUpward, 'open-leftward': openLeftward }]"
+          :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'has-check': hasCheck, 'open-upward': openUpward, 'open-leftward': openLeftward }]"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }">
           <!-- The list scrolls inside the glass, never the glass itself: its rim
                is an absolutely placed layer that would scroll away with it. -->
@@ -27,7 +27,7 @@
             <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
               :class="['text-body-medium', { 'is-selected': option.value === modelValue }]"
               @click="selectOption(option.value)">
-              <SvgIcon v-if="iconPlacement === 'end'" name="check" :size="20" class="dropdown-item-check" />
+              <SvgIcon v-if="hasCheck" name="check" :size="20" class="dropdown-item-check" />
               <span class="dropdown-item-label">{{ option.label }}</span>
               <span v-if="option.icon" class="dropdown-item-icon" :role="option.iconLabel ? 'img' : null"
                 :aria-label="option.iconLabel" :aria-hidden="option.iconLabel ? null : 'true'">
@@ -104,6 +104,13 @@ const isOpen = ref(false);
 const openUpward = ref(false);
 const openLeftward = ref(false);
 const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
+
+// The check's column is kept only while one option holds it: a menu of
+// actions (no `modelValue`, or one none of its options carries) would
+// otherwise indent every label by an empty 20 px.
+const hasCheck = computed(() =>
+  props.iconPlacement === 'end' && props.options.some(opt => opt.value === props.modelValue)
+);
 
 const selectedLabel = computed(() => {
   if (props.displayOverride) return props.displayOverride;
@@ -397,10 +404,15 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
 }
 
-/* Aligned on the labels: the item's inset, the check's 20 px, the gap. */
+/* Aligned on the labels: the item's inset, plus the check's 20 px and the gap
+   when the check's column is kept. */
 .dropdown-title {
-  padding: var(--space-01) var(--space-04) var(--space-01) calc(var(--space-02) + 20px + var(--space-02));
+  padding: var(--space-01) var(--space-04) var(--space-01) var(--space-02);
   color: var(--color-text-secondary);
+}
+
+.dropdown-menu.has-check .dropdown-title {
+  padding-left: calc(var(--space-02) + 20px + var(--space-02));
 }
 
 .dropdown-menu.icons-start .dropdown-title {
