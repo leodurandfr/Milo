@@ -111,6 +111,7 @@ const tagText = computed(() => {
 }
 
 .card-actions {
-  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>
