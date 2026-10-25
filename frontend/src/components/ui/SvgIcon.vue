@@ -41,6 +41,7 @@ import queueIcon from '@/assets/icons/queue.svg?raw'
 import checkIcon from '@/assets/icons/check.svg?raw'
 import clockCounterClockwiseIcon from '@/assets/icons/clock-counter-clockwise.svg?raw'
 import downloadSimpleIcon from '@/assets/icons/download-simple.svg?raw'
+import bookmarkSimpleIcon from '@/assets/icons/bookmark-simple.svg?raw'
 import sealCheckIcon from '@/assets/icons/seal-check.svg?raw'
 import rewind15Icon from '@/assets/icons/rewind-15.svg?raw'
 import forward30Icon from '@/assets/icons/forward-30.svg?raw'
@@ -106,6 +107,7 @@ const icons = {
   check: checkIcon,
   clockCounterClockwise: clockCounterClockwiseIcon,
   downloadSimple: downloadSimpleIcon,
+  bookmarkSimple: bookmarkSimpleIcon,
   sealCheck: sealCheckIcon,
   rewind15: rewind15Icon,
   forward30: forward30Icon,
