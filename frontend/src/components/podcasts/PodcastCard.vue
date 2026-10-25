@@ -8,20 +8,12 @@
       <h3 class="podcast-name heading-4">{{ podcast.name }}</h3>
       <p v-if="podcast.publisher" class="podcast-publisher text-mono-medium">{{ podcast.publisher }}</p>
     </div>
-
-    <div v-if="showActions" class="card-actions">
-      <Button variant="control" size="small" @pointerdown.stop
-        @click.stop="emit('unsubscribe', podcast.uuid)">
-        {{ t('podcasts.unsubscribe') }}
-      </Button>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from '@/services/i18n'
-import Button from '@/components/ui/Button.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
 import { podcastPlaceholder } from '@/constants/placeholders'
 
@@ -35,16 +27,10 @@ const props = defineProps({
   position: {
     type: Number,
     default: null
-  },
-  // The unsubscribe button: only the subscriptions list, where every card is
-  // one the user follows, shows it.
-  showActions: {
-    type: Boolean,
-    default: false
   }
 })
 
-const emit = defineEmits(['select', 'unsubscribe'])
+const emit = defineEmits(['select'])
 
 const isSubscribed = computed(() => {
   return props.podcast.is_subscribed || false
@@ -108,10 +94,5 @@ const tagText = computed(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.card-actions {
-  display: flex;
-  flex-direction: column;
 }
 </style>

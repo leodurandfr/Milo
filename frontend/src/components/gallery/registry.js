@@ -1093,7 +1093,7 @@ export const REGISTRY = {
 
   PodcastCard: {
     component: PodcastCard,
-    args: { showActions: true, class: 'canvas-column' },
+    args: { class: 'canvas-column' },
     presets: {
       podcast: {
         'Not subscribed': {

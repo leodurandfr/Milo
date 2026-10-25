@@ -48,11 +48,6 @@
   </GalleryItem>
 
   <GalleryItem id="PodcastCard">
-    <GalleryVariant label=":show-actions — the unsubscribe button of the subscriptions list" stacked>
-      <div class="column">
-        <PodcastCard :podcast="{ ...podcast, is_subscribed: true }" show-actions />
-      </div>
-    </GalleryVariant>
     <GalleryVariant label=":position — the chart rank prefix" stacked>
       <div class="column">
         <PodcastCard :podcast="podcast" :position="1" />

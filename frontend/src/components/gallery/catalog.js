@@ -434,7 +434,7 @@ export const ENTRIES = [
     id: 'PodcastCard',
     group: 'cards',
     file: 'components/podcasts/PodcastCard.vue',
-    summary: 'A show, in the search results and the subscription list. `position` prefixes the chart rank, `showActions` arms the subscribe/unsubscribe button, and `is_subscribed` on the podcast itself decides which of the two that button is.',
+    summary: 'A show, in the search results and the subscription list. `position` prefixes the chart rank, and `is_subscribed` on the podcast itself adds the subscribed tag.',
   },
   {
     id: 'SkeletonPodcastCard',

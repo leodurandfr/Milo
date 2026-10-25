@@ -15,10 +15,10 @@
             :show-shuffle="false"
           >
             <template #actions>
-              <Button v-if="!podcast.is_subscribed" variant="brand" size="small" @click="handleSubscribe">
+              <Button v-if="!podcast.is_subscribed" variant="brand" @click="handleSubscribe">
                 {{ t('podcasts.subscribe') }}
               </Button>
-              <Button v-else variant="on-contrast" size="small" @click="handleUnsubscribe">
+              <Button v-else variant="on-contrast" @click="handleUnsubscribe">
                 {{ t('podcasts.unsubscribe') }}
               </Button>
             </template>

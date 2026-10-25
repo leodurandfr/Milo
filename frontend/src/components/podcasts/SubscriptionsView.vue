@@ -16,7 +16,7 @@
 
             <div v-else key="loaded" class="podcasts-grid">
               <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)"
-                :showActions="true" @select="$emit('select-podcast', sub.uuid)" @unsubscribe="handleUnsubscribe" />
+                @select="$emit('select-podcast', sub.uuid)" />
             </div>
           </Transition>
         </div>
@@ -40,7 +40,6 @@
 import { computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
-import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { onPageReturn } from '@/composables/useNavigationStack'
 import PodcastCard from './PodcastCard.vue'
@@ -61,16 +60,6 @@ function formatSubscription(sub) {
     image_url: sub.image_url,
     is_subscribed: true,
     publisher: ''
-  }
-}
-
-async function handleUnsubscribe(uuid) {
-  const result = await apiCall.delete(`/api/podcast/subscriptions/${uuid}`, {
-    category: 'podcast',
-    message: 'Error unsubscribing',
-  })
-  if (result.ok) {
-    podcastStore.removeSubscription(uuid)
   }
 }
 
