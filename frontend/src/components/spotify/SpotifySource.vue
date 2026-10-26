@@ -118,10 +118,7 @@ const currentTitle = computed(() => {
   if (currentView.value === 'discography') return t('spotify.discography');
   if (currentView.value === 'section') return currentParams.value.title || t('audioSources.spotify');
   if (currentView.value === 'context') {
-    return {
-      liked: t('spotify.likedSongs'),
-      album: t('spotify.album'),
-    }[currentParams.value.kind] ?? t('spotify.playlist');
+    return currentParams.value.kind === 'album' ? t('spotify.album') : t('spotify.playlist');
   }
   return t('audioSources.spotify');
 });
