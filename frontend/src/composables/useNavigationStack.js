@@ -132,9 +132,12 @@ export function onPageReturn(fn) {
  * @param {Object} [options] - Optional configuration
  * @param {import('vue').Ref<HTMLElement|null>} [options.scrollElRef] - Scroll container ref.
  *   When provided, scrollTop is captured on push() and signalled for restore on back().
+ * @param {(params: Object) => *} [options.pageId] - What tells two pages of one view
+ *   apart, from their params. Defaults to the params whole; a source whose params
+ *   also carry what a page shows before it loads (a name, a cover) names its ids.
  * @returns {Object} Navigation state and methods
  */
-export function useNavigationStack(initialView = 'home', { scrollElRef = null } = {}) {
+export function useNavigationStack(initialView = 'home', { scrollElRef = null, pageId = (params) => params } = {}) {
   const stack = ref([entry(initialView, {}, false)]);
 
   const currentView = computed(
@@ -181,15 +184,24 @@ export function useNavigationStack(initialView = 'home', { scrollElRef = null } 
    */
   const pendingScrollRestore = ref(null);
 
+  const samePage = (e, view, params) =>
+    e.view === view && JSON.stringify(pageId(e.params)) === JSON.stringify(pageId(params));
+
   /**
    * Push a new view onto the stack, saving the current scroll position of the leaving view.
+   * The page already on screen is not pushed again (its album opened from the
+   * player while on it), so back never lands on the page it leaves.
+   *
+   * @returns {boolean} whether the stack moved
    */
   function push(view, params = {}) {
     const currentEntry = stack.value[stack.value.length - 1];
+    if (currentEntry && samePage(currentEntry, view, params)) return false;
     if (currentEntry && scrollElRef?.value) {
       currentEntry.scrollTop = scrollElRef.value.scrollTop;
     }
     stack.value.push(entry(view, params));
+    return true;
   }
 
   /**

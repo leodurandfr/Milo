@@ -91,6 +91,25 @@ describe('useNavigationStack — kept pages', () => {
     expect(nav.currentKey.value).not.toBe(first);
   });
 
+  it('does not push the page already on screen, so back never lands on it', () => {
+    let nav;
+    mount(defineComponent({
+      setup() {
+        nav = useNavigationStack('home', { pageId: ({ id }) => id });
+        return () => null;
+      },
+    }));
+    nav.push('album', { id: 'a', name: 'From a list' });
+    const album = nav.currentKey.value;
+    expect(nav.push('album', { id: 'a', name: 'From the player' })).toBe(false);
+    expect(nav.currentKey.value).toBe(album);
+    expect(nav.push('album', { id: 'b' })).toBe(true);
+    nav.back();
+    expect(nav.currentKey.value).toBe(album);
+    nav.back();
+    expect(nav.currentView.value).toBe('home');
+  });
+
   it('draws an entry through one shell, named after its key', () => {
     const { nav, show } = host();
     nav.push('album', { id: 'a' });

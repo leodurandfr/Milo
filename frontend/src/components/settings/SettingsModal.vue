@@ -288,8 +288,7 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
 function push(view, params) {
   showPowerMenu.value = false;
   resetPowerActions();
-  navPush(view, params);
-  prepareNavigation();
+  if (navPush(view, params)) prepareNavigation();
 }
 function back() { navBack(); prepareNavigation(); }
 

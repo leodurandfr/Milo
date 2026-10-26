@@ -110,8 +110,8 @@ describe('useRenderWindow', () => {
     const reached = sink.api.visible.value.length;
     expect(reached).toBeGreaterThan(RENDER_CHUNK);
 
-    // The same list opened again further down the stack starts from its first rows…
-    sink.nav.push('list');
+    // Another entry of the same view further down the stack starts from its first rows…
+    sink.nav.push('list', { id: 'another' });
     await remount();
     expect(sink.api.visible.value).toHaveLength(RENDER_CHUNK);
 

@@ -91,7 +91,10 @@ const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? nu
 
 // Navigation with stack — scrollElRef enables scroll position save on push() and restore on back()
 const { currentView, currentParams, currentKey, currentPage, keptKeys, pagesSettled, canGoBack, push, back, pendingScrollRestore } =
-  useNavigationStack('home', { scrollElRef: layoutScrollRef })
+  useNavigationStack('home', {
+    scrollElRef: layoutScrollRef,
+    pageId: ({ podcastUuid, episodeUuid, genre }) => [podcastUuid, episodeUuid, genre],
+  })
 
 // The pane follows the episode, and the episode survives a stop: an auto-stop
 // publishes the one a play press would reopen, at the second it stopped. An

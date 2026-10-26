@@ -97,7 +97,7 @@ const { t } = useI18n();
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
 const { currentView, currentParams, currentKey, currentPage, keptKeys, pagesSettled, canGoBack, push, back, reset, goTo, pendingScrollRestore } =
-  useNavigationStack('home', { scrollElRef: layoutScrollRef });
+  useNavigationStack('home', { scrollElRef: layoutScrollRef, pageId: ({ uri, id, group }) => [uri, id, group] });
 
 // The views that are one page of something (a list, an artist, its
 // discography): an account switch leaves them.

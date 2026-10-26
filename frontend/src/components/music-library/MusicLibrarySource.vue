@@ -111,7 +111,10 @@ store.activeTab = 'albums';
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
 const { currentView, currentParams, currentKey, currentPage, keptKeys, pagesSettled, canGoBack, push, back, reset, pendingScrollRestore } =
-  useNavigationStack('home', { scrollElRef: layoutScrollRef });
+  useNavigationStack('home', {
+    scrollElRef: layoutScrollRef,
+    pageId: ({ albumId, artistId, playlistId, genre }) => [albumId, artistId, playlistId, genre],
+  });
 
 // Search and Liked Songs are the two views scoped ON the selected space rather
 // than on what is browsable: they name it by library_id, which the backend
