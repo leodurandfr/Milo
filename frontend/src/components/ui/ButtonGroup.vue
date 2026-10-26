@@ -149,13 +149,12 @@ function selectOption(value) {
   border-radius: var(--radius-05);
 }
 
-/* The panel showing through the track: white in light, the panel's own dark
-   gray in dark. */
+/* Lifted out of the track (--color-segment). */
 .button-group__thumb {
   position: absolute;
   top: 0;
   left: 0;
-  background: var(--color-surface);
+  background: var(--color-segment);
   box-shadow: var(--shadow-thumb);
   pointer-events: none;
   transition: opacity var(--transition-fast);

@@ -40,7 +40,7 @@ defineEmits(['click']);
   min-width: 0;
   padding-right: var(--space-03);
   border-radius: var(--radius-02);
-  background: var(--color-surface-on-wash);
+  background: var(--color-surface);
   overflow: hidden;
   cursor: pointer;
 }

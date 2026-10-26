@@ -271,7 +271,7 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   height: 100%;
   overflow: hidden;
   position: relative;
-  background: var(--color-surface);
+  background: var(--color-surface-solid);
 }
 
 /* === DARK THEME BACKDROP ===

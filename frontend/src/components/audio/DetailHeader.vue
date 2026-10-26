@@ -123,7 +123,7 @@ const hasActions = computed(
   flex-direction: row;
   align-items: center;
   gap: var(--space-03);
-  background: var(--color-contrast);
+  background: var(--color-contrast-on-ground);
   border-radius: var(--radius-04);
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }

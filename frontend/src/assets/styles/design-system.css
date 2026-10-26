@@ -38,9 +38,10 @@
     --gray-600: #676767;
     --gray-800: #2f2f2f;
     --gray-845: #292929;
-    --gray-850: #282828;
-    --gray-900: #1f1f1f;
+    --gray-875: #232323;
+    --gray-920: #1c1c1c;
     --gray-950: #161616;
+    --gray-970: #121212;
     --gray-1000: #0b0b0b;
     /* Tints. */
     --gray-0-a12: color-mix(in srgb, var(--gray-0) 12%, transparent);
@@ -48,12 +49,14 @@
     --gray-0-a32: color-mix(in srgb, var(--gray-0) 32%, transparent);
     --gray-0-a50: color-mix(in srgb, var(--gray-0) 50%, transparent);
     --gray-0-a80: color-mix(in srgb, var(--gray-0) 80%, transparent);
+    --gray-100-a3: color-mix(in srgb, var(--gray-100) 3%, transparent);
     --gray-100-a4: color-mix(in srgb, var(--gray-100) 4%, transparent);
+    --gray-100-a5: color-mix(in srgb, var(--gray-100) 5%, transparent);
+    --gray-100-a8: color-mix(in srgb, var(--gray-100) 8%, transparent);
     --gray-100-a10: color-mix(in srgb, var(--gray-100) 10%, transparent);
     --gray-100-a14: color-mix(in srgb, var(--gray-100) 14%, transparent);
     --gray-100-a80: color-mix(in srgb, var(--gray-100) 80%, transparent);
     --gray-200-a50: color-mix(in srgb, var(--gray-200) 50%, transparent);
-    --gray-500-a9: color-mix(in srgb, var(--gray-500) 9%, transparent);
     --gray-500-a16: color-mix(in srgb, var(--gray-500) 16%, transparent);
     --gray-500-a32: color-mix(in srgb, var(--gray-500) 32%, transparent);
     --gray-845-a50: color-mix(in srgb, var(--gray-845) 50%, transparent);
@@ -63,7 +66,6 @@
     --gray-950-a6: color-mix(in srgb, var(--gray-950) 6%, transparent);
     --gray-950-a10: color-mix(in srgb, var(--gray-950) 10%, transparent);
     --gray-950-a32: color-mix(in srgb, var(--gray-950) 32%, transparent);
-    --gray-950-a50: color-mix(in srgb, var(--gray-950) 50%, transparent);
     --gray-950-a72: color-mix(in srgb, var(--gray-950) 72%, transparent);
     --gray-950-a80: color-mix(in srgb, var(--gray-950) 80%, transparent);
     --gray-950-a96: color-mix(in srgb, var(--gray-950) 96%, transparent);
@@ -83,26 +85,37 @@
     /* The ground a screen is painted on: the page, the setup wizard, the
        gallery. */
     --color-ground: light-dark(var(--gray-25), var(--gray-1000));
-    /* Raised from the ground: a card, a modal's section, a source's header, a
-       popover, a key. A field or an outlined button is not one: it is the fill
-       of the surface it sits on plus a stroke. */
-    --color-surface: light-dark(var(--gray-0), var(--gray-950));
-    /* The surface at half opacity: a card waiting for its artwork, a picture
-       set aside while it loads. */
-    --color-surface-glass: light-dark(var(--gray-0-a50), var(--gray-950-a50));
+    /* Raised from the ground: a card, a modal's section, a popover, a key. A field or an outlined button is not one: it is the fill
+       of the surface it sits on plus a stroke.
+       In dark, elevation is light added: the surface, the inset and the tile
+       are the same light ink at a low alpha, each laid on the one below. An
+       opaque dark gray takes the opposite tint of a source's wash around it
+       (warm on the podcast violet, pink on the Spotify green) where white in
+       light never does; a translucent one takes the wash's own. What covers
+       other content stays opaque: on the glass (see .glass-shell), and
+       --color-surface-solid below. */
+    --color-surface: light-dark(var(--gray-0), var(--gray-100-a3));
+    /* A surface that hides what is under it, where a translucent one would
+       let it through: the full player's panel over the navigation it keeps
+       mounted, the setup card under its sticky fade. */
+    --color-surface-solid: light-dark(var(--gray-0), var(--gray-970));
+    /* A card waiting for its artwork, a picture set aside while it loads:
+       the surface at half opacity in light; in dark the surface itself, since
+       half of a step that small no longer reads against the ground. */
+    --color-surface-glass: light-dark(var(--gray-0-a50), var(--gray-100-a3));
+    /* The bar that heads a screen, a source's navigation header: the surface
+       in light; in dark the level of the detail header below it
+       (--color-contrast-on-ground), a step above the cards. */
+    --color-header: light-dark(var(--gray-0), var(--gray-100-a8));
     /* What a surface holds: a row, a value pill, an info box, an icon's
        holder, the transport plate, a disabled fill. Below the surface in
        light, a step above it in dark — the step iOS keeps between a grouped
        list and its rows, larger than the light one (CIELAB ΔL* 2.8 × 1.6)
        because the eye reads a step between dark tones as smaller. */
-    --color-inset: light-dark(var(--gray-25), var(--gray-900));
+    --color-inset: light-dark(var(--gray-25), var(--gray-100-a5));
     /* What an inset holds — the icon tile of a row, a value pill in an info
        box — one step above it. */
-    --color-tile: light-dark(var(--gray-0), var(--gray-850));
-    /* A surface laid on a screen that may carry a source's wash — a screen's
-       header, a shortcut tile: the surface in light, a translucent gray in
-       dark so it reads the same over the ground and over the wash. */
-    --color-surface-on-wash: light-dark(var(--gray-0), var(--gray-500-a9));
+    --color-tile: light-dark(var(--gray-0), var(--gray-100-a4));
 
     /* === FILLS === */
     /* Three strengths of a neutral fill. The strong one: progress, a Toggle
@@ -119,6 +132,11 @@
     --color-fill-faint: light-dark(var(--gray-950-a6), var(--gray-100-a10));
     /* The highlight a placeholder's shimmer sweeps across --color-fill-faint. */
     --color-shimmer: light-dark(var(--gray-950-a2), var(--gray-100-a14));
+    /* The thumb of a ButtonGroup, over its fill-faint track: white in light;
+       in dark a light ink strong enough to read a step above the track as
+       iOS's does (CIELAB ΔL* 13 in dark against 7.5 in light, the dark step
+       read as the smaller one). */
+    --color-segment: light-dark(var(--gray-0), var(--gray-100-a14));
     /* The knob of a Toggle or a slider, the dot of a radio: a light disc in
        both themes, as a physical switch's would be. */
     --color-thumb: light-dark(var(--gray-0), var(--gray-100));
@@ -174,10 +192,17 @@
     --color-menu-drop: light-dark(var(--gray-1000-a25), var(--gray-1000-a45));
 
     /* === CONTRAST === */
-    /* A surface dark in both themes, which carries white text: a detail
-       header, the lyrics, a notification, the artist index's bubble. */
-    --color-contrast: light-dark(var(--gray-950), var(--gray-800));
-    --color-contrast-80: light-dark(var(--gray-950-a80), var(--gray-800-a80));
+    /* A surface dark in both themes, which carries white text: the lyrics,
+       a notification, the artist index's bubble. The
+       same tone in both: in dark it is the surface of the glass, never a
+       step lighter than the cards around it. */
+    --color-contrast: var(--gray-950);
+    --color-contrast-80: var(--gray-950-a80);
+    /* A contrast surface laid on the ground, a detail page's header: dark in
+       light; in dark nothing on the ground is darker, so it stands out the
+       other way, a step lighter than the cards around it (CIELAB L* ~11
+       against their ~5), half of the old opaque #2f2f2f, which glared. */
+    --color-contrast-on-ground: light-dark(var(--gray-950), var(--gray-100-a8));
     /* A white glint on a contrast surface: the fill of a button or a track
        drawn on it. */
     --color-glint: var(--gray-0-a12);
@@ -804,6 +829,13 @@
    that has one, so the glass would only see that layer's veil and paint it
    a second time under its tone. */
 .glass-shell {
+    /* What is laid on the glass is opaque (a modal's sections and what they
+       hold, its rows on glass, the dock's keys): what is written on it never
+       depends on what shows through, and the overlay under a modal darkens
+       the glass, so the ground's dark steps would sink into it. */
+    --color-surface: light-dark(var(--gray-0), var(--gray-950));
+    --color-inset: light-dark(var(--gray-25), var(--gray-920));
+    --color-tile: light-dark(var(--gray-0), var(--gray-875));
     position: relative;
     isolation: isolate;
     background: var(--color-shell);

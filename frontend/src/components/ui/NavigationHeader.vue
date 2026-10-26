@@ -122,7 +122,7 @@ function unpinWidth(el) {
 .navigation-header {
   position: relative;
   display: flex;
-  background: var(--color-surface-on-wash);
+  background: var(--color-header);
   border-radius: var(--radius-06);
   padding: var(--space-03);
   min-height: 72px;
