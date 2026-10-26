@@ -146,7 +146,7 @@ watch(() => (store.signingIn ? null : store.account), (signedIn) => {
 }
 
 .shortcut-skeleton {
-  height: 64px;
+  height: 48px;
   border-radius: var(--radius-02);
 }
 
