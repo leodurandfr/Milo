@@ -6,12 +6,15 @@ and [Milo-iOS](https://github.com/leodurandfr/Milo-iOS)) all drive a unit over t
 surface: a REST API + a single WebSocket**.
 
 This page maps that surface at the *router-group* level — a quick mental model of the app.
-It is **not** an endpoint-by-endpoint listing (~200 operations move too often to hand-maintain).
-For exact, always-current request/response shapes, use the live sources of truth, served by
-every unit:
+To drive a unit from your own code, start with the [integration guide](integration.md). The
+exhaustive listings are generated from the code at each release and checked against it by a test:
 
-| Source of truth | Where |
+| Reference | Where |
 |---|---|
+| REST operations, with their stability | [reference/rest.md](reference/rest.md) |
+| WebSocket events and their payloads | [reference/ws-events.md](reference/ws-events.md) |
+| The audio state | [reference/audio-state.md](reference/audio-state.md) |
+| Source commands and their parameters | [reference/commands.md](reference/commands.md) |
 | Interactive docs (Swagger UI) | `http://milo.local/api/docs` (ReDoc: `/api/redoc`) |
 | OpenAPI schema (JSON) | `http://milo.local/api/openapi.json` |
 | Milo-Mac wire contract (pinned) | [`backend/tests/contracts/milo_mac_contract.json`](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_mac_contract.json) |
@@ -94,8 +97,10 @@ both answer `403 {"status": "error", "message": "Untrusted request origin"}`:
   script, a native app — passes. So a page served from another machine of the LAN by its IP address
   can drive the unit: the checks stop pages from the internet, not the local network.
 
-The `/ws` upgrade is not checked at all. The socket only reads — the server ignores everything a
-client sends after `ready` — but anything that reaches it receives the unit's state.
+The **`/ws` upgrade** passes the same `Host` check, and the `Origin` check whatever it asks for:
+a browser always names the page in `Origin` when it opens a socket, and CORS does not cover a
+WebSocket, so this is what keeps a page from the internet from reading the state. A refused upgrade
+is answered `403` (close code 1008). Like curl over HTTP, a client that sends no `Origin` passes.
 
 The API is served on port 80 by nginx, which proxies `/api/` and `/ws` to the backend. The backend
 also listens on port **8000** on every interface, because satellites register with the server
@@ -134,7 +139,8 @@ answers with `system/initial_state`, whose `state` key is the whole audio state 
 `volume/volume_changed`. The server reads nothing else a client sends, and every 30 s it sends
 `{"category": "system", "type": "ping", "timestamp": …}`, which carries no `data`.
 
-The categories hold 68 `(category, type)` pairs; this page describes the audio ones. Each pair is
+Every `(category, type)` pair is listed in the [WebSocket reference](reference/ws-events.md);
+this page describes the audio ones. Each pair is
 one class in [`backend/core/models/ws_events.py`](https://github.com/leodurandfr/Milo/blob/main/backend/core/models/ws_events.py),
 whose fields are exactly the event's `data`.
 
@@ -229,6 +235,11 @@ The routes and events Milo-Mac and Milo-iOS depend on are listed in two manifest
 `multiroom`, and the payload fields it reads) and the [Milo-iOS contract](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_ios_contract.json)
 (REST only — a widget cannot hold a socket — and the response fields it reads). **Read the
 manifests for the list**; a summary here would be a second copy that drifts.
+
+Their union is the **contracted** surface: the REST operations they pin, which carry
+`"x-stability": "contracted"` in the OpenAPI schema (a test holds the mark equal to the manifests),
+the WebSocket events the Milo-Mac manifest pins, and the audio state. A change to any of it is listed under *API and integration
+changes* in the release notes; everything else is internal. See [Stability](integration.md#stability).
 
 ---
 

@@ -283,92 +283,16 @@ There is **no `status()`, `get_status()` or `_get_status()`** anywhere in the hi
 broadcast over the WebSocket, never polled — a `GET /<source>/status` route is explicitly forbidden
 and `tests/architecture/test_source_conformance.py` fails the build if one appears.
 
-`backend/sources/my_source/source.py` — a sketch of the hooks, not a working source: it opens no
-session and publishes nothing, so the conformance suite rejects it as it stands. Every real source
-is on the session model described below; start from the existing source of the same family.
-```python
-from typing import Any, Dict, List, Optional
-
-from pydantic import BaseModel
-
-from backend.core.audio_source import BaseAudioSource
-from backend.core.models.commands import SkipParams, skip_target
-from backend.core.models.session import CommandScope, Phase, Session
-from backend.sources.my_source.models import SeekParams
-
-
-class MySource(BaseAudioSource):
-    # Per-command parameter contract: command name → Pydantic model (None = no
-    # params). command() validates raw input against this at a single boundary
-    # before _handle_command() runs, so handlers receive a typed `params`. Param
-    # models live in sources/my_source/models.py (a pure pydantic/typing leaf).
-    # An entry with no dispatch arm — or an arm with no entry — fails
-    # tests/test_command_contract.py.
-    COMMANDS = {"pause": None, "resume": None, "seek": SeekParams, "skip": SkipParams}
-    # What each command acts on: a SESSION command with no session is refused
-    # by the base, once, for every source.
-    COMMAND_SCOPES = {name: CommandScope.SESSION for name in COMMANDS}
-
-    def __init__(self, config, state_machine, settings_service, systemd_manager):
-        super().__init__(
-            source_id="my_source",
-            service_name="milo-my-source",
-            state_machine=state_machine,
-            systemd_manager=systemd_manager,
-            settings_service=settings_service,
-            config=config,
-        )
-
-    async def _do_start(self) -> bool:
-        """Bring the source up. The @abstractmethod — the state machine reads
-        the source's view once the start returned (publishes made during a
-        transition are dropped, and this re-read recovers them)."""
-        return await self._start_service_and_wait()
-
-    async def _do_stop(self) -> bool:
-        """Tear down. The state machine moves the active source to NONE itself."""
-        return await self._stop_service()
-
-    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
-        """Handle commands on already-validated params. Only state-dependent
-        checks belong here — shape, type and range are enforced by COMMANDS[cmd]."""
-        if cmd in ("pause", "resume"):
-            # Ask the player. The phase moves when the player announces it,
-            # never on the command's word.
-            return self.success_response(f"{cmd} sent")
-        if cmd == "seek":
-            # A discontinuity: the next publish carries the new anchor.
-            self._anchor_position(params.position_ms)
-            return self.success_response(f"Seeked to {params.position_ms}ms")
-        if cmd == "skip":
-            # Relative, from this source's own playhead (never from an anchor a
-            # client was sent): skips handled one after another add up.
-            session = self._session
-            target = skip_target(
-                self._position_now(session), params.seconds,
-                self._session_fields(session)["duration_ms"],
-            )
-            self._anchor_position(target)
-            return self.success_response(f"Skipped {params.seconds:+g}s")
-        return self.error_response(f"Unhandled command: {cmd}")
-
-    # === The view ===
-
-    def _session_fields(self, session: Session) -> Dict[str, Any]:
-        """The live session's content. An empty string is published as null."""
-        return {"title": ..., "artist": ..., "album": ..., "artwork": ..., "duration_ms": ...}
-
-    def _controls(self) -> List[str]:
-        """Exact command names, and only those that would act now."""
-        session = self._session
-        if session is None:
-            return []
-        if session.phase is Phase.PAUSED:
-            return ["resume", "seek", "skip"]
-        if session.phase is Phase.LOADING:
-            return ["pause"]  # seek is never listed while loading
-        return ["pause", "seek", "skip"]  # skip wherever seek (test_skip_travels_with_seek)
-```
+**Start from the skeleton source**,
+[`backend/tests/test_skeleton_source.py`](https://github.com/leodurandfr/Milo/blob/main/backend/tests/test_skeleton_source.py):
+one file holding a complete source — its `Session` subclass, the declared policies, `COMMANDS` and
+`COMMAND_SCOPES`, `_handle_command`, a feed from its player, `_session_fields` and `_controls` — and
+the tests that drive it through a real `AudioStateMachine`: a command opens a session, the player's
+announcement moves its phase, the boundary refuses what cannot run, and a stop announces the end
+before the state that follows. It runs on every `pytest`, so it cannot fall behind the base class.
+Copy the class into `backend/sources/my_source/source.py` and its parameter models into
+`models.py`, replace its `Player` with the program your source drives, and give it its own
+`source_id`.
 
 **If your source plays through mpv** (like Radio, Podcast, CD and Music Library), extend
 `shared/mpv_audio_source.py::MpvAudioSource` instead of `BaseAudioSource`, and put it on the
@@ -754,37 +678,24 @@ There is **no backend coverage tooling**: `pytest-cov` is deliberately not a dep
 no coverage threshold. Coverage as a target rewards exactly the tests this project excludes (see
 *What earns a test* below).
 
-**Writing a test:**
+**Writing a test:** the skeleton source's tests
+([`backend/tests/test_skeleton_source.py`](https://github.com/leodurandfr/Milo/blob/main/backend/tests/test_skeleton_source.py))
+are the minimal shape of a source test — a real `AudioStateMachine`, the outside world as a double,
+and assertions on the state every client reads, never on the source's private attributes.
+See `tests/test_radio_source.py` for a fuller example (mocked service manager, command dispatch, lifecycle transitions).
 
-`backend/tests/test_my_source.py`:
-```python
-import pytest
-from unittest.mock import AsyncMock
+**Generated reference pages.** `docs/reference/` (REST operations, WebSocket events, the audio state,
+source commands, supported hardware) is written by a script from the code, and
+`tests/architecture/test_reference_docs.py` fails when a committed page no longer matches it. A change
+to a route, an event, a model, a command or `hardware/registry.py` therefore comes with:
 
-from backend.sources.my_source.source import MySource
-
-
-@pytest.fixture
-def my_source():
-    return MySource(
-        config={},
-        state_machine=AsyncMock(),
-        settings_service=AsyncMock(),
-        systemd_manager=AsyncMock(),
-    )
-
-
-@pytest.mark.asyncio
-async def test_start_success(my_source):
-    result = await my_source.start()
-
-    assert result is True
-    # Started, nothing played yet: no session, so no command to offer.
-    assert my_source.view.session is None
-    assert my_source.view.controls == ()
+```bash
+python tools/docs/generate_reference.py            # rewrite the pages; --check only reports
 ```
 
-See `tests/test_radio_source.py` for a fuller example (mocked service manager, command dispatch, lifecycle transitions).
+Only the **first paragraph** of a class docstring is published, so write it for an integrator — what
+the event or model is — and keep consumers, measurements and history for the paragraphs after it.
+The same test fails when a published paragraph names a frontend store, a companion app or a date.
 
 ### Frontend (Vitest)
 
@@ -972,6 +883,48 @@ git push origin v1.2.0
 
 Check what actually landed before pushing — `git tag -l --format='%(contents)' v1.2.0`
 is exactly what the workflow will read.
+
+**Every release lists its API changes.** Integrators build on the contracted surface (see
+[Stability](integration.md#stability)), and the release notes are where they learn that it moved.
+Generate the section from the two tags — on a unit or any host with the backend's virtualenv:
+
+```bash
+python tools/release/api_diff.py v1.1.0 v1.2.0 > api-changes.md   # or v1.1.0 HEAD before tagging
+```
+
+It compares the OpenAPI schemas, the WebSocket events and the source commands of the two trees,
+and files each difference under *Contracted* or *Internal*. It sees shapes, not behavior: a key
+dropped from an answer that had no schema, or a field whose meaning changed under the same type, is
+added by hand.
+The notes follow one template:
+
+```markdown
+One paragraph: what this release is about.
+
+## What's new
+
+- …
+
+## Fixes
+
+- …
+
+## API and integration changes
+
+<the output of tools/release/api_diff.py, then anything it cannot see>
+
+## Dependencies
+
+<each line of dependencies.env that moved since the previous release: name, old → new>
+
+## Verified on hardware
+
+<which set of docs/manual/verification-checklist.md was run, on which units; say so if it was cut short>
+
+## Known gaps
+
+- …
+```
 
 **A tag carrying a suffix is a pre-release** — `v1.2.0-rc1`, `v1.3.0-beta.2`.
 The workflow publishes it with `prerelease: true`, so it never becomes
