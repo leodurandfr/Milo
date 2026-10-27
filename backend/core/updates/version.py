@@ -27,9 +27,9 @@ class VersionService:
 
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
-            self.logger.debug("GitHub token detected - using authenticated API (5000 req/hour)")
+            self.logger.info("GitHub token detected - using authenticated API (5000 req/hour)")
         else:
-            self.logger.debug("No GitHub token - using anonymous API (60 req/hour)")
+            self.logger.info("No GitHub token - using anonymous API (60 req/hour)")
 
         # One entry per program, shared with UpdateService. Copied per instance so
         # overriding a "validated_version" at runtime cannot mutate the module constant.
