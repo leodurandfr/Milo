@@ -14,7 +14,10 @@ from uuid import uuid4
 
 
 class ServiceState(str, Enum):
-    """The source's program, from start() to stop() — never the session."""
+    """Where the selected source's program stands. It says nothing about the session.
+
+    From start() to stop().
+    """
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
@@ -46,7 +49,9 @@ class PhaseEvent(str, Enum):
 
 
 class EndReason(str, Enum):
-    """Why a session ended. Named, logged, and what the resume policy reads.
+    """Why a session ended.
+
+    Named, logged, and what the resume policy reads.
 
     A metadata feed dying is not an end: it is reported once as `feed_lost` and
     changes no state. LOAD_FAILED is before the first sound, STREAM_LOST after.

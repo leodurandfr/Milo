@@ -82,9 +82,12 @@ class ScreenThemeConfig(BaseModel):
 
 
 class MacRocConfig(BaseModel):
-    """Both halves of the ROC link: roc-recv here (the first three), the Mac's
-    roc-vad sender (the other four). Milo-Mac reads the sender half from
-    `/bulk` and from `settings/mac_roc_changed`, and applies it."""
+    """Both ends of the Mac audio link: the receiver on the unit (the first three
+    fields) and the sender on the Mac (the other four).
+
+    roc-recv here, the Mac's roc-vad. Milo-Mac reads the sender half from
+    `/bulk` and from `settings/mac_roc_changed`, and applies it.
+    """
     target_latency_ms: int
     latency_profile: str
     frame_length_ms: int
@@ -119,7 +122,10 @@ class MusicLibrarySettingsConfig(BaseModel):
 
 
 class BtRemoteConfig(BaseModel):
-    """No `/bulk` key: the BT-remote panel reads its config from the WS event only."""
+    """The Bluetooth remote's configuration.
+
+    No `/bulk` key: the BT-remote panel reads its config from the WS event only.
+    """
     enabled: bool
     device_name_filter: str
     key_map: Dict[str, str]

@@ -84,7 +84,12 @@ class WsEvent(BaseModel):
 # =============================================================================
 
 class SystemHostnameConflictChanged(WsEvent):
-    """App.vue hostname-conflict banner (milo.local advertised under another name)."""
+    """Whether the unit is advertised under its own name: `hostname_conflict` is
+    true when another device on the network holds `expected_name`, and the unit then
+    answers as `advertised_name`.
+
+    App.vue hostname-conflict banner (milo.local advertised under another name).
+    """
     CATEGORY = "system"
     TYPE = "hostname_conflict_changed"
     source: Literal["system"] = "system"
@@ -95,10 +100,15 @@ class SystemHostnameConflictChanged(WsEvent):
 
 
 class SystemTimezoneChanged(WsEvent):
-    """App.vue → settingsStore.daylightLocation, which the kiosk's `auto` theme
+    """The unit's time zone changed. `latitude` and `longitude` are the zone's
+    reference point, from which the screen's automatic theme reads the time of
+    sunset.
+
+    App.vue → settingsStore.daylightLocation, which the kiosk's `auto` theme
     reads its sunset from. The zone moves from any browser (Language settings,
     or the first one adopting its own zone) and the kiosk never resyncs on its
-    own, so the new point travels with the change."""
+    own, so the new point travels with the change.
+    """
     CATEGORY = "system"
     TYPE = "timezone_changed"
     timezone: Optional[str]
@@ -107,19 +117,28 @@ class SystemTimezoneChanged(WsEvent):
 
 
 class SystemBackendError(WsEvent):
-    """App.vue error toast — forwarded backend ERROR log records."""
+    """An error the backend logged, forwarded as it was written.
+
+    App.vue error toast — forwarded backend ERROR log records.
+    """
     CATEGORY = "system"
     TYPE = "backend_error"
     message: str
 
 
 class SystemInitialState(WsEvent):
-    """Handshake reply (ws/manager) — sent to the single ready client, never
+    """The answer to a client's `ready`, sent to that client only: the audio state
+    in `state`, whether first-boot setup is complete, whether the unit is running
+    its own Wi-Fi access point, and `server_instance`, which changes every time the
+    backend starts. `GET /api/initial-state` answers the same object.
+
+    Handshake reply (ws/manager) — sent to the single ready client, never
     broadcast — and the body of its HTTP fallback, `GET /api/initial-state`
     (api/health, for the captive-portal browser). App.vue → unifiedAudioStore (`state`, the AudioState),
     settingsStore (`setup_completed`, `hotspot_active`), and App.vue itself
     (`server_instance`: a new one means the backend restarted, and the dock is
-    revealed)."""
+    revealed).
+    """
     CATEGORY = "system"
     TYPE = "initial_state"
     state: Dict[str, Any]
@@ -133,8 +152,9 @@ class SystemInitialState(WsEvent):
 # =============================================================================
 
 class AudioStateChanged(AudioState, WsEvent):
-    """The whole audio state, sent whenever one of its fields changes and only
-    then (the position axis moves on `source/position` instead).
+    """The whole audio state, sent whenever one of its fields changes and only then.
+    The playhead moving at its own pace is not a change: a jump of it is
+    `source/position`.
 
     App.vue → unifiedAudioStore (strict Zod schema); Milo-Mac
     (WebSocketService → MiloAudioState.decode); core/push reads it to know a
@@ -153,11 +173,11 @@ class AudioStateChanged(AudioState, WsEvent):
 
 
 class SourcePosition(WsEvent):
-    """A discontinuity of the playhead — a seek, or a reading more than
-    2000 ms from where the anchor says it should be. Never a tick.
-
-    App.vue → unifiedAudioStore (Zod `source.position`); a client ignores a
+    """A discontinuity of the playhead — a seek, a skip, or a reading more than 2000
+    ms from where the anchor says it should be. Never a tick. A client ignores a
     `session_id` that is not its state's.
+
+    App.vue → unifiedAudioStore (Zod `source.position`).
     """
     CATEGORY = "source"
     TYPE = "position"
@@ -167,8 +187,8 @@ class SourcePosition(WsEvent):
 
 
 class SourceSessionEnded(WsEvent):
-    """A session ended, for `reason` (EndReason), before the state that follows
-    (queued by `AudioStateMachine.session_ended`, sent ahead of the next publish).
+    """A session ended, for `reason`. Sent before the state that follows, so a
+    client always reads the end before the state it led to.
 
     App.vue → podcastStore (`eof`: the episode was played to its end, marked
     listened). Nothing else reads it today.
@@ -206,7 +226,11 @@ class SourceErrorReason:
 
 
 class SourceError(WsEvent):
-    """App.vue maps `reason` via SOURCE_ERROR_KEYS to a localized banner detail;
+    """An operation of `source` failed — a station that will not tune, a command the
+    player refused — while the source itself keeps working. `reason` is a code,
+    never a sentence: the client words it in its own language.
+
+    App.vue maps `reason` via SOURCE_ERROR_KEYS to a localized banner detail;
     SourceErrorCleared dismisses it.
 
     The banner half of the two error mechanisms: an *operation* failed (a station
@@ -225,7 +249,10 @@ class SourceError(WsEvent):
 
 
 class SourceErrorCleared(WsEvent):
-    """App.vue dismisses the error banner when data.source matches the displayed error."""
+    """The failure `source/error` reported for `source` is over.
+
+    App.vue dismisses the error banner when data.source matches the displayed error.
+    """
     CATEGORY = "source"
     TYPE = "error_cleared"
     source: str
@@ -234,7 +261,10 @@ class SourceErrorCleared(WsEvent):
 # source/favorite_* is a union discriminated by data.source (radio | podcast).
 
 class RadioFavoriteAdded(WsEvent):
-    """radioStore favorites sync."""
+    """A station was added to the radio favorites.
+
+    radioStore favorites sync.
+    """
     CATEGORY = "source"
     TYPE = "favorite_added"
     source: Literal["radio"] = "radio"
@@ -242,7 +272,10 @@ class RadioFavoriteAdded(WsEvent):
 
 
 class RadioFavoriteRemoved(WsEvent):
-    """radioStore favorites sync."""
+    """A station was removed from the radio favorites.
+
+    radioStore favorites sync.
+    """
     CATEGORY = "source"
     TYPE = "favorite_removed"
     source: Literal["radio"] = "radio"
@@ -250,7 +283,11 @@ class RadioFavoriteRemoved(WsEvent):
 
 
 class RadioFavoriteModified(WsEvent):
-    """radioStore metadata edit sync; station dict carries id + is_favorite."""
+    """A favorite station was edited; `station` is the station as saved, with its
+    `id` and `is_favorite`.
+
+    radioStore metadata edit sync; station dict carries id + is_favorite.
+    """
     CATEGORY = "source"
     TYPE = "favorite_modified"
     source: Literal["radio"] = "radio"
@@ -258,7 +295,10 @@ class RadioFavoriteModified(WsEvent):
 
 
 class PodcastFavoriteAdded(WsEvent):
-    """podcastStore subscriptions sync; podcast = the subscription dict."""
+    """A podcast was subscribed to; `podcast` is the subscription.
+
+    podcastStore subscriptions sync; podcast = the subscription dict.
+    """
     CATEGORY = "source"
     TYPE = "favorite_added"
     source: Literal["podcast"] = "podcast"
@@ -266,7 +306,10 @@ class PodcastFavoriteAdded(WsEvent):
 
 
 class PodcastFavoriteRemoved(WsEvent):
-    """podcastStore subscriptions sync."""
+    """A podcast subscription was removed.
+
+    podcastStore subscriptions sync.
+    """
     CATEGORY = "source"
     TYPE = "favorite_removed"
     source: Literal["podcast"] = "podcast"
@@ -274,7 +317,10 @@ class PodcastFavoriteRemoved(WsEvent):
 
 
 class MusicLibraryStoragesChanged(WsEvent):
-    """musicLibraryStore.applyStorages — the storage spaces music is browsed from.
+    """The storage spaces the music library is read from changed, or a scan of them
+    started or ended.
+
+    musicLibraryStore.applyStorages — the storage spaces music is browsed from.
 
     Pushed on every mount, unmount, rename, forget and share write, and on each
     poll while a Navidrome scan runs. Sent as the whole list, not a delta: it is
@@ -299,7 +345,9 @@ class MusicLibraryStoragesChanged(WsEvent):
 
 
 class SpotifyProfilesChanged(WsEvent):
-    """spotifyStore.applyProfiles — the Spotify accounts Milō keeps.
+    """The Spotify accounts Milō keeps signed in changed.
+
+    spotifyStore.applyProfiles — the Spotify accounts Milō keeps.
 
     Pushed when a profile is kept, described (the name and picture Spotify
     gives, read after the sign-in) or forgotten. None of that moves the audio
@@ -320,8 +368,13 @@ class SpotifyProfilesChanged(WsEvent):
 # =============================================================================
 
 class VolumeChanged(WsEvent):
-    """unifiedAudioStore (VolumeStateSchema); Milo-Mac reads state.global_volume_db,
-    state.mode and multiroom_enabled (mirror of state.mode == "multiroom")."""
+    """The volume changed. `state` is the whole volume state, the object `GET
+    /api/volume/state` answers in `data`; `show_bar` says whether the screen shows
+    its volume bar for this change.
+
+    unifiedAudioStore (VolumeStateSchema); Milo-Mac reads state.global_volume_db,
+    state.mode and multiroom_enabled (mirror of state.mode == "multiroom").
+    """
     CATEGORY = "volume"
     TYPE = "volume_changed"
     show_bar: bool
@@ -340,104 +393,158 @@ class SettingsEvent(WsEvent):
 
 
 class LanguageChanged(SettingsEvent):
-    """App.vue switches the i18n locale."""
+    """The interface language changed.
+
+    App.vue switches the i18n locale.
+    """
     TYPE = "language_changed"
     language: str
 
 
 class VolumeLimitsChanged(SettingsEvent):
-    """App.vue settings listener; Milo-Mac reads limits.min_db/max_db."""
+    """The volume limits changed; `limits` is the `volume_limits` key of `GET
+    /api/settings/bulk`.
+
+    App.vue settings listener; Milo-Mac reads limits.min_db/max_db.
+    """
     TYPE = "volume_limits_changed"
     limits: VolumeLimitsConfig
 
 
 class VolumeStartupChanged(SettingsEvent):
-    """App.vue settings listener; also emitted by VolumeService startup-volume auto-tracking."""
+    """The volume the unit starts at changed.
+
+    App.vue settings listener; also emitted by VolumeService startup-volume auto-tracking.
+    """
     TYPE = "volume_startup_changed"
     config: VolumeStartupConfig
 
 
 class VolumeStepsChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The volume step of the buttons on a phone changed.
+
+    App.vue settings listener.
+    """
     TYPE = "volume_steps_changed"
     config: VolumeStepsConfig
 
 
 class RotaryStepsChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The rotary encoder's volume step changed.
+
+    App.vue settings listener.
+    """
     TYPE = "rotary_steps_changed"
     config: RotaryStepsConfig
 
 
 class BtRemoteStepsChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The Bluetooth remote's volume step changed.
+
+    App.vue settings listener.
+    """
     TYPE = "bt_remote_steps_changed"
     config: BtRemoteStepsConfig
 
 
 class IrRemoteStepsChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The IR remote's volume step changed.
+
+    App.vue settings listener.
+    """
     TYPE = "ir_remote_steps_changed"
     config: IrRemoteStepsConfig
 
 
 class DockAppsChanged(SettingsEvent):
-    """App.vue dock refresh; Milo-Mac reads config.enabled_apps."""
+    """The sources and features shown in the dock changed; `config` is the
+    `dock_apps` key of `GET /api/settings/bulk`.
+
+    App.vue dock refresh; Milo-Mac reads config.enabled_apps.
+    """
     TYPE = "dock_apps_changed"
     config: DockAppsConfig
 
 
 class AudioStopChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The delay after which a paused source is stopped changed.
+
+    App.vue settings listener.
+    """
     TYPE = "audio_stop_changed"
     config: AudioStopConfig
 
 
 class ScreenTimeoutChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The screen's sleep delay changed.
+
+    App.vue settings listener.
+    """
     TYPE = "screen_timeout_changed"
     config: ScreenTimeoutConfig
 
 
 class ScreenBrightnessChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The screen's brightness changed.
+
+    App.vue settings listener.
+    """
     TYPE = "screen_brightness_changed"
     config: ScreenBrightnessConfig
 
 
 class ScreenAutoPlayerChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """Whether the screen opens the player on its own when playback starts changed.
+
+    App.vue settings listener.
+    """
     TYPE = "screen_auto_player_changed"
     config: ScreenAutoPlayerConfig
 
 
 class ScreenUiScaleChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The interface scale of the screen changed.
+
+    App.vue settings listener.
+    """
     TYPE = "screen_ui_scale_changed"
     config: ScreenUiScaleConfig
 
 
 class ScreenColorFilterChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The screen's color filter changed.
+
+    App.vue settings listener.
+    """
     TYPE = "screen_color_filter_changed"
     config: ScreenColorFilterConfig
 
 
 class ScreenThemeChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The interface theme changed.
+
+    App.vue settings listener.
+    """
     TYPE = "screen_theme_changed"
     config: ScreenThemeConfig
 
 
 class MacRocChanged(SettingsEvent):
-    """App.vue settings listener (the Mac panel's form sync) and Milo-Mac, which
-    applies the sender half of `config` to its roc-vad device."""
+    """The settings of the Mac audio link changed, for both of its ends; `config` is
+    the `mac_roc` key of `GET /api/settings/bulk`.
+
+    App.vue settings listener (the Mac panel's form sync) and Milo-Mac, which
+    applies the sender half of `config` to its roc-vad device.
+    """
     TYPE = "mac_roc_changed"
     config: MacRocConfig
 
 
 class MacCalibrationProgress(SettingsEvent):
-    """macLinkStore.handleCalibrationEvent — drives the Mac analysis's bar.
+    """A stage of the Mac link analysis started; `expected_seconds` is how long it
+    should take.
+
+    macLinkStore.handleCalibrationEvent — drives the Mac analysis's bar.
 
     `stage` is a key the frontend localizes ("measuring" | "computing").
     """
@@ -447,7 +554,10 @@ class MacCalibrationProgress(SettingsEvent):
 
 
 class MacCalibrationResult(SettingsEvent):
-    """macLinkStore.handleCalibrationEvent — both halves of the link, proposed.
+    """The Mac link analysis finished with a proposal for both ends of the link, not
+    yet applied.
+
+    macLinkStore.handleCalibrationEvent — both halves of the link, proposed.
 
     Not applied by the analysis: the panel stages `config` on its controls and
     the write happens on Apply, through PUT /api/settings/mac-roc. `assumed`
@@ -461,7 +571,9 @@ class MacCalibrationResult(SettingsEvent):
 
 
 class MacCalibrationFailed(SettingsEvent):
-    """macLinkStore.handleCalibrationEvent — the Mac analysis reached no verdict.
+    """The Mac link analysis reached no verdict; `reason` says why.
+
+    macLinkStore.handleCalibrationEvent — the Mac analysis reached no verdict.
 
     `reason` is a localization key ("no_mac" | "several_macs" |
     "too_few_samples" | "probe_failed"); `detail` names what did not answer.
@@ -472,19 +584,27 @@ class MacCalibrationFailed(SettingsEvent):
 
 
 class RadioSettingsChanged(SettingsEvent):
-    """App.vue settings listener."""
+    """The radio settings changed.
+
+    App.vue settings listener.
+    """
     TYPE = "radio_settings_changed"
     config: RadioSettingsConfig
 
 
 class QobuzSettingsChanged(SettingsEvent):
-    """App.vue settings listener (Qobuz 'allow app volume' toggle sync)."""
+    """The Qobuz settings changed.
+
+    App.vue settings listener (Qobuz 'allow app volume' toggle sync).
+    """
     TYPE = "qobuz_settings_changed"
     config: QobuzSettingsConfig
 
 
 class SpotifySettingsChanged(SettingsEvent):
-    """App.vue settings listener → settingsStore.updateSpotifySettings.
+    """The Spotify settings changed.
+
+    App.vue settings listener → settingsStore.updateSpotifySettings.
 
     Keeps every open screen's crossfade slider on the stored value; the daemon
     itself only picks it up at its next start.
@@ -494,7 +614,9 @@ class SpotifySettingsChanged(SettingsEvent):
 
 
 class MusicLibrarySettingsChanged(SettingsEvent):
-    """App.vue settings listener → musicLibraryStore.applySettings.
+    """The music library settings changed.
+
+    App.vue settings listener → musicLibraryStore.applySettings.
 
     Flips the library between one tab per storage space and a single merged view,
     on every screen at once — the storage filter is a display choice, not a
@@ -505,15 +627,22 @@ class MusicLibrarySettingsChanged(SettingsEvent):
 
 
 class BtRemoteConfigChanged(SettingsEvent):
-    """BT-remote settings form sync."""
+    """The Bluetooth remote's configuration changed.
+
+    BT-remote settings form sync.
+    """
     TYPE = "bt_remote_config_changed"
     config: BtRemoteConfig
 
 
 class BtRemoteStatusChanged(SettingsEvent):
-    """BT-remote settings panel. `paired` is the durable BlueZ-bond signal
+    """The Bluetooth remote's link changed: the devices connected, whether discovery
+    runs, and whether a remote is paired — true even while it sleeps.
+
+    BT-remote settings panel. `paired` is the durable BlueZ-bond signal
     (true even while the remote sleeps/disconnects); the UI uses it to offer
-    the "unpair" action."""
+    the "unpair" action.
+    """
     TYPE = "bt_remote_status_changed"
     connected_devices: List[Dict[str, Any]]
     discovering: bool
@@ -521,7 +650,11 @@ class BtRemoteStatusChanged(SettingsEvent):
 
 
 class IrRemoteStatusChanged(SettingsEvent):
-    """IR-remote settings panel (pairing flow + listener state)."""
+    """The IR remote's state changed: whether a receiver is there and enabled, the
+    remote paired to it, and whether pairing or the listener runs.
+
+    IR-remote settings panel (pairing flow + listener state).
+    """
     TYPE = "ir_remote_status_changed"
     available: bool
     enabled: bool
@@ -546,18 +679,29 @@ class FanStatusEvent(SettingsEvent):
 
 
 class FanConfigChanged(FanStatusEvent):
-    """Fan settings form sync (config write)."""
+    """The fan's configuration changed; the payload carries its current readings
+    too.
+
+    Fan settings form sync (config write).
+    """
     TYPE = "fan_config_changed"
 
 
 class FanStatusChanged(FanStatusEvent):
-    """Fan settings panel telemetry refresh."""
+    """A reading of the fan — temperature, speed and duty cycle — with its
+    configuration.
+
+    Fan settings panel telemetry refresh.
+    """
     TYPE = "fan_status_changed"
 
 
 class ScreenSleepChanged(WsEvent):
-    """Kiosk screen wake/sleep indicator. No `source` field (origin falls back
-    to the category, matching the historical wire shape)."""
+    """The screen went to sleep or woke up.
+
+    Kiosk screen wake/sleep indicator. No `source` field (origin falls back
+    to the category, matching the historical wire shape).
+    """
     CATEGORY = "settings"
     TYPE = "screen_sleep_changed"
     sleeping: bool
@@ -568,14 +712,21 @@ class ScreenSleepChanged(WsEvent):
 # =============================================================================
 
 class EqualizerStateChanged(WsEvent):
-    """equalizerStore — CamillaDSP daemon connection state."""
+    """The connection to the DSP that carries volume and equalizer (CamillaDSP)
+    changed state.
+
+    equalizerStore — CamillaDSP daemon connection state.
+    """
     CATEGORY = "equalizer"
     TYPE = "state_changed"
     state: str
 
 
 class EqualizerLevels(WsEvent):
-    """Zod equalizer.levels → VU meter; output_peak = [left_db, right_db]."""
+    """The output level meter: `output_peak` is `[left_db, right_db]`.
+
+    Zod equalizer.levels → VU meter; output_peak = [left_db, right_db].
+    """
     CATEGORY = "equalizer"
     TYPE = "levels"
     available: bool
@@ -583,14 +734,20 @@ class EqualizerLevels(WsEvent):
 
 
 class EqualizerEnabledChanged(WsEvent):
-    """equalizerStore global effects toggle (bypass/restore)."""
+    """The equalizer and effects were switched on or off for this unit.
+
+    equalizerStore global effects toggle (bypass/restore).
+    """
     CATEGORY = "equalizer"
     TYPE = "enabled_changed"
     enabled: bool
 
 
 class EqualizerZoneEnabledChanged(WsEvent):
-    """equalizerStore per-zone effects toggle."""
+    """The equalizer and effects were switched on or off for one zone.
+
+    equalizerStore per-zone effects toggle.
+    """
     CATEGORY = "equalizer"
     TYPE = "zone_enabled_changed"
     zone_id: str
@@ -602,8 +759,12 @@ class EqualizerZoneEnabledChanged(WsEvent):
 # =============================================================================
 
 class MultiroomClientStateChanged(WsEvent):
-    """multiroomStore client list sync; `client` is absent (not null) on
-    unregister, where only the mac_id remains meaningful."""
+    """A multiroom speaker was added or changed. When it is removed, `client` is
+    left out and `mac_id` alone names it.
+
+    multiroomStore client list sync; `client` is absent (not null) on
+    unregister, where only the mac_id remains meaningful.
+    """
     CATEGORY = "multiroom"
     TYPE = "client_state_changed"
     EXCLUDE_NONE = True
@@ -612,14 +773,18 @@ class MultiroomClientStateChanged(WsEvent):
 
 
 class MultiroomZoneChanged(WsEvent):
-    """multiroomStore zone sync — union discriminated by `action`:
+    """A zone was created, updated or deleted, with `zone` — or a speaker left one,
+    with `action: client_removed` and its `mac_id`.
+
+    multiroomStore zone sync — union discriminated by `action`:
     {action: created|updated|deleted, zone} | {action: client_removed, mac_id}
     (zone omitted).
 
     `deleted` carries the zone dict too — snapshotted before the removal so the
     payload is complete — so `zone` presence says nothing about what happened.
     Branch on `action` only; reading the presence of `zone` gives the exact
-    opposite of the truth on both `deleted` and `client_removed`."""
+    opposite of the truth on both `deleted` and `client_removed`.
+    """
     CATEGORY = "multiroom"
     TYPE = "zone_changed"
     EXCLUDE_NONE = True
@@ -630,8 +795,12 @@ class MultiroomZoneChanged(WsEvent):
 
 
 class MultiroomEqualizerChanged(WsEvent):
-    """equalizerStore targeted EQ sync; equalizer_settings is a PARTIAL wire
-    dict (only the changed keys: filters/compressor/loudness/mono/...)."""
+    """The equalizer of one speaker or zone changed; `equalizer_settings` carries
+    only the keys that changed.
+
+    equalizerStore targeted EQ sync; equalizer_settings is a PARTIAL wire
+    dict (only the changed keys: filters/compressor/loudness/mono/...).
+    """
     CATEGORY = "multiroom"
     TYPE = "equalizer_changed"
     target_type: str  # "client" | "zone"
@@ -640,8 +809,12 @@ class MultiroomEqualizerChanged(WsEvent):
 
 
 class MultiroomPendingClientChanged(WsEvent):
-    """multiroomStore pending-client list — union discriminated by `action`:
-    {action: registered|updated, client} | {action: removed, mac_id}."""
+    """A speaker waiting to be set up appeared or changed (`registered`, `updated`,
+    with `client`), or went away (`removed`, with `mac_id`).
+
+    multiroomStore pending-client list — union discriminated by `action`:
+    {action: registered|updated, client} | {action: removed, mac_id}.
+    """
     CATEGORY = "multiroom"
     TYPE = "pending_client_changed"
     EXCLUDE_NONE = True
@@ -655,33 +828,48 @@ class MultiroomPendingClientChanged(WsEvent):
 # =============================================================================
 
 class RoutingMultiroomEnabling(WsEvent):
-    """multiroomStore.handleRoutingEvent — transition spinner on (empty payload)."""
+    """Multiroom is being switched on.
+
+    multiroomStore.handleRoutingEvent — transition spinner on (empty payload).
+    """
     CATEGORY = "routing"
     TYPE = "multiroom_enabling"
 
 
 class RoutingMultiroomDisabling(WsEvent):
-    """multiroomStore.handleRoutingEvent — transition spinner on (empty payload)."""
+    """Multiroom is being switched off.
+
+    multiroomStore.handleRoutingEvent — transition spinner on (empty payload).
+    """
     CATEGORY = "routing"
     TYPE = "multiroom_disabling"
 
 
 class RoutingMultiroomReady(WsEvent):
-    """multiroomStore.handleRoutingEvent — clears the transition spinner (empty payload)."""
+    """The multiroom switch is over.
+
+    multiroomStore.handleRoutingEvent — clears the transition spinner (empty payload).
+    """
     CATEGORY = "routing"
     TYPE = "multiroom_ready"
 
 
 class RoutingMultiroomError(WsEvent):
-    """multiroomStore maps `reason` via MULTIROOM_ERROR_KEYS to a localized
-    transitionError; also in the Milo-Mac manifest."""
+    """The multiroom switch failed; `reason` is a code the client words itself.
+
+    multiroomStore maps `reason` via MULTIROOM_ERROR_KEYS to a localized
+    transitionError; also in the Milo-Mac manifest.
+    """
     CATEGORY = "routing"
     TYPE = "multiroom_error"
     reason: str  # "enable_failed" | "disable_failed"
 
 
 class RoutingCalibrationProgress(WsEvent):
-    """snapcastStore.handleCalibrationEvent — drives the analysis progress bar.
+    """A stage of the multiroom latency analysis started; `clients_done` of
+    `clients_total` speakers are done.
+
+    snapcastStore.handleCalibrationEvent — drives the analysis progress bar.
 
     The analysis takes tens of seconds and grows with the fleet, so it runs in
     the background and reports here rather than holding an HTTP request open.
@@ -699,7 +887,10 @@ class RoutingCalibrationProgress(WsEvent):
 
 
 class RoutingCalibrationResult(WsEvent):
-    """snapcastStore.handleCalibrationEvent — the proposal the user confirms.
+    """The multiroom latency analysis finished with a proposal, not yet applied;
+    `limiting_client` is the speaker that set it.
+
+    snapcastStore.handleCalibrationEvent — the proposal the user confirms.
 
     Deliberately NOT applied by the analysis: `config` is offered, and the write
     only happens when the user presses apply, through the existing
@@ -723,7 +914,9 @@ class RoutingCalibrationResult(WsEvent):
 
 
 class RoutingCalibrationFailed(WsEvent):
-    """snapcastStore.handleCalibrationEvent — the analysis reached no verdict.
+    """The multiroom latency analysis reached no verdict; `reason` says why.
+
+    snapcastStore.handleCalibrationEvent — the analysis reached no verdict.
 
     A speaker that is online but could not be measured stops the whole run,
     because the buffer is one value sized by the worst link and an unweighed
@@ -741,7 +934,11 @@ class RoutingCalibrationFailed(WsEvent):
 # =============================================================================
 
 class NetworkStatusChanged(NetworkStatus, WsEvent):
-    """networkStore — flat NetworkStatus payload (wifi_enabled, ethernet, wifi)."""
+    """The network status changed: Wi-Fi on or off, and the state of the Ethernet
+    and Wi-Fi links.
+
+    networkStore — flat NetworkStatus payload (wifi_enabled, ethernet, wifi).
+    """
     CATEGORY = "network"
     TYPE = "status_changed"
 
@@ -763,56 +960,84 @@ class ProgramsCompleteEvent(WsEvent):
 
 
 class ProgramUpdateProgress(ProgramsProgressEvent):
-    """Zod programs.program_update_progress → App.vue update spinner."""
+    """An update of `program` on this unit is running.
+
+    Zod programs.program_update_progress → App.vue update spinner.
+    """
     TYPE = "program_update_progress"
     source: Literal["program_update"] = "program_update"
     program: str
 
 
 class ProgramUpdateComplete(ProgramsCompleteEvent):
-    """Zod programs.program_update_complete → App.vue (spinner off + REST refetch)."""
+    """An update of `program` on this unit finished; `success` says whether it
+    worked.
+
+    Zod programs.program_update_complete → App.vue (spinner off + REST refetch).
+    """
     TYPE = "program_update_complete"
     source: Literal["program_update"] = "program_update"
     program: str
 
 
 class SatelliteUpdateProgress(ProgramsProgressEvent):
-    """Zod programs.satellite_update_progress → App.vue satellite update spinner."""
+    """An update of a satellite's multiroom player (snapclient) is running.
+
+    Zod programs.satellite_update_progress → App.vue satellite update spinner.
+    """
     TYPE = "satellite_update_progress"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str
 
 
 class SatelliteUpdateComplete(ProgramsCompleteEvent):
-    """Zod programs.satellite_update_complete → App.vue (spinner off + REST refetch)."""
+    """An update of a satellite's multiroom player finished; `success` says whether
+    it worked.
+
+    Zod programs.satellite_update_complete → App.vue (spinner off + REST refetch).
+    """
     TYPE = "satellite_update_complete"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str
 
 
 class SatelliteAppUpdateProgress(ProgramsProgressEvent):
-    """Zod programs.satellite_app_update_progress → App.vue satellite update spinner."""
+    """An update of a satellite's Milō app is running.
+
+    Zod programs.satellite_app_update_progress → App.vue satellite update spinner.
+    """
     TYPE = "satellite_app_update_progress"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str
 
 
 class SatelliteAppUpdateComplete(ProgramsCompleteEvent):
-    """Zod programs.satellite_app_update_complete → App.vue (spinner off + REST refetch)."""
+    """An update of a satellite's Milō app finished; `success` says whether it
+    worked.
+
+    Zod programs.satellite_app_update_complete → App.vue (spinner off + REST refetch).
+    """
     TYPE = "satellite_app_update_complete"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str
 
 
 class SatelliteCamillaDspUpdateProgress(ProgramsProgressEvent):
-    """Zod programs.satellite_camilladsp_update_progress → App.vue satellite update spinner."""
+    """An update of a satellite's CamillaDSP is running.
+
+    Zod programs.satellite_camilladsp_update_progress → App.vue satellite update spinner.
+    """
     TYPE = "satellite_camilladsp_update_progress"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str
 
 
 class SatelliteCamillaDspUpdateComplete(ProgramsCompleteEvent):
-    """Zod programs.satellite_camilladsp_update_complete → App.vue (spinner off + REST refetch)."""
+    """An update of a satellite's CamillaDSP finished; `success` says whether it
+    worked.
+
+    Zod programs.satellite_camilladsp_update_complete → App.vue (spinner off + REST refetch).
+    """
     TYPE = "satellite_camilladsp_update_complete"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str

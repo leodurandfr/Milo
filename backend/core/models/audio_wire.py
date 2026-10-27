@@ -45,8 +45,9 @@ RepeatMode = Literal["off", "context", "track"]
 class PositionAnchor(BaseModel):
     """The playhead: `ms` at the instant `at`, moving at `rate` while the
     session plays. position_now = ms + (phase == playing ? (now − at) × 1000 ×
-    rate : 0), bounded to [0, duration_ms]. `rate` is 1.0 for every source —
-    nothing plays faster or slower — and stays because Milo-Mac and Milo-iOS
+    rate : 0), bounded to [0, duration_ms]. `rate` is 1.0 for every source.
+
+    Nothing plays faster or slower; `rate` stays because Milo-Mac and Milo-iOS
     decode it (`session.position.rate`, pinned by both manifests)."""
     ms: int
     at: float
@@ -214,9 +215,10 @@ class SpotifyArtist(BaseModel):
 
 
 class SpotifyQueueEntry(BaseModel):
-    """One track of the play order around what plays: what the phone's
-    mini-bar slides in under the finger before the swipe lands on it, and a
-    row of the Queue page."""
+    """One track of the play order around the one playing.
+
+    What the phone's mini-bar slides in under the finger before the swipe
+    lands on it, and a row of the Queue page."""
     uri: str
     # Null until go-librespot has cached the track's metadata.
     title: Optional[str]
