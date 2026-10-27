@@ -1126,10 +1126,14 @@ browser on the LAN *send* a request (a bodyless `POST` needs no preflight). `Req
 - on `POST`/`PUT`/`PATCH`/`DELETE`, an `Origin` header that is neither one of those names, nor a
   private IP address, nor a CORS origin. A request with no `Origin` (curl, a native app) passes.
 
+The `/ws` upgrade passes the same two checks, the `Origin` one whatever the upgrade asks for, and
+is refused with a 403 (close code 1008) when either fails. The socket changes nothing — the server
+reads nothing a client sends after the `ready` handshake — but it hands the whole state to whoever
+opens it, and CORS does not apply to a WebSocket, so without the `Origin` check any page on the
+internet could read it.
+
 The gate keeps out pages from the internet, not the LAN: a page served by another local machine
-under its private IP passes both checks. The `/ws` upgrade is not gated at all: the server reads
-nothing a client sends after the `ready` handshake, so the socket carries no state-changing
-surface, but it does hand the state to whoever opens it.
+under its private IP passes both checks.
 
 ### Exposure
 nginx serves the app and proxies `/api/` and `/ws` on port 80. The backend also listens on port

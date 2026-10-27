@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from backend.api.models import SnapcastCalibrationRequest, SnapcastServerConfigRequest
 from backend.api.responses import MultiroomSetResponse
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.multiroom.routing import (
     SNAPCLIENT_LIMITS,
@@ -75,7 +75,7 @@ def create_routing_router(
 
     # === Multiroom mode ===
 
-    @router.put("/multiroom", response_model=MultiroomSetResponse)
+    @router.put("/multiroom", response_model=MultiroomSetResponse, openapi_extra=CONTRACTED)
     async def set_multiroom_enabled(request: MultiroomRequest):
         """Enables/disables multiroom mode"""
         async with api_error_handler("Error changing multiroom state", logger):

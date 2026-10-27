@@ -13,8 +13,8 @@ import logging
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends, Request
-from backend.api.route_helpers import api_error_handler, run_source_command
-from backend.api.responses import RadioStationsResponse
+from backend.api.route_helpers import CONTRACTED, api_error_handler, run_source_command
+from backend.api.responses import RadioStationsResponse, image_responses
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
@@ -44,7 +44,7 @@ def setup_radio_routes(source_provider) -> APIRouter:
 
 # === Playback Routes ===
 
-@router.post("/play")
+@router.post("/play", openapi_extra=CONTRACTED)
 async def play_station(
     request: PlayStationRequest,
     source: RadioSource = Depends(get_source)
@@ -65,7 +65,7 @@ async def play_station(
     )
 
 
-@router.post("/stop")
+@router.post("/stop", openapi_extra=CONTRACTED)
 async def stop_playback(source: RadioSource = Depends(get_source)) -> Dict[str, Any]:
     """
     Stop current playback.
@@ -78,7 +78,7 @@ async def stop_playback(source: RadioSource = Depends(get_source)) -> Dict[str, 
 
 # === Search Routes ===
 
-@router.get("/stations", response_model=RadioStationsResponse, response_model_exclude_none=True)
+@router.get("/stations", response_model=RadioStationsResponse, response_model_exclude_none=True, openapi_extra=CONTRACTED)
 async def search_stations(
     query: str = Query("", description="Search term"),
     country: str = Query("", description="Country filter"),
@@ -422,7 +422,11 @@ async def remove_custom_station(
 
 # === Image Routes ===
 
-@router.get("/images/{filename}")
+@router.get(
+    "/images/{filename}", response_class=Response,
+    responses=image_responses("image/jpeg", "image/png", "image/webp", "image/gif"),
+    openapi_extra=CONTRACTED,
+)
 async def get_station_image(
     request: Request,
     filename: str,
@@ -508,7 +512,14 @@ _FAVICON_HEADERS = {
 }
 
 
-@router.get("/favicon")
+@router.get(
+    "/favicon", response_class=Response,
+    responses={
+        **image_responses("image/webp", "image/jpeg"),
+        204: {"description": "No usable logo: draw the station's own avatar."},
+    },
+    openapi_extra=CONTRACTED,
+)
 async def get_favicon_proxy(
     request: Request,
     url: str = Query(..., description="External station logo URL"),

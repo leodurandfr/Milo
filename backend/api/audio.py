@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 from backend.api.models import AudioControlRequest
 from backend.api.responses import AudioStateResponse, StatusResponse
-from backend.api.route_helpers import parse_audio_source, run_source_command
+from backend.api.route_helpers import CONTRACTED, parse_audio_source, run_source_command
 
 if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
@@ -19,27 +19,29 @@ def create_router(state_machine: "AudioStateMachine"):
     """Creates router with injected dependencies"""
     router = APIRouter(prefix="/api/audio", tags=["audio"])
 
-    @router.get("/state", response_model=AudioStateResponse)
+    @router.get("/state", response_model=AudioStateResponse, openapi_extra=CONTRACTED)
     async def get_current_state():
         """The audio state (docs: "le fil"), the active source's player re-read
         first so its anchor is current. The same object as `source/state`."""
         await state_machine.refresh_active_view()
         return state_machine.get_current_state()
 
-    @router.post("/source/{source_name}", response_model=StatusResponse)
+    @router.post("/source/{source_name}", response_model=StatusResponse, openapi_extra=CONTRACTED)
     async def change_audio_source(source_name: str):
         """Changes active audio source"""
         source = parse_audio_source(source_name)
         success = await state_machine.transition_to_source(source)
         return {"status": "success" if success else "error"}
 
-    @router.post("/control/{source_name}")
+    @router.post("/control/{source_name}", response_model=StatusResponse, openapi_extra=CONTRACTED)
     async def control_source(source_name: str, control_request: AudioControlRequest):
         """The single transport for every source command.
 
         Validation happens in `source.command()` against the source's own
         `COMMANDS` map, so an unknown command or bad params is a 400 here, not a
         200 carrying a failure flag — same contract as every other mutation.
+        What the command changed arrives as the next `source/state`; the answer
+        only says it was taken.
         """
         source = parse_audio_source(source_name)
         source_instance = state_machine.sources.get(source)
@@ -48,10 +50,10 @@ def create_router(state_machine: "AudioStateMachine"):
             logger.error("Command for an unregistered source: %s", source_name)
             raise HTTPException(status_code=404, detail=f"Source not found: {source_name}")
 
-        result = await run_source_command(
+        await run_source_command(
             source_instance, control_request.command, control_request.data,
             f"{source_name}/{control_request.command}"
         )
-        return {"status": "success", "result": result}
+        return {"status": "success"}
 
     return router

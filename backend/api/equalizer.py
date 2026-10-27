@@ -8,7 +8,7 @@ import logging
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
 
 from backend.api.responses import (
     EqualizerEnabledResponse,
@@ -281,7 +281,7 @@ def create_equalizer_router(
                 **await crossover_service.get_zone_crossover(zone_id),
             }
 
-    @router.put("/target/{target}/enabled", response_model=EqualizerEnabledResponse)
+    @router.put("/target/{target}/enabled", response_model=EqualizerEnabledResponse, openapi_extra=CONTRACTED)
     async def set_target_enabled(target: str, request: Request):
         """Enable/disable equalizer effects for any target (volume stays active)."""
         async with api_error_handler(f"Error updating equalizer enabled for target {target}", logger):

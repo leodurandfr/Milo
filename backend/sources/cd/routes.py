@@ -10,8 +10,9 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
+from backend.api.responses import image_responses
 from backend.api.source_dependency import make_source_dependency
 from backend.config.constants import CD_COVERS_DIR
 from backend.sources.cd.source import CdSource
@@ -36,7 +37,7 @@ def setup_cd_routes(source_provider) -> APIRouter:
 # === Cover Art Route ===
 
 
-@router.get("/cover/{disc_id}")
+@router.get("/cover/{disc_id}", response_class=Response, responses=image_responses("image/jpeg"))
 async def get_cover(disc_id: str, source: CdSource = Depends(get_source)):
     """Serve cover art image for a disc."""
     # Validate disc_id to prevent path traversal

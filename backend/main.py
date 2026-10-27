@@ -132,6 +132,13 @@ async def lifespan(app: FastAPI):
     try:
         await initialize_services()
 
+        # The schema's `info.version` names the build this unit runs, the string
+        # its own version row shows, rather than FastAPI's "0.1.0".
+        try:
+            app.version = await get_service("satellite_update_service").get_server_version() or app.version
+        except OSError as e:
+            logger.warning("The API schema keeps version %s: git could not run (%s)", app.version, e)
+
         logger.info("Waiting for services initialization to complete...")
         init_task = get_init_task()
         if init_task:

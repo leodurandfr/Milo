@@ -48,7 +48,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
+from backend.api.responses import image_responses
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.music_library.artist_filter import is_placeholder_artist
 from backend.sources.music_library.browse import browse_share
@@ -167,7 +168,7 @@ async def get_artists(
         return {"index": await source.get_artist_index(scope)}
 
 
-@router.get("/artist/{artist_id}")
+@router.get("/artist/{artist_id}", openapi_extra=CONTRACTED)
 async def get_artist(
     artist_id: str,
     source: MusicLibrarySource = Depends(get_source),
@@ -210,7 +211,7 @@ async def get_artist(
         return {"artist": artist}
 
 
-@router.get("/album/{album_id}")
+@router.get("/album/{album_id}", openapi_extra=CONTRACTED)
 async def get_album(
     album_id: str,
     source: MusicLibrarySource = Depends(get_source),
@@ -235,7 +236,7 @@ async def get_album(
         return {"album": album}
 
 
-@router.get("/albums")
+@router.get("/albums", openapi_extra=CONTRACTED)
 async def get_albums(
     source: MusicLibrarySource = Depends(get_source),
     type: str = Query("newest", description="getAlbumList2 type"),
@@ -281,7 +282,7 @@ async def get_albums(
 
 # === Search ===
 
-@router.get("/search")
+@router.get("/search", openapi_extra=CONTRACTED)
 async def search(
     source: MusicLibrarySource = Depends(get_source),
     query: str = Query("", description="Search term"),
@@ -522,7 +523,10 @@ async def delete_playlist(
 
 # === Cover art proxy ===
 
-@router.get("/cover/{cover_id}")
+@router.get(
+    "/cover/{cover_id}", response_class=Response, responses=image_responses("image/*"),
+    openapi_extra=CONTRACTED,
+)
 async def get_cover(
     cover_id: str,
     source: MusicLibrarySource = Depends(get_source),

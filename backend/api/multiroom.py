@@ -22,7 +22,7 @@ import aiohttp
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
     ClientEqIndependentRequest, ClientDelayRequest, ClientGainRequest,
@@ -260,7 +260,7 @@ def create_multiroom_router(
 
     # === STATE ENDPOINT ===
 
-    @router.get("/state", response_model=MultiroomStateResponse)
+    @router.get("/state", response_model=MultiroomStateResponse, openapi_extra=CONTRACTED)
     async def get_state():
         """
         Get complete registry state (all clients and zones).

@@ -48,8 +48,17 @@ from backend.core.network.models import NetworkStatus, SavedNetwork, WifiNetwork
 
 
 class StatusResponse(BaseModel):
-    """Bare success/error envelope: POST /api/audio/source/{source}."""
+    """Bare success/error envelope, for an action whose effect is read elsewhere."""
     status: str
+
+
+def image_responses(*media_types: str) -> dict:
+    """The OpenAPI `responses` of a route answering image bytes, with `response_class=Response`.
+
+    Without them the schema documents the default `application/json` for a body
+    that is never JSON.
+    """
+    return {200: {"description": "The image.", "content": {t: {} for t in media_types}}}
 
 
 class AudioStateResponse(AudioState):

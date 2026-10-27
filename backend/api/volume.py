@@ -12,7 +12,7 @@ import logging
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.api.models import (
     VolumeAdjustRequest,
     VolumeSetRequest,
@@ -46,7 +46,7 @@ def create_volume_router(
     """Creates volume router with dependency injection"""
     router = APIRouter(prefix="/api/volume", tags=["volume"])
 
-    @router.get("/state", response_model=VolumeStateEnvelope, response_model_exclude_none=True)
+    @router.get("/state", response_model=VolumeStateEnvelope, response_model_exclude_none=True, openapi_extra=CONTRACTED)
     async def get_volume_state():
         """Get unified volume state (single source of truth)."""
         try:
@@ -55,7 +55,7 @@ def create_volume_router(
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    @router.post("/adjust", response_model=VolumeAdjustResponse)
+    @router.post("/adjust", response_model=VolumeAdjustResponse, openapi_extra=CONTRACTED)
     async def adjust_volume(request: VolumeAdjustRequest):
         """Adjusts volume by delta in dB.
 
@@ -82,7 +82,7 @@ def create_volume_router(
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
 
-    @router.patch("/global", response_model=VolumeSetResponse)
+    @router.patch("/global", response_model=VolumeSetResponse, openapi_extra=CONTRACTED)
     async def set_global_volume(request: VolumeSetRequest):
         """Set the global volume, absolute, on the 0..1 slider scale.
 
@@ -187,7 +187,7 @@ def create_volume_router(
     # NEW ATOMIC ZONE OPERATIONS (Refactored architecture)
     # ============================================================================
 
-    @router.patch("/zone/{zone_id}", response_model=ZoneVolumeDeltaResponse)
+    @router.patch("/zone/{zone_id}", response_model=ZoneVolumeDeltaResponse, openapi_extra=CONTRACTED)
     async def apply_zone_delta_patch(zone_id: str, request: ZoneVolumeRequest):
         """
         Move a whole zone, by a delta or to a level, in one request.
@@ -304,7 +304,7 @@ def create_volume_router(
     # MAC ADDRESS BASED CLIENT ENDPOINTS
     # ============================================================================
 
-    @router.patch("/client/mac/{mac_url}", response_model=ClientVolumeSetResponse)
+    @router.patch("/client/mac/{mac_url}", response_model=ClientVolumeSetResponse, openapi_extra=CONTRACTED)
     async def set_client_volume_by_mac(mac_url: str, request: ClientVolumeRequest):
         """
         Set volume for a specific client using MAC address.
@@ -373,7 +373,7 @@ def create_volume_router(
                 "volume": config.normalize(volume_db)
             }
 
-    @router.patch("/client/mac/{mac_url}/mute", response_model=ClientMuteSetResponse)
+    @router.patch("/client/mac/{mac_url}/mute", response_model=ClientMuteSetResponse, openapi_extra=CONTRACTED)
     async def set_client_mute_by_mac(mac_url: str, request: ClientMuteRequest):
         """
         Set mute state for a specific client using MAC address.

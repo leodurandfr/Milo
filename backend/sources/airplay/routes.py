@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
+from backend.api.responses import image_responses
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.airplay.source import AirPlaySource
 
@@ -30,7 +31,7 @@ def setup_airplay_routes(source_provider) -> APIRouter:
     return router
 
 
-@router.get("/artwork")
+@router.get("/artwork", response_class=Response, responses=image_responses("image/jpeg", "image/png"))
 async def get_artwork(source: AirPlaySource = Depends(get_source)) -> Response:
     """Serve current AirPlay artwork as binary image."""
     result = source.get_artwork()

@@ -5,7 +5,7 @@ Settings Routes – Version with app deactivation and process stopping
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING, get_args
 from backend.core.models.audio_state import AudioSource
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.api.responses import BulkSettingsResponse
 from backend.config.constants import (
     AUDIO_SOURCE_APPS,
@@ -183,7 +183,7 @@ def create_settings_router(
         return services_map.get(source, [])
 
     # Bulk settings (all categories in one response)
-    @router.get("/bulk", response_model=BulkSettingsResponse)
+    @router.get("/bulk", response_model=BulkSettingsResponse, openapi_extra=CONTRACTED)
     async def get_bulk_settings():
         """Return all settings categories in a single response.
 

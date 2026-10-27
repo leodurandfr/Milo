@@ -28,17 +28,23 @@ whatever name the user reached the unit by. `http://localhost` for the Pi kiosk,
 `http://192.168.1.x` when mDNS is down, `http://milo-2.local` after an Avahi rename.
 An allowlist of four literal origins would have locked all three out.
 
-The `/ws` upgrade does not pass through here — the gate is HTTP-scope only. It carries
-no state-changing surface: `ws/manager.py` discards every inbound frame after the
-`ready` handshake.
+The `/ws` upgrade passes the same Host check, and the Origin check whatever it asks
+for. The socket changes nothing — `ws/manager.py` discards every inbound frame after
+the `ready` handshake — but it pushes the whole state to whoever holds it, and CORS
+does not cover a WebSocket: a page served from the internet that opens
+`ws://milo.local/ws` sends a correct Host and reads every frame. Its browser still
+names it in `Origin`, which it sends on every upgrade. A native client sends none,
+or the unit's own name, and passes either way.
 """
 import ipaddress
 import logging
 import re
 from urllib.parse import urlsplit
 
+from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.websockets import WebSocketClose
 
 from backend.core.system.hostname_conflict import EXPECTED_SERVER_HOSTNAME
 
@@ -96,7 +102,7 @@ def _is_trusted_origin(origin: str) -> bool:
 
 
 class RequestOriginGate:
-    """Rejects cross-site and DNS-rebound requests with 403.
+    """Rejects cross-site and DNS-rebound requests with 403, and such upgrades of `/ws`.
 
     Pure ASGI rather than `BaseHTTPMiddleware`: this reads two headers and either
     passes through or short-circuits, and wrapping every response in a task group
@@ -107,32 +113,36 @@ class RequestOriginGate:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        request = Request(scope)
-        reason = self._rejection(request)
-        if reason:
-            logger.warning("Refused %s %s: %s", request.method, request.url.path, reason)
-            response = JSONResponse(
-                status_code=403,
-                content={"status": "error", "message": "Untrusted request origin"},
-            )
-            await response(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            request = Request(scope)
+            reason = self._rejection(request.headers, request.method in _STATE_CHANGING_METHODS)
+            if reason:
+                logger.warning("Refused %s %s: %s", request.method, request.url.path, reason)
+                response = JSONResponse(
+                    status_code=403,
+                    content={"status": "error", "message": "Untrusted request origin"},
+                )
+                await response(scope, receive, send)
+                return
+        elif scope["type"] == "websocket":
+            reason = self._rejection(Headers(scope=scope), checks_origin=True)
+            if reason:
+                logger.warning("Refused WebSocket %s: %s", scope["path"], reason)
+                # A close before the accept is answered as an HTTP 403 to the upgrade.
+                await WebSocketClose(code=1008)(scope, receive, send)
+                return
 
         await self.app(scope, receive, send)
 
     @staticmethod
-    def _rejection(request: Request) -> str:
+    def _rejection(headers: Headers, checks_origin: bool) -> str:
         """Why this request is not ours to serve — empty when it is."""
-        raw_host = request.headers.get("host", "")
+        raw_host = headers.get("host", "")
         if not _is_appliance_host(_hostname(f"//{raw_host}")):
             return f"untrusted Host {raw_host!r}"
 
-        origin = request.headers.get("origin")
-        if request.method in _STATE_CHANGING_METHODS and origin and not _is_trusted_origin(origin):
+        origin = headers.get("origin")
+        if checks_origin and origin and not _is_trusted_origin(origin):
             return f"untrusted Origin {origin!r}"
 
         return ""

@@ -54,13 +54,12 @@ class TestGenericControlEndpoint:
     """POST /api/audio/control/{source} — the one transport for commands."""
 
     def test_successful_command_returns_the_status_envelope(self, client, source):
+        """`status` is the one key Milo-Mac (`sendCommand`) and Milo-iOS (`fire`)
+        read here, through the route's `response_model`, which drops any other."""
         response = _control(client, "pause")
 
         assert response.status_code == 200
-        assert response.json() == {
-            "status": "success",
-            "result": {"success": True, "message": "ok"},
-        }
+        assert response.json() == {"status": "success"}
         source.command.assert_awaited_once_with("pause", {})
 
     def test_command_params_reach_the_source_verbatim(self, client, source):

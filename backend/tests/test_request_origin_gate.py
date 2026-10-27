@@ -11,7 +11,7 @@ Consumers: the Vue frontend (served by nginx, by the kiosk over loopback, and by
 Vite dev server), Milo-Mac (no `Origin` at all), and curl on the unit itself.
 """
 import pytest
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from backend.api.middleware import ALLOWED_ORIGINS, RequestOriginGate
@@ -68,9 +68,15 @@ def test_a_client_that_sends_no_origin_is_served(client):
     assert client.post("/api/thing", headers=headers("192.168.1.50")).status_code == 200
 
 
-def test_the_websocket_upgrade_is_not_gated(client):
-    """The gate is HTTP-scope only — gating it would cut Milo-Mac's live feed."""
-    with client.websocket_connect("/ws") as ws:
+@pytest.mark.parametrize("host,origin", [
+    pytest.param("milo.local", None, id="native-client-no-origin"),
+    pytest.param("localhost", "http://localhost", id="pi-kiosk-over-loopback"),
+    pytest.param("192.168.1.50", "http://192.168.1.50", id="address-typed-in-the-bar"),
+    pytest.param("milo.local:8000", "http://localhost:5173", id="vite-dev-server"),
+])
+def test_a_real_way_of_reaching_the_unit_can_open_the_socket(client, host, origin):
+    """A refused upgrade is a screen that never shows the state, or Milo-Mac's live feed cut."""
+    with client.websocket_connect("/ws", headers=headers(host, origin)) as ws:
         assert ws.receive_text() == "state"
 
 
@@ -106,6 +112,18 @@ def test_a_public_address_is_not_an_appliance_address(client):
 def test_an_opaque_origin_cannot_write(client):
     """A sandboxed iframe sends `Origin: null`; that is not a missing Origin."""
     assert client.post("/api/thing", headers=headers("milo.local", "null")).status_code == 403
+
+
+@pytest.mark.parametrize("host,origin", [
+    pytest.param("evil.example", None, id="rebound-name"),
+    pytest.param("milo.local", "https://evil.example", id="page-from-the-internet"),
+])
+def test_a_foreign_page_cannot_read_the_socket(client, host, origin):
+    """CORS does not cover a WebSocket: an upgrade let through is the whole state read."""
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ws", headers=headers(host, origin)):
+            pass
+    assert refused.value.code == 1008
 
 
 def test_a_host_that_names_nothing_is_refused(client):

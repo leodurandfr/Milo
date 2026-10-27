@@ -124,6 +124,9 @@ def boot(monkeypatch):
     music_library = MagicMock()
     music_library.shares = _torn_down("music_library_shares")
     by_service_name["music_library_source"] = music_library
+    satellites = MagicMock()
+    satellites.get_server_version = AsyncMock(return_value="v0.1.1-12-g84ea873f")
+    by_service_name["satellite_update_service"] = satellites
     monkeypatch.setattr(main, "get_service", lambda n: by_service_name[n])
 
     return {
@@ -133,6 +136,7 @@ def boot(monkeypatch):
         "network": network,
         "ws_log_handler": ws_log_handler,
         "named": named,
+        "satellites": satellites,
         "monkeypatch": monkeypatch,
     }
 
@@ -239,6 +243,29 @@ class TestStartup:
         after a source is left idle — the state the screen sleeps on."""
         await _run_lifespan(boot)
 
+        boot["state_machine"].start_inactivity_monitor.assert_called_once()
+
+    async def test_the_schema_names_the_build_the_unit_runs(self, boot):
+        """`info.version` of /api/openapi.json is what an integrator quotes in a
+        report, and the release notes are read against it; FastAPI's own default
+        reads "0.1.0" on every unit, whatever it runs."""
+        app = MagicMock()
+
+        async with main.lifespan(app):
+            pass
+
+        assert app.version == "v0.1.1-12-g84ea873f"
+
+    async def test_a_unit_that_cannot_run_git_still_starts(self, boot):
+        """The version is a label on the schema: a missing git binary costs it,
+        never the boot."""
+        boot["satellites"].get_server_version = AsyncMock(side_effect=FileNotFoundError("git"))
+        app = MagicMock(version="0.1.0")
+
+        async with main.lifespan(app):
+            pass
+
+        assert app.version == "0.1.0"
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
 
     async def test_reachability_is_evaluated_once_the_graph_is_up(self, boot):

@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 
 from backend.api.models import PushLiveSessionsRequest, PushTokenRegisterRequest
 from backend.api.responses import StatusResponse
-from backend.api.route_helpers import api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.core.push.models import PushTokenKind
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ def create_push_router(
     """Creates the push token router with dependency injection"""
     router = APIRouter(prefix="/api/push", tags=["push"])
 
-    @router.post("/tokens", response_model=StatusResponse)
+    @router.post("/tokens", response_model=StatusResponse, openapi_extra=CONTRACTED)
     async def register_token(request: PushTokenRegisterRequest):
         """Register an APNs device token.
 
@@ -62,7 +62,7 @@ def create_push_router(
                 push_service.session_token_registered()
             return {"status": "success"}
 
-    @router.post("/sessions", response_model=StatusResponse)
+    @router.post("/sessions", response_model=StatusResponse, openapi_extra=CONTRACTED)
     async def report_live_sessions(request: PushLiveSessionsRequest):
         """Tell Milō which Now Playing sessions this device still holds.
 
@@ -94,7 +94,7 @@ def create_push_router(
             await push_service.align_session_to_playback(request.device_id)
             return {"status": "success"}
 
-    @router.delete("/tokens/{token}", response_model=StatusResponse)
+    @router.delete("/tokens/{token}", response_model=StatusResponse, openapi_extra=CONTRACTED)
     async def unregister_token(token: str):
         """Drop a token the app no longer wants pushed to.
 

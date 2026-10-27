@@ -6,6 +6,7 @@ Provides:
 - run_source_command(): Wraps source.command() with standard success check + error handling
 - api_error_handler(): Async context manager for the common try/except HTTPException/Exception pattern
 - parse_audio_source(): Parse user-provided source name to enum, or raise HTTP 400
+- CONTRACTED: the `openapi_extra` of every operation a companion app's manifest pins
 """
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,11 @@ from fastapi import HTTPException
 
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
+
+# Marks an operation Milo-Mac or Milo-iOS calls (tests/contracts/milo_*_contract.json)
+# as `x-stability: contracted` in OpenAPI; the set is held equal to the two manifests
+# by tests/contracts/test_api_stability.py.
+CONTRACTED = {"x-stability": "contracted"}
 
 
 def _reason(exc: Exception) -> str:
