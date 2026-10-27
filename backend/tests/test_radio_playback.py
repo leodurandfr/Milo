@@ -288,6 +288,21 @@ class TestStopPlayback:
         assert not radio.active()
         assert ("stop",) in radio.mpv.sent
 
+    async def test_backend_teardown_closes_the_recognition_service(self, radio):
+        """`shutdown()` ends the mailbox without running `_cleanup`. Radio
+        playing at teardown otherwise leaves the loop running and the HTTP
+        session shazamio 0.9 pools unclosed."""
+        await radio.select()
+        await radio.tune(NOVA)
+        await radio.tick(8)
+        shazam = radio.shazams[-1]
+        assert shazam.is_running
+
+        await radio.source.shutdown()
+
+        assert getattr(shazam, "closed", False)
+        assert not shazam.is_running
+
     async def test_stop_keeps_the_station_so_resume_can_retune_it(self, radio):
         """A live stream has no unpause: the play button after a stop
         re-tunes, and it has to know which station."""

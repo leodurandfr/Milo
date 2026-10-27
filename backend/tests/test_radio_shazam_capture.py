@@ -371,6 +371,35 @@ class TestStartAndStop:
         await service.stop()
         assert service.is_running is False
 
+    @pytest.mark.asyncio
+    async def test_only_close_ends_the_http_session(self, monkeypatch):
+        """shazamio 0.9 pools one session per client and refuses every request
+        once it is closed. `stop()` runs on every station change of a service
+        that lives on, so closing there would fail each later round, on every
+        station, until the radio source restarts."""
+        closes = []
+
+        class _Client:
+            def __init__(self, retry_options=None):
+                pass
+
+            async def close(self):
+                closes.append(self)
+
+        monkeypatch.setattr(shazam_mod, "HTTPClient", _Client)
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value={"shazam_enabled": True})
+        svc = ShazamRecognitionService(settings_service=settings)
+
+        await svc.start("http://stream/one")
+        await svc.start("http://stream/two")
+        await svc.stop()
+        assert closes == []
+
+        await svc.close()
+        assert len(closes) == 1
+        assert svc.is_running is False
+
 
 class TestTryRecognize:
     """One recognition round: settings re-check, capture, match, publish."""
@@ -497,6 +526,22 @@ class TestTryRecognize:
         armed._shazam.recognize = AsyncMock(side_effect=ValueError("bad json"))
 
         assert await armed._try_recognize() is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exc", [shazam_mod.RateLimited, shazam_mod.FailedDecodeJson])
+    async def test_a_throttled_or_garbled_answer_is_a_miss_not_an_error(
+        self, armed, caplog, exc
+    ):
+        """Measured 2026-10-27: Shazam answers 429 after three requests in a few
+        seconds, which shazamio 0.9 raises as `RateLimited`. Logged at error it
+        lands in `errors.log` (and every triage) for a condition the next round
+        clears."""
+        armed._shazam.recognize = AsyncMock(side_effect=exc("429"))
+
+        with caplog.at_level("INFO", logger="source.radio.shazam"):
+            assert await armed._try_recognize() is False
+
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
     @pytest.mark.asyncio
     async def test_cancellation_is_re_raised_so_stop_can_land(self, armed):

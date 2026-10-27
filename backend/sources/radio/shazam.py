@@ -15,7 +15,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional
 
 import aiohttp
 from aiohttp_retry import ExponentialRetry
-from shazamio import Shazam, HTTPClient
+from shazamio import FailedDecodeJson, HTTPClient, RateLimited, Shazam
 
 logger = logging.getLogger("source.radio.shazam")
 
@@ -67,19 +67,23 @@ class ShazamRecognitionService:
         """
         self._settings_service = settings_service
         self._on_track_changed = on_track_changed
-        self._shazam = Shazam(
-            http_client=HTTPClient(
-                # Fail fast on throttling: a sustained poll gets 429'd, and a
-                # long exponential backoff (was attempts=5/max_timeout=30)
-                # blocked the loop ~30 s, pinning stale state. Keep retries
-                # minimal so a throttled call returns quickly and the loop can
-                # clear the stale title instead of waiting.
-                retry_options=ExponentialRetry(
-                    attempts=2,
-                    max_timeout=3,
-                    statuses={500, 502, 503, 504, 429},
-                ),
+        # The client pools one aiohttp session for its whole life and cannot be
+        # reopened once closed, so `stop()` (a station change) keeps it and
+        # `close()` (the service discarded) ends it.
+        self._http_client = HTTPClient(
+            # Fail fast on throttling: a sustained poll gets 429'd, and a
+            # long exponential backoff (was attempts=5/max_timeout=30)
+            # blocked the loop ~30 s, pinning stale state. Keep retries
+            # minimal so a throttled call returns quickly and the loop can
+            # clear the stale title instead of waiting.
+            retry_options=ExponentialRetry(
+                attempts=2,
+                max_timeout=3,
+                statuses={500, 502, 503, 504, 429},
             ),
+        )
+        self._shazam = Shazam(
+            http_client=self._http_client,
             segment_duration_seconds=SEGMENT_DURATION_SECONDS,
         )
 
@@ -157,6 +161,11 @@ class ShazamRecognitionService:
                 logger.error(f"Error in track changed callback: {e}")
 
         logger.info("Shazam recognition stopped")
+
+    async def close(self) -> None:
+        """Stop recognition and release the HTTP session. The service is not reusable after."""
+        await self.stop()
+        await self._http_client.close()
 
     async def _recognition_loop(self) -> None:
         """Main recognition loop with immediate retries on failure.
@@ -258,7 +267,7 @@ class ShazamRecognitionService:
         except asyncio.TimeoutError:
             logger.info("Shazam recognition timed out")
             return False
-        except (aiohttp.ClientError, ValueError) as e:
+        except (aiohttp.ClientError, RateLimited, FailedDecodeJson, ValueError) as e:
             logger.info(f"Shazam recognition transient failure: {e}")
             return False
         except Exception as e:

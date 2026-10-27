@@ -642,7 +642,7 @@ class RadioSource(MpvAudioSource):
     async def _cleanup(self) -> None:
         """Clean up resources."""
         if self._shazam:
-            await self._shazam.stop()
+            await self._shazam.close()
             self._shazam = None
         await self._detach_mpv()
 
@@ -764,6 +764,12 @@ class RadioSource(MpvAudioSource):
 
     async def shutdown(self) -> None:
         await super().shutdown()
+        # The base ends the mailbox without running `_cleanup`, so a radio still
+        # playing at teardown would leave the recognition loop and its HTTP
+        # session open.
+        if self._shazam:
+            await self._shazam.close()
+            self._shazam = None
         await self._logos.cleanup()
 
     @property

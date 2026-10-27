@@ -44,6 +44,10 @@ class FakeShazam:
         self.is_running = False
         self.current_track = None
 
+    async def close(self):
+        await self.stop()
+        self.closed = True
+
 
 class _NoPrerollProbe:
     """ffprobe on a station with no pre-roll ad: exits 0 with no tags."""

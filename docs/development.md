@@ -7,9 +7,7 @@ This guide is for developers who want to contribute to or fork the Milō project
 ### Prerequisites
 
 - Raspberry Pi 4 or 5 with Raspberry Pi OS 64-bit (Debian Trixie)
-- **Python 3.13** — `pyproject.toml` sets `target-version = "py313"` and CI runs 3.13. A
-  `requirements.txt` marker also pulls `audioop-lts` on 3.13+, because stdlib `audioop` was
-  removed in that version
+- **Python 3.13** — `pyproject.toml` sets `target-version = "py313"` and CI runs 3.13
 - **Node.js 20** — the version CI uses
 - Git
 
