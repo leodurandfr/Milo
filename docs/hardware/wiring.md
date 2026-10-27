@@ -2,7 +2,7 @@
 
 > Every physical connection on a Milō unit (Raspberry Pi 5 + HiFiBerry AMP4 Pro).
 > Section 1 is the at-a-glance map; the following sections give the exact wiring per
-> component. Last updated 2026-06-20.
+> component.
 
 ## 1. GPIO 40-pin header — overview
 

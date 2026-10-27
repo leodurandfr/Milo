@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { logger } from '@/services/logger';
 
 /**
- * WebSocket singleton with smart disconnect when the tab is hidden.
+ * WebSocket singleton that reconnects with a jittered backoff, and reopens at
+ * once a socket the browser closed while the tab was hidden.
  *
  * Wire format: { category, type, origin, data, timestamp } (built by
  * WsEvent.to_envelope() — backend/core/models/ws_events.py, one typed class

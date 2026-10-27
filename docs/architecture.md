@@ -73,7 +73,7 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 ### A source's state on the wire
 
 No single word says how a source is doing. The one `AudioState`
-([audio_wire.py](../backend/core/models/audio_wire.py), field by field in the
+([audio_wire.py](https://github.com/leodurandfr/Milo/blob/main/backend/core/models/audio_wire.py), field by field in the
 [API overview](api-overview.md#the-audio-state)) publishes separate axes, each
 with one owner:
 
@@ -87,8 +87,8 @@ with one owner:
 | Content and commands | `details`, `controls` | the source |
 
 A source contributes the last three as its **view** (`SourceView`) and the
-state machine composes the rest (`AudioStateMachine.state()`); the rule is
-CLAUDE.md's *One publisher per source*.
+state machine composes the rest (`AudioStateMachine.state()`): one publisher
+per source, the base class's `_publish()`.
 
 Three things are worth spelling out:
 
@@ -117,7 +117,7 @@ is the service axis: the failed transition leaves the source **selected** with
 drops every publish while it holds, and only the resync after a start that
 succeeded (a transition, or a reroute's reacquire) lifts it — a source whose
 feed outlives its start (the CD's disc watcher) otherwise published over it,
-and the card lost its retry (E07). An *operation* that fails while the source
+and the card lost its retry. An *operation* that fails while the source
 keeps working — a station that will not tune, a rejected command — rides the
 typed `source/error` event (`broadcast_error()`) and raises the notification
 banner only, never touching the state. Putting the second into the state would
@@ -133,11 +133,11 @@ operations read off its availability (`reading_disc` → `loading_disc`,
 `useRichDisplay` decides between the card and the source's full view: the card
 while switching or not `running`, when the session is `connected` without a
 cover, a title and an artist (with all three, an iPhone's AirPlay stream that
-stays `connected` throughout keeps its player — D14), and when neither the
+stays `connected` throughout keeps its player), and when neither the
 session nor the resume point has a title (and for an AirPlay cover too small
-to trust); the three sources played
-from Milō's own browser (Radio, Podcast, Music Library) keep their view with
-nothing playing, since it is where the first station, episode or album is
+to trust); the four sources played
+from Milō's own browser (Radio, Podcast, Music Library, Spotify — `BROWSER_SOURCES`) keep their
+view with nothing playing (Spotify only once an account is signed in), since it is where the first station, episode or album is
 chosen.
 
 ### Unavailable, which is not a state
@@ -152,7 +152,7 @@ which republishes the state. On the card the reason replaces the state's own
 phrase, and `useRichDisplay` drops to the card — a Radio favourites grid whose
 every tap fails is a worse screen than one saying why. Two exceptions: a session
 still `playing` keeps its player (a buffered track plays on after the link drops,
-and the card would take away the only control that stops it), and the three
+and the card would take away the only control that stops it), and the four
 browser sources give their view up for a missing link only.
 
 | Reason | Source | Source of truth | CTA |
@@ -282,7 +282,7 @@ Spotify app, and guests join the way the app offers.
   BIP connection that BlueZ exposes only as the experimental `ImgHandle`, and a
   live iPhone's Track dict was measured to carry no image field at all. The
   cover is instead resolved from the track text by the shared
-  [artwork_resolver.py](../backend/shared/artwork_resolver.py) (iTunes Search),
+  [artwork_resolver.py](https://github.com/leodurandfr/Milo/blob/main/backend/shared/artwork_resolver.py) (iTunes Search),
   the same one radio uses — by **album** first, since one album has one cover
   while a track can sit on a dozen compilations. Best-effort and async; a miss
   leaves `AudioPlayerFull` drawing the source glyph
@@ -303,10 +303,10 @@ Spotify app, and guests join the way the app offers.
 - [**Go to roc-toolkit repository**](https://github.com/roc-streaming/roc-toolkit)
 
 **How does it work?**
-- Milō Mac application (using [**rov-vad**](https://github.com/roc-streaming/roc-vad)) captures system audio 
+- Milō Mac application (using [**roc-vad**](https://github.com/roc-streaming/roc-vad)) captures system audio 
 - Encodes and sends over network (RTP + Reed-Solomon FEC)
 - `roc-recv` on Raspberry Pi decodes and plays to ALSA
-- Latency ~100-200ms (acceptable for daily use)
+- Target latency 50 ms by default, adjustable from 20 to 500 ms in the Mac link settings
 
 **Configuration:**
 - Source port: 10001
@@ -340,7 +340,7 @@ Spotify app, and guests join the way the app offers.
   20 s. The first in-band title shuts it back down. It *does* return an artwork
   URL
 - **Cover art for in-band tracks** is resolved from the artist/title by
-  [shared/artwork_resolver.py](../backend/shared/artwork_resolver.py) (iTunes
+  [shared/artwork_resolver.py](https://github.com/leodurandfr/Milo/blob/main/backend/shared/artwork_resolver.py) (iTunes
   Search) and patched into the same `track_artwork` field Shazam fills, so both
   paths look identical on screen. The same resolver serves Bluetooth
 - Both tiers expire a stale title after sustained empty metadata (~16 s in-band,
@@ -438,7 +438,7 @@ Spotify app, and guests join the way the app offers.
 - Service: milo-airplay.service (shairport-sync)
 - Metadata pipe: /tmp/shairport-sync-metadata
 - Audio output: ALSA (milo_airplay), `output_format = "S32_LE"` — see below
-- Visible name: "Milō"
+- Visible name: "Milō · AirPlay"
 
 **Audio format.** `output_format = "S32_LE"` matches what CamillaDSP captures,
 so the `plug` in front of `milo_airplay` no longer truncates to 16 bits. The
@@ -489,7 +489,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   `milo_qobuz`; Milō's `QobuzMonitor` **polls `GET http://127.0.0.1:8689/api/status`**
   (~1 Hz) for `now_playing` (title/artist/album/album-art URL + position/duration).
   Upstream reports progress only to the Qobuz cloud, so the launcher
-  [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz) adds
+  [rootfs/usr/local/bin/milo-qobuz](https://github.com/leodurandfr/Milo/blob/main/rootfs/usr/local/bin/milo-qobuz) adds
   `position_ms`/`duration_ms` to that payload at runtime, and `player_state` /
   `renderer_active` beside it — the player's own state and whether the Qobuz
   cloud has Milō as the app's output. The session follows those two: it opens
@@ -507,13 +507,14 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   the device won't advertise; done via the in-app **Qobuz account** settings
   screen (backend relay `/api/qobuz/account/*` → the proxy's OAuth), token cached
   in `credentials.json` (see below)
-- Volume follows CamillaDSP only: qobuz-proxy's local backend is pinned to unity
-  gain at install (the Qobuz app slider is inert), the same role
-  `external_volume` plays for go-librespot
+- Volume: by default qobuz-proxy's stream stays at unity gain and CamillaDSP is the
+  only attenuation. The `qobuz.allow_app_volume` setting (passed to the sidecar as the
+  flag file `qobuz/allow_app_volume`) lets the Qobuz app's slider scale the stream in
+  qobuz-proxy itself, before CamillaDSP
 
 **Configuration:**
 - Service: milo-qobuz.service (qobuz-proxy sidecar, backend-managed)
-- API: http://localhost:8689 (`/api/status` polled; OAuth on `/auth/*`)
+- API: port 8689 on every interface — the phone reaches it over the LAN (`/api/status` polled by the backend; OAuth on `/auth/*`)
 - Audio output: ALSA (milo_qobuz)
 - Visible name: "Milo" (ASCII — the Qobuz iOS app silently aborts the Connect
   handshake on a non-ASCII device name; Milō's own UI still shows "Qobuz")
@@ -704,7 +705,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 
 ### Direct mode (multiroom disabled)
 ```
-Audio source → ALSA → Amplifier → Speakers
+Audio source → ALSA → CamillaDSP → Amplifier → Speakers
 ```
 
 ### Multiroom mode (multiroom enabled)
@@ -726,7 +727,7 @@ Audio source → ALSA Loopback → Snapserver → Network
 
 **Configuration:**
 - Server: http://localhost:1780 (REST API + WebSocket)
-- Buffer: 1000ms (adjustable based on network latency)
+- Buffer: 300 ms by default (adjustable based on network latency)
 - Format: PCM 48kHz 32-bit stereo (`48000:32:2`, forced in `snapcast.py`)
 
 ## DSP Processing (CamillaDSP)
@@ -755,7 +756,7 @@ ALSA (Advanced Linux Sound Architecture) is the Linux audio subsystem. Milō use
 
 ### Dynamic virtual devices
 
-Each audio source (Spotify, Bluetooth, Mac) has 2 possible ALSA devices:
+Each of the ten sources has an alias, `milo_<source>` (Mac's is `milo_roc`), that `MILO_MODE` resolves to one of two ALSA devices:
 ```
 milo_spotify_direct          → Via CamillaDSP to amplifier
 milo_spotify_multiroom       → To Snapcast (loopback, each client applies CamillaDSP locally)
@@ -830,8 +831,8 @@ This replaces ALSA's default low-quality linear-interpolation converter with a *
 - SW: GPIO 23 (button)
 
 **Operation:**
-- GPIO interrupts for rotation detection
-- Software debouncing (10ms)
+- Adaptive GPIO polling (1 ms while the knob moves, ~16 ms at rest)
+- Software debouncing (5 ms for rotation, 20 ms for the button)
 - Configurable volume step adjustment
 
 ### IR remote — Apple Remote A1156 (optional)
@@ -873,21 +874,24 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **settings.json** - Central file for all system parameters:
 ```json
 {
-  "language": "french",
-  "volume": { "alsa_min": 0, "alsa_max": 65, ... },
-  "screen": { "timeout_seconds": 10, ... },
-  "routing": { "multiroom_enabled": false, "equalizer_enabled": false },
+  "schema_version": 4,
+  "language": "english",
+  "volume": { "limit_min_db": -80.0, "limit_max_db": -20.0, "step_mobile_db": 2.0, ... },
+  "screen": { "timeout_seconds": 120, ... },
+  "routing": { "multiroom_enabled": false, "equalizer_effects_enabled": false },
   "dock": { "enabled_apps": [...] }
 }
 ```
 
-**hardware.json** - Hardware configuration (screen, rotary encoder, IR remote):
+**hardware.json** - Hardware configuration (audio card, screen, rotary encoder, IR remote, power button):
 ```json
 {
+  "schema_version": 2,
   "audio":  { "id": "hifiberry_amp4pro", ... },
   "screen": { "type": "waveshare_8_dsi", "resolution": "1280x800" },
   "rotary_encoder": { "enabled": true,  "clk_pin": 22, "dt_pin": 27, "sw_pin": 23 },
-  "ir_remote":      { "enabled": false, "gpio_pin": 17 }
+  "ir_remote":      { "enabled": false, "gpio_pin": 17 },
+  "power_button":   { "enabled": false, "led_gpio_pin": 26 }
 }
 ```
 
@@ -899,7 +903,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **cd_covers/** - Downloaded CD cover art, keyed by disc ID. Disposable cache (re-downloadable from Cover Art Archive).
 **equalizer.json** - Persisted parametric-EQ/compressor/loudness/mono state (active preset, custom gains, filters). Durable (`schema_version: 2`). Distinct from `camilladsp/config.yml`: CamillaDSP itself resets to its baked static defaults on every restart, and it's this file the backend replays over its WebSocket API to restore the live EQ state afterwards.
 **camilladsp/** - CamillaDSP daemon working directory (`WorkingDirectory=` in `milo-camilladsp.service`): `config.yml` is the static default config baked at image-build time, copied from `rootfs/var/lib/milo/camilladsp/config.yml` by `pi-gen/stage-milo/02-install-milo/01-run.sh` — no backend code rewrites it at runtime, the backend only talks to the running daemon over its WebSocket API. `configs/` and `coeffs/` are empty subdirectories created for future coefficient-file support; nothing reads or writes into them today.
-**go-librespot/** - `config.yml` is written at image-build time (`provisioning/go-librespot.sh::configure_go_librespot`, sourced by the pi-gen stage), which owns every key in it *except four*, re-applied by the backend on every `SpotifySource._do_start()`: `crossfade_duration` and `external_volume` (the inverse of `spotify.allow_app_volume` — off, the Spotify app's slider is inert and CamillaDSP is the only attenuation) from `SettingsService`, and two constants — `credentials` (zeroconf with `persist_credentials`: the first cast's account is stored and signs the daemon back in, with no phone, at every start and after every session end) and `metadata` (the cache behind `/context/tracks`, the browser's track listings; `max_tracks` sized on measured libraries). go-librespot parses its config once, at process start, so that is the only moment a change can reach it (hence the settings page's "restart to apply"). The patch is key-scoped and atomic; it drops the writer's comments from the deployed copy, whose rationale stays in `provisioning/go-librespot.sh`. Disposable — a deleted file is rebuilt by a reflash plus the next Spotify start. go-librespot itself runs with `--config_dir` pointed at this directory and writes its own state here: `state.json` holds `device_id`, `last_volume` and the stored account's `credentials` (written atomically, before `/status` names the account). Milō reads that account from it at each start.
+**go-librespot/** - `config.yml` is written at image-build time (`provisioning/go-librespot.sh::configure_go_librespot`, sourced by the pi-gen stage), which owns every key in it *except four*, re-applied by the backend on every `SpotifySource._do_start()`: `crossfade_duration` from `SettingsService`, and three constants — `external_volume` (go-librespot never scales the samples: CamillaDSP is the only attenuation; whether the Spotify app's slider moves Milō's volume is `spotify.allow_app_volume`, applied without a restart), `credentials` (zeroconf with `persist_credentials`: the first cast's account is stored and signs the daemon back in, with no phone, at every start and after every session end) and `metadata` (the cache behind `/context/tracks`, the browser's track listings; `max_tracks` sized on measured libraries). go-librespot parses its config once, at process start, so that is the only moment a change can reach it (hence the settings page's "restart to apply"). The patch is key-scoped and atomic; it drops the writer's comments from the deployed copy, whose rationale stays in `provisioning/go-librespot.sh`. Disposable — a deleted file is rebuilt by a reflash plus the next Spotify start. go-librespot itself runs with `--config_dir` pointed at this directory and writes its own state here: `state.json` holds `device_id`, `last_volume` and the stored account's `credentials` (written atomically, before `/status` names the account). Milō reads that account from it at each start.
 **routing.env** - Derived artifact of `settings.routing.multiroom_enabled`. Holds `MILO_MODE=direct|multiroom`. Read by every source systemd unit via `EnvironmentFile=` and by `/etc/asound.conf` via `@func getenv vars [ MILO_MODE ]` for `milo_*` alias resolution. Regenerated exclusively by `AudioRoutingService` whenever the setting changes.
 **mac.env** - `ROC_TARGET_LATENCY`/`ROC_LATENCY_PROFILE`/`ROC_FRAME_LENGTH`, read only by `milo-mac.service`. Regenerable — derived purely from `settings.json`'s `mac` config by `MacEnv.regenerate()`.
 **snapclient.env** - `MILO_SNAPCLIENT_BUFFER_TIME`/`MILO_SNAPCLIENT_FRAGMENTS`, read only by `milo-snapclient-multiroom.service`. Regenerable, same model as `mac.env`, via `SnapclientEnv.regenerate()`.
@@ -919,7 +923,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **shares/** - Root-only (0700, `root:root`) credential store for network (SMB/NFS) shares, one `<id>.cred` file (0600) per share, written/read/removed exclusively by the privileged `milo-mount`/`milo-umount` helpers — the backend process never reads these directly. Durable for any share that has credentials; losing it just means re-entering them on the next mount attempt.
 **avahi-interface** - One-line cache of which physical interface (`eth0`/`wlan0`) Avahi should bind mDNS to, written by the NetworkManager dispatcher on every link up/down or IPv4 lease change (and reset to `eth0` by `milo-first-boot` while setup is incomplete), read by `milo-apply-avahi-iface` before avahi-daemon starts. Regenerable — defaults to `eth0` if absent. Exists to avoid the `milo.local` → `milo-2.local` self-loop rename bug. A satellite runs the same mechanism from its own tree — `/var/lib/milo-client/avahi-interface` + `milo-client-apply-avahi-iface` — because re-applying persisted intent is the only shape that survives the avahi restart the dispatcher itself issues: a drop-in that reset the interface to a hardcoded `eth0` undid the WiFi fallback it had just been asked to publish.
 **shairport-sync-version** - Last successfully-installed shairport-sync version, written by the updater after a verified update. Best-effort cache: `version.py` falls back to invoking `shairport-sync --version` if the file is missing. Works around 4.3.7's version string not being reliably parseable post-update.
-**apns/** - APNs provider signing key, exactly one `AuthKey_<KEYID>.p8` (`milo:milo`, 0600, directory 0700). **Provisioned per device and deliberately absent from the image**: one `.p8` signs for every app in the Apple team, so baking it into pi-gen would ship that credential on every card. The Key ID is read from the filename — Apple's own naming, and the only copy of it, so there is no second place for it to drift from. Owned by `milo` rather than `root` because the backend must read it to mint provider tokens, and a root-only key would need a new privileged `milo-*` helper for nothing (invariants 1 and 5). Absent on a unit that never enabled push: `ApnsClient` logs once and reports every send as skipped, so a dev host runs with no Apple account at all. Not regenerable — Apple serves the key once, and a lost one is revoked and replaced.
+**apns/** - APNs provider signing key, exactly one `AuthKey_<KEYID>.p8` (`milo:milo`, 0600, directory 0700). **Provisioned per device and deliberately absent from the image**: one `.p8` signs for every app in the Apple team, so baking it into pi-gen would ship that credential on every card. The Key ID is read from the filename — Apple's own naming, and the only copy of it, so there is no second place for it to drift from. Owned by `milo` rather than `root` because the backend must read it to mint provider tokens, and a root-only key would need a new privileged `milo-*` helper for nothing. Absent on a unit that never enabled push: `ApnsClient` logs once and reports every send as skipped, so a dev host runs with no Apple account at all. Not regenerable — Apple serves the key once, and a lost one is revoked and replaced.
 **push_tokens.json** - APNs device tokens, one record per token, keyed by the token string because that is the only identifier APNs names a dead token by. Each record carries its `kind` (widget / push-to-start / Now Playing session), the `environment` that issued it (sandbox vs production — a Debug build's token is only valid against `api.sandbox.push.apple.com`, and the wrong host answers `BadDeviceToken`, a 400 that looks exactly like a malformed token), the install's `device_id`, and `registered_at`, which is what lets a 410 Unregistered be refused when the token has been registered again since. Durable (`schema_version: 1`), but cheap to lose: the iOS app re-registers on launch. Written only by `core/push/token_registry.py`; the `.p8` signing key it is used with is **not** here and is never baked into the image.
 **errors.log** - Rotating application error log (`RotatingFileHandler`), not user data.
 
@@ -935,10 +939,17 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 Automatic binary backups during updates:
 ```
 /var/lib/milo/backups/
-├── go-librespot-0.4.0
-├── snapserver-0.31.0
-└── snapclient-0.31.0
+├── go-librespot/
+├── shairport-sync/
+├── multiroom/
+├── camilladsp/
+├── qobuz/
+├── navidrome/
+└── milo-app/
 ```
+One directory per program, holding what its last update replaced — the binary and its config
+(`go-librespot.backup`, `config.yml.backup`), shairport-sync with its NQPTP, the qobuz-proxy
+venv, the previous frontend `dist/` — so a failed update can roll back.
 
 There is no whole-tree backup/restore feature today; the appliance's durable state simply lives
 under `/var/lib/milo/`. Everything there — including the Navidrome library DB (`navidrome/navidrome.db`)
@@ -1001,7 +1012,7 @@ is the event's `source` field (falling back to `CATEGORY`).
     "multiroom_enabled": false,
     "equalizer_effects_enabled": true
   },
-  "timestamp": 1234567890
+  "timestamp": 1790270000.48
 }
 ```
 
@@ -1017,10 +1028,11 @@ statically verified against the event models on every `pytest` run.
 ### Disconnection handling
 
 **Frontend:**
-- Automatic disconnection if tab hidden (resource saving)
-- Automatic reconnection when tab becomes visible
+- The connection stays open while the tab is hidden; on its return, a socket the browser closed in
+  the background is reopened at once
 - Exponential backoff between attempts: `min(1000 × 2^(attempt−1), 30000)` ms, i.e. 1 s, 2 s, 4 s …
-  capped at 30 s. The counter resets on a successful connection (`services/websocket.js`)
+  capped at 30 s, each delay jittered by ×0.75–1.25 so the clients of a restarted backend do not
+  all return on the same tick. The counter resets on a successful connection (`services/websocket.js`)
 
 **Backend:**
 - Automatic ping every 30s
@@ -1039,7 +1051,7 @@ sequence numbers, gap detection, epochs and watermarks all detect a failure it
 cannot produce — don't build them. The two classes that are real:
 
 1. **State changes and is never published** — a handler that moves the source
-   and calls no `_publish()` (mpv refusing a load, E41). The actor's net,
+   and calls no `_publish()` (mpv refusing a load, for instance). The actor's net,
    `_republish_if_moved()`, compares the view after every message and publishes
    what moved, so a forgotten publish costs a message's delay, not the state.
 2. **State is published in a shape the consumer reads backwards** — why
@@ -1075,18 +1087,22 @@ milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingServ
 milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
 milo-ir-keytable          # Boot oneshot: enable NEC decoding + reload paired Apple Remote keymap
 milo-kiosk                # Chromium kiosk (touchscreen)
-milo-readiness            # System readiness check
+milo-readiness            # Boot splash: drives the Plymouth progress bar, quits it when the UI can take over
 milo-first-boot           # Boot oneshot: first-boot/role setup (consumes pending_client_role.json)
 milo-cpu-governor         # Boot oneshot: pin the CPU governor
+nqptp                     # NQPTP, the AirPlay 2 clock milo-airplay requires
 ```
 
 The list above is the whole of `system/` — `ls system/*.service` is the authoritative check.
 
 **Dependencies:**
 - Source units use `BindsTo=milo-backend` (stop if the backend stops)
-- `milo-navidrome` uses `PartOf=milo-backend.service` instead, because `BindsTo=` propagates
-  *stop* only and the always-on catalog engine must follow a backend **restart** as well. The two
-  directives are not interchangeable — see the comment header in the unit file.
+- The four backend-owned daemons — `milo-camilladsp`, `milo-navidrome`,
+  `milo-snapserver-multiroom`, `milo-snapclient-multiroom` — use `PartOf=milo-backend.service`
+  instead, because `BindsTo=` propagates *stop* only and each of them must follow a backend
+  **restart** as well. The two directives are not interchangeable.
+- `milo-navidrome` and the two Snapcast units have no `WantedBy`: the backend starts and stops
+  them (Navidrome while the dock enables Music Library, Snapcast with the multiroom mode).
 - Automatic restart on error
 
 **Multiroom lifecycle:** Snapserver and snapclient units do **not** auto-start at boot. `AudioRoutingService._sync_snapcast_state` is the only writer: it reads `settings.routing.multiroom_enabled` and reconciles both units accordingly during backend init and after every multiroom toggle. This avoids the desync class where snapcast could run while the backend believed it was in direct mode (which holds `hw:Loopback,0,0` and produces `Device or resource busy` on other sources).
@@ -1101,8 +1117,28 @@ the local network. Do not expose a Milō to the internet.
 **None.** There is no rate limiter in the backend and none in the nginx config — no `slowapi`, no
 `limit_req`. The API answers every request it receives.
 
+### Request origin gate
+CORS only decides which pages may *read* a response; it does not stop a foreign page from making a
+browser on the LAN *send* a request (a bodyless `POST` needs no preflight). `RequestOriginGate`
+(`backend/api/middleware.py`) answers 403 to two kinds of request:
+- a `Host` header that is neither one of the unit's names (`localhost`, `milo`, `milo.local`,
+  `milo-<n>.local`) nor a private IP address — which defeats DNS rebinding;
+- on `POST`/`PUT`/`PATCH`/`DELETE`, an `Origin` header that is neither one of those names, nor a
+  private IP address, nor a CORS origin. A request with no `Origin` (curl, a native app) passes.
+
+The gate keeps out pages from the internet, not the LAN: a page served by another local machine
+under its private IP passes both checks. The `/ws` upgrade is not gated at all: the server reads
+nothing a client sends after the `ready` handshake, so the socket carries no state-changing
+surface, but it does hand the state to whoever opens it.
+
+### Exposure
+nginx serves the app and proxies `/api/` and `/ws` on port 80. The backend also listens on port
+8000 on every interface, because satellites register with the server there; the gate applies on
+both ports. The OpenAPI schema and its docs are public on the LAN (`/api/openapi.json`,
+`/api/docs`).
+
 ### CORS
-Allowed origins only (`backend/main.py`):
+Allowed origins only (`ALLOWED_ORIGINS` in `backend/api/middleware.py`):
 - `http://milo.local`, `https://milo.local`
 - `http://localhost:5173`, `http://127.0.0.1:5173` (dev)
 
@@ -1111,8 +1147,8 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 
 ### Permissions
 - Backend runs as `milo` user (not root)
-- Privileged exec is centralized (see CLAUDE.md invariant #1): systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
-- Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied by both the install scripts and `pi-gen/`, so the two install routes cannot grant different sets. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
+- Privileged exec is centralized: systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
+- Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied verbatim by `pi-gen/`, the only provisioning path, so no second spelling of a grant set exists. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
 - The scoping only means something because each policy's first rule withdraws the blanket `NOPASSWD: ALL` Raspberry Pi OS grants the image's first user (`/etc/sudoers.d/010_pi-nopasswd`, shipped by `raspberrypi-sys-mods`, its username rewritten on first boot by `userconf-pi`). Any unit whose appliance account is also that first user held unrestricted passwordless root until then — measured on a satellite. sudo reads `/etc/sudoers.d` in lexical order and applies the *last* matching rule, so `milo-*` is read after `010_*` and the withdrawal must sit above the grants, never below them.
 
 ## Performance
@@ -1133,8 +1169,8 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 
 ### Known limitations
 
-- Mac streaming latency: ~100-200ms (acceptable)
-- Multiroom buffer: 1000ms (adjustable)
+- Mac streaming target latency: 50 ms by default (20–500 ms)
+- Multiroom buffer: 300 ms by default (adjustable)
 - System state broadcast on every change (can be optimized if needed)
 
 ## Extending Milō
@@ -1144,7 +1180,8 @@ registration, two ALSA device variants, frontend touchpoints, i18n), and which f
 depends on its family — a passive receiver and an active player do not have the same layout. That
 checklist is maintained in one place, so it cannot drift from the rules that enforce it:
 
-- **Family rules and the source contract** → [CLAUDE.md](../CLAUDE.md) § *Audio sources*
+- **Family rules and the source contract** → [the family table](development.md#adding-a-new-audio-source) and
+  `backend/tests/architecture/test_source_conformance.py`
 - **Step-by-step walkthrough**, incl. the ALSA loopback-subdevice constraint and the frontend
   touchpoint table → [Adding a new audio source](development.md#adding-a-new-audio-source)
 - **Adding a service** (creator in `dependencies.py::_create_service`, async `initialize()`

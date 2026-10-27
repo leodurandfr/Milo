@@ -1,22 +1,24 @@
 # Milō API Overview
 
 Milō's backend is a [FastAPI](https://fastapi.tiangolo.com/) app (`backend/`). The Vue
-frontend, the on-device kiosk, and the companion apps (Milo-Mac, iOS, Android) all drive a
-unit over the **same wire surface: a REST API + a single WebSocket**.
+frontend, the on-device kiosk, and the companion apps ([Milo-Mac](https://github.com/leodurandfr/Milo-Mac)
+and [Milo-iOS](https://github.com/leodurandfr/Milo-iOS)) all drive a unit over the **same wire
+surface: a REST API + a single WebSocket**.
 
 This page maps that surface at the *router-group* level — a quick mental model of the app.
-It is **not** an endpoint-by-endpoint listing (~130 endpoints move too often to hand-maintain).
-For exact, always-current request/response shapes, use the live sources of truth:
+It is **not** an endpoint-by-endpoint listing (~200 operations move too often to hand-maintain).
+For exact, always-current request/response shapes, use the live sources of truth, served by
+every unit:
 
 | Source of truth | Where |
 |---|---|
-| Interactive docs (Swagger UI) | backend only — dev: `http://localhost:8000/docs` |
-| OpenAPI schema (JSON) | backend only — dev: `http://localhost:8000/openapi.json` |
-| Milo-Mac wire contract (pinned) | [`backend/tests/contracts/milo_mac_contract.json`](../backend/tests/contracts/milo_mac_contract.json) |
+| Interactive docs (Swagger UI) | `http://milo.local/api/docs` (ReDoc: `/api/redoc`) |
+| OpenAPI schema (JSON) | `http://milo.local/api/openapi.json` |
+| Milo-Mac wire contract (pinned) | [`backend/tests/contracts/milo_mac_contract.json`](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_mac_contract.json) |
+| Milo-iOS wire contract (pinned) | [`backend/tests/contracts/milo_ios_contract.json`](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_ios_contract.json) |
 
-> Swagger / OpenAPI are served by the backend (uvicorn :8000) directly. nginx on a production
-> unit only proxies `/api/` and `/ws`, so `milo.local/docs` is **not** exposed — read the schema
-> on the device itself or against a dev server.
+> Swagger UI loads its scripts from a CDN, so `/api/docs` needs the internet;
+> `/api/openapi.json` does not.
 
 ## REST
 
@@ -39,15 +41,15 @@ else is the static SPA).
 | Setup | `/api/setup` | First-boot wizard (`/complete`, `/become-client`) |
 | Errors | `/api/errors` | Receive frontend error reports → `errors.log` |
 | Health | `/api/health`, `/api/ping`, `/api/initial-state` | Liveness + initial-state snapshot |
+| Push | `/api/push` | APNs device tokens and the Now Playing sessions a device still holds (Milo-iOS) |
 | Hardware | `/api/bt-remote`, `/api/ir-remote`, `/api/fan` | Bluetooth/IR remote + fan control |
 | Sources | `/api/radio`, `/api/podcast`, `/api/cd`, `/api/airplay`, `/api/qobuz`, `/api/music-library`, `/api/spotify` | Source-specific endpoints (browsing, favorites, binary/proxied artwork, scan status…) |
 
 **Every source command travels on `/api/audio/control/{source}`**, whatever its family — a
 per-source command route would only add a second failure contract to keep in sync. A source
 router therefore holds what is *not* a command: catalog browsing, favorites, binary/proxied
-artwork. The two exceptions are documented in [CLAUDE.md](../CLAUDE.md) § *Audio sources*:
-a route that composes several commands in one request (`/api/radio/play`)
-and a route Milo-Mac pins.
+artwork. There are two exceptions: a route that composes several commands in one request
+(`POST /api/radio/play`), and a route Milo-Mac's contract pins (`POST /api/radio/stop`).
 
 So Bluetooth, Mac and Tidal have no router at all; Qobuz's only surface is the
 `/api/qobuz/account/*` one-time-login relay; `/api/airplay` serves proxied
@@ -60,9 +62,44 @@ Spotify's own sections, the discography in place of its popular releases), a tra
 /contexts/{uri}/tracks/{item}?position=N` to remove one entry — Liked Songs included), and the profiles Milō keeps (forget,
 `PUT /active-profile` to sign the daemon in as one) — playback itself is the `play_context`
 command. Music Library is the richest (Subsonic-backed browsing,
-cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the
-per-layer error policy) are spelled out in [CLAUDE.md](../CLAUDE.md) and the
-[Developer Guide](development.md).
+cover-art proxy, storage spaces, share wizard).
+
+### Conventions
+
+- **Paths** are kebab-case (`/api/music-library`, `/api/settings/screen-theme`); a resource has one
+  path, and its read and its write differ only by verb. **Fields** are `snake_case`, in requests and
+  responses alike.
+- **Verbs:** `GET` reads, `PUT` replaces (settings, routing), `PATCH` updates part of a resource
+  (volume, zone, client), `POST` runs an action or creates, `DELETE` removes.
+- **Success** answers carry `"status": "success"`. A real failure is an HTTP error status with
+  FastAPI's `{"detail": …}` body (422 for a body that does not validate).
+- Music Library is the one router that keeps **Subsonic's** naming (`/album/{id}`, `star`,
+  `unstar`), so it reads against the Subsonic documentation.
+
+## Access and security
+
+There is **no authentication**: Milō is a LAN appliance, and being on the network is what grants
+access. Every request is answered by the same backend whether it comes from the screen, a phone or
+a script. Two checks guard against a *foreign web page* driving a browser that happens to be on the
+LAN ([`backend/api/middleware.py`](https://github.com/leodurandfr/Milo/blob/main/backend/api/middleware.py));
+both answer `403 {"status": "error", "message": "Untrusted request origin"}`:
+
+- **`Host`, on every HTTP request.** It must be a name or address the unit is reached by: `localhost`,
+  `milo`, `milo.local`, `milo-2.local` (the name Avahi falls back to when a second server claims
+  `milo`), or any private IP address. A reverse proxy that forwards another host name is refused —
+  have it forward `Host: milo.local`.
+- **`Origin`, on `POST`/`PUT`/`PATCH`/`DELETE`.** A request that carries one must come from one of
+  those same names, from **any private IP address**, or from the CORS allowlist
+  (`http(s)://milo.local`, the dev server on port 5173). A request with **no** `Origin` — curl, a
+  script, a native app — passes. So a page served from another machine of the LAN by its IP address
+  can drive the unit: the checks stop pages from the internet, not the local network.
+
+The `/ws` upgrade is not checked at all. The socket only reads — the server ignores everything a
+client sends after `ready` — but anything that reaches it receives the unit's state.
+
+The API is served on port 80 by nginx, which proxies `/api/` and `/ws` to the backend. The backend
+also listens on port **8000** on every interface, because satellites register with the server
+there; the same two checks apply on that port.
 
 ### The diagnostic report
 
@@ -91,13 +128,20 @@ every state change is pushed.
 **Categories:** `source`, `system`, `routing`, `equalizer`, `multiroom`, `volume`, `settings`,
 `programs`, `network`.
 
-On connect the client receives `system/initial_state`, whose `state` key is the whole audio state
-(below), then every change as it happens.
+**Handshake.** Changes are pushed from the moment the socket opens. To receive the current state,
+the client sends one text frame, `{"type": "ready"}`, once its handlers are in place; the server
+answers with `system/initial_state`, whose `state` key is the whole audio state (below), then
+`volume/volume_changed`. The server reads nothing else a client sends, and every 30 s it sends
+`{"category": "system", "type": "ping", "timestamp": …}`, which carries no `data`.
+
+The categories hold 68 `(category, type)` pairs; this page describes the audio ones. Each pair is
+one class in [`backend/core/models/ws_events.py`](https://github.com/leodurandfr/Milo/blob/main/backend/core/models/ws_events.py),
+whose fields are exactly the event's `data`.
 
 ### The audio state
 
 The audio wire is **one object**, `AudioState`
-([audio_wire.py](../backend/core/models/audio_wire.py)), and it is the same everywhere:
+([audio_wire.py](https://github.com/leodurandfr/Milo/blob/main/backend/core/models/audio_wire.py)), and it is the same everywhere:
 `GET /api/audio/state` returns it, the `data` of `source/state` *is* it, and `system/initial_state`
 carries it under `state` (next to `setup_completed`, `hotspot_active` and `server_instance` — an id
 drawn per backend process, so a client can tell a restarted backend from a reconnect to the same
@@ -114,7 +158,7 @@ key. Durations and positions are integer milliseconds; instants are UTC seconds 
 | `session` | `null` or object | The selected source's live session: `id`, `phase` (`loading`, `playing`, `paused`, `connected`), `title`, `artist`, `album`, `artwork`, `senders` (display names, `[]` when none), `duration_ms`, `position` |
 | `controls` | command names | What `POST /api/audio/control/{source}` accepts *now* and would act on. `[]` under `none`, while `switching`, and whenever `service` is not `running`. `skip` (`{"seconds": ±n}`, relative, bounded to `[0, duration_ms]`) is listed wherever `seek` is |
 | `resume` | `null` or object | What a play press would bring back; set only while `session` is `null` |
-| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (the episode), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width, the sender's shuffle and repeat) |
+| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (the episode), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width, the sender's shuffle and repeat), `spotify` (the signed-in account, what context plays, the Jam) |
 | `multiroom_enabled`, `equalizer_effects_enabled` | bool | The two global flags |
 
 An empty string is never published: it is `null`.
@@ -149,7 +193,7 @@ sources keep a resume point, Radio, Podcast, Music Library and CD; for the six a
 The phase is what the player or the sender announced, never what a command guessed. `connected` is
 a sender Milō cannot call playing or paused — an AirPlay Realtime stream with no item, a Bluetooth device with no
 AVRCP player, every Mac — and the card reads "Connected to X" from `senders`, unless the session
-names a cover, a title and an artist, which the full player draws instead (D14).
+names a cover, a title and an artist, which the full player draws instead.
 
 ### Two kinds of error
 
@@ -169,20 +213,22 @@ source lifts it, only a start that succeeds.
 
 `availability` answers for every source, selected or not: `null` when it can work now, else the first
 reason that applies. Connectivity comes first. The backend crosses NetworkManager's connectivity
-level with the source's own `NETWORK_REQUIREMENT` (`none` / `lan` / `internet`), so a router with no
-route out gives `no_internet` to Spotify and `null` to AirPlay, which only needs the LAN — and `null`
-to Bluetooth or CD, which need nothing. Then the source's own reason: `no_account` (Qobuz);
+level with the source's own `NETWORK_REQUIREMENT` (`none` / `lan` / `internet`): `no_network`
+without any network, `no_internet` without a route out. So a router with no route out gives
+`no_internet` to Spotify and `null` to AirPlay, which only needs the LAN — and `null` to Bluetooth
+or CD, which need nothing. Then the source's own reason: `no_account` (Qobuz);
 `no_drive`, `no_disc`, `reading_disc`, `unreadable_disc`, `ejecting` (CD); `no_storage`,
 `catalog_unavailable` (Music Library). A connectivity change arrives as a new `source/state`. See [Architecture](architecture.md#unavailable-which-is-not-a-state) for where each
 reason comes from and the CTAs.
 
-The subset Milo-Mac relies on — `(category, type)` pairs across `system`, `source`, `volume`,
-`routing` and `settings`, plus `payload_invariants` naming the exact fields it reads — is pinned in
-the [Milo-Mac contract](../backend/tests/contracts/milo_mac_contract.json) and verified on every
-`pytest` run, so it cannot silently drift. **Read the manifest for the list**; any summary here
-would be a second, drifting copy. Note in particular `routing/multiroom_error`, whose invariant is
-*presence only, no payload field is read* — it looks unreferenced from every angle and is the
-easiest entry to delete by accident.
+## What the companion apps pin
+
+The routes and events Milo-Mac and Milo-iOS depend on are listed in two manifests, checked on every
+`pytest` run against the backend: the [Milo-Mac contract](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_mac_contract.json)
+(REST routes, `(category, type)` pairs across `source`, `volume`, `routing`, `settings` and
+`multiroom`, and the payload fields it reads) and the [Milo-iOS contract](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_ios_contract.json)
+(REST only — a widget cannot hold a socket — and the response fields it reads). **Read the
+manifests for the list**; a summary here would be a second copy that drifts.
 
 ---
 

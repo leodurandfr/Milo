@@ -277,8 +277,8 @@ describe('validateSchema', () => {
 
 describe('ALL_AUDIO_SOURCES ↔ backend AudioSource enum', () => {
   // The Zod source enums are built from this constant: a source added on the
-  // backend but not here is coerced to 'none' on every state update, which
-  // reads as "the new source silently does nothing".
+  // backend but not here fails the strict AudioStateSchema, which refuses every
+  // state that names it and keeps the last good one.
   const AUDIO_STATE_PATH = resolve(MODELS_DIR, 'audio_state.py');
 
   it('lists exactly the backend enum values, minus the none sentinel', () => {

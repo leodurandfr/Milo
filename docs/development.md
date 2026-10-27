@@ -6,10 +6,19 @@ This guide is for developers who want to contribute to or fork the Milō project
 
 ### Prerequisites
 
-- Raspberry Pi 4 or 5 with Raspberry Pi OS 64-bit (Debian Trixie)
+- A **Linux** host. The test suites run off the Pi — CI runs them on Ubuntu x86-64. The backend
+  keeps its data in `/var/lib/milo` (create it, owned by your user) and is built to fail open where
+  a piece of hardware or a system service is missing; the audio path itself only runs on a
+  Raspberry Pi 4 or 5 with Raspberry Pi OS 64-bit (Debian Trixie).
 - **Python 3.13** — `pyproject.toml` sets `target-version = "py313"` and CI runs 3.13
-- **Node.js 20** — the version CI uses
+- **Node.js 24** — the version CI uses
+- The system libraries two Python packages load at import: `libdiscid0` and `libcairo2`
+  (`sudo apt-get install libdiscid0 libcairo2`)
 - Git
+
+Contributions are accepted under the [Contributor License Agreement](https://github.com/leodurandfr/Milo/blob/main/CLA.md);
+see [CONTRIBUTING.md](https://github.com/leodurandfr/Milo/blob/main/CONTRIBUTING.md). Milō is
+licensed under the [PolyForm Shield License 1.0.0](https://github.com/leodurandfr/Milo/blob/main/LICENSE).
 
 ### Development installation
 
@@ -71,7 +80,7 @@ backend/
 │   ├── spotify/              # SpotifySource + routes
 │   ├── airplay/              # AirPlaySource + metadata_reader + routes
 │   ├── bluetooth/            # BluetoothSource + agent + monitor (BlueALSA) + avrcp (BlueZ)
-│   ├── mac/                  # MacSource + routes
+│   ├── mac/                  # MacSource + log_patterns + mdns (no routes)
 │   ├── radio/                # RadioSource + routes + browser_api
 │   ├── podcast/              # PodcastSource + routes + podcast_catalog + feed_resolver + rss_parser
 │   ├── cd/                   # CDSource + routes
@@ -80,7 +89,7 @@ backend/
 │   └── music_library/        # MusicLibrarySource + navidrome_client + storage + data + routes
 ├── api/                       # REST API routes
 ├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
-├── ws/                        # WebSocket server + manager
+├── ws/                        # WebSocket endpoint + connection manager (manager.py)
 ├── shared/                    # Shared utilities (MpvController)
 ├── config/constants.py        # Centralized constants
 ├── dependencies.py            # Service Registry (lazy singletons)
@@ -133,7 +142,7 @@ frontend/src/
 ├── composables/              # Vue composables (useSourceProgress, useVolumeThrottle, ...)
 ├── services/
 │   ├── websocket.js          # WebSocket client (auto-reconnect)
-│   ├── apiCall.js            # Wrapped fetch helper for stores
+│   ├── apiCall.js            # The one HTTP client (wraps axios) for stores
 │   └── i18n.js               # Internationalization
 ├── assets/styles/
 │   └── design-system.css     # CSS variables + typography utilities
@@ -144,8 +153,8 @@ frontend/src/
 **Architectural principles:**
 - **Composition API**: Code organized by functionality
 - **Reactive State**: Pinia + WebSocket sync
-- **Single Page App**: `vue-router` is present but declares exactly **one** route (`/` → `MainView`);
-  it exists only to set the document title. Navigation inside the app is state-driven, not
+- **Single Page App**: `vue-router` declares two routes — the appliance (`/` → `MainView`) and the
+  component gallery (`/components`, lazily loaded). Navigation inside the app is state-driven, not
   URL-driven — don't add routes without a deliberate decision to change that model
 
 ## Data flow
@@ -192,7 +201,7 @@ category `source`, you **must** include `"source"` in `data`.
     "controls": ["pause", "seek", "skip", "next", "prev"],
     ...
   },
-  "timestamp": 1234567890
+  "timestamp": 1790270000.48
 }
 ```
 
@@ -226,6 +235,23 @@ The state carries every source's availability, so the new id also needs a field 
 `backend/core/models/audio_wire.py::Availability`; the frontend's strict `AudioStateSchema` derives
 its keys from `ALL_AUDIO_SOURCES` (step 6).
 
+Pick the source's **family** first — it decides which modules it has, and
+`backend/tests/architecture/test_source_conformance.py::FAMILIES` holds every source to it:
+
+| Family | Control | Metadata | Sources | Modules |
+|---|---|---|---|---|
+| **A** — mute receiver | the sender | none | Mac | `source.py`; no `routes.py` |
+| **B** — passive player | the sender | rich | AirPlay, Qobuz | `source.py` + the feed; `routes.py` only for what the sender can't deliver (AirPlay's artwork) |
+| **C** — active player | Milō's UI | rich | Spotify, Tidal, Bluetooth, Radio, Podcast, CD, Music Library | `source.py` + networking as needed; `routes.py` for a catalog to browse |
+
+Besides the steps below, a new source touches:
+
+- `backend/sources/my_source/__init__.py`, exporting exactly the source class:
+  `__all__ = ["MySource"]`;
+- an entry in `FAMILIES` (above), and the source count in
+  `backend/tests/architecture/test_session_sources.py::test_the_scan_reaches_every_source_class`;
+- its systemd unit, `system/milo-my-source.service`, named by `service_name` in step 2.
+
 ### 2. Create the source
 
 `start()`, `stop()`, `release_for_reroute()`, `acquire_after_reroute()`, `command()` and
@@ -234,7 +260,7 @@ message to the source's actor (one mailbox, one task: `core/audio_source.py`), w
 serializes a source's lifecycle, commands, pause timer and state reads; `command()` validates against
 `COMMANDS` before posting. What you implement are the hooks the handlers call: `_do_start` (the only
 `@abstractmethod`), plus `_do_stop`, `_handle_command`, `_cleanup`, `_do_restart`,
-`_do_release`/`_do_acquire` (a lighter multiroom reroute, Spotify and Bluetooth) and
+`_do_release`/`_do_acquire` (what the source does across a multiroom reroute) and
 `refresh_metadata` as needed.
 
 **What the source publishes is its view** (`SourceView`), which the base composes from four pure
@@ -257,7 +283,9 @@ There is **no `status()`, `get_status()` or `_get_status()`** anywhere in the hi
 broadcast over the WebSocket, never polled — a `GET /<source>/status` route is explicitly forbidden
 and `tests/architecture/test_source_conformance.py` fails the build if one appears.
 
-`backend/sources/my_source/source.py`:
+`backend/sources/my_source/source.py` — a sketch of the hooks, not a working source: it opens no
+session and publishes nothing, so the conformance suite rejects it as it stands. Every real source
+is on the session model described below; start from the existing source of the same family.
 ```python
 from typing import Any, Dict, List, Optional
 
@@ -345,7 +373,7 @@ class MySource(BaseAudioSource):
 **If your source plays through mpv** (like Radio, Podcast, CD and Music Library), extend
 `shared/mpv_audio_source.py::MpvAudioSource` instead of `BaseAudioSource`, and put it on the
 session model the way `radio/` does: a `MpvSession` subclass for what one session owns, the four
-declared policies, `_listen_to_mpv()` in `_do_start`, and the `_entry_started` / `_entry_ended` /
+declared policies, `_attach_mpv()` then `_listen_to_mpv()` in `_do_start`, and the `_entry_started` / `_entry_ended` /
 `_on_playing_tick` hooks. The phase comes from mpv's events and the one-second tick only reads the
 playhead while sound plays; never hand-roll a monitor loop. A source with hardware of its own
 (the CD's drive) keeps that device state apart from the session and tags the work on it with a
@@ -365,30 +393,31 @@ that answer once per burst and let it alone decide the phase — a failed read c
 `tidal/` for one whose feed carries the playhead too (each reading goes to `_observe_position()`,
 then one `_publish_changes()` per burst).
 
-The authoritative shape is the family table in [CLAUDE.md](../CLAUDE.md) § *Audio sources* plus an
-existing source — `radio/` is the reference for family C, `qobuz/` for family B, `mac/` for
-family A.
+The authoritative shape is the family table above plus an existing source — `radio/` is the
+reference for family C, `qobuz/` for family B, `mac/` for family A.
 
 ### 3. Register in container
 
 `backend/dependencies.py`:
 ```python
-from backend.sources.my_source.source import MySource
+# In _create_service(), one creator in the `creators` dict — the same four
+# constructor arguments for every source:
+"my_source": lambda: _import("backend.sources.my_source", "MySource")(
+    config={},
+    state_machine=get_service("audio_state_machine"),
+    settings_service=get_service("settings_service"),
+    systemd_manager=get_service("systemd_manager")
+),
 
-# In _create_service():
-my_source = MySource(state_machine=state_machine)
-
-# In initialize_services():
-# Register source BEFORE async init
-state_machine.register_source(
-    AudioSource.MY_SOURCE,
-    my_source
-)
+# In initialize_services(), STEP 3 — registered before the async init:
+state_machine.register_source(AudioSource.MY_SOURCE, get_service("my_source"))
 ```
+If the source has an async `initialize()`, add it to the parallel init list at the end of
+`initialize_services()`, next to `radio_source.initialize()`.
 
 ### 4. Add ALSA devices
 
-`/etc/asound.conf`:
+`rootfs/etc/asound.conf` (installed as `/etc/asound.conf`):
 ```
 pcm.milo_mysource {
     @func concat
@@ -411,8 +440,9 @@ pcm.milo_mysource_direct {
 # subdevices (0..7) and only 3 are taken (1=Qobuz, 2=Music Library, 3=Tidal, see
 # provisioning/snapcast.sh). Take the free subdevice 0 first, then 4, 5, 6, 7 —
 # do NOT open a third loopback card until all 8 are used.
-# Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line in
-# /etc/snapserver.conf and its slug to the `meta:///...` aggregator.
+# Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line to
+# the snapserver.conf that provisioning/snapcast.sh writes, and its slug to the
+# `meta:///...` aggregator.
 pcm.milo_mysource_multiroom {
     type plug
     slave.pcm {
@@ -424,19 +454,25 @@ pcm.milo_mysource_multiroom {
 }
 ```
 
-Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in exactly one place, `pi-gen/stage-milo/02-install-milo/01-run.sh` (`/etc/modprobe.d/snd-aloop.conf`):
+Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in exactly one place, `pi-gen/stage-milo/02-install-milo/01-run.sh` (`/etc/modprobe.d/snd-aloop.conf`), which today declares two cards:
 ```
-options snd-aloop index=1,2,3 enable=1,1,1 id=Loopback,LoopbackDLNA,LoopbackX pcm_substreams=8,8,8
+options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
 ```
+A third card extends each list by one entry.
 
 Note: CamillaDSP is always in the audio path for volume control. DSP effects are toggled within CamillaDSP.
 
 ### 5. Create API routes
 
-Only families B and C have a `routes.py` — family A sources take commands via
-the generic `/api/audio/control/{source}`. Use `make_source_dependency` for the
-source lookup and `run_source_command()` for playback commands; never call
-`source.handle_command()` from a route body.
+Every command, whatever the family, travels on the generic
+`POST /api/audio/control/{source}`. Two kinds of route may run a command anyway: one that composes
+several commands in one request (`POST /api/radio/play`), and one a companion app's contract pins
+(`POST /api/radio/stop`, Milo-Mac); a new source adds neither. A `routes.py`
+exists only for what is not a command: a catalog to browse, favorites, binary artwork; many
+sources (Mac, Qobuz, Tidal, Bluetooth) have none. Use `make_source_dependency` for the source
+lookup, reach a non-playback service through a property of the source (`source.station_data`,
+`source.data_service`), and use `run_source_command()` when a route really must run a command;
+never call `_handle_command` from a route body. Paths are kebab-case.
 
 `backend/sources/my_source/routes.py`:
 ```python
@@ -444,11 +480,10 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends
 
-from backend.api.route_helpers import run_source_command
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.my_source.source import MySource
 
-router = APIRouter(prefix="/my_source", tags=["my_source"])
+router = APIRouter(prefix="/my-source", tags=["my-source"])
 set_source_provider, get_source = make_source_dependency("My source")
 
 
@@ -457,9 +492,9 @@ def setup_my_source_routes(source_provider) -> APIRouter:
     return router
 
 
-@router.post("/play")
-async def play(source: MySource = Depends(get_source)) -> Dict[str, Any]:
-    return await run_source_command(source, "play", {}, "Playback")
+@router.get("/favorites")
+async def favorites(source: MySource = Depends(get_source)) -> Dict[str, Any]:
+    return {"status": "success", "favorites": await source.data_service.get_favorites()}
 ```
 
 Register in `backend/main.py`:
@@ -478,21 +513,22 @@ Most per-source wiring derives from the registry in
 `frontend/src/constants/audioSources.js`: adding the id to `ALL_AUDIO_SOURCES`
 and its i18n key to `AUDIO_SOURCE_LABEL_KEYS` automatically covers the Zod
 source enums (`schemas/api.js`, `schemas/ws.js`), the dock labels (`Dock.vue`,
-`DockSettings.vue`), the icon/status prop validators (`AppIcon.vue`,
-`AudioSourceStatus.vue`) and the dock-apps map (`settingsStore.js`).
+`DockSettings.vue`) and the dock-apps map (`settingsStore.js`). `AppIcon.vue` is the
+exception: its `iconMapping` drives its own name list and validator, so the id must be added
+there.
 
-Full checklist (a source once needed two follow-up commits because some of
-these were missed — walk the whole table):
+Full checklist — walk the whole table:
 
 | Touchpoint | What to add |
 |---|---|
 | `constants/audioSources.js` | id in `ALL_AUDIO_SOURCES` (order = default dock layout) + label key in `AUDIO_SOURCE_LABEL_KEYS` |
-| `assets/app-icons/<id>.svg` | dock icon; map the filename in `AppIcon.vue::iconMapping` if it differs from the id (e.g. `mac` → `macos`) |
-| `components/<id>/<Name>Source.vue` | source view per the CLAUDE.md family table (family A: none) |
+| `assets/app-icons/<id>.svg` + `components/ui/AppIcon.vue::iconMapping` | dock icon, and the id → filename entry (e.g. `mac` → `macos`) |
+| `components/<id>/<Name>Source.vue` | source view per the family table (family A: none) |
+| `constants/audioSources.js::BROWSER_SOURCES` | only if the source has an in-app browser (Radio, Podcast, Music Library, Spotify) |
 | `components/audio/AudioSourceView.vue` | route the new source's view |
 | `composables/useRichDisplay.js` | rich-player gating (families B/C) |
-| `components/audio/AudioSourceStatus.vue` | loading/ready status lines (per-source `switch` cases) |
-| `locales/*.json` (8 files) | `audioSources.<id>` — `english.json` first (canonical/fallback) |
+| `composables/useSourceStatusDisplay.js` | the status card's loading/ready lines |
+| `locales/*.json` (8 files) | the key named in `AUDIO_SOURCE_LABEL_KEYS` (camelCase, e.g. `audioSources.musicLibrary`) — `english.json` first (canonical/fallback) |
 | `backend/config/constants.py` | id in `DEFAULT_DOCK_APPS` (`VALID_DOCK_APPS` derives from the `AudioSource` enum) |
 
 View-component sketch — the state is read from `unifiedAudioStore.systemState` (the backend's
@@ -524,7 +560,7 @@ The Radio source (`backend/sources/radio/`) is a complete, production-ready refe
 
 **Multi-component architecture:**
 - `source.py` - Main source class (BaseAudioSource implementation)
-- `browser_api.py` - External API integration with caching (60min TTL)
+- `browser_api.py` - Radio Browser API client (the country list is cached 24 h)
 - `data.py` - Favorites, custom stations, data persistence
 - `genres.py` - Genre definitions and mapping
 - `shazam.py` - Song recognition integration
@@ -535,11 +571,10 @@ The Radio source (`backend/sources/radio/`) is a complete, production-ready refe
 - Service lifecycle management (systemd + IPC socket)
 - Complex data persistence (favorites, custom stations in /var/lib/milo/radio_data.json, images in /var/lib/milo/radio_images/)
 - File uploads (station images with validation and storage)
-- Caching strategy (API responses cached for performance)
 - Error handling (broken station detection and filtering)
 - Frontend integration (search, filters, modals, full-screen player)
 
-**API routes:** 25+ endpoints including search, favorites, custom stations, image uploads
+**API routes:** 14 endpoints, including search, favorites, custom stations and image uploads
 **Frontend components:** RadioSource.vue, FavoritesView.vue, SearchView.vue, StationCard.vue, SkeletonStationCard.vue
 **Store:** radioStore.js (Pinia) with full state management
 
@@ -565,13 +600,13 @@ is driven entirely by an external app:
   empty (there is no local control channel, so no transport and no seek), and the
   session's duration and position give a **read-only** bar above the source bar.
 - **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
-  [provisioning/qobuz-proxy.sh](../provisioning/qobuz-proxy.sh) creates a venv under
+  [provisioning/qobuz-proxy.sh](https://github.com/leodurandfr/Milo/blob/main/provisioning/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
   backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
   restating the install (single source of truth).
 - **Four adaptations**, applied at runtime by the launcher the unit runs,
-  [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz): the
+  [rootfs/usr/local/bin/milo-qobuz](https://github.com/leodurandfr/Milo/blob/main/rootfs/usr/local/bin/milo-qobuz): the
   local backend's stream is held at unity gain (CamillaDSP is the sole volume
   authority, flag-gated on the "allow app volume" setting);
   `position_ms`/`duration_ms` are added to `now_playing` — the proxy tracks both
@@ -661,9 +696,9 @@ standing in for the podcast catalogue and a mount layer underneath.**
   reconciler only manages libraries under the mount root. An offline share keeps its
   library while an unplugged key loses its. And **two browse calls ignore
   `musicFolderId`** where the rest honour it: `getGenres`, answered instead from the
-  storage space's own album catalog (`source.get_library_genres`) — the genre
+  storage space's own album catalog (`source.genres_in_scope`) — the genre
   drill-down *is* scoped, so a genre from another storage would open an empty view —
-  and `getPlaylists`, narrowed by `source.playlists_in_storage`, which trusts the
+  and `getPlaylists`, narrowed by `source.playlists_in_scope`, which trusts the
   storage space recorded at creation (the only thing that can place an *empty*
   playlist) and otherwise places a playlist by its first track's album. `getStarred2`
   needs none of this: it takes the scope and honours it.
@@ -704,18 +739,20 @@ standing in for the podcast catalogue and a mount layer underneath.**
 
 ```bash
 cd backend
-python -m pytest                                        # All tests
-python -m pytest -v                                      # Verbose
-python -m pytest -m unit                                 # Unit tests only
+python -m pytest                                        # All tests (-v is the default)
+python -m pytest tests/architecture/                     # One directory — the suite has no markers
 python -m pytest -k "test_name"                          # By name (substring, across files)
 python -m pytest tests/test_radio_source.py              # A single file
-python -m pytest tests/test_radio_source.py::TestRadioSourceLifecycle::test_start_success  # A single test
+python -m pytest tests/test_radio_source.py::TestRadioSourceLifecycle::test_selecting_starts_the_unit_and_attaches_to_mpv  # A single test
 python -m pytest --durations=10                           # 10 slowest tests
 ```
 
+The satellite app has its own suite, run from the repository root as a separate invocation —
+`pytest milo-client/` (a combined `pytest backend/ milo-client/` loses `backend/pytest.ini`).
+
 There is **no backend coverage tooling**: `pytest-cov` is deliberately not a dependency, and CI has
-no coverage threshold. Coverage as a target rewards exactly the tests this project excludes — see
-[what earns a test](../CLAUDE.md#tests--what-earns-one).
+no coverage threshold. Coverage as a target rewards exactly the tests this project excludes (see
+*What earns a test* below).
 
 **Writing a test:**
 
@@ -804,7 +841,7 @@ Assert a URL only where the store *chooses* it (EQ target resolution, `local` vs
 Two tests read the backend and would otherwise need hand-written fixtures:
 
 - `tests/schemas/ws.test.js` — parses every `WsEvent` subclass (resolving inheritance) and, for each `wsEventRegistry` entry, builds the payload **from the model's own fields**, then checks the Zod schema accepts it, requires nothing extra, and ignores no field the backend sends. Catches an added/renamed/retyped field and a deleted event class.
-- `tests/schemas/api.test.js` — asserts `ALL_AUDIO_SOURCES` matches the backend `AudioSource` enum exactly. A source added on the backend but not there is coerced to `'none'` on every state update, which reads as "the new source silently does nothing".
+- `tests/schemas/api.test.js` — asserts `ALL_AUDIO_SOURCES` matches the backend `AudioSource` enum exactly. A source added on the backend but not there makes every state that names it fail the strict `AudioStateSchema`, which refuses the state whole and keeps the last good one.
 
 ## Concurrency and thread safety
 
@@ -847,18 +884,21 @@ state_machine.system_state.active_source = source
    - `logger.warning()`: Non-blocking issue
    - `logger.error()`: Blocking error
 
-3. **Error handling**:
-```python
-try:
-    result = await risky_operation()
-except SpecificError as e:
-    logger.error(f"Operation failed: {e}")
-    return {"status": "error", "message": str(e)}
-```
+3. **Error handling** depends on the layer:
 
-4. **No sudo** in code
-   - Use systemctl via `SystemdServiceManager`
-   - Systemd services have necessary permissions
+| Layer | Policy |
+|---|---|
+| HTTP route | `api_error_handler` or `run_source_command` (`api/route_helpers.py`); no bare try/except in the body |
+| Service | log, then raise; a legitimate fallback uses `@handle_errors(default=…, level='error')` |
+| Background loop | wrap the loop *body* in `try/except Exception` + an error log + `continue` |
+| Best-effort hardware/external call | catch the specific exception, log a warning, fall back to a named value |
+
+   An intentional silent swallow is `contextlib.suppress(Type)`, never a bare `except: pass`.
+
+4. **No ad hoc `sudo`.** systemd and power actions go through `SystemdServiceManager`, privileged file
+   work through the `milo-*` helpers in `rootfs/usr/local/bin/`; each command is granted by name in
+   `rootfs/etc/sudoers.d/`, and `tests/contracts/test_privileged_exec_contract.py` checks both
+   directions.
 
 ### Frontend
 
@@ -866,8 +906,8 @@ except SpecificError as e:
 2. **Computed properties** for derived data
 3. **No direct DOM manipulation** (use Vue refs)
 4. **Debounce** frequent events with the project's own composable — there is no `lodash` dependency,
-   and a bare `setTimeout` is blocked by `no-restricted-globals`:
-It returns `{ debounced, cancel }` and clears its pending timer on unmount by itself:
+   and a bare `setTimeout` is blocked by `no-restricted-globals`. It returns `{ debounced, cancel }`
+   and clears its pending timer on unmount by itself:
 ```javascript
 import { useDebounce } from '@/composables/useDebounce';
 
@@ -876,17 +916,15 @@ const { debounced: debouncedSearch, cancel: cancelSearch } = useDebounce((query)
 }, 300);   // delay defaults to 400 ms
 ```
 
-5. **Cleanup** in `onUnmounted`:
+5. **No WebSocket subscription in a component.** Events are subscribed in `App.vue` only and
+   dispatched into Pinia stores; a component reacts to store state
+   (`tests/architecture/wsWiring.test.js`).
+6. **Timers through `useTimer()`**, which clears every active timer on unmount:
 ```javascript
-import { onMounted, onUnmounted } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 
-onMounted(() => {
-  const cleanup = websocket.on('event', handler);
-
-  onUnmounted(() => {
-    cleanup();
-  });
-});
+const timer = useTimer();
+timer.setTimeout(() => { /* … */ }, 600);
 ```
 
 ## Deployment
@@ -911,8 +949,8 @@ carrying three files:
 
 | Asset | Read by |
 |---|---|
-| `milo-<tag>.img.xz` | whoever flashes a card |
-| `milo-frontend-<tag>.tar.gz` | every unit's OTA update, via `catalog.py::frontend_asset_url` |
+| `<build date>-milo.img.xz` (e.g. `2026-10-23-milo.img.xz`) | whoever flashes a card |
+| `milo-frontend-<tag>.tar.gz` | every unit's OTA update, via the `frontend_asset_url` entry in `core/updates/catalog.py` |
 | `milo-frontend-<tag>.tar.gz.sha256` | the same update, before it swaps `frontend/dist` |
 
 **The tag's annotation is the release page.** The workflow reads it with
@@ -925,8 +963,7 @@ is knowingly left undone.
 Which means it is Markdown, and **`git tag -a` strips every line beginning with
 `#` unless you say otherwise** — its default cleanup treats them as comments.
 A heading written `## Known gaps` vanishes between the editor and the tag
-object, silently, and the release page is published without it. Measured the
-hard way on the first release. Always:
+object, silently, and the release page is published without it. Always:
 
 ```bash
 git tag -a v1.2.0 --cleanup=verbatim -F notes.md
@@ -979,23 +1016,20 @@ line, nothing to notice. "Audio plays" would have passed it.
 #### The procedure
 
 1. **Try it first, from the Update Manager.** When upstream is ahead of the manifest the row
-   offers that release directly (`shairport-sync 5.2.3 > 5.5`), and installing it uses the
-   exact flow a bump would — the same download, the same compile, the same rollback. The unit
-   is then off-pin: the row says so, `Back to 5.2.3` is one click away, and the trial survives
-   Milō updates until you end it or the manifest catches up (invariant 8) — measured on
-   2026-09-05, where a shairport-sync 5.5 trial came through a full Milō update and reboot
-   still installed, still recorded, still offering its return. This is where a
-   version fails, and it costs nothing to find out: qobuz-proxy 1.6.0 moved the anchor
-   `provisioning/qobuz_proxy_patches.py` needed and rolled itself back in under a minute
-   (that anchor is gone — see `rootfs/usr/local/bin/milo-qobuz`).
+   offers that release directly, and installing it uses the exact flow a bump would — the same
+   download, the same compile, the same rollback. The unit is then off-pin: the row says so,
+   the return to the validated version is one click away, and the trial (recorded in
+   `updates.forced_versions`) survives Milō updates until you end it or the manifest catches
+   up. This is where a version fails, and it costs nothing to find out: a release that fails the
+   update's own verification is rolled back.
 2. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
    fails CI (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped
    on its own once the manifest declares that version, so nothing is left to clean up.
-3. If you skipped step 1, install the version on a unit through the in-app update or by
-   re-running the install script. Do not hand-build it: what you are validating includes the
+3. If you skipped step 1, install the version on a unit through the in-app update, or flash an
+   image built with the new manifest. Do not hand-build it: what you are validating includes the
    way Milō installs it.
 4. Run the dependency's row below **and** the ~10-minute smoke set from
-   [docs/manual/verification-checklist.md](manual/verification-checklist.md).
+   [docs/manual/verification-checklist.md](https://github.com/leodurandfr/Milo/blob/main/docs/manual/verification-checklist.md).
 5. Commit the bump on its own, saying which unit and which rows were run. A bump folded into
    a feature commit cannot be reverted alone, and reverting is the whole point of pinning.
 
@@ -1055,10 +1089,13 @@ npm ci && npm run build
 sudo journalctl -u milo-backend -f
 ```
 
-**Debug mode:**
-```python
-# backend/main.py
-logging.basicConfig(level=logging.DEBUG)
+**Debug mode:** the log level is the `MILO_LOG_LEVEL` environment variable (`DEBUG`, `INFO`,
+`WARNING`…; `WARNING` when unset, `INFO` in the shipped unit).
+```bash
+MILO_LOG_LEVEL=DEBUG python main.py        # dev server
+sudo systemctl edit milo-backend           # on a unit: a drop-in, kept across updates
+#   [Service]
+#   Environment=MILO_LOG_LEVEL=DEBUG
 ```
 
 **Breakpoints (pdb):**
@@ -1124,36 +1161,48 @@ git push origin feature/my-feature
 
 ### Commit convention
 
-- `feat:` New feature
-- `fix:` Bug fix
-- `refactor:` Refactoring (no functional change)
-- `docs:` Documentation only
-- `test:` Adding/modifying tests
-- `chore:` Maintenance (dependencies, config, etc.)
+Commit messages are in **English**, written `type(scope): summary` — for example
+`fix(radio): the station on screen follows its record`. The scope is the area touched
+(`radio`, `multiroom`, `api`, `ci`…).
+
+- `feat` New feature
+- `fix` Bug fix
+- `refactor` Refactoring (no functional change)
+- `perf` Performance
+- `style` Visual or CSS change
+- `docs` Documentation only
+- `test` Adding/modifying tests
+- `build` Dependencies, packaging, the image
+- `chore` Maintenance
 
 ### PR checklist
 
 - [ ] The full CI floor is green — there is no formatter in this project (no Black, no Prettier);
       `ruff` is the Python linter and eslint/stylelint the JS/CSS ones:
       ```bash
-      ruff check backend/ && pytest backend/
+      ruff check backend/ milo-client/ && pytest backend/ && pytest milo-client/
       cd frontend && npm run lint:js && npm run lint:css && npm run test:run
       ```
 - [ ] Documentation updated if necessary
-- [ ] Tested locally on Raspberry Pi — audio path / source / hardware changes: smoke subset of [manual/verification-checklist.md](manual/verification-checklist.md) run on a unit
+- [ ] A change to the audio path, a source or hardware: the smoke subset of
+      [the verification checklist](https://github.com/leodurandfr/Milo/blob/main/docs/manual/verification-checklist.md)
+      run on a unit — or, without one, say so in the PR, so it is run before merging
 
 ## Important points
 
 ### Initialization order
 
-⚠️ **CRITICAL**: Service initialization order in `dependencies.py` matters!
+`initialize_services()` in `dependencies.py` runs four steps:
 
 1. Retrieve service instances (triggers lazy creation via `get_service()`)
 2. Resolve circular dependencies via setters
-3. **Register sources** in state machine (BEFORE async init)
+3. **Register sources** in the state machine, then (3b) write the env files the source units read
 4. **Parallel async initialization** via `asyncio.gather()`
 
-See detailed comments in `backend/dependencies.py`.
+Only three things in it are order-sensitive: the registry-subscription block at the end of step 2
+(subscribers are notified in subscription order), step 3 before the async init, and step 3b
+before any source unit starts. Every other line of step 2 commutes. The function's docstring is
+the reference.
 
 ### WebSocket broadcasting
 
@@ -1180,10 +1229,10 @@ Settings modifications must go through `SettingsService`:
 
 ```python
 # ✅ Good
-await settings_service.set_setting('volume.alsa_max', 80)
+await settings_service.set_setting('volume.limit_max_db', -20.0)
 
 # ❌ Bad (not persisted)
-settings['volume']['alsa_max'] = 80
+settings['volume']['limit_max_db'] = -20.0
 ```
 
 ## GitHub Token (Optional)
@@ -1192,28 +1241,33 @@ Milō checks GitHub API for dependency updates. Without a token: 60 req/hour. Wi
 
 ### Setup
 
-1. Create token at https://github.com/settings/tokens → **"Generate new token (classic)"**
-2. Scope: `public_repo` only (read-only, minimal permissions)
-3. Add to systemd service:
+1. Create a token at https://github.com/settings/tokens → **"Generate new token (classic)"**
+2. Select **no scope**: reading public releases needs none, and every scope grants more than that
+   (`public_repo` grants *write* access to public repositories)
+3. Add it to the backend unit through a drop-in — `/etc/systemd/system/milo-backend.service` itself
+   is replaced by every Milō update:
 
 ```bash
-sudo nano /etc/systemd/system/milo-backend.service
+sudo systemctl edit milo-backend
 ```
 
-Add this line in the `[Service]` section:
+and add:
 ```ini
+[Service]
 Environment="GITHUB_TOKEN=ghp_YourTokenHere"
 ```
 
-4. Reload and restart:
+4. Restart:
 ```bash
-sudo systemctl daemon-reload && sudo systemctl restart milo-backend
+sudo systemctl restart milo-backend
 ```
 
 5. Verify:
 ```bash
-sudo journalctl -u milo-backend -n 50 | grep "GitHub token"
-# Expected: "GitHub token detected - using authenticated API (5000 req/hour)"
+sudo journalctl -u milo-backend -b | grep "GitHub token"
+# Logged once per backend start:
+#   "GitHub token detected - using authenticated API (5000 req/hour)"
+#   "No GitHub token - using anonymous API (60 req/hour)"
 ```
 
 ## Dev-only symptoms vs production bugs
@@ -1224,44 +1278,44 @@ Milō is a **fixed-purpose Pi appliance**. End users:
 - Do **not** rebuild, hot-reload, or keep stale tabs open across deploys.
 - Do **not** interact with the Vite dev server (`npm run dev`), HMR, source-map URLs, or `localhost:5173`.
 
-When a developer reports a bug they hit *while developing*, classify the symptom **before** writing any code (summary + decision rule in [CLAUDE.md](../CLAUDE.md)).
+A bug met *while developing* is first classified, because some cannot happen on a unit:
 
-**A. Dev-only artifact** — diagnose, explain, **do not modify code**. Telltale signs:
+**A. Dev-only artifact** — not a bug; no code change. Telltale signs:
 
 - Caused by a rebuild while a browser tab was already open (stale JS bundle, renamed chunks → 404 on dynamic imports → blank page).
 - Errors referencing `localhost:5173`, `192.168.x.x:5173`, `?t=<timestamp>` query strings, or `Vite HMR` / `[vite]` log lines.
 - Stale `sessionStorage` / `localStorage` from a prior dev iteration of the schema.
 - Service worker / PWA cache pollution from experimentation (the prod build has no SW).
 - Anything that disappears with a hard refresh (`⌘ + Shift + R`) or after clearing site data.
-- "Page blanche" / "écran blanc" after `npm run build` while a tab was open — almost always the stale-chunk pattern above.
 
-For these: explain *why* it happened, point to the dev workflow that triggered it, and stop. Do **not** add reload guards, version-check loops, or error-handler fallbacks whose only purpose is to mask a developer's mid-session inconsistency — that code would bloat the prod bundle for a scenario no end user will ever create.
+Reload guards, version-check loops or error-handler fallbacks whose only purpose is to mask a
+mid-session inconsistency are not accepted: they would ship in the production bundle for a
+scenario no end user can create.
 
 **B. Real bug that would also hit production** — fix in code. Telltale signs:
 
 - Reproduces from a clean prod state (fresh boot, nginx-served `dist/`, no dev tools open).
 - Triggered by user actions the appliance is built for: connecting AirPlay, selecting a radio station, multi-room handoff, screen sleep, etc.
-- Reproduces on the Pi kiosk itself (which always runs the prod build), not just the developer's Mac browser.
+- Reproduces on the Pi kiosk itself (which always runs the prod build), not just in a desktop browser.
 - Backend logs (`journalctl -u milo-backend`) or `errors.log` show a server-side trace independent of how the user got there.
 - Hardware-related: ALSA routing, CamillaDSP, ROC, Snapcast, rotary encoder, screen brightness — these always count as prod-relevant.
 
-**When in doubt, ask explicitly before implementing**: *"Is this reproducible from a clean prod boot, or only because of your dev session state?"*
+The deciding question: *is it reproducible from a clean prod boot, or only from the dev session's state?*
 
 ## Lint and typing floor
 
-The project ships a lightweight lint floor that mechanically locks the conventions of RFCs 15-21. All rules are **built-in** to standard tools (no custom plugins to maintain). CI ([.github/workflows/lint.yml](../.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/`, `npm run lint:js`, `npm run lint:css`, `pytest backend/`, `npm run test:run`. The vitest step was skipped for a while after the RFC 17 apiCall migration left the suite mocking `axios.*` through a layer the stores no longer used; it was rebuilt around the `apiCall` boundary plus structural guardrails and is blocking again — see [What earns a test](#what-earns-a-test).
+CI ([.github/workflows/lint.yml](https://github.com/leodurandfr/Milo/blob/main/.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/ milo-client/`, `pytest backend/`, `pytest milo-client/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`. All rules are **built-in** to standard tools — no custom plugins.
 
-| Tool | Rule | Source RFC | Activated in |
-|---|---|---|---|
-| eslint | `no-restricted-imports: axios` | RFC 17 | Lot A — 2026-05-18 |
-| eslint | `no-restricted-syntax: console.*` | RFC 17 | Lot A — 2026-05-18 |
-| ruff | `S110` (try-except-pass) | RFC 18 | Lot B — 2026-05-18 |
-| ruff | `S112` (try-except-continue) | RFC 18 | Lot B — 2026-05-18 |
-| ruff | `F` (pyflakes family: `F401` unused import, `F811` redefinition, `F821` undefined name, `F841` unused variable, `F541` empty f-string) | cleanup phase 7 | Lot C — 2026-07-28 |
-| stylelint | `color-no-hex` | RFC 21 | RFC 21 PR3 — 2026-05-18 |
-| stylelint | `declaration-property-value-disallowed-list` (`rgba\|hsla` on any color property) | RFC 21 | RFC 21 PR3 — 2026-05-18 |
-| stylelint | `declaration-property-value-disallowed-list` (typography redefinition in scoped CSS) | RFC 21 + RFC 22 | RFC 21 PR3 — 2026-05-18 |
-| eslint | `no-restricted-globals` (bare `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval` in components/composables/views/directives → use `useTimer()`) | §8 Timers | 2026-05-20 |
+| Tool | Rule |
+|---|---|
+| eslint | `no-restricted-imports`: no `axios` outside `services/apiCall.js` |
+| eslint | `no-restricted-syntax`: no `console.*` outside `services/logger.js`, `main.js` and `schemas/api.js`; no global `$t` |
+| eslint | `no-restricted-globals`: no bare `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval` in components, composables, views and directives → use `useTimer()` |
+| ruff | `S110` (try-except-pass), `S112` (try-except-continue) |
+| ruff | `F`, the pyflakes family (`F401` unused import, `F811` redefinition, `F821` undefined name, `F841` unused variable, `F541` f-string without placeholders…) |
+| stylelint | `color-no-hex` in scoped `.vue` styles |
+| stylelint | `declaration-property-value-disallowed-list`: no `rgb()`/`rgba()`/`hsl()`/`hsla()` on a color property |
+| stylelint | `declaration-property-value-disallowed-list`: no typography redefinition in scoped CSS (use the utility classes) |
 
 **Intentional silent swallows** (Python) — use `contextlib.suppress(ExceptionType)` instead of `try: ... except: pass`. The latter trips `ruff S110/S112`; the former is the documented Pythonic idiom and reads as a deliberate, scoped suppression (cleanup paths, idempotent teardown, transient hardware errors in `finally:` blocks).
 
@@ -1269,23 +1323,16 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 
 - Python: `# noqa: S110 -- <reason>` (or the relevant rule code)
 - JS / Vue: `// eslint-disable-next-line <rule> -- <reason>`
-- CSS / Vue: avoid `// stylelint-disable` inline; extend the design system or whitelist the file in [`frontend/.stylelintrc.cjs`](../frontend/.stylelintrc.cjs).
+- CSS / Vue: avoid `// stylelint-disable` inline; extend the design system or whitelist the file in [`frontend/.stylelintrc.cjs`](https://github.com/leodurandfr/Milo/blob/main/frontend/.stylelintrc.cjs).
 
 No file-level or repo-level disabling. No muted `noqa` without a reason.
 
-**The one `per-file-ignores` entry**, in [`pyproject.toml`](../pyproject.toml): `F821` in
+**The one `per-file-ignores` entry**, in [`pyproject.toml`](https://github.com/leodurandfr/Milo/blob/main/pyproject.toml): `F821` in
 `backend/sources/bluetooth/agent.py`. `dbus-next` declares D-Bus signatures as string
 annotations (`device: 'o'`, `-> 's'`, `passkey: 'u'`) — wire type codes, not Python names, so
 each one reads to ruff as an unresolvable forward reference. Fourteen of them, all in that one
 file. It is pinned to the file rather than the package on purpose: the same annotation anywhere
 else in `sources/bluetooth/` still fails.
-
-### Future considerations
-
-- **TypeScript progressive adoption** on stores / composables — deferred to a dedicated RFC.
-- **`pyright` strict** on `backend/core/` + `backend/sources/` — deferred.
-- **`husky` pre-commit + `lint-staged`** — useful if the team grows to 3+ devs. CI feedback (~5 min) is currently enough for solo dev.
-- **Custom eslint plugins** (`no-french-comment`, `no-bare-timer`, `no-raw-ws-event-data`) — not cost-effective at 1-2 devs. Re-arbitrate if recurrence justifies.
 
 ## Resources
 
@@ -1297,4 +1344,3 @@ else in `sources/bluetooth/` still fails.
 ## Contact
 
 - **GitHub Issues:** https://github.com/leodurandfr/Milo/issues
-- **Discussions:** https://github.com/leodurandfr/Milo/discussions
