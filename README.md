@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/readme/cover.webp" alt="Milō OS, streaming audio system for Raspberry Pi: the CD player on its touchscreen, playing Excursions by A Tribe Called Quest, with the dock of sources" width="100%">
+</p>
+
 # Milō OS
 
 ### Turns a Raspberry Pi and an audio board into a complete music system.
@@ -7,10 +11,6 @@ music library, all from one interface on its touchscreen, your phone and your Ma
 Raspberry Pi per room and every room plays in sync, each with its own volume and equalizer.
 It installs from a single image, and a setup wizard takes care of the rest, with no terminal
 step.
-
-<p align="center">
-  <img src="docs/images/readme/hero.png" alt="Milō OS on its touchscreen playing a CD, and on a phone playing Leaves by Robohands from the music library" width="100%">
-</p>
 
 📖 **[Documentation](https://milo-audio.com/docs)**: hardware, installation, every source and every setting.
 
@@ -106,8 +106,8 @@ companion apps go further:
 
 - **[Milō Mac](https://github.com/leodurandfr/Milo-Mac)**: sources, volume and multiroom from
   the menu bar or keyboard shortcuts, and your Mac's own sound streamed to Milō.
-- **[Milō iOS](https://github.com/leodurandfr/Milo-iOS)**: a Home Screen widget, Shortcuts, and
-  Milō's playback on the iPhone's lock screen.
+- **[Milō iOS](https://github.com/leodurandfr/Milo-iOS)**: Milō's interface as an iPhone app, a
+  volume widget on the Home Screen, and what Milō plays on the lock screen.
 
 ## For developers
 
