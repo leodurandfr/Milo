@@ -917,7 +917,7 @@ Crossfade between tracks, in ms (0 = disabled, gapless untouched), and whether t
 
 ### MusicLibrarySettingsConfig
 
-True → one browsable tab per storage space; False → all of them merged.
+`separate_storages`: one browsable tab per storage space when true, all of them merged when false.
 
 | Field | Type |
 |---|---|

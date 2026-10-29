@@ -1,4 +1,4 @@
-# Milō Developer Guide
+# Developer guide
 
 This guide is for developers who want to contribute to or fork the Milō project.
 
@@ -1131,11 +1131,13 @@ Commit messages are in **English**, written `type(scope): summary` — for examp
 ### PR checklist
 
 - [ ] The full CI floor is green — there is no formatter in this project (no Black, no Prettier);
-      `ruff` is the Python linter and eslint/stylelint the JS/CSS ones:
-      ```bash
-      ruff check backend/ milo-client/ && pytest backend/ && pytest milo-client/
-      cd frontend && npm run lint:js && npm run lint:css && npm run test:run
-      ```
+  `ruff` is the Python linter and eslint/stylelint the JS/CSS ones:
+
+  ```bash
+  ruff check backend/ milo-client/ && pytest backend/ && pytest milo-client/
+  cd frontend && npm run lint:js && npm run lint:css && npm run test:run
+  ```
+
 - [ ] Documentation updated if necessary
 - [ ] A change to the audio path, a source or hardware: the smoke subset of
       [the verification checklist](https://github.com/leodurandfr/Milo/blob/main/docs/manual/verification-checklist.md)

@@ -1,4 +1,4 @@
-# Milō API Overview
+# API overview
 
 Milō's backend is a [FastAPI](https://fastapi.tiangolo.com/) app (`backend/`). The Vue
 frontend, the on-device kiosk, and the companion apps ([Milo-Mac](https://github.com/leodurandfr/Milo-Mac)
@@ -11,10 +11,10 @@ exhaustive listings are generated from the code at each release and checked agai
 
 | Reference | Where |
 |---|---|
-| REST operations, with their stability | [reference/rest.md](reference/rest.md) |
-| WebSocket events and their payloads | [reference/ws-events.md](reference/ws-events.md) |
-| The audio state | [reference/audio-state.md](reference/audio-state.md) |
-| Source commands and their parameters | [reference/commands.md](reference/commands.md) |
+| REST operations, with their stability | [REST reference](reference/rest.md) |
+| WebSocket events and their payloads | [WebSocket events](reference/ws-events.md) |
+| The audio state | [Audio state](reference/audio-state.md) |
+| Source commands and their parameters | [Source commands](reference/commands.md) |
 | Interactive docs (Swagger UI) | `http://milo.local/api/docs` (ReDoc: `/api/redoc`) |
 | OpenAPI schema (JSON) | `http://milo.local/api/openapi.json` |
 | Milo-Mac wire contract (pinned) | [`backend/tests/contracts/milo_mac_contract.json`](https://github.com/leodurandfr/Milo/blob/main/backend/tests/contracts/milo_mac_contract.json) |
@@ -34,13 +34,13 @@ else is the static SPA).
 | Volume | `/api/volume` | Get/set volume, mute, limits |
 | Equalizer | `/api/equalizer` | Per-target EQ (`local` · `<mac>` · `zone:<id>`), presets, compressor, loudness |
 | Lyrics | `/api/lyrics` | Synced/plain lyrics for the now-playing track (LRCLIB, disk-cached) |
-| Routing | `/api/routing` | Output device + `direct`/`multiroom` mode; Snapcast control under `/api/routing/snapcast` |
-| Multiroom | `/api/multiroom` | Zones, clients, per-client volume |
+| Routing | `/api/routing` | Multiroom on/off (`PUT /multiroom`); Snapcast control under `/api/routing/snapcast` |
+| Multiroom | `/api/multiroom` | Zones, clients, per-client delay, gain and EQ; satellite registration |
 | Programs | `/api/programs` | Installed-source/program state; multiroom satellite (client) OTA updates |
 | Discovery | `/api/discovery` | Find & adopt Wi-Fi speakers (multiroom client onboarding) |
 | Settings | `/api/settings` | Read/write app settings |
 | Network | `/api/network` | Wi-Fi scan / connect / saved networks |
-| System | `/api/system` | Reboot, poweroff, status, host checks, updates, diagnostic report |
+| System | `/api/system` | Reboot, poweroff, status, host checks, diagnostic report |
 | Setup | `/api/setup` | First-boot wizard (`/complete`, `/become-client`) |
 | Errors | `/api/errors` | Receive frontend error reports → `errors.log` |
 | Health | `/api/health`, `/api/ping`, `/api/initial-state` | Liveness + initial-state snapshot |
@@ -100,7 +100,7 @@ both answer `403 {"status": "error", "message": "Untrusted request origin"}`:
 The **`/ws` upgrade** passes the same `Host` check, and the `Origin` check whatever it asks for:
 a browser always names the page in `Origin` when it opens a socket, and CORS does not cover a
 WebSocket, so this is what keeps a page from the internet from reading the state. A refused upgrade
-is answered `403` (close code 1008). Like curl over HTTP, a client that sends no `Origin` passes.
+is answered with an HTTP `403`: the socket is never opened. Like curl over HTTP, a client that sends no `Origin` passes.
 
 The API is served on port 80 by nginx, which proxies `/api/` and `/ws` to the backend. The backend
 also listens on port **8000** on every interface, because satellites register with the server
@@ -110,7 +110,7 @@ there; the same two checks apply on that port.
 
 `POST /api/system/diagnostic` builds one plain-text report — versions, audio path, sources,
 multiroom, storage, network, settings, the tail of `errors.log`, per-unit journal tails, and one
-block per satellite fetched over `GET /diagnostic` on `CLIENT_API_PORT`. It answers
+block per satellite fetched over `GET /diagnostic` on the satellite's API port (8001). It answers
 `{ status, data: { report, unavailable } }`; `unavailable` names each section that could not be
 collected and why, and the same lines appear in the file under `NOT COLLECTED`.
 

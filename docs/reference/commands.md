@@ -12,7 +12,7 @@ POST /api/audio/control/{source}
 
 A command the source does not declare, or parameters that do not validate, is answered `400`, and so is a `session` command sent while nothing plays. The audio state's `controls` lists the commands a source takes at this moment; send only those. What the command changed arrives as the next `source/state`.
 
-The route is **contracted**, and so are the commands the companion apps send — marked in the tables — and the parameters they pass (`position_ms`, `seconds`, `shuffle`, `start_index`, `tracks`), both read from the apps' own sources. A change to one is listed in the release notes like any contracted change, but no test fails on it yet. Every other command and parameter is internal. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+The route is **contracted**, and so are the commands the companion apps send — marked in the tables — and the parameters they pass (`position_ms`, `seconds`, `shuffle`, `start_index`, `tracks`), both read from the apps' own sources. A command is marked by its name, under every source that declares it, even one the apps never send it to. A change to one is listed in the release notes like any contracted change, but no test fails on it yet. Every other command and parameter is internal. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 When:
 

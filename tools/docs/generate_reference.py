@@ -310,7 +310,9 @@ def render_commands() -> str:
         "The route is **contracted**, and so are the commands the companion apps send "
         "— marked in the tables — and the parameters they pass ("
         + ", ".join(f"`{p}`" for p in sorted(app_params))
-        + "), both read from the apps' own sources. A change to one is listed in the "
+        + "), both read from the apps' own sources. A command is marked by its name, "
+        "under every source that declares it, even one the apps never send it to. "
+        "A change to one is listed in the "
         "release notes like any contracted change, but no test fails on it yet. Every "
         "other command and parameter is internal. " + STABILITY_NOTE,
         "",
@@ -431,7 +433,7 @@ def render_hardware() -> str:
         "",
         "BCM numbering.",
         "",
-        "| Input | Pin |",
+        "| Connection | Pin |",
         "|---|---|",
     ]
     rotary = registry.DEFAULT_ROTARY_PINS

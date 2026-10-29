@@ -33,7 +33,7 @@ A color correction is a fixed gain per channel that brings the panel's white to 
 
 BCM numbering.
 
-| Input | Pin |
+| Connection | Pin |
 |---|---|
 | Rotary encoder CLK | 22 |
 | Rotary encoder DT | 27 |

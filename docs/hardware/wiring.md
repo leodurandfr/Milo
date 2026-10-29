@@ -1,4 +1,4 @@
-# Milō — Physical Wiring Reference
+# Physical wiring
 
 > Every physical connection on a Milō unit (Raspberry Pi 5 + HiFiBerry AMP4 Pro).
 > Section 1 is the at-a-glance map; the following sections give the exact wiring per
@@ -82,7 +82,7 @@ Declaring the button applies both halves on the next reboot: the status LED (lit
 running, off once halted) **and** the bootloader's "wait for the power button on
 power-up". The LED cathode's GPIO is chosen next to the toggle (GPIO26 by default, as
 wired above); the rotary encoder and the IR receiver cannot share it. If the LED draws
-> ~16 mA, drive it through an NPN transistor.
+more than ~16 mA, drive it through an NPN transistor.
 
 ## 5. Hard power switch (master cut)
 

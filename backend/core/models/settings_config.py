@@ -117,7 +117,7 @@ class SpotifySettingsConfig(BaseModel):
 
 
 class MusicLibrarySettingsConfig(BaseModel):
-    """True → one browsable tab per storage space; False → all of them merged."""
+    """`separate_storages`: one browsable tab per storage space when true, all of them merged when false."""
     separate_storages: bool
 
 

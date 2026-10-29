@@ -58,8 +58,10 @@ a contracted operation lands whole in one release. Build on the contracted surfa
 read the release notes before updating, and compare `info.version` with the release you tested
 against.
 
-The contracted surface covers reading the audio state, switching source, sending a playback
-command, the volume controls listed under [Volume](#volume), reading the multiroom layout and switching multiroom on and off.
+The contracted surface covers, among others, reading the audio state, switching source, sending a
+playback command, the volume controls listed under [Volume](#volume), reading the multiroom layout
+and switching multiroom on and off; the [REST reference](reference/rest.md) marks every contracted
+operation.
 Following the unit live is contracted for the events the [WebSocket reference](reference/ws-events.md)
 marks — the state, the volume, the multiroom layout and the multiroom switch's failure, and three
 settings. The handshake's reply (`system/initial_state`), `source/position` and
@@ -128,8 +130,8 @@ print("commands available now:", state["controls"])
 Polling works, but the unit pushes every change on its WebSocket, `ws://milo.local/ws`. Each frame
 is a JSON envelope:
 
-```json
-{"category": "source", "type": "state", "origin": "radio", "data": {…}, "timestamp": 1761580800.5}
+```jsonc
+{"category": "source", "type": "state", "origin": "radio", "data": {/* … */}, "timestamp": 1761580800.5}
 ```
 
 The handshake is one message. Changes are pushed from the moment the socket opens; to receive the
@@ -269,16 +271,16 @@ Each change is broadcast as `volume/volume_changed`.
 In multiroom, the unit plays in sync on its own output and on every satellite speaker. The
 layout — speakers and the zones that group them — is `GET /api/multiroom/state`:
 
-```json
+```jsonc
 {
   "clients": {
     "dc:a6:32:7e:d3:43": {"mac_id": "dc:a6:32:7e:d3:43", "name": "Sofa", "ip": "192.168.1.153",
                           "zone_id": "ec51dad4-1cfd-4d94-88f8-b8be3606e716", "online": true,
-                          "is_local": false, "volume_control": true, …}
+                          "is_local": false, "volume_control": true /* … */}
   },
   "zones": {
     "ec51dad4-1cfd-4d94-88f8-b8be3606e716": {"id": "ec51dad4-1cfd-4d94-88f8-b8be3606e716",
-      "name": "Living room", "client_ids": ["dc:a6:32:7e:d3:43"], "online_client_count": 1, …}
+      "name": "Living room", "client_ids": ["dc:a6:32:7e:d3:43"], "online_client_count": 1 /* … */}
   }
 }
 ```

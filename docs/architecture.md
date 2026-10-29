@@ -1,4 +1,4 @@
-# Milō Architecture
+# Architecture
 
 This document explains the technologies used in Milō and how they work together.
 
@@ -60,7 +60,7 @@ Milō is built around a client-server architecture with real-time synchronizatio
 
 **Architecture:**
 - **Pinia**: State management (synced with backend via WebSocket)
-- **Components**: Organized by domain (audio, equalizer, snapcast, settings)
+- **Components**: Organized by domain (audio, equalizer, multiroom, settings)
 - **Services**: WebSocket (auto-reconnect), i18n (8 languages)
 
 **Real-time synchronization:**
@@ -1127,7 +1127,7 @@ browser on the LAN *send* a request (a bodyless `POST` needs no preflight). `Req
   private IP address, nor a CORS origin. A request with no `Origin` (curl, a native app) passes.
 
 The `/ws` upgrade passes the same two checks, the `Origin` one whatever the upgrade asks for, and
-is refused with a 403 (close code 1008) when either fails. The socket changes nothing — the server
+is refused with an HTTP 403 when either fails: the socket is never opened. The socket changes nothing — the server
 reads nothing a client sends after the `ready` handshake — but it hands the whole state to whoever
 opens it, and CORS does not apply to a WebSocket, so without the `Origin` check any page on the
 internet could read it.
