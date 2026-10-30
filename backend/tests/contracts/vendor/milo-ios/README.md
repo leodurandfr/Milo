@@ -8,21 +8,23 @@ the manifest against the real app **with no network**:
 |---|---|
 | `MiloAPIClient.swift` | the volume / settings / audio routes |
 | `MiloAPIClient+Push.swift` | the APNs token registration routes |
-| `MiloAPIClient+Media.swift` | the Now Playing transport + per-room volume routes |
+| `MiloAPIClient+Media.swift` | the Now Playing transport + the Lock Screen's global volume write |
 | `Models.swift` | every response field the app decodes by name |
-| `MiloNowPlayingBridge.swift` | the lock screen's device list (`/api/multiroom/state`) **and** the rule that decides whether the card exists |
+| `MiloNowPlayingBridge.swift` | the lock screen's device list (`/api/volume/state`) **and** the rule that decides whether the card exists |
+| `MiloAudioState.swift` | no route: the one decoder of `/api/audio/state`, vendored for the payload invariants |
 
 Every call goes through `MiloAPIClient` — the three App Intents and the widget's
 timeline provider build no URL of their own — but it is **no longer one file**,
 and the vendored set is matched by the patterns
-`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift")` rather
+`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift")` rather
 than a frozen list.
 
 The third is a filename, not a glob, and it is the guard's own find: the Now
 Playing bridge is not named like a client file, yet it calls
-`MiloAPIClient.get(path:)` directly and is the **only** declaration of
-`GET /api/multiroom/state`, which it reads for one field — the per-room name the
-lock screen's sliders carry.
+`MiloAPIClient.get(path:)` directly. It was then the **only** declaration of
+`GET /api/multiroom/state`, read for the per-room name of the lock screen's
+sliders; Milo-iOS `8fe0077` dropped that call along with the sliders, and the
+file stays vendored for `/api/audio/state` and `/api/volume/state`.
 
 **Why patterns.** The list used to name exactly two files. Milo-iOS `09b9789b`
 added `POST /api/push/tokens` and `DELETE /api/push/tokens/{}` in a third, the
@@ -45,16 +47,18 @@ lost them both — including `PATCH /api/volume/client/mac/{}`, which the manife
 route it calls on every gesture. `helper_methods()` now resolves any
 `name(path: "/api/…")` through the method its helper's body assigns, GET when it
 assigns none: URLRequest's own rule, so it holds for a helper nobody has written
-yet, and an unresolvable one raises rather than defaulting.
+yet, and an unresolvable one raises rather than defaulting. Milo-iOS `9a9ed25`
+dropped `writeVolume`, so the snapshot no longer holds a call of this shape; the
+tests witness it on an inline fixture instead.
 
 **Refresh them and `../../milo_ios_contract.json` together, in one commit.** The
 two must describe the same surface exactly, in both directions — a snapshot ahead
 of the manifest and a manifest ahead of the snapshot both fail
-`test_manifest_matches_the_vendored_surface_exactly`. The one route the app
-targets that the backend does not serve is named in `_broken_calls`, and that
-entry deletes itself as soon as either side moves.
+`test_manifest_matches_the_vendored_surface_exactly`. A route the app targets
+that the backend does not serve would be named in `_broken_calls`; the section
+held one until `741f8dc1` and is absent while there is none.
 
-Captured from upstream `3018b8ffe5d9419214daad5f084837517824a0dd` on 2026-09-22.
+Captured from upstream `14cdd79ab870cfa714b8a28e2da515b53feb1ceb` on 2026-10-30.
 
 **This line was two refreshes stale when 4b9e73f was taken**, and it is worth saying
 where: it still named `be15c1f` after `741f8dc1 -> 0edead3` and again after

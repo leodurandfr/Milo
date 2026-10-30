@@ -32,7 +32,7 @@ Three call shapes, and all three must be read or a route goes missing in silence
     writeVolume(path: "/api/volume/global", …)         # the app's own wrapper,
     request.httpMethod = "PATCH"                       # method in ITS body
 
-`fireAdjustVolume` uses the second form for its fire-and-forget path, and
+`fireAdjustVolume` used the second form for its fire-and-forget path, and
 `be15c1f` moved both volume writes behind the third — a helper that builds the
 URL from `baseURL() + path` inside itself. Each time, an extractor modelling one
 shape fewer reports a smaller surface with no error, and a missing route reads
@@ -40,8 +40,9 @@ as "the app does not use it", which is the exact silence this whole contract
 exists to break. The third cost the most: it lost a route the manifest ALREADY
 pinned, so the loss would have read as the app having dropped it.
 `test_the_extractor_reads_every_call_shape` and
-`test_a_wrapped_helper_takes_the_method_its_own_body_assigns` pin all three
-against the vendored snapshot.
+`test_a_wrapped_helper_takes_the_method_its_own_body_assigns` pin all three: the
+first two against the vendored snapshot, the third against an inline fixture,
+since Milo-iOS 9a9ed25 dropped `writeVolume` and with it the only such call.
 
 Path canonicalisation (`_shape`, `_collapse_interpolation`) is imported from the
 Milo-Mac freshness script rather than copied: Swift string interpolation is one
@@ -69,9 +70,10 @@ VENDOR_DIR = HERE / "vendor" / "milo-ios"
 # warns about, arrived for real (Milo-iOS 09b9789b, 2026-09-19).
 #
 # The third pattern is a filename and not a glob: the Now Playing bridge is not
-# a client file by name, but it calls `MiloAPIClient.get(path:)` directly and is
-# the only declaration of GET /api/multiroom/state. It was found by the guard
-# below rather than by reading, which is the guard working.
+# a client file by name, but it calls `MiloAPIClient.get(path:)` directly. It was
+# found by the guard below rather than by reading, which is the guard working:
+# it was then the only declaration of GET /api/multiroom/state (dropped at
+# Milo-iOS 8fe0077), and it still reads /api/audio/state and /api/volume/state.
 #
 # The fourth carries no route at all, and is here for the payload invariants:
 # MiloAudioState.swift is the one decoder of GET /api/audio/state (shared byte
@@ -116,7 +118,7 @@ _HELPER_CALL = re.compile(
 )
 # Any OTHER function taking `path:` with a route literal — a helper of the app's
 # own, wrapping the transport for a family of calls. `writeVolume(path:body:label:)`
-# is the first: it builds the URL itself from `baseURL() + path` and sets
+# was the first (be15c1f to 9a9ed25): it builds the URL itself from `baseURL() + path` and sets
 # `httpMethod` in its own body, so neither shape above sees it. Measured at
 # Milo-iOS be15c1f: modelling only the two shapes returned a surface missing BOTH
 # volume writes, one of which the manifest already pinned — the extractor would

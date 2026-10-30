@@ -133,26 +133,39 @@ def test_rest_route_exists(entry):
 # 2/3. Manifest and vendored snapshot agree, and the gap is declared.
 # --------------------------------------------------------------------------- #
 
-def test_the_extractor_reads_every_call_shape():
-    """The surface reader must find routes through ALL THREE shapes the app uses.
+# A helper of the app's own, in the shape `writeVolume(path:body:label:)` had
+# until Milo-iOS 9a9ed25: it builds its URL from `baseURL() + path` and assigns
+# `httpMethod` in its own body. The app no longer has one, so the vendored
+# snapshot cannot witness this shape any more; the extractor still reads it,
+# and the next such helper must not find it gone.
+_WRAPPED_FIXTURE = """
+    private static func writeVolume(path: String, body: [String: Any], label: String) async {
+        guard let url = URL(string: baseURL() + path) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+    }
+    static func writeRoom(_ mac: String) async {
+        await writeVolume(path: "/api/volume/client/mac/\\(mac)", body: [:], label: "room")
+    }
+"""
 
-    `get(path: "…")` is the helper, where the method is the helper's own name;
-    `fireAdjustVolume` hand-builds its URL with `URL(string: baseURL() + "…")`
-    and sets `httpMethod` separately; `writeClientVolume` and `writeGlobalVolume`
-    go through `writeVolume(path:body:label:)`, a helper of the app's own that
-    builds the URL inside its body and is named after nothing in particular.
+
+def test_the_extractor_reads_every_call_shape():
+    """The surface reader must find routes through ALL THREE shapes it models.
+
+    `get(path: "…")` is the helper, where the method is the helper's own name
+    (`adjustVolume` reaches `post(path: "/api/volume/adjust")` this way since
+    Milo-iOS 2ceb0df); `setGlobalVolume` and `sendControl` hand-build their URL
+    with `URL(string: baseURL() + "…")` and set `httpMethod` separately; and a
+    helper of the app's own may take `path:` and carry the method in its body.
 
     An extractor modelling fewer shapes reports a smaller surface with no error,
     and a route missing from it reads as "the app does not use it" — the silence
     this whole contract exists to break. The third shape is not hypothetical:
     at Milo-iOS be15c1f the two-shape extractor lost BOTH volume writes, one of
-    which the manifest already pinned, so the freshness script would have
-    reported the app as having dropped a route it calls on every gesture.
-
-    Since 741f8dc1 no PLAIN helper call carries an interpolated path — changeSource
-    was the last — so the collapsing is witnessed on the hand-built shape and on
-    the wrapped helper instead. Both still exercise it; the notation is a property
-    of `_shape`, not of any one call site.
+    which the manifest already pinned. The app dropped that helper at 9a9ed25,
+    so the third shape is witnessed on `_WRAPPED_FIXTURE` rather than on the
+    snapshot; the first two still are on the snapshot, interpolation included.
 
     Asserted before anything trusts the extraction: a guard that cannot see is a
     guard that passes.
@@ -160,12 +173,14 @@ def test_the_extractor_reads_every_call_shape():
     surface = _FRESHNESS.extract_rest(_VENDORED_SWIFT)
 
     assert ("GET", "/api/volume/state") in surface, "helper call shape not read"
-    assert ("POST", "/api/volume/adjust") in surface, "hand-built URL shape not read"
+    assert ("POST", "/api/volume/adjust") in surface, "helper call shape not read"
+    assert ("PATCH", "/api/volume/global") in surface, "hand-built URL shape not read"
     assert ("POST", "/api/audio/control/{}") in surface, (
         "interpolated path not collapsed on a hand-built URL"
     )
-    assert ("PATCH", "/api/volume/global") in surface, "wrapped helper shape not read"
-    assert ("PATCH", "/api/volume/client/mac/{}") in surface, (
+
+    wrapped = _FRESHNESS.extract_rest(_WRAPPED_FIXTURE)
+    assert ("PATCH", "/api/volume/client/mac/{}") in wrapped, (
         "wrapped helper shape not read on an interpolated path"
     )
 
@@ -179,9 +194,11 @@ def test_a_wrapped_helper_takes_the_method_its_own_body_assigns():
     holds for a helper nobody has written yet, and a helper this snapshot cannot
     see raises instead of silently defaulting to GET.
     """
-    methods = _FRESHNESS.helper_methods(_VENDORED_SWIFT)
+    assert _FRESHNESS.helper_methods(_WRAPPED_FIXTURE)["writeVolume"] == "PATCH", (
+        "the wrapping helper's verb is not read"
+    )
 
-    assert methods["writeVolume"] == "PATCH", "the wrapping helper's verb is not read"
+    methods = _FRESHNESS.helper_methods(_VENDORED_SWIFT)
     assert methods["post"] == "POST"
     assert methods["get"] == "GET", "a helper that assigns no method is not a GET"
 

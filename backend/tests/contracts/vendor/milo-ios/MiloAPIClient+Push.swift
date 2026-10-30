@@ -71,12 +71,27 @@ extension MiloAPIClient {
     /// ne marche pas » se manifeste, donc on lit la valeur réelle plutôt que de
     /// la déduire d'un `#if DEBUG` qui mentirait sur un build TestFlight.
     ///
-    /// Retourne `nil` si le profil est illisible (simulateur, notamment) : on
-    /// n'enregistre alors rien du tout. Milō refuse un enregistrement sans
-    /// environnement (422), et il a raison — une valeur inventée coûterait plus
-    /// cher qu'une absence.
+    /// Un build sans profil embarqué sur un appareil, c'est un build App Store
+    /// ou TestFlight : Apple retire `embedded.mobileprovision` à la signature de
+    /// distribution, et les deux visent APNs de production. Ce n'est pas une
+    /// supposition mais la seule possibilité — un build qui tourne sur un
+    /// appareil sans ce fichier n'a pas pu être signé autrement. Lire `nil`
+    /// ici, c'était un widget qui ne s'enregistrerait jamais une fois distribué.
+    ///
+    /// Retourne `nil` si le profil est illisible, et sur le simulateur, qui n'a
+    /// pas d'APNs de production : on n'enregistre alors rien du tout. Milō
+    /// refuse un enregistrement sans environnement (422), et il a raison — une
+    /// valeur inventée coûterait plus cher qu'une absence.
     static func apsEnvironment() -> String? {
-        guard let data = embeddedMobileProvision() else { return nil }
+        guard let data = embeddedMobileProvision() else {
+            #if targetEnvironment(simulator)
+            return nil
+            #else
+            // Absent, et non illisible : un profil présent qu'on n'arrive pas
+            // à lire peut être de développement.
+            return hasEmbeddedMobileProvision() ? nil : "production"
+            #endif
+        }
 
         // Le fichier est un conteneur CMS signé ; le plist est en clair à
         // l'intérieur. On le découpe aux bornes plutôt que de dépendre de
@@ -111,16 +126,21 @@ extension MiloAPIClient {
     /// build local n'en embarque pas ; on remonte alors au bundle de l'app, qui
     /// est signé avec un profil de même environnement.
     private static func embeddedMobileProvision() -> Data? {
-        if let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-           let data = try? Data(contentsOf: url) {
-            return data
-        }
+        provisionCandidates.lazy.compactMap { try? Data(contentsOf: $0) }.first
+    }
+
+    private static func hasEmbeddedMobileProvision() -> Bool {
+        provisionCandidates.contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private static var provisionCandidates: [URL] {
         // `.appex` vit dans `<App>.app/PlugIns/` : deux crans au-dessus.
         let containing = Bundle.main.bundleURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("embedded.mobileprovision")
-        return try? Data(contentsOf: containing)
+        let own = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision")
+        return [own, containing].compactMap { $0 }
     }
 
     /// Identifiant stable de cette installation, minté une fois puis conservé.
@@ -182,6 +202,22 @@ extension MiloAPIClient {
         let hex = token.map { String(format: "%02x", $0) }.joined()
         UserDefaults(suiteName: appGroupID)?
             .set("\(sessionID)/\(hex)", forKey: pendingSessionTokenKey)
+    }
+
+    /// Retire le couple déposé, **s'il est toujours celui-là**.
+    ///
+    /// Appelé par l'extension quand son propre envoi a abouti, et par l'app
+    /// après le sien. Les deux processus écrivent la même clé : effacer sans
+    /// comparer, c'était perdre un token plus récent déposé pendant l'attente
+    /// réseau. Ne pas effacer du tout, c'était laisser l'app réenregistrer, au
+    /// retour au premier plan, le token d'une session finie depuis longtemps.
+    /// `UserDefaults` n'offre pas de comparaison atomique : la fenêtre qui
+    /// reste se compte entre une lecture et une écriture, plus pendant un POST.
+    static func clearPendingSessionToken(ifStill raw: String) {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        if defaults?.string(forKey: pendingSessionTokenKey) == raw {
+            defaults?.removeObject(forKey: pendingSessionTokenKey)
+        }
     }
 
     /// Ce que l'app tient vraiment, dit à Milō pour qu'il puisse lâcher le reste.
@@ -260,7 +296,7 @@ extension MiloAPIClient {
 
         if case .registered = await registerPushToken(
             token, kind: .session, sessionID: sessionID) {
-            defaults?.removeObject(forKey: pendingSessionTokenKey)
+            clearPendingSessionToken(ifStill: raw)
         }
     }
 
@@ -470,19 +506,31 @@ extension MiloAPIClient {
 /// Ce qui marche, c'est de retenir la tentative en vol : le second appelant la
 /// rejoint au lieu d'en ouvrir une seconde, puis exécute la sienne — qui relit
 /// la consigne que le premier vient d'écrire et s'arrête sans rien envoyer.
+///
+/// Attendre une seule fois ne sérialisait que deux appelants. Avec un troisième
+/// — dans le widget, `pushTokenDidChange` et plusieurs `getTimeline` peuvent
+/// tomber ensemble —, B et C attendaient tous deux la tentative de A et
+/// repartaient ensemble à sa fin ; si A n'avait rien consigné (Milō
+/// injoignable), ils envoyaient chacun le même POST. D'où la boucle : on ne part
+/// que lorsque plus personne n'est en vol, et l'acteur garantit qu'entre la
+/// sortie de la boucle et la pose de `inFlight` aucun autre appelant ne passe.
 private actor WidgetTokenRegistrar {
     static let shared = WidgetTokenRegistrar()
 
     private var inFlight: Task<Void, Never>?
 
     func register(_ token: Data) async {
-        if let current = inFlight {
+        while let current = inFlight {
             await current.value
         }
         let task = Task { await Self.perform(token) }
         inFlight = task
         await task.value
-        inFlight = nil
+        // Seulement si c'est encore la nôtre : effacer celle d'un autre
+        // laisserait le suivant partir pendant qu'elle est encore sur le réseau.
+        if inFlight == task {
+            inFlight = nil
+        }
     }
 
     /// Lit la consigne, interroge Milō, écrit le verdict.
@@ -516,9 +564,12 @@ private actor WidgetTokenRegistrar {
 extension Data {
     /// L'inverse de `map { String(format: "%02x", $0) }.joined()`, qui est la
     /// forme sous laquelle un token voyage partout ici.
+    ///
+    /// Chaque caractère est vérifié d'abord : `UInt8(_:radix:)` accepte un signe
+    /// en tête, si bien que « +f » passait pour l'octet 0x0f.
     init?(hexString: String) {
         let characters = Array(hexString)
-        guard characters.count % 2 == 0 else { return nil }
+        guard characters.count % 2 == 0, characters.allSatisfy(\.isHexDigit) else { return nil }
         var bytes = [UInt8]()
         bytes.reserveCapacity(characters.count / 2)
         for index in stride(from: 0, to: characters.count, by: 2) {
