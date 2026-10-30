@@ -756,9 +756,9 @@
    rings had a rung of their own a grid step lower, calibrated so that, filling
    their box in both axes where the arrows stand 13 units tall, they would not
    outgrow the pause they flank; the owner chose one size for every step
-   (2026-10-06), for a simpler row. The ring glyph itself is drawn smaller
-   instead (2026-10-30, 17.6 units tall), so at the shared size it stays
-   under the pause.
+   (2026-10-06), for a simpler row. Since 2026-10-30 the rings are
+   `arrow-counter-clockwise`'s ring (18 units, as tall as the pause at the
+   shared size) with a horizontal arrow on top that rises above it.
 
    A toggle (shuffle, repeat, radio's favorite) is not a step: it sets how the
    row plays rather than moving it, and at a step's size it read as one more
