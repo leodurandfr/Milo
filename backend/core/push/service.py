@@ -413,11 +413,23 @@ class PushService:
             if not self._has_active_source(state):
                 # The session the phone holds, when this side holds none —
                 # after a restart, it is the only way `none` or the grace
-                # reaches the card still up. Not over a session already held:
-                # swapping it here would drop it without an `end`, and the app
-                # only opens a session of its own while something plays, where
-                # the playing path below adopts.
-                if self._session_id is None:
+                # reaches the card still up. Not over a session already held
+                # with a token: swapping it here would drop it without an
+                # `end`.
+                #
+                # Over a TOKENLESS one, yes. No `end` could reach it anyway,
+                # and holding it is what stranded the phone on 2026-10-30: the
+                # app and this side each opened a session for the same
+                # playback start (11:34:10-11), the radio stopped seven
+                # seconds later, and this path never looked again — five
+                # minutes of re-announcing a session iOS never issued a token
+                # for, while the app's session, token registered, got not one
+                # `update`. A level changed on Milo-Mac never reached the
+                # lock screen, and the next press there started from a stale
+                # bar. `_adopt_reported_session` keeps its own guards.
+                if self._session_id is None or not self._registry.tokens_for_session(
+                    self._session_id
+                ):
                     self._adopt_reported_session()
                 await self._consider_ending(state)
                 return
@@ -608,7 +620,12 @@ class PushService:
           even though nothing is registered for it yet. Its token takes a
           second round trip to come back, and without this window every start
           would be overwritten by the previous session's leftover token before
-          the device had a chance to answer.
+          the device had a chance to answer. A leftover is registered BEFORE
+          the start, so the window does not hold against a token registered
+          after it: that is a session the phone opened meanwhile — the app
+          opening its own for the same playback start (2026-10-30,
+          `24ABE459` registered at 11:34:10.904, `b37c8445` started at
+          11:34:11.196 and kept for a minute against it).
 
         And a session this side ended is never followed back while it is
         watched (`_endings`) — even registered again after the ending, which
@@ -642,9 +659,14 @@ class PushService:
             ours = self._registry.token_for_session(self._session_id)
             if ours is not None and ours.registered_at >= newest.registered_at:
                 return
-            if ours is None and time.time() - self._session_started_at < START_REPORT_GRACE_S:
+            if (
+                ours is None
+                and newest.registered_at < self._session_started_at
+                and time.time() - self._session_started_at < START_REPORT_GRACE_S
+            ):
                 return
 
+        self._watch_abandoned_start()
         unconfirmed = self._registry.registered_before_start(newest.token)
         logger.info(
             f"Now Playing session {newest.session_id} adopted "
@@ -657,6 +679,30 @@ class PushService:
         self._session_had_token = True
         self._unconfirmed = newest.session_id if unconfirmed else None
 
+    def _watch_abandoned_start(self) -> None:
+        """Watch the session being swapped away from, when this side started it
+        and nothing was ever registered for it.
+
+        It has a card up somewhere — the `start` went to every push-to-start
+        token, the iPad's included — and a token may still land for it. Left
+        unwatched, that late token became the newest registration and the
+        playing path swapped back to it, starving the session the phone shows
+        (the split of 2026-10-30, by the other door), and its card never got
+        an `end`. Watched, it is excluded from adoption and gets the `end` as
+        soon as a token lands.
+
+        Never knocked on: a `start` for it goes to every device, and on the
+        phone that opened its own session it would raise the rival card again
+        — which is how the 30/10 card took the screen.
+        """
+        old = self._session_id
+        if old is None or self._session_had_token or old == self._unconfirmed:
+            return
+        now = time.time()
+        self._endings[old] = _Ending(until=now + END_WATCH_S, knock=False)
+        self._bg.spawn(self._wake_after(END_WATCH_S), label="end-watch")
+        logger.info(f"Now Playing session {old} abandoned for the reported one, watched for its end")
+
     async def _start_session(self, state: Dict[str, Any]) -> None:
         """Wake a session on the phone through the push-to-start token.
 
@@ -664,6 +710,13 @@ class PushService:
         the app learns it from this payload and reports back the session token
         that `update` and `end` then use.
         """
+        # Stamped when decided, not when Apple answered: a token registered
+        # while the `start` was in flight is the phone's own session, not a
+        # leftover (`_adopt_reported_session`). Measured 2026-10-30, the app's
+        # landed 0.3 s before this send returned. At entry, with no `await`
+        # since the caller's adoption pass: whatever registered before this
+        # instant, that pass saw.
+        decided_at = time.time()
         targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         if not targets:
             return
@@ -674,7 +727,7 @@ class PushService:
         )
         if await self._send_all(targets, payload, "nowplaying"):
             self._session_id = session_id
-            self._session_started_at = time.time()
+            self._session_started_at = decided_at
             self._session_renewed_at = 0.0
             self._session_had_token = False
             self._unconfirmed = None

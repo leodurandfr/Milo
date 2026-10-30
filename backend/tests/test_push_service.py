@@ -641,6 +641,71 @@ class TestSessionAdoption:
 
         assert service._session_id == "OTHER"
 
+    async def test_a_token_registered_after_a_fresh_start_is_adopted_at_once(
+        self, service, registry, apns
+    ):
+        """The app opened its own session for the same playback start, and its
+        token landed after Milō decided to start one. That is not a leftover —
+        the grace is for those — but the session the phone actually shows.
+        Measured 2026-10-30: `24ABE459` registered at 11:34:10.904, `b37c8445`
+        started at 11:34:11.196 and held against it for a minute, then for
+        five more once the radio stopped; no `update` ever left."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        app = tok(PushTokenKind.SESSION, "app", session_id="APP-1")
+        app.registered_at = service._session_started_at + 0.3
+        registry.held["app"] = app
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == "APP-1"
+        assert sent_events(apns) == ["update"]
+
+    async def test_a_quiet_tokenless_session_yields_to_the_reported_one(
+        self, service, registry, apns
+    ):
+        """The same race, with the music stopped before the grace ran out. The
+        quiet path used to adopt only when it held nothing, so the tokenless
+        start was re-announced every minute until the idle grace, and the
+        app's session — the only one Milō could address — got nothing."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        service.machine.get_current_state.return_value = dict(READY)
+        registry.held["app"] = tok(PushTokenKind.SESSION, "app", session_id="APP-1")
+        registry.held["app"].registered_at = time.time()
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == "APP-1"
+        assert "start" not in sent_events(apns)
+
+    async def test_an_abandoned_start_is_watched_not_followed_back(
+        self, service, registry, apns
+    ):
+        """The start Milō gave up for the app's session went to the iPad too.
+        Its token landing late must bring that card its `end`, not swap the
+        live session back to it."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        minted = service._session_id
+        app = tok(PushTokenKind.SESSION, "app", session_id="APP-1")
+        app.registered_at = service._session_started_at + 0.3
+        registry.held["app"] = app
+        await service._publish()
+        late = tok(PushTokenKind.SESSION, "ipad", session_id=minted, device_id="ipad")
+        late.registered_at = time.time() + 5
+        registry.held["ipad"] = late
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == "APP-1"
+        assert minted in service._endings
+        assert "end" in sent_events(apns)
+
 
 class TestSourceTransitions:
     """Changing source on the appliance must not take the card off the screen."""
