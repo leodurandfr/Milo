@@ -343,6 +343,23 @@ class TestConcurrency:
         assert restarted.tokens_for(WIDGET) == []
 
 
+    async def test_a_token_is_stamped_when_it_becomes_visible(self, registry):
+        """A registration that waits on the lock is stamped when it lands, not
+        when it arrived: the push service reads `registered_at` against the
+        moment it decided to start a session, and a token stamped before it
+        became visible passed for a leftover."""
+        await registry.initialize()
+        async with registry._file_lock:
+            pending = asyncio.ensure_future(
+                registry.register("late", SESSION, ApnsEnvironment.SANDBOX, "phone-1", "APP-1")
+            )
+            await asyncio.sleep(0.05)
+            released_at = time.time()
+        await pending
+
+        assert registry.tokens_for_session("APP-1")[0].registered_at >= released_at
+
+
 class TestLiveSessionReports:
     """The device says which sessions it still holds; the rest are let go.
 

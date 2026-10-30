@@ -662,6 +662,31 @@ class TestSessionAdoption:
         assert service._session_id == "APP-1"
         assert sent_events(apns) == ["update"]
 
+    async def test_a_token_registered_while_the_start_is_in_flight_is_adopted(
+        self, service, registry, apns
+    ):
+        """The 30/10 timing itself: the app's token landed while Milō's `start`
+        was still being sent. The start is dated from the decision, so that
+        token is newer than it and is followed; dated from Apple's answer, it
+        passed for a leftover and the grace held it off."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+
+        def send(*args, **kwargs):
+            if "app" not in registry.held:
+                app = tok(PushTokenKind.SESSION, "app", session_id="APP-1")
+                app.registered_at = time.time()
+                registry.held["app"] = app
+                time.sleep(0.01)
+            return ApnsResult(ok=True, status=200)
+
+        apns.send.side_effect = send
+        await service._publish()
+        assert service._session_id != "APP-1"
+
+        await service._publish()
+
+        assert service._session_id == "APP-1"
+
     async def test_a_quiet_tokenless_session_yields_to_the_reported_one(
         self, service, registry, apns
     ):
@@ -705,6 +730,47 @@ class TestSessionAdoption:
         assert service._session_id == "APP-1"
         assert minted in service._endings
         assert "end" in sent_events(apns)
+
+    async def test_an_abandoned_start_is_never_knocked_on(
+        self, service, registry, apns
+    ):
+        """A `start` for the abandoned session goes to every device, the phone
+        that opened its own included, and raises the rival card again — how
+        the 30/10 card took the screen."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        minted = service._session_id
+        app = tok(PushTokenKind.SESSION, "app", session_id="APP-1")
+        app.registered_at = service._session_started_at + 0.3
+        registry.held["app"] = app
+        await service._publish()
+        service._endings[minted].knocked_at -= START_REPORT_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()
+        await service._publish()
+
+        assert minted not in sent_sessions(apns)
+
+    async def test_a_session_that_had_a_token_is_swapped_not_ended(
+        self, service, registry, apns
+    ):
+        """Only a start nothing ever answered is watched for its end. A session
+        with a token can still be the iPad's live card when the iPhone reports
+        a newer one."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["old"] = tok(PushTokenKind.SESSION, "old", session_id="APP-1")
+        await service._publish()
+        fresh = tok(PushTokenKind.SESSION, "new", session_id="APP-2")
+        fresh.registered_at = 2.0
+        registry.held["new"] = fresh
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == "APP-2"
+        assert "APP-1" not in service._endings
+        assert "end" not in sent_events(apns)
 
 
 class TestSourceTransitions:

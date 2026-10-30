@@ -186,17 +186,22 @@ class PushTokenRegistry:
         The token string itself is also a key, so re-registering an existing
         string under another device moves the record rather than duplicating it.
         """
-        now = time.time()
         record = PushToken(
             token=token,
             kind=kind,
             environment=environment,
             device_id=device_id,
             session_id=session_id,
-            registered_at=now,
         )
 
         def apply(tokens: Dict[str, PushToken]) -> bool:
+            # Stamped here, under the lock, with no `await` before the token
+            # becomes visible: stamped at entry, a registration that waited on
+            # the lock (a `mark_pushed` holding it) surfaced carrying a time
+            # from before a `start` decided meanwhile, and the push service
+            # took the phone's own fresh session for a leftover
+            # (`_adopt_reported_session`).
+            record.registered_at = time.time()
             for superseded in self._superseded_by(tokens, record):
                 del tokens[superseded]
             for gone in self._lost_to_reboot(tokens, record, boot_time):

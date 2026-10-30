@@ -715,7 +715,8 @@ class PushService:
         # leftover (`_adopt_reported_session`). Measured 2026-10-30, the app's
         # landed 0.3 s before this send returned. At entry, with no `await`
         # since the caller's adoption pass: whatever registered before this
-        # instant, that pass saw.
+        # instant, that pass saw — the registry stamps a token at the moment
+        # it becomes visible (`register`), not when its request arrived.
         decided_at = time.time()
         targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         if not targets:
