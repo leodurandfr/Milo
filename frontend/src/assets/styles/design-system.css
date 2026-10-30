@@ -736,11 +736,10 @@
    the fallback, so these inherit down with no `:deep()` and no specificity war.
 
    Where the numbers come from. Measured on the 24x24 viewBox: `play` covers
-   14.6 units of ink in width against `next`/`previous`'s 20.0, while standing
-   half again as tall — the two carry near-identical area in opposite shapes.
+   14.6 units of ink in width against `next`/`previous`'s 22.0, while standing
+   nearly half again as tall — the two carry comparable area in opposite shapes.
    Box size alone therefore says very little about which one reads larger: at an
-   equal box the arrows are already the wider mark, and 1.37 is only where the
-   two come out level in width.
+   equal box the arrows are already the wider mark.
 
    The scale sits well below that, around 1.17-1.22, which was settled by eye on
    a running unit rather than derived. Every step above it that was tried read as
@@ -755,10 +754,11 @@
 
    Every step takes `secondary`, the arrows and the −15 / +30 rings alike. The
    rings had a rung of their own a grid step lower, calibrated so that, filling
-   their box in both axes where the arrows stand 12 units tall, they would not
+   their box in both axes where the arrows stand 13 units tall, they would not
    outgrow the pause they flank; the owner chose one size for every step
-   (2026-10-06), for a simpler row, knowing the ring then stands a little
-   taller than the pause.
+   (2026-10-06), for a simpler row. The ring glyph itself is drawn smaller
+   instead (2026-10-30, 17.6 units tall), so at the shared size it stays
+   under the pause.
 
    A toggle (shuffle, repeat, radio's favorite) is not a step: it sets how the
    row plays rather than moving it, and at a step's size it read as one more
