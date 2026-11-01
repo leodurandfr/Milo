@@ -82,6 +82,10 @@ class SnapcastWebSocketService:
 
         # Deduplication: track mac_ids with an in-flight sync task
         self._syncing_mac_ids: set = set()
+        # What each of those admissions sent, noted where each setting was
+        # read, so what moved since is delivered once the client is online
+        # (_deliver_what_moved_during_admission). Lives as long as the guard.
+        self._admission_sent: Dict[str, Dict[str, Any]] = {}
 
         # Background tasks (fire-and-forget sync, config push, etc.)
         # Tracked so they can be cancelled cleanly in stop_connection().
@@ -173,6 +177,7 @@ class SnapcastWebSocketService:
         self.reconnect_task = None
         self.reconcile_task = None
         self._syncing_mac_ids.clear()
+        self._admission_sent.clear()
 
         await self._close_websocket(websocket)
 
@@ -816,6 +821,8 @@ class SnapcastWebSocketService:
 
             # Always update the state store first (UI correctness)
             await self._volume_service.state_store.set_client_volume(mac_id, target_volume_db)
+            # As stored: clamped by the same limits the controller applies on the way out.
+            self._note_sent(mac_id, "level", self._volume_service.state_store.get_client_volume(mac_id))
 
             # Apply to hardware — force=True bypasses the online check in the
             # router so we can sync clients that are registered but not yet
@@ -842,6 +849,7 @@ class SnapcastWebSocketService:
             # to -52.8 dB. Pinned by test_camilladsp_startup_floor.py for the
             # floor and test_services_equalizer.py for the single door.
             persisted_mute = self._volume_service.state_store.get_client_mute(mac_id)
+            self._note_sent(mac_id, "mute", persisted_mute)
             mute_ok = await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
             self.logger.debug(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
@@ -909,6 +917,7 @@ class SnapcastWebSocketService:
             hostname = client.ip
 
             eq = self.registry.get_client_equalizer(mac_id) if self.registry else None
+            self._note_sent(mac_id, "record", eq)
             if not eq:
                 self.logger.info(f"SYNC_EQ: No saved settings for {mac_id}, defaults apply")
                 return True
@@ -958,12 +967,14 @@ class SnapcastWebSocketService:
             if not client or not self._volume_service:
                 return True
 
+            gain_db = client.gain_db
+            self._note_sent(mac_id, "gain", gain_db)
             eq = self._volume_service.equalizer_controller
-            if not await eq.set_equalizer_gain(mac_id, client.gain_db, force=True):
+            if not await eq.set_equalizer_gain(mac_id, gain_db, force=True):
                 self.logger.warning(f"SYNC_GAIN: Hardware refused the trim for {mac_id}")
                 return False
 
-            self.logger.info(f"SYNC_GAIN: Applied {client.gain_db:+.1f} dB trim to {mac_id}")
+            self.logger.info(f"SYNC_GAIN: Applied {gain_db:+.1f} dB trim to {mac_id}")
             return True
 
         except Exception as e:
@@ -997,6 +1008,68 @@ class SnapcastWebSocketService:
             return False
         return True
 
+    def _note_sent(self, mac_id: str, setting: str, value: Any) -> None:
+        """Record what the admission in flight for mac_id pushed (no-op outside one)."""
+        sent = self._admission_sent.get(mac_id)
+        if sent is not None:
+            sent[setting] = value
+
+    async def _deliver_what_moved_during_admission(
+        self, mac_id: str, delay_ms: int, snapcast_id: Optional[str]
+    ) -> None:
+        """Send a client just shown online what changed while it was admitted.
+
+        The admission reads each setting once and pushes it while the client is
+        still offline, and a write made meanwhile — a zone mute or move, a
+        delay, an EQ edit, a trim — is stored only: the router skips an offline
+        client and the routes leave it to the admission. Read again once the
+        client is online, whatever differs from what was pushed is sent by the
+        ordinary paths, and any later write reaches the client live, so one
+        pass closes the window. A setting the admission never pushed (a helper
+        that bailed out, the local client's EQ) is not compared.
+
+        The client is online by now, so a failure here is logged and never
+        retries the admission.
+        """
+        try:
+            client = self.registry.get_client(mac_id)
+            if client is None:
+                return
+            sent = self._admission_sent.get(mac_id, {})
+            store = self._volume_service.state_store
+            controller = self._volume_service.equalizer_controller
+
+            # Read and submitted with no await in between, like a volume move:
+            # the last value submitted is the stored one. Awaited last, so they
+            # travel beside the pushes below; the controller reports a refusal.
+            answers = []
+            level = store.get_client_volume(mac_id)
+            if "level" in sent and level is not None and level != sent["level"]:
+                answers.append(controller.submit_volume(mac_id, level))
+            mute = store.get_client_mute(mac_id)
+            if "mute" in sent and mute != sent["mute"]:
+                answers.append(controller.submit_mute(mac_id, mute))
+
+            if snapcast_id and self._snapcast_service and client.delay_ms != delay_ms:
+                if not await self._snapcast_service.set_latency(snapcast_id, client.delay_ms):
+                    self.logger.warning(
+                        f"SYNC_RECONNECT: snapserver refused the {client.delay_ms} ms delay "
+                        f"set for {mac_id} during its admission"
+                    )
+
+            if "record" in sent and self.registry.get_client_equalizer(mac_id) is not sent["record"]:
+                await self._sync_standalone_equalizer_to_client(mac_id)
+            if "gain" in sent and client.gain_db != sent["gain"]:
+                await self._sync_client_gain_to_client(mac_id)
+
+            for answer in answers:
+                await answer
+        except Exception as e:
+            self.logger.error(
+                f"SYNC_RECONNECT: could not deliver what changed during the admission of {mac_id}: {e}",
+                exc_info=True,
+            )
+
     async def _sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool = False,
         max_retries: int = 5, retry_delay: float = 3.0,
@@ -1008,14 +1081,17 @@ class SnapcastWebSocketService:
         The one admission recipe, shared by all four notifications that can see
         a client arrive: restore the snapserver passthrough and the client's
         delay, resolve the level the client itself last held, apply it, re-push
-        its EQ record and its snapclient buffer config, then show it online.
-        Retries because a remote client is often still booting when its
-        snapclient connects, its API (port 8001) answering seconds after
-        snapserver has it.
+        its EQ record and its snapclient buffer config, then show it online and
+        send it whatever was changed while this ran — a write meanwhile was only
+        stored, since the client was not online yet
+        (_deliver_what_moved_during_admission). Retries because a remote client
+        is often still booting when its snapclient connects, its API (port 8001)
+        answering seconds after snapserver has it.
 
         Owns the _syncing_mac_ids guard: marks the mac_id as in-flight on
         entry and clears it on exit, preventing duplicate sync tasks for
-        the same client.
+        the same client. What the admission pushed (_admission_sent) lives
+        exactly as long.
 
         Args:
             mac_id: Client identifier
@@ -1034,12 +1110,14 @@ class SnapcastWebSocketService:
             return False
 
         self._syncing_mac_ids.add(mac_id)
+        self._admission_sent[mac_id] = {}
         try:
             return await self._do_sync_reconnecting_client_volume(
                 mac_id, set_online_after, max_retries, retry_delay, snapcast_id
             )
         finally:
             self._syncing_mac_ids.discard(mac_id)
+            self._admission_sent.pop(mac_id, None)
 
     async def _do_sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool,
@@ -1047,10 +1125,7 @@ class SnapcastWebSocketService:
         snapcast_id: Optional[str] = None
     ) -> bool:
         """Internal sync implementation (called under _syncing_mac_ids guard)."""
-        target_volume = self._resolve_target_volume(mac_id)
-
-        self.logger.info(f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
-
+        target_volume: Optional[float] = None
         for attempt in range(max_retries + 1):
             # A client deleted during a retry wait is not admitted: the apply
             # below would put its level back in the store the delete emptied.
@@ -1064,12 +1139,13 @@ class SnapcastWebSocketService:
                 # and never followed by showing the client online.
                 pushed_delay_ms = client.delay_ms
                 pinned = await self._pin_snapserver(mac_id, snapcast_id, pushed_delay_ms)
-                # Resolved again on every attempt: a zone or global move made
-                # while this one waited moved the away room's stored level, and
-                # the room comes back where its room went, not where it stood
-                # when the admission began.
-                if attempt:
-                    target_volume = self._resolve_target_volume(mac_id)
+                # Resolved on every attempt, after the pin: a zone or global
+                # move made while this one waited moved the away room's stored
+                # level, and the room comes back where its room went, not where
+                # it stood when the admission began. The apply writes the level
+                # back to the store, so one read before an await undid a move.
+                target_volume = self._resolve_target_volume(mac_id)
+                self.logger.info(f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
                 volume_synced = pinned and await self._apply_target_volume_to_client(mac_id, target_volume)
                 if volume_synced:
                     # Re-push the client's EQ record now that it's reachable again.
@@ -1107,6 +1183,9 @@ class SnapcastWebSocketService:
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:
                         await self.registry.set_client_online(mac_id, True)
+                        await self._deliver_what_moved_during_admission(
+                            mac_id, pushed_delay_ms, snapcast_id
+                        )
                     if self._volume_service:
                         await self._volume_service.broadcast_volume_state(show_bar=False)
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
@@ -1123,9 +1202,10 @@ class SnapcastWebSocketService:
                 self.logger.info(f"SYNC_RECONNECT: {mac_id} retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
 
+        target = f" (target was {target_volume:.1f} dB)" if target_volume is not None else ""
         self.logger.warning(
             f"SYNC_RECONNECT: {mac_id} GAVE UP after {max_retries + 1} attempts — "
-            f"client may be desynchronized (target was {target_volume:.1f} dB)"
+            f"client may be desynchronized{target}"
         )
         return False
 

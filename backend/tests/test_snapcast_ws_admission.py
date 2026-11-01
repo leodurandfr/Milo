@@ -25,6 +25,7 @@ Measured 2026-08-27, none of these arms had run. They fall in three groups:
 """
 import asyncio
 import logging
+from collections import Counter
 from unittest.mock import AsyncMock, MagicMock, call
 
 import aiohttp
@@ -1060,3 +1061,233 @@ class TestAClientDeletedDuringItsAdmission:
         dsp.set_mute.assert_not_awaited()
         assert store.has_client(MAC) is False
         assert proxy.request.await_count == asked_before_the_delete[0]
+
+
+OTHER = "aa:bb:cc:dd:ee:08"
+OTHER_IP = "192.168.1.60"
+ZONE = "z1"
+
+
+class _Satellite:
+    """A satellite's HTTP surface: what each address last took on each path.
+
+    `hold(path)` keeps the first call to that path — or to "record", the whole
+    EQ record — waiting until `release()`, which is how a write lands while an
+    admission is still pushing. A held call lands when it is released, so
+    `last` is in arrival order.
+    """
+
+    def __init__(self):
+        self.last = {}
+        self.records = []
+        self.calls = Counter()
+        self.reached = asyncio.Event()
+        self._held = None
+        self._released = asyncio.Event()
+
+    def hold(self, path):
+        self._held = path
+
+    def release(self):
+        self._released.set()
+
+    async def _gate(self, path):
+        if path == self._held and not self.reached.is_set():
+            self.reached.set()
+            await self._released.wait()
+
+    async def request(self, hostname, method, path, body=None, skip_multiroom_check=False):
+        self.calls[(hostname, path)] += 1
+        await self._gate(path)
+        self.last[(hostname, path)] = body
+        return {"status": "success"}
+
+    async def apply_record(self, hostname, settings):
+        self.calls[(hostname, "record")] += 1
+        await self._gate("record")
+        self.records.append((hostname, settings.to_dict()))
+        return True
+
+
+class TestWhatChangesWhileAClientIsAdmitted:
+    """A setting changed between the admission's read and the client going online.
+
+    The admission reads each setting once and pushes it while the client is
+    still offline on purpose; a write made meanwhile — a zone mute or move, a
+    delay, an EQ edit, a trim — is stored only, since the router and the routes
+    leave an offline client to its admission. Measured on the unit, the record
+    push alone keeps that window open 185 to 350 ms, and a whole fleet is
+    readmitted at once after a power cut. Driven through the real registry,
+    volume service, controller, router and EQ service over a simulated
+    satellite and snapserver: what breaks is a speaker shown online, and drawn
+    muted or moved on every screen, that plays the state from before the write.
+    """
+
+    @pytest.fixture
+    async def world(self, registry, snapcast, tmp_path, monkeypatch, no_satellite_network):
+        from types import SimpleNamespace
+
+        from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+        from backend.core.multiroom.equalizer_router import EqualizerRouter
+        from backend.core.volume import VolumeService, VolumeStateStore
+
+        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+        satellite = _Satellite()
+        dsp = MagicMock()  # no local client here: nothing may reach it
+        state_machine = MagicMock()
+        state_machine.broadcast = AsyncMock()
+        router = EqualizerRouter(
+            client_registry=registry, camilladsp_service=dsp, proxy_service=satellite
+        )
+        volume = VolumeService(
+            state_machine=state_machine,
+            snapcast_service=MagicMock(),
+            settings_service=AsyncMock(),
+            camilladsp_service=dsp,
+            equalizer_client_proxy_service=satellite,
+            equalizer_router=router,
+        )
+        router.set_local_volume_control_source(lambda: volume.volume_control)
+        volume.set_routing_service(
+            MagicMock(get_state=MagicMock(return_value={"multiroom_enabled": True}))
+        )
+        volume.attach_registry(registry)
+        equalizer = MultiroomEqualizerService(
+            client_registry_service=registry, camilladsp_service=dsp,
+            proxy_service=satellite, equalizer_router=router,
+        )
+        service = SnapcastWebSocketService(
+            state_machine=state_machine,
+            routing_service=MagicMock(),
+            snapcast_service=snapcast,
+            equalizer_client_proxy_service=satellite,
+        )
+        service.set_registry(registry)
+        service.set_volume_service(volume)
+
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        await registry.register_client(OTHER, "Bureau", OTHER_IP)
+        await registry.set_client_equalizer(MAC, _eq_record())
+        await registry.create_zone(ZONE, "Salon", [MAC, OTHER])
+
+        async def admit(write, hold="record"):
+            """Admit MAC, making `write` while the push of `hold` is in flight."""
+            satellite.hold(hold)
+            admission = asyncio.create_task(service._sync_reconnecting_client_volume(
+                MAC, set_online_after=True, retry_delay=0.0, snapcast_id=SNAPCAST_ID,
+            ))
+            reached = asyncio.create_task(satellite.reached.wait())
+            await asyncio.wait({admission, reached}, return_when=asyncio.FIRST_COMPLETED)
+            # Non-triviality: the write lands mid-admission, before the online flip.
+            assert reached.done(), f"the admission never pushed {hold!r}"
+            assert registry.get_client(MAC).online is False
+            await write()
+            satellite.release()
+            assert await admission is True
+            assert registry.get_client(MAC).online is True
+
+        return SimpleNamespace(
+            service=service, registry=registry, volume=volume, store=volume.state_store,
+            equalizer=equalizer, satellite=satellite, snapcast=snapcast, admit=admit,
+        )
+
+    async def test_a_zone_mute_made_while_the_record_is_pushed_reaches_the_speaker(self, world):
+        """The scenario as reported: the room plays unmuted while the kiosk,
+        Milo-Mac and Milo-iOS all draw it muted, until someone touches it."""
+        await world.admit(lambda: world.volume.set_zone_mute(ZONE, True))
+
+        assert world.store.get_client_mute(MAC) is True, "the zone mute was not stored"
+        assert world.satellite.last[(IP, "/equalizer/mute")] == {
+            "muted": world.store.get_client_mute(MAC)
+        }
+
+    async def test_a_zone_move_made_while_the_record_is_pushed_reaches_the_speaker(self, world):
+        """A room that is away comes back where its room went — and a relative
+        step taken later would otherwise jump from a level it never played."""
+        moved = []
+
+        async def move():
+            await world.volume.apply_zone_volume_delta(ZONE, -10.0)
+            moved.append(world.store.get_client_volume(MAC))
+
+        await world.admit(move)
+
+        assert world.store.get_client_volume(MAC) == moved[0]
+        assert world.satellite.last[(IP, "/equalizer/volume")] == {
+            "volume": world.store.get_client_volume(MAC)
+        }
+
+    async def test_a_zone_move_made_while_snapserver_is_pinned_reaches_the_speaker(
+        self, world, snapcast
+    ):
+        """The level is read after the snapserver pin, not before: the apply
+        writes the level it is given back to the store, so one read before the
+        pin's await put the room back where it stood and lost the move."""
+        moved = []
+        pinned = asyncio.Event()
+        release = asyncio.Event()
+
+        async def set_volume(client_id, percent):
+            pinned.set()
+            await release.wait()
+            return True
+
+        snapcast.set_volume = AsyncMock(side_effect=set_volume)
+        admission = asyncio.create_task(world.service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, retry_delay=0.0, snapcast_id=SNAPCAST_ID,
+        ))
+        await pinned.wait()
+        await world.volume.apply_zone_volume_delta(ZONE, -10.0)
+        moved.append(world.store.get_client_volume(MAC))
+        release.set()
+        assert await admission is True
+
+        assert world.store.get_client_volume(MAC) == moved[0]
+        assert world.satellite.last[(IP, "/equalizer/volume")] == {"volume": moved[0]}
+
+    async def test_a_delay_set_while_the_record_is_pushed_reaches_snapserver(self, world, snapcast):
+        """Out of step with the other rooms until its next admission, while the
+        client screen shows the delay in place."""
+        await world.admit(lambda: world.registry.set_client_delay(MAC, 40))
+
+        assert snapcast.set_latency.await_args_list[-1] == call(
+            SNAPCAST_ID, world.registry.get_client(MAC).delay_ms
+        )
+
+    async def test_an_eq_edit_made_during_the_admission_push_reaches_the_satellite(self, world):
+        """The record read before the edit is the one the satellite keeps: mono
+        switched on mid-admission stayed stereo in the room."""
+        async def edit():
+            record = await world.equalizer.get_client_eq(MAC)
+            record.mono = True
+            await world.equalizer.set_client_eq(MAC, record)
+
+        await world.admit(edit)
+
+        assert world.registry.get_client_equalizer(MAC).mono is True, "the edit was not stored"
+        assert world.satellite.records[-1] == (
+            IP, world.registry.get_client_equalizer(MAC).to_dict()
+        )
+
+    async def test_a_trim_changed_during_the_admission_push_reaches_the_satellite(self, world):
+        """What the gain route does for a client that is offline: store it and
+        leave it to the admission — which had already read it."""
+        await world.admit(
+            lambda: world.registry.set_client_gain(MAC, -6.0), hold="/equalizer/gain"
+        )
+
+        assert world.satellite.last[(IP, "/equalizer/gain")] == {
+            "gain_db": world.registry.get_client(MAC).gain_db
+        }
+
+    async def test_an_admission_nobody_touched_sends_each_setting_once(self, world, snapcast):
+        """The pass after the online flip sends only what moved: a second push
+        of an unchanged record is five PUTs to a speaker that is playing."""
+        async def nothing():
+            return None
+
+        await world.admit(nothing)
+
+        assert snapcast.set_latency.await_count == 1
+        for setting in ("/equalizer/volume", "/equalizer/mute", "/equalizer/gain", "record"):
+            assert world.satellite.calls[(IP, setting)] == 1, setting
