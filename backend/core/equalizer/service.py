@@ -386,12 +386,14 @@ class CamillaDSPService:
                 return False
 
     async def _restore_after_reconnect(self) -> None:
-        """Restore full DSP state after reconnection."""
-        try:
-            # Restore volume first so audio level is correct before effects are applied
-            if self._on_reconnect_callback:
-                await self._on_reconnect_callback()
+        """Restore full DSP state after reconnection: the graph first, the volume last.
 
+        The restarted daemon is muted at its startup floor (`-m`), so the graph
+        goes back in silence, and the volume callback's unmute opens the room on
+        the whole chain. The callback runs even when the graph restore raised,
+        so nothing in it can leave the room muted.
+        """
+        try:
             # Check if equalizer effects are enabled or bypassed
             # Each of the three refuses by returning False, never by raising, so
             # the enclosing except cannot see them. A refusal here means the
@@ -430,7 +432,13 @@ class CamillaDSPService:
                 self.logger.error("Reconnected but CamillaDSP refused to restore the lowpass")
 
         except Exception as e:
-            self.logger.error(f"Error restoring state after reconnect: {e}")
+            self.logger.error(f"Error restoring the DSP graph after reconnect: {e}")
+
+        if self._on_reconnect_callback:
+            try:
+                await self._on_reconnect_callback()
+            except Exception as e:
+                self.logger.error(f"Error restoring the volume after reconnect: {e}")
 
     async def disconnect(self) -> None:
         async with self._lock:

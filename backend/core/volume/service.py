@@ -893,11 +893,13 @@ class VolumeService:
         # Through the door like every other write: clamped to the limits, and
         # ordered after any level a move already has in flight to this daemon.
         await self._equalizer_controller.set_equalizer_volume(local_mac_id, volume_db, force=True)
-        await self._equalizer_controller.set_equalizer_mute(local_mac_id, local_mute, force=True)
-        self.logger.info(f"Re-applied volume after CamillaDSP reconnect: {volume_db:.1f}dB, mute={local_mute}")
         # The daemon came back with the graph its config file holds, which carries
         # no trim — see sync_local_gain for why nothing else covers this event.
+        # Before the mute, so an unmute never opens the room ahead of its trim (a
+        # restarted daemon stays muted at its floor until then).
         await self.sync_local_gain()
+        await self._equalizer_controller.set_equalizer_mute(local_mac_id, local_mute, force=True)
+        self.logger.info(f"Re-applied volume after CamillaDSP reconnect: {volume_db:.1f}dB, mute={local_mute}")
 
     async def _apply_startup_volume(self) -> None:
         """

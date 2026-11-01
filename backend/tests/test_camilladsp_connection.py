@@ -11,9 +11,10 @@ What that left unmeasured, in order of what it costs:
 
 * the reconnect is the only thing that re-pushes volume and EQ after CamillaDSP
   restarts (it is `PartOf=milo-backend.service`, so it follows every backend
-  restart). `_restore_after_reconnect` calls the volume callback *first*, by
-  design — a restarted daemon is at its own default gain until something tells it
-  otherwise.
+  restart). `_restore_after_reconnect` puts the graph back first and calls the
+  volume callback *last*, by design — a restarted daemon is muted at its startup
+  floor, so the graph goes back in silence and the unmute opens the room on the
+  whole chain.
 * `_connection_ready` is what `VolumeService._apply_startup_volume` waits on for
   10 s at every boot. Only the *loop* sets it on a failed connect; a connect that
   fails without the loop noticing costs ten seconds of the boot and then applies
@@ -29,13 +30,16 @@ import asyncio
 import contextlib
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
 import backend.core.equalizer.service as service_module
 from backend.core.equalizer.service import CamillaDSPService, CamillaDspState
+from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.volume import VolumeStateStore
 from backend.shared.persistence import SchemaVersionMismatch
+from backend.tests.test_volume_dac_and_boot import LOCAL, _wired_service
 
 
 class ReachedTheLiveDaemon(BaseException):
@@ -1071,3 +1075,54 @@ class TestPersistState:
         assert reloaded._mono is True
         assert reloaded._custom_gains == [2.0] * 10
         assert reloaded._filters[0]["gain"] == 6.0
+
+
+class TestRestoreOrder:
+    """The order a reconnect puts the daemon back together in.
+
+    A restarted CamillaDSP comes back muted at its startup floor (`-m`,
+    invariant 7) with the graph its config file holds, which carries neither the
+    level trim nor the crossover. Rebuilding that graph while it is still muted
+    is silent; unmuting first plays the room on a half-built chain — 12 dB over
+    its trim, or full range on a speaker under a subwoofer — until the last
+    config write lands. CamillaDSP's unmute ramp (~400 ms on 4.1.3) is what
+    hides it on the unit, so the order of the calls is the only place it shows.
+    """
+
+    async def test_a_reconnect_unmutes_last(
+        self, mock_camilla_client, camilla_daemon, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+        dsp = CamillaDSPService(settings_service=Mock(
+            get_setting=AsyncMock(return_value=None), set_setting=AsyncMock()
+        ))
+        dsp.state_machine = Mock(broadcast=AsyncMock())
+        dsp._client = mock_camilla_client
+        dsp._connected = True
+
+        registry = ClientRegistryService(
+            settings_service=AsyncMock(get_setting=AsyncMock(return_value=None))
+        )
+        await registry.initialize()
+        await registry.register_client(LOCAL, "Main", "127.0.0.1")
+        await registry.set_client_gain(LOCAL, -12.0)
+        volume = _wired_service(Mock(broadcast=AsyncMock()), dsp, registry)
+        volume.attach_registry(registry)
+        volume.set_routing_service(Mock(get_state=Mock(return_value={"multiroom_enabled": True})))
+        volume._state_store.ensure_local_client(LOCAL, -30.0)
+        dsp.set_on_reconnect_callback(volume.reapply_current_volume)
+
+        camilla_daemon.load({"filters": {}, "pipeline": []})
+        await dsp.set_crossover_filter(True, 120.0, 0.5)
+        camilla_daemon.load({"filters": {}, "pipeline": []})  # restarted on the file's graph
+        mock_camilla_client.reset_mock()
+
+        await dsp._restore_after_reconnect()
+
+        calls = mock_camilla_client.mock_calls
+        unmutes = [i for i, c in enumerate(calls) if c == call.set_mute(False)]
+        writes = [i for i, c in enumerate(calls) if c[0] == "set_config"]
+        assert {"gain_trim", "crossover_highpass"} <= set(camilla_daemon.last_pushed["filters"])
+        assert unmutes, "the reconnect never unmuted the restarted daemon"
+        assert unmutes[-1] > writes[-1]

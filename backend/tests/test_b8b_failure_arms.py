@@ -352,19 +352,6 @@ class TestCamillaDspReadGuards:
 
         assert service.effects_enabled is True
 
-    async def test_the_reconnect_callback_is_invoked_before_the_effects(self, service):
-        """Volume first, by design: a restarted daemon is at its own gain until
-        something tells it otherwise, and restoring the effects first would put
-        the user's EQ on top of a level nobody chose."""
-        order = []
-        service._on_reconnect_callback = AsyncMock(side_effect=lambda: order.append("volume"))
-        service._effects_enabled = True
-        service.restore_effects = AsyncMock(side_effect=lambda: order.append("effects") or True)
-
-        await service._restore_after_reconnect()
-
-        assert order == ["volume", "effects"]
-
     async def test_a_reconnect_that_blows_up_is_contained(self, service, caplog):
         """It runs inside `_connection_loop`; an escape would be caught by the
         loop's generic arm and turned into another reconnect attempt against a
@@ -374,7 +361,7 @@ class TestCamillaDspReadGuards:
         with caplog.at_level(logging.ERROR):
             await service._restore_after_reconnect()
 
-        assert "Error restoring state after reconnect" in caplog.text
+        assert "Error restoring the volume after reconnect: callback gone" in caplog.text
 
     async def test_the_saved_effects_flag_is_loaded_from_settings(self, service):
         """It lives in `settings.json` under `routing.equalizer_effects_enabled`,
