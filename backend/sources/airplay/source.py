@@ -839,7 +839,11 @@ class AirPlaySource(BaseAudioSource):
             # The sender's arrival: Milō's level wins.
             await self._send_milo_volume(session)
             return False
-        if self._own_echo(airplay_db) or audio_source.wall_time() < self._volume_hold_until:
+        echoed = self._own_echo(airplay_db)
+        if echoed is not None:
+            await self._settle_walk(echoed)
+            return False
+        if audio_source.wall_time() < self._volume_hold_until:
             return False
         if airplay_db <= AIRPLAY_MUTED_DB and self._volume_level is not None and self._volume_level[1]:
             # The mute Milō put on the sender's slider, written back.
@@ -851,10 +855,11 @@ class AirPlaySource(BaseAudioSource):
         await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
         return True
 
-    def _own_echo(self, airplay_db: float) -> bool:
-        """The report is shairport-sync writing back a level Milō pushed. The
-        write-backs come in order and a push the slider already showed has
-        none, so the match goes with every push before it."""
+    def _own_echo(self, airplay_db: float) -> Optional[Tuple[float, bool]]:
+        """The push (level, muted) whose write-back this report is, or None
+        for a report that is not one. The write-backs come in order and a
+        push the slider already showed has none, so the match goes with every
+        push before it."""
         pushes = self._volume_in_flight
         now = audio_source.wall_time()
         while pushes and now - pushes[0][2] >= VOLUME_ECHO_S:
@@ -865,8 +870,21 @@ class AirPlaySource(BaseAudioSource):
             if pushed_muted == muted and (muted or abs(pushed - level) < VOLUME_EPSILON):
                 for _ in range(index + 1):
                     pushes.popleft()
-                return True
-        return False
+                return pushed, pushed_muted
+        return None
+
+    async def _settle_walk(self, pushed: Tuple[float, bool]) -> None:
+        """A write-back came in. When it was the last one due and names a
+        level the house has left, the sender moved while shairport-sync was
+        stepping its slider: the walk ended on the push, the house on the
+        move it followed, and nothing else would bring the two together."""
+        current = self._volume_level
+        if self._volume_in_flight or current is None:
+            return
+        if pushed[1] == current[1] and (current[1] or abs(pushed[0] - current[0]) < VOLUME_EPSILON):
+            return
+        self._volume_level = None     # the slider no longer shows it
+        await self._push_volume(*current)
 
     async def _follow_milo_volume(self, level: float, muted: bool) -> None:
         """Milō's volume moved: the sender's slider follows — or, for a sender

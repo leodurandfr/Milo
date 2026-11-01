@@ -42,7 +42,7 @@ from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent, _hex_to_str
 from backend.sources.airplay.remote import RemoteUpdate
 from backend.core.audio_source import POSITION_TOLERANCE_MS
-from backend.sources.airplay.source import ARTWORK_MAX_BYTES, ARTWORK_SETTLE_SECONDS, VOLUME_HOLD_S
+from backend.sources.airplay.source import ARTWORK_MAX_BYTES, ARTWORK_SETTLE_SECONDS, VOLUME_ECHO_S, VOLUME_HOLD_S
 from backend.tests.airplay_world import (
     IPHONE_MUSIC_COMMANDS, MAC, MAC_COMMANDS, PHONE, SPOTIFY_COMMANDS, AirPlayWorld, png, ssnc,
 )
@@ -884,6 +884,58 @@ class TestTheVolume:
         await world.advance(self.ANSWER_S)
 
         assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
+        assert _slider_volumes(world)[sent:] == []
+
+    async def test_a_sender_move_behind_a_knob_step_in_one_burst_ends_on_both_sliders(self, world, volume):
+        """The step is pushed first, so shairport-sync walks the sender's
+        slider to it after the sender moved: the walk ends on the step, the
+        house on the move. Its write-back is Milō's own and changes nothing,
+        so the two sliders stayed apart for good."""
+        await _on_air(world, answer_s=self.ANSWER_S)
+        await world.advance(VOLUME_HOLD_S + 1)
+
+        volume.moved_in_milo(-46.0)
+        world.slider_reported(-6.0)
+        await world.advance(VOLUME_ECHO_S)
+
+        assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
+        assert world.slider_db == self._slider_at(volume, volume.volume_db)
+
+    async def test_a_sender_move_while_a_knob_step_walks_its_slider_ends_on_both_sliders(self, world, volume):
+        """The sender moves while shairport-sync is still stepping its slider
+        to the knob's level: the walk overrides the move on the sender, which
+        the house followed."""
+        await _on_air(world, answer_s=self.ANSWER_S)
+        await world.advance(VOLUME_HOLD_S + 1)
+
+        volume.moved_in_milo(-46.0)
+        await world.advance(0.005)
+        world.slider_reported(-6.0)
+        await world.advance(VOLUME_ECHO_S)
+
+        assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
+        assert world.slider_db == self._slider_at(volume, volume.volume_db)
+
+    async def test_the_senders_moves_after_a_push_with_no_write_back_are_not_sent_back(self, world, volume):
+        """A push the slider already showed writes nothing back, so it stays
+        listed for VOLUME_ECHO_S: the sender's moves meanwhile are its own.
+        Sent back, each one would step the slider under a finger still
+        dragging it."""
+        await _on_air(world, answer_s=self.ANSWER_S)
+        await world.advance(VOLUME_HOLD_S - 0.5)
+        await world.moves_its_slider(-7.5)      # still the arrival's hold: ignored
+        volume.moved_in_milo(-35.0)             # where the slider already is
+        await world.advance(self.ANSWER_S + 1.0)
+        sent = len(_slider_volumes(world))
+
+        await world.moves_its_slider(-6.0)
+        await world.moves_its_slider(-4.5)
+        await world.advance(self.ANSWER_S)
+
+        assert volume.sets == [
+            pytest.approx(volume.volume_config.denormalize(0.8)),
+            pytest.approx(volume.volume_config.denormalize(0.85)),
+        ]
         assert _slider_volumes(world)[sent:] == []
 
     async def test_a_slider_push_that_fails_is_not_remembered_and_milos_level_still_wins(self, world, volume):
