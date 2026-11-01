@@ -28,6 +28,7 @@ connections on four devices). A protocol's shape is captured, never invented.
 """
 import asyncio
 import contextlib
+import inspect
 import logging
 import types
 
@@ -44,13 +45,18 @@ from backend.core.network.service import HOTSPOT_NAME, NetworkService, _parse_nm
 # --------------------------------------------------------------------------- #
 
 class FakeProc:
-    def __init__(self, rc, stdout, stderr):
+    def __init__(self, rc, stdout, stderr, answer=None):
         self.returncode = rc
         self._out = stdout.encode()
         self._err = stderr.encode()
+        # An answer still in flight: the caller waits on it as on a real nmcli.
+        self._answer = answer
         self.killed = False
 
     async def communicate(self, input=None):
+        if self._answer is not None:
+            self.returncode, out, err = await self._answer
+            return out.encode(), err.encode()
         return self._out, self._err
 
     def kill(self):
@@ -76,7 +82,10 @@ class FakeNmcli:
         # A real spawn always suspends the caller; without this, overlapping
         # evaluations run one after the other and a race cannot be reproduced.
         await asyncio.sleep(0)
-        rc, out, err = self._router(args)
+        answer = self._router(args)
+        if inspect.isawaitable(answer):
+            return FakeProc(None, "", "", answer=answer)
+        rc, out, err = answer
         if args == ("radio", "wifi") and not out:
             out = self._default_radio
         return FakeProc(rc, out, err)
@@ -112,6 +121,94 @@ def no_delay():
          patch("backend.core.network.service.RADIO_SETTLE_INTERVAL_S", 0), \
          patch("backend.core.network.service.AUTOCONNECT_INTERVAL_S", 0):
         yield
+
+
+class FakeNetworkManager:
+    """NetworkManager's state as nmcli reads and changes it, for the paths where
+    what counts is what NM is left holding rather than which argv was sent.
+
+    Only what the recovery path touches is modelled: eth0's lease, the radio,
+    the wireless profiles (name → `802-11-wireless.mode`) and which of them is
+    up or still activating. `hold(*prefix)` keeps every
+    command starting with `prefix` in flight until `release()`, and NM applies
+    it then **whether or not its nmcli is still waited on** — a caller that is
+    cancelled or times out does not undo an activation NM already accepted.
+    """
+
+    def __init__(self, *, ethernet=False, radio=True, profiles=None, active=(), activating=()):
+        self.ethernet = ethernet
+        self.radio = radio
+        self.profiles: dict[str, str] = dict(profiles or {})
+        self.active = set(active)
+        self.activating = set(activating)
+        self.in_flight: list[asyncio.Task] = []
+        self._held: tuple[str, ...] = ()
+        self._released = asyncio.Event()
+
+    def hold(self, *prefix: str) -> None:
+        self._held = prefix
+
+    def release(self) -> None:
+        self._released.set()
+
+    def route(self, args):
+        if self._held and args[:len(self._held)] == self._held:
+            task = asyncio.ensure_future(self._apply_once_released(args))
+            self.in_flight.append(task)
+            return asyncio.shield(task)
+        return self._apply(args)
+
+    async def _apply_once_released(self, args):
+        await self._released.wait()
+        return self._apply(args)
+
+    def _apply(self, args):
+        if args == ("radio", "wifi"):
+            return (0, "enabled" if self.radio else "disabled", "")
+        if args[:2] == ("radio", "wifi"):
+            self.radio = args[2] == "on"
+            if not self.radio:
+                self.active.clear()
+                self.activating.clear()
+            return (0, "", "")
+        if "TYPE,STATE,CONNECTION" in args:
+            eth = "ethernet:connected:Wired connection 1" if self.ethernet else "ethernet:unavailable:"
+            wifi = [f"wifi:connected:{name}" for name in sorted(self.active)]
+            wifi += [f"wifi:connecting (configuring):{name}" for name in sorted(self.activating)]
+            if not wifi:
+                wifi = ["wifi:disconnected:" if self.radio else "wifi:unavailable:"]
+            return (0, "\n".join([eth, *wifi]), "")
+        if "DEVICE,STATE" in args:
+            eth = "eth0:connected" if self.ethernet else "eth0:unavailable"
+            wlan = "wlan0:disconnected" if self.radio else "wlan0:unavailable"
+            return (0, f"{eth}\n{wlan}", "")
+        if args[-3:] == ("device", "show", "eth0"):
+            if self.ethernet:
+                return (0, _device_show("Wired connection 1", "192.168.1.55"), "")
+            return (0, _device_show("--", None), "")
+        if "NAME,TYPE" in args:
+            return (0, "\n".join(f"{name}:802-11-wireless" for name in sorted(self.profiles)), "")
+        if "802-11-wireless.mode" in args:
+            name = args[-1]
+            if name not in self.profiles:
+                return (10, "", f"Error: {name} - no such connection profile.")
+            return (0, f"802-11-wireless.mode:{self.profiles[name]}", "")
+        if args[:2] == ("connection", "add"):
+            mode = args[args.index("wifi.mode") + 1] if "wifi.mode" in args else "infrastructure"
+            self.profiles[args[args.index("con-name") + 1]] = mode
+            return (0, "", "")
+        if args[:2] in (("connection", "delete"), ("connection", "up")):
+            name = args[2]
+            if name not in self.profiles:
+                return (10, "", f"Error: unknown connection '{name}'.")
+            if args[1] == "delete":
+                del self.profiles[name]
+                self.active.discard(name)
+                self.activating.discard(name)
+            else:
+                self.active.add(name)
+            return (0, "", "")
+        raise AssertionError(f"not modelled: nmcli {' '.join(args)}")
 
 
 async def settle_until(predicate, timeout=1.0):
@@ -420,8 +517,9 @@ async def test_a_live_network_raises_nothing(service):
 
 @pytest.mark.asyncio
 async def test_the_units_own_access_point_does_not_count_as_a_live_network(service):
-    """Otherwise the AP would prove the unit reachable and tear itself down —
-    or, on a restart while it is up, decide nothing needs doing at all."""
+    """Otherwise the AP would prove the unit reachable and tear itself down.
+    A restart that finds it up adopts it in `initialize()` instead — see
+    test_an_access_point_left_up_by_a_previous_process_is_adopted_…"""
     def router(args):
         if "status" in args:
             return (0, f"wifi:connected:{HOTSPOT_NAME}", "")
@@ -836,6 +934,29 @@ async def test_connecting_to_a_network_ends_the_override(service):
 
 
 @pytest.mark.asyncio
+async def test_saving_a_network_ends_the_override(service):
+    """The wizard on the AP path saves the home network, then reboots. The
+    override is kept on disk across that reboot, so a save has to end it as a
+    connect does — or the first ethernet lease switches off the radio that was
+    to carry the network just chosen."""
+    service._radio_forced_on = True
+
+    def router(args):
+        if "status" in args and "TYPE,STATE,CONNECTION" in args:
+            return (0, "ethernet:connected:Wired connection 1", "")
+        if "show" in args and "eth0" in args:
+            return (0, _device_show("Wired connection 1", "192.168.1.55"), "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher:
+        await service.save_network("Maison", "secret")
+        await service.evaluate_reachability()
+
+    assert ("radio", "wifi", "off") not in fake.calls
+
+
+@pytest.mark.asyncio
 async def test_the_hotspot_profile_is_created_with_autoconnect_disabled(service):
     """`connection.autoconnect no` is load-bearing, and nmcli defaults it to yes.
 
@@ -871,6 +992,136 @@ async def test_a_hotspot_that_fails_to_come_up_leaves_no_profile_behind(service)
     assert service.hotspot_active is False
 
 
+@pytest.mark.asyncio
+async def test_a_link_returning_while_the_access_point_activates_takes_it_down(service):
+    """A power cut that takes the box down with the unit: the AP's `connection
+    up` is still in flight when eth0's lease lands, and the evaluation that sees
+    the lease cancels the task waiting on it. NM finishes the activation anyway.
+    A flag set only once `up` had returned was still False, so that evaluation
+    skipped the teardown and every later one did too — an open AP, NATed to the
+    LAN, until the next reboot, with `hotspot_active: false` published."""
+    nm = FakeNetworkManager()
+    nm.hold("connection", "up")
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: nm.in_flight)
+        nm.ethernet = True
+        await service.evaluate_reachability()
+        nm.release()
+        await asyncio.gather(*nm.in_flight)
+
+    assert HOTSPOT_NAME not in nm.active
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_an_access_point_activation_that_times_out_is_deleted(service):
+    """nmcli gave up on `connection up`, NM did not: the activation it accepted
+    completes on its own, and the profile used to be deleted only on a refusal.
+    A timeout has to take the profile with it, or the AP comes up unowned."""
+    nm = FakeNetworkManager()
+    nm.hold("connection", "up")
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), \
+         patch("backend.core.network.service.HOTSPOT_NMCLI_TIMEOUT_S", 0.01):
+        await service.evaluate_reachability()
+        await settle_until(lambda: service._recovery_arm is None)
+        nm.release()
+        await asyncio.gather(*nm.in_flight)
+
+    assert HOTSPOT_NAME not in nm.active
+    assert service.hotspot_active is False
+
+
+@pytest.mark.parametrize("left", ["active", "activating"])
+@pytest.mark.asyncio
+async def test_an_access_point_left_up_by_a_previous_process_is_adopted_and_taken_down_when_ethernet_returns(service, left):
+    """NM keeps the AP across a backend restart; the flag that owns it is the
+    process's. Without a look at NM in `initialize()` the new process starts
+    with `hotspot_active` False, and the cable's return tears down nothing.
+    An activation the restart cut short counts too: NM finishes it anyway.
+
+    The real settle window, so nothing but the adoption can account for the
+    teardown, and no D-Bus: the adoption is an nmcli read and must not wait
+    on the bus coming up."""
+    nm = FakeNetworkManager(profiles={HOTSPOT_NAME: "ap"}, **{left: {HOTSPOT_NAME}})
+    linked = NetworkStatus(
+        wifi_enabled=True,
+        ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
+        wifi=WifiConnectionStatus(connected=False),
+    )
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus:
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await service.evaluate_reachability()  # main.py's first look: no link yet
+        nm.ethernet = True
+        await service.evaluate_reachability(linked)
+
+    assert HOTSPOT_NAME not in nm.active | nm.activating
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_a_speakers_setup_hotspot_the_server_had_joined_is_not_adopted(service):
+    """The speaker adoption joins a speaker's own `Milō` hotspot through a
+    station profile of that very name. Taken for the unit's AP across a restart,
+    it would read `hotspot_active: true` — speaker discovery empty, adoption
+    refused as "server in hotspot mode" — on a unit that raised nothing."""
+    nm = FakeNetworkManager(profiles={HOTSPOT_NAME: "infrastructure"}, active={HOTSPOT_NAME})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus:
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_a_radio_forced_on_before_a_restart_is_still_switched_off_when_ethernet_returns():
+    """The radio half of the same gap. The user had switched WiFi off, the
+    recovery turned it back on, and the backend restarted before the cable came
+    back: NM keeps the radio on, and the override was a flag of the process that
+    died, so the new one took the "on" for the user's and kept it for good."""
+    nm = FakeNetworkManager(radio=False)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher:
+        before = NetworkService(AsyncMock(), AsyncMock())
+        with no_delay():
+            await before.evaluate_reachability()
+            await settle_until(lambda: HOTSPOT_NAME in nm.active)
+        await before.cleanup()
+
+        after = NetworkService(AsyncMock(), AsyncMock())
+        with patch("backend.core.network.service.MessageBus") as bus:
+            bus.side_effect = OSError("no system bus")
+            await after.initialize()
+            nm.ethernet = True
+            await after.evaluate_reachability()
+
+    assert nm.radio is False
+    assert HOTSPOT_NAME not in nm.active
+
+
+@pytest.mark.asyncio
+async def test_the_override_is_on_disk_before_the_radio_is_on(service, radio_override_marker):
+    """A restart landing between the two must leave a marker over a radio still
+    off, which the restore answers with a redundant "off" — never a radio on
+    with no marker, which the next process takes for the user's "on" for good."""
+    nm = FakeNetworkManager(radio=False)
+    nm.hold("radio", "wifi", "on")
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: nm.in_flight)
+        on_disk = radio_override_marker.exists()
+        nm.release()
+        await settle_until(lambda: service._recovery_arm is None)
+
+    assert on_disk
+
+
 # --------------------------------------------------------------------------- #
 # Fail-open on D-Bus
 # --------------------------------------------------------------------------- #
@@ -882,7 +1133,8 @@ async def test_initialize_fails_open_when_networkmanager_dbus_is_absent(service)
     A raise here aborts initialize_services() and the whole backend never comes
     up, on a developer machine and on any unit where NM is slow to appear.
     """
-    with patch("backend.core.network.service.MessageBus") as bus:
+    fake, patcher = with_nmcli()
+    with patcher, patch("backend.core.network.service.MessageBus") as bus:
         bus.side_effect = OSError("no system bus")
         assert await service.initialize() is False
 
@@ -892,11 +1144,11 @@ async def test_initialize_fails_open_when_networkmanager_dbus_is_absent(service)
 @pytest.mark.asyncio
 async def test_the_nmcli_read_path_still_works_without_dbus(service):
     """Degraded means "no live updates", not "no status" — the badge must still fill."""
-    with patch("backend.core.network.service.MessageBus") as bus:
+    fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.42")))
+    with patcher, patch("backend.core.network.service.MessageBus") as bus:
         bus.side_effect = OSError("no system bus")
         await service.initialize()
 
-    fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.42")))
     with patcher:
         status = await service.get_network_status()
 
@@ -1146,6 +1398,16 @@ def never_the_real_nmcli():
     with patch("backend.core.network.service.asyncio.create_subprocess_exec",
                new=_refuse):
         yield
+
+
+@pytest.fixture(autouse=True)
+def radio_override_marker(tmp_path):
+    """The radio override's marker, in a temp dir. The live one is under
+    /var/lib/milo, which the suite refuses to write, and every test that runs
+    the recovery or sets the radio reaches it."""
+    marker = tmp_path / "wifi_radio_forced"
+    with patch("backend.core.network.service.WIFI_RADIO_FORCED_FILE", marker):
+        yield marker
 
 
 # --------------------------------------------------------------------------- #

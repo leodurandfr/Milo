@@ -113,6 +113,12 @@ PASSWORD_CHANGED_MARKER = MILO_DATA_DIR / "password-changed"
 # still true — a reset that silently did nothing.
 RESET_SETUP_MARKER = MILO_DATA_DIR / "reset-setup"
 
+# Present while the WiFi radio is on only because the network recovery turned
+# it back on over the user's "off". NetworkManager keeps the radio on across a
+# backend restart, so the override has to outlive the process the same way, or
+# the next one takes the "on" for the user's and never gives the setting back.
+WIFI_RADIO_FORCED_FILE = MILO_DATA_DIR / "wifi_radio_forced"
+
 # =============================================================================
 # NETWORK PORTS
 # =============================================================================

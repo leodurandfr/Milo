@@ -36,6 +36,7 @@ from typing import List, Optional, Tuple
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
+from backend.config.constants import WIFI_RADIO_FORCED_FILE
 from backend.core.models.ws_events import NetworkStatusChanged
 from backend.shared.background import BackgroundTaskSet
 
@@ -57,6 +58,9 @@ HOTSPOT_NAME = "Milō"
 # than this and the AP steals the radio from an association that was about to
 # succeed.
 RECOVERY_AP_DELAY_S = 45.0
+
+# The bound on each nmcli call that creates and activates the access point.
+HOTSPOT_NMCLI_TIMEOUT_S = 20.0
 
 # `nmcli radio wifi on` returns before NM has re-enumerated wlan0. 10 s of
 # half-second polls, which is generous: the device reappeared in under 2 s on
@@ -115,7 +119,8 @@ class NetworkService:
         self._recovery_arm: Optional[asyncio.Task] = None
         # True while the WiFi radio is on only because the recovery path turned
         # it on. Restored to the user's setting the moment it stops costing
-        # reachability — see _restore_radio_preference.
+        # reachability — see _restore_radio_preference. Kept on disk as well
+        # (_set_radio_override), since NM keeps the radio on across a restart.
         self._radio_forced_on: bool = False
         # Loop time at which wlan0 was first seen activated without an IPv4
         # lease — bounds how long that reads as "connecting".
@@ -168,7 +173,7 @@ class NetworkService:
 
     @property
     def hotspot_active(self) -> bool:
-        """Whether the recovery access point is currently up."""
+        """Whether the recovery access point is up, or being raised."""
         return self._hotspot_active
 
     # =========================================================================
@@ -252,14 +257,18 @@ class NetworkService:
 
     async def set_wifi_enabled(self, enabled: bool) -> None:
         """Enable or disable WiFi radio."""
+        await self._set_radio(enabled)
+        # Whoever sets the radio now owns the setting, the user above all: an
+        # explicit "on" while the recovery override stood would otherwise be
+        # undone by _restore_radio_preference as if it were the override's.
+        await self._set_radio_override(False)
+
+    async def _set_radio(self, enabled: bool) -> None:
+        """Switch the radio, leaving the recovery override as it stands."""
         state = "on" if enabled else "off"
         rc, _, stderr = await self._run_nmcli("radio", "wifi", state)
         if rc != 0:
             raise RuntimeError(f"Failed to set WiFi radio {state}: {stderr}")
-        # Whoever sets the radio now owns the setting, the user above all: an
-        # explicit "on" while the recovery override stood would otherwise be
-        # undone by _restore_radio_preference as if it were the override's.
-        self._radio_forced_on = False
         self.logger.info("WiFi radio set to %s", state)
 
     async def save_network(self, ssid: str, password: Optional[str] = None) -> None:
@@ -270,6 +279,10 @@ class NetworkService:
         is left untouched.
         """
         async with self._connect_lock:
+            # Saving a network is choosing the radio as much as connecting is:
+            # the wizard saves, then reboots, and the override must not switch
+            # off the radio carrying the network it chose once ethernet appears.
+            await self._set_radio_override(False)
             self.logger.info("Saving WiFi network: %s", ssid)
 
             await self._delete_ssid_profiles(ssid)
@@ -313,7 +326,7 @@ class NetworkService:
         """Internal connect implementation (called under _connect_lock)."""
         # Choosing a network is choosing the radio: the recovery override must
         # not switch off the link the user just asked for.
-        self._radio_forced_on = False
+        await self._set_radio_override(False)
         self.logger.info("Connecting to WiFi network: %s (password provided: %s)", ssid, password is not None)
 
         # Disconnect WiFi device first to ensure clean state — an active
@@ -646,12 +659,15 @@ class NetworkService:
         self.logger.info(
             "WiFi radio is off and the unit has no link — turning it back on until ethernet returns"
         )
+        # The marker before the radio: a process stopped between the two then
+        # leaves a marker the restore merely answers with a redundant "off",
+        # rather than a radio on with nothing to say whose "on" it is.
+        await self._set_radio_override(True)
         try:
-            await self.set_wifi_enabled(True)
+            await self._set_radio(True)
         except Exception as e:
             self.logger.error("Could not turn the WiFi radio back on: %s", e)
             return False
-        self._radio_forced_on = True
 
         for _ in range(RADIO_SETTLE_POLLS):
             await asyncio.sleep(RADIO_SETTLE_INTERVAL_S)
@@ -716,24 +732,40 @@ class NetworkService:
         self._radio_forced_on = False
 
         try:
-            await self.set_wifi_enabled(False)
-            self.logger.info("WiFi radio switched back off — the setting is restored")
+            await self._set_radio(False)
         except Exception as e:
             # Still owed: the next evaluation tries again.
             self._radio_forced_on = True
             self.logger.warning("Could not restore the WiFi radio setting: %s", e)
+            return
+        await self._set_radio_override(False)
+        self.logger.info("WiFi radio switched back off — the setting is restored")
 
     async def _start_hotspot(self) -> None:
-        """Bring the AP up. Failing open — a unit with no wlan0 stays silent."""
+        """Bring the AP up. Failing open — a unit with no wlan0 stays silent.
+
+        The AP is owned from before `connection up`, not from its return: NM
+        finishes an activation whose nmcli was cancelled or timed out, and a flag
+        set afterwards left that AP with nothing to take it down. A failure takes
+        the profile with it for the same reason. A cancellation leaves the flag
+        up on purpose: it comes from a caller that found the unit reachable and
+        runs the teardown next, or from shutdown, after which the next process
+        adopts the AP (`_adopt_recovery_state`).
+        """
+        self._hotspot_active = True
         try:
             await self._activate_hotspot()
-            self._hotspot_active = True
-            self.logger.info(
-                "No network connection — access point '%s' raised so the unit stays reachable",
-                HOTSPOT_NAME,
-            )
         except Exception as e:
             self.logger.error("Failed to activate the recovery access point: %s", e)
+            try:
+                await self._delete_hotspot_profile()
+            finally:
+                self._hotspot_active = False
+            return
+        self.logger.info(
+            "No network connection — access point '%s' raised so the unit stays reachable",
+            HOTSPOT_NAME,
+        )
 
     async def _stop_hotspot(self, reason: str) -> None:
         """Take the AP down. The single teardown — `_connect_impl` uses it too,
@@ -742,6 +774,67 @@ class NetworkService:
         self._hotspot_active = False
         await self._delete_hotspot_profile()
         self.logger.info("Access point '%s' removed (%s)", HOTSPOT_NAME, reason)
+
+    async def _set_radio_override(self, forced: bool) -> None:
+        """Set the radio override, on disk as well: NM keeps the radio on across
+        a backend restart, so the next process has to know whose "on" it is."""
+        self._radio_forced_on = forced
+        try:
+            if forced:
+                await asyncio.to_thread(WIFI_RADIO_FORCED_FILE.write_bytes, b"")
+            else:
+                await asyncio.to_thread(WIFI_RADIO_FORCED_FILE.unlink, missing_ok=True)
+        except OSError as e:
+            self.logger.warning("Could not record the WiFi radio override: %s", e)
+
+    async def _adopt_recovery_state(self) -> None:
+        """Take back what a previous process left NetworkManager holding.
+
+        Both recovery effects outlive the process that made them — NM keeps the
+        AP up and the radio on across a backend restart — while the flags that
+        own them start False, and the teardown and the restore read nothing
+        else. Fails open: what cannot be read is not adopted.
+        """
+        try:
+            self._radio_forced_on = await asyncio.to_thread(WIFI_RADIO_FORCED_FILE.exists)
+        except OSError as e:
+            self.logger.warning("Could not read the WiFi radio override back: %s", e)
+        if self._radio_forced_on:
+            self.logger.info("WiFi radio is on only for the recovery — switched back off once ethernet returns")
+
+        try:
+            left_up = await self._hotspot_left_up()
+        except (asyncio.TimeoutError, OSError) as e:
+            self.logger.warning("Could not read back an access point left up: %r", e)
+            return
+        if left_up:
+            self._hotspot_active = True
+            self.logger.info("Access point '%s' is up from a previous run — adopted", HOTSPOT_NAME)
+
+    async def _hotspot_left_up(self) -> bool:
+        """Whether wlan0 carries this unit's own AP, up or still activating —
+        NM finishes an activation whether or not its caller is still there.
+
+        The name alone is not enough: the speaker adoption joins a speaker's
+        setup hotspot through a station profile of the same name, and only the
+        profile's mode tells the two apart.
+        """
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"
+        )
+        if rc != 0:
+            self.logger.warning("nmcli device status failed (rc=%s) — an access point left up is not adopted", rc)
+            return False
+        if not any(
+            fields[2] == HOTSPOT_NAME and (fields[1] == "connected" or fields[1].startswith("connecting"))
+            for fields in map(_parse_nmcli_line, stdout.split("\n"))
+            if len(fields) >= 3
+        ):
+            return False
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "802-11-wireless.mode", "connection", "show", HOTSPOT_NAME
+        )
+        return rc == 0 and _parse_nmcli_line(stdout)[-1] == "ap"
 
     async def _has_active_connection(self) -> Optional[bool]:
         """True/False if any Ethernet or WiFi client (non-AP) connection is
@@ -778,7 +871,8 @@ class NetworkService:
         return False
 
     async def _activate_hotspot(self) -> None:
-        """Create and activate an open (no password) NetworkManager hotspot."""
+        """Create and activate an open (no password) NetworkManager hotspot.
+        Raises on failure; `_start_hotspot` removes what it leaves behind."""
         # Clean up any stale profile from a previous crashed run
         await self._delete_hotspot_profile()
 
@@ -798,17 +892,16 @@ class NetworkService:
             "wifi.channel", "6",
             "ipv4.method", "shared",
             "connection.autoconnect", "no",
-            timeout=20.0,
+            timeout=HOTSPOT_NMCLI_TIMEOUT_S,
         )
         if rc != 0:
             raise RuntimeError(f"Hotspot profile creation failed: {stderr}")
 
         rc, _, stderr = await self._run_nmcli(
             "connection", "up", HOTSPOT_NAME,
-            timeout=20.0,
+            timeout=HOTSPOT_NMCLI_TIMEOUT_S,
         )
         if rc != 0:
-            await self._delete_hotspot_profile()
             raise RuntimeError(f"Hotspot activation failed: {stderr}")
 
     # =========================================================================
@@ -987,7 +1080,12 @@ class NetworkService:
     # =========================================================================
 
     async def initialize(self) -> bool:
-        """Connect to NM via D-Bus, subscribe to the three tiers, prime cache.
+        """Adopt the recovery state NM still holds, then connect to NM via
+        D-Bus, subscribe to the three tiers, prime cache.
+
+        The adoption comes first: the priming spawns the first evaluation, which
+        must already see an AP left up. It is an nmcli read, so it stands outside
+        the bus's `try` and does not fail with it.
 
         Returns True if at least the system bus connection succeeded. Even
         when individual interfaces are missing (e.g. boards without wlan0),
@@ -995,6 +1093,7 @@ class NetworkService:
         Fails open: if NM is unavailable, returns False and live updates are
         disabled. The nmcli-based read path keeps working.
         """
+        await self._adopt_recovery_state()
         try:
             self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
