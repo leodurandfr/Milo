@@ -1003,7 +1003,7 @@ class TestWhatANewClientIsAdmittedAt:
 
 
 class TestAClientDeletedDuringItsAdmission:
-    """A satellite deleted while its admission waits between two attempts.
+    """A satellite deleted while its admission waits: between two attempts, or on snapserver's pin.
 
     A satellite whose snapclient is up but whose API refuses (an app update gone
     wrong, a reboot before the API answers) keeps its admission retrying, and the
@@ -1061,6 +1061,55 @@ class TestAClientDeletedDuringItsAdmission:
         dsp.set_mute.assert_not_awaited()
         assert store.has_client(MAC) is False
         assert proxy.request.await_count == asked_before_the_delete[0]
+
+    async def test_a_client_deleted_while_snapserver_is_pinned_leaves_no_level_behind(
+        self, service, registry, store, snapcast, monkeypatch
+    ):
+        """What it cost: the pin awaits snapserver after the attempt's registry
+        check, so a delete landing there was followed by the apply, which wrote
+        the startup level back into the store, unmuted: a client nobody holds,
+        moved by every global move, published in volume_changed, and the level
+        a re-added satellite came back at instead of the startup one."""
+        from backend.core.multiroom.equalizer_router import EqualizerRouter
+        from backend.core.volume.equalizer_controller import EqualizerController
+
+        monkeypatch.setattr(
+            "backend.core.multiroom.equalizer_router.get_local_mac",
+            lambda: "aa:bb:cc:dd:ee:ff",
+        )
+        dsp = MagicMock()
+        dsp.set_volume = AsyncMock(return_value=True)
+        dsp.set_mute = AsyncMock(return_value=True)
+        proxy = MagicMock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        service._volume_service.state_store = store
+        service._volume_service.equalizer_controller = EqualizerController(
+            equalizer_router=EqualizerRouter(registry, dsp, proxy),
+            client_registry=registry,
+        )
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        held_before_the_delete = []
+
+        async def _lift_the_mute(snapcast_id, percent):
+            held_before_the_delete.append(store.has_client(MAC))
+            await registry.unregister_client(MAC)
+            return True
+
+        snapcast.set_volume = AsyncMock(side_effect=_lift_the_mute)
+
+        ok = await service._do_sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=5, retry_delay=0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        # Non-triviality first: the delete landed inside the pin, on a client
+        # the store held a level for, after the attempt's own check passed.
+        assert held_before_the_delete == [True]
+        assert ok is False
+        assert store.has_client(MAC) is False
+        dsp.set_volume.assert_not_awaited()
+        dsp.set_mute.assert_not_awaited()
+        proxy.request.assert_not_awaited()
 
 
 OTHER = "aa:bb:cc:dd:ee:08"

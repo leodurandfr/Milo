@@ -1139,6 +1139,12 @@ class SnapcastWebSocketService:
                 # and never followed by showing the client online.
                 pushed_delay_ms = client.delay_ms
                 pinned = await self._pin_snapserver(mac_id, snapcast_id, pushed_delay_ms)
+                # Asked again past the pin's awaits, with none between here and
+                # the apply's store write: a delete that landed while snapserver
+                # answered would be undone the same way.
+                if self.registry.get_client(mac_id) is None:
+                    self.logger.info(f"SYNC_RECONNECT: {mac_id} removed during admission, abandoning")
+                    return False
                 # Resolved on every attempt, after the pin: a zone or global
                 # move made while this one waited moved the away room's stored
                 # level, and the room comes back where its room went, not where
