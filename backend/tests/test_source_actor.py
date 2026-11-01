@@ -8,7 +8,8 @@ outside world only: a systemd double that tracks what the unit really is, and
 the responses callers get back.
 """
 import asyncio
-from typing import List
+import logging
+from typing import Any, List
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -53,6 +54,7 @@ class Probe(BaseAudioSource):
         self.auto_stop_enabled = True
         self.auto_stop_delay = 0.0
         self.log: List[str] = []
+        self.heard: List[Any] = []
         self.gate = asyncio.Event()
         self.reads = 0
 
@@ -73,6 +75,9 @@ class Probe(BaseAudioSource):
     async def refresh_metadata(self) -> bool:
         self.reads += 1
         return True
+
+    async def _handle_feed(self, events) -> None:
+        self.heard.extend(events)
 
 
 async def _until(predicate) -> None:
@@ -357,6 +362,49 @@ async def test_what_queued_behind_a_reroute_that_did_not_come_back_is_interrupte
     assert machine.get_current_state()["service"] == "failed"
     assert not answer["success"] and "interrupted" in answer["error"]
     assert probe.log == []
+
+
+# === What the player announces (Feed) ===
+
+async def test_a_feed_cut_before_its_first_step_does_not_deafen_the_source(probe, caplog):
+    """A source switch that lands right after mpv announced something stops
+    the Feed before its handler ran. If that leaves the source believing a
+    Feed is still on its way, no later announcement is ever posted: back on
+    Radio, mpv plays but `playback-restart` is never heard, the station sits
+    in LOADING until the watchdog ends it as `stream_load_failed` — at every
+    station, until the backend restarts."""
+    caplog.set_level(logging.INFO)
+    probe._post_feed("e1")
+    # In a task of its own, the stop runs after the actor has dequeued the
+    # Feed and before the handler's first step: cut, not voided in the queue.
+    stopping = asyncio.ensure_future(probe.stop())
+    assert await stopping
+    assert "stop cuts short feed" in caplog.text
+    assert probe.heard == []
+
+    assert await probe.start()
+    probe._post_feed("e2")
+    await _until(lambda: "e2" in probe.heard)
+    assert probe.heard == ["e1", "e2"]
+
+
+async def test_a_feed_voided_by_a_stop_does_not_deafen_the_next_session(probe):
+    """The other way a Feed ends without running: queued behind a handler when
+    the stop arrives, it is answered as interrupted and never dequeued. The
+    next session must still hear mpv, starting with what the voided Feed
+    carried."""
+    blocking = asyncio.ensure_future(probe.command("slow", None))
+    await _until(lambda: "slow begin" in probe.log)
+    probe._post_feed("end-file")
+    assert await probe.stop()
+    probe.gate.set()
+    await asyncio.gather(blocking, return_exceptions=True)
+    assert probe.heard == []
+
+    assert await probe.start()
+    probe._post_feed("playback-restart")
+    await _until(lambda: "playback-restart" in probe.heard)
+    assert probe.heard == ["end-file", "playback-restart"]
 
 
 # === Work on the hardware outlives a stop (DeviceToken) ===

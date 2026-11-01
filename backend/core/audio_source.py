@@ -606,6 +606,11 @@ class BaseAudioSource(ABC):
             finally:
                 handler, self._actor_handler, self._actor_current = self._actor_handler, None, None
             if handler.cancelled():
+                if isinstance(message, Feed):
+                    # Cut before its first step, it never lowered the flag:
+                    # its events still wait in _feed_pending, and the next
+                    # announcement must post a Feed again.
+                    self._feed_posted = False
                 result = self._interrupted_result(message, "preempted")
             elif handler.exception() is not None:
                 exc = handler.exception()
