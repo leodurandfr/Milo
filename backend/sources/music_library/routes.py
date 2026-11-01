@@ -623,27 +623,37 @@ async def get_cover(
     """Proxy Navidrome getCoverArt bytes so the frontend stays on /api/*.
 
     Cached hard (1 year) — Navidrome cover ids are stable per album, and the
-    frontend cache-busts by requesting a new id when art changes.
+    frontend cache-busts by requesting a new id when art changes. Except for an
+    image served while Navidrome could not say whether it is real art
+    (``CoverArt.cacheable``): that one is ``no-store``, because once Navidrome
+    answers again the same URL may turn out to be a stand-in — a 404, or Milō's
+    own artist photo.
     """
     async with _catalog_errors("Error getting cover art", source):
         client = await _require_client(source)
-        result = await client.get_cover_art(cover_id, size=size)
-        if result is None:
+        cover = await client.get_cover_art(cover_id, size=size)
+        if cover is not None:
+            data, content_type, cacheable = cover
+        else:
             # An artist Navidrome has no local art for: Milō resolves the photo
             # itself, because Navidrome's online tier is off (it picked the wrong
             # person — see artist_images.py). Answers None for any other id.
-            result = await source.artist_images.get_cover(cover_id)
-        if result is None:
-            # Expected, not an error: the album has no art (never had any, or its
-            # folder image was removed) — the frontend shows its own placeholder.
-            # Kept below ERROR so it never reaches the WebSocketLogHandler banner.
-            logger.debug("Cover art not available: %s", cover_id)
-            raise HTTPException(status_code=404, detail="Cover art not available")
-        data, content_type = result
+            photo = await source.artist_images.get_cover(cover_id)
+            if photo is None:
+                # Expected, not an error: the album has no art (never had any, or
+                # its folder image was removed) — the frontend shows its own
+                # placeholder. Kept below ERROR so it never reaches the
+                # WebSocketLogHandler banner.
+                logger.debug("Cover art not available: %s", cover_id)
+                raise HTTPException(status_code=404, detail="Cover art not available")
+            data, content_type = photo
+            cacheable = True
         return Response(
             content=data,
             media_type=content_type,
-            headers={"Cache-Control": "public, max-age=31536000"},
+            headers={
+                "Cache-Control": "public, max-age=31536000" if cacheable else "no-store"
+            },
         )
 
 

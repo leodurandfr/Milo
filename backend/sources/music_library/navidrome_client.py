@@ -30,7 +30,7 @@ import secrets
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
@@ -108,6 +108,16 @@ class ScanStatus:
 # that is down, and every catalog route answers 503 either way, so the caller
 # reads it from here rather than restating it.
 CATALOG_UNREACHABLE = ScanStatus(available=False)
+
+
+class CoverArt(NamedTuple):
+    """A cover the proxy serves. ``cacheable`` is False when the placeholder
+    probe could not settle whether the image is real art, so a client must not
+    keep it."""
+
+    data: bytes
+    content_type: str
+    cacheable: bool
 
 
 def _encode_query(query: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -191,7 +201,9 @@ class NavidromeClient:
         self._session: Optional[aiohttp.ClientSession] = None
         # cover id → does it carry real artwork? Remembered so the two probe
         # fetches in _is_placeholder are paid once per item rather than once per
-        # request. Dropped by invalidate_cover_memo() on a rescan, which is the
+        # request — and only when the probe settled it: a probe that got nothing
+        # has not seen the cover, so it is asked again on the next request.
+        # Dropped by invalidate_cover_memo() on a rescan, which is the
         # only event that can change either answer: every tier Navidrome serves
         # art from is now a local file — CoverArtPriority has never listed
         # `external`, and ArtistArtPriority stopped listing it once Milō took the
@@ -639,7 +651,7 @@ class NavidromeClient:
         """
         self._cover_verdict.clear()
 
-    async def _is_placeholder(self, cover_id: str) -> bool:
+    async def _is_placeholder(self, cover_id: str) -> Optional[bool]:
         """True when Navidrome is standing in for artwork it does not have.
 
         The whole test is that **Navidrome resizes real artwork and passes its
@@ -657,15 +669,16 @@ class NavidromeClient:
         262-cover library, artists and albums together: 11 placeholders, 251 real
         covers, no disagreement either way.
 
-        Fail-open: a probe that cannot be fetched answers False, so a transient
-        Navidrome error hides nothing.
+        None when a probe cannot be fetched: nothing was seen, so nothing is
+        decided — the caller serves what it gets (a transient Navidrome error
+        hides nothing) without remembering it.
         """
         first = await self._fetch_cover_bytes(cover_id, PLACEHOLDER_PROBE_SIZES[0])
         if first is None:
-            return False
+            return None
         second = await self._fetch_cover_bytes(cover_id, PLACEHOLDER_PROBE_SIZES[1])
         if second is None:
-            return False
+            return None
         return first[0] == second[0]
 
     async def _fetch_cover_bytes(
@@ -674,8 +687,9 @@ class NavidromeClient:
         """Raw getCoverArt fetch → ``(bytes, content_type)`` or None on a miss.
 
         A miss is a non-200, a non-image body (Subsonic's XML/JSON error for an
-        unknown/stale id), or a connectivity failure — all reported as None so the
-        caller 404s. Placeholder detection happens in :meth:`get_cover_art`.
+        unknown/stale id), or a connectivity failure — all reported as None: the
+        cover the caller asked for 404s, and a placeholder probe that gets None
+        settles nothing (see :meth:`_is_placeholder`).
         """
         await self._ensure_session()
         query = {**self._auth_params(), "id": cover_id, "size": size}
@@ -712,33 +726,41 @@ class NavidromeClient:
 
     async def get_cover_art(
         self, cover_id: str, size: Optional[int] = None
-    ) -> Optional[Tuple[bytes, str]]:
+    ) -> Optional[CoverArt]:
         """Fetch cover-art bytes + content-type for the /api/music-library/cover
         proxy (the frontend never reaches Navidrome directly).
 
-        Returns ``(data, content_type)`` on success, None on miss. A miss is
+        Returns a :class:`CoverArt` on success, None on miss. A miss is
         either a Subsonic error body (unknown id) or one of Navidrome's stand-in
         images — both reported as None so the route 404s and the frontend shows
         Milō's own placeholder instead of a foreign asset. Which is not cosmetic:
         Navidrome answers 200 with a picture for an artist it could not resolve,
         so without this every such artist would look like it had a photo.
 
-        Both verdicts are remembered (``_cover_verdict``), which is what keeps the
-        two probe fetches to once per item instead of once per request — and the
-        stand-in verdict is the one that matters most now, because it is the
-        answer for nearly every artist: Navidrome no longer looks for artist art
-        anywhere but on disk, so an artist with no ``artist.*`` file beside the
-        music is a stand-in on every request until a rescan.
+        Both settled verdicts are remembered (``_cover_verdict``), which is what
+        keeps the two probe fetches to once per item instead of once per request
+        — and the stand-in verdict is the one that matters most now, because it
+        is the answer for nearly every artist: Navidrome no longer looks for
+        artist art anywhere but on disk, so an artist with no ``artist.*`` file
+        beside the music is a stand-in on every request until a rescan. A probe
+        that settled nothing is neither remembered nor trusted: the image is
+        served with ``cacheable=False``, so no client keeps what may turn out to
+        be a stand-in, and the next request probes again.
         """
-        verdict = self._cover_verdict.get(cover_id)
-        if verdict is None:
-            verdict = not await self._is_placeholder(cover_id)
-            self._cover_verdict[cover_id] = verdict
-        if not verdict:
+        real = self._cover_verdict.get(cover_id)
+        if real is None:
+            placeholder = await self._is_placeholder(cover_id)
+            if placeholder is None:
+                fetched = await self._fetch_cover_bytes(cover_id, size)
+                return None if fetched is None else CoverArt(*fetched, cacheable=False)
+            real = not placeholder
+            self._cover_verdict[cover_id] = real
+        if not real:
             self.logger.debug(
                 "Cover %s is one of Navidrome's stand-ins — reporting as missing",
                 cover_id,
             )
             return None
 
-        return await self._fetch_cover_bytes(cover_id, size)
+        fetched = await self._fetch_cover_bytes(cover_id, size)
+        return None if fetched is None else CoverArt(*fetched, cacheable=True)

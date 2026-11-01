@@ -32,6 +32,7 @@ import pytest
 
 from backend.sources.music_library import navidrome_client as module
 from backend.sources.music_library.navidrome_client import (
+    CoverArt,
     NavidromeAuthError,
     NavidromeClient,
     ScanRequest,
@@ -479,7 +480,7 @@ class TestCoverArtResilience:
 
         result = await client.get_cover_art("al-1", size=300)
 
-        assert result == (b"the-cover", "image/jpeg")
+        assert result == CoverArt(b"the-cover", "image/jpeg", cacheable=True)
         assert session.calls[2][1]["params"]["size"] == 300
 
     async def test_a_confirmed_cover_is_not_probed_again(self, client):
@@ -490,7 +491,9 @@ class TestCoverArtResilience:
         await client.get_cover_art("al-1", size=300)
 
         session = attach(client, image(b"cover"))
-        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
+        assert await client.get_cover_art("al-1", size=300) == (
+            CoverArt(b"cover", "image/jpeg", cacheable=True)
+        )
         assert len(session.calls) == 1
 
     async def test_a_stand_in_is_not_probed_again_either(self, client):
@@ -515,26 +518,50 @@ class TestCoverArtResilience:
         client.invalidate_cover_memo()
 
         attach(client, image(b"a"), image(b"b"), image(b"real"))
-        assert await client.get_cover_art("ar-1", size=160) == (b"real", "image/jpeg")
+        assert await client.get_cover_art("ar-1", size=160) == (
+            CoverArt(b"real", "image/jpeg", cacheable=True)
+        )
 
     async def test_a_probe_that_fails_hides_nothing(self, client):
         """Fail open. A Navidrome hiccup during the probe must not turn a real
         cover into a 404 — the appliance shows the art it has."""
         attach(client, aiohttp.ClientOSError(111, "refused"), image(b"cover"))
 
-        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
+        result = await client.get_cover_art("al-1", size=300)
+
+        assert result == CoverArt(b"cover", "image/jpeg", cacheable=False)
+
+    async def test_a_probe_that_fails_is_not_remembered(self, client):
+        """Fail open, but only for this request. A probe that got nothing has
+        not seen the cover, so its answer is not a verdict: remembered as one, an
+        artist with no `artist.*` file probed during a Navidrome restart was
+        served Navidrome's stand-in at every other size once it came back, with
+        a one-year client cache — instead of Milō's own photo or placeholder."""
+        attach(client, aiohttp.ClientOSError(111, "refused"),
+               aiohttp.ClientOSError(111, "refused"))
+        assert await client.get_cover_art("ar-1", size=160) is None
+
+        session = attach(client, image(b"stand-in"), image(b"stand-in"))
+
+        assert await client.get_cover_art("ar-1", size=600) is None
+        # Probed again, and the stand-in it found is never fetched at 600.
+        assert len(session.calls) == 2
 
     async def test_a_rescan_forgets_which_covers_were_confirmed_real(self, client):
         """A rescan is the one event that can take an album's art away; keeping
         the memo would serve the placeholder as real art until a restart."""
         attach(client, image(b"a"), image(b"b"), image(b"cover"))
-        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
+        assert await client.get_cover_art("al-1", size=300) == (
+            CoverArt(b"cover", "image/jpeg", cacheable=True)
+        )
 
         client.invalidate_cover_memo()
 
         # Probed from scratch: the two probes are paid again before the fetch.
         session = attach(client, image(b"a"), image(b"b"), image(b"cover"))
-        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
+        assert await client.get_cover_art("al-1", size=300) == (
+            CoverArt(b"cover", "image/jpeg", cacheable=True)
+        )
         assert len(session.calls) == 3
 
 

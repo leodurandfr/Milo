@@ -14,12 +14,17 @@ already unwrapped by _make_request, so the fixtures start at the inner objects).
 """
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.sources.music_library.artist_images import parse_artist_cover_id
-from backend.sources.music_library.navidrome_client import NavidromeClient
+from backend.sources.music_library.navidrome_client import (
+    PLACEHOLDER_PROBE_SIZES,
+    CoverArt,
+    NavidromeClient,
+)
 from backend.sources.music_library.routes import (
     router,
     setup_music_library_routes,
@@ -404,7 +409,7 @@ class TestNavidromeCoverArt:
     async def test_cover_art_returns_bytes_and_type(self, client):
         self._stub_session(client, content_type="image/png", body=b"PNGDATA")
         result = await client.get_cover_art("al-1", size=300)
-        assert result == (b"PNGDATA@300", "image/png")
+        assert result == CoverArt(b"PNGDATA@300", "image/png", cacheable=True)
 
     async def test_cover_art_json_error_body_is_none(self, client):
         # Subsonic replies with a JSON error body (not an image) on a bad id.
@@ -441,7 +446,7 @@ def nav_client():
     c.update_playlist = AsyncMock(return_value=True)
     c.set_playlist_tracks = AsyncMock(return_value=True)
     c.delete_playlist = AsyncMock(return_value=True)
-    c.get_cover_art = AsyncMock(return_value=(b"IMG", "image/jpeg"))
+    c.get_cover_art = AsyncMock(return_value=CoverArt(b"IMG", "image/jpeg", cacheable=True))
     c.star = AsyncMock(return_value=True)
     c.unstar = AsyncMock(return_value=True)
     c.get_scan_status = AsyncMock(return_value={"scanning": False, "count": 100})
@@ -919,6 +924,43 @@ class TestCoverRoute:
         assert r.content == b"IMG"
         assert r.headers["content-type"] == "image/jpeg"
         assert "max-age=31536000" in r.headers["cache-control"]
+
+    def test_a_cover_served_on_an_unsettled_probe_is_not_cached(self, api, source):
+        """The other half of that header. A probe Navidrome did not answer
+        cannot tell art from a stand-in, so the image is served (fail open) but
+        must not stay a year in the browser, the kiosk and Milo-Mac: once
+        Navidrome is back, the same URL may well be Milō's 404."""
+
+        class _Resp:
+            status = 200
+            headers = {"Content-Type": "image/jpeg"}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def read(self):
+                return b"IMG"
+
+        class _Session:
+            closed = False
+
+            def get(self, url, **kwargs):
+                if kwargs["params"].get("size") == PLACEHOLDER_PROBE_SIZES[0]:
+                    raise aiohttp.ClientOSError(111, "Connection refused")
+                return _Resp()
+
+        real = NavidromeClient("milo-svc", "secret")
+        real._session = _Session()
+        source.get_navidrome_client = AsyncMock(return_value=real)
+
+        r = api.get("/api/music-library/cover/al-1")
+
+        assert r.status_code == 200
+        assert r.content == b"IMG"
+        assert r.headers["cache-control"] == "no-store"
 
     def test_cover_404_when_unavailable(self, api, nav_client):
         nav_client.get_cover_art = AsyncMock(return_value=None)

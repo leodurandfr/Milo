@@ -647,7 +647,8 @@ standing in for the podcast catalogue and a mount layer underneath.**
   no client would ever see it. Progress is the storage space's own track count,
   never Navidrome's global one (frozen for the duration of a scan).
 - **Cover art** is proxied localhost-only behind `/api/music-library/cover/{id}`
-  (1-year cache); the frontend never reaches Navidrome directly. Navidrome's online
+  (1-year cache, `no-store` when Navidrome did not answer the placeholder probe);
+  the frontend never reaches Navidrome directly. Navidrome's online
   metadata/art agents are always enabled (`EnableExternalServices = true` in the
   baked `navidrome.toml` — no user toggle; offline calls fail back silently).
 - **Milo-Mac contract:** Milo-Mac browses the library itself, so its manifest pins
