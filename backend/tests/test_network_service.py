@@ -129,18 +129,21 @@ class FakeNetworkManager:
 
     Only what the recovery path touches is modelled: eth0's lease, the radio,
     the wireless profiles (name → `802-11-wireless.mode`) and which of them is
-    up or still activating. `hold(*prefix)` keeps every
+    up or still activating. `unreachable` names the station profiles whose
+    network is out of range, with how many more activations of each fail before
+    it comes back. `hold(*prefix)` keeps every
     command starting with `prefix` in flight until `release()`, and NM applies
     it then **whether or not its nmcli is still waited on** — a caller that is
     cancelled or times out does not undo an activation NM already accepted.
     """
 
-    def __init__(self, *, ethernet=False, radio=True, profiles=None, active=(), activating=()):
+    def __init__(self, *, ethernet=False, radio=True, profiles=None, active=(), activating=(), unreachable=None):
         self.ethernet = ethernet
         self.radio = radio
         self.profiles: dict[str, str] = dict(profiles or {})
         self.active = set(active)
         self.activating = set(activating)
+        self.unreachable: dict[str, int] = dict(unreachable or {})
         self.in_flight: list[asyncio.Task] = []
         self._held: tuple[str, ...] = ()
         self._released = asyncio.Event()
@@ -205,6 +208,9 @@ class FakeNetworkManager:
                 del self.profiles[name]
                 self.active.discard(name)
                 self.activating.discard(name)
+            elif self.unreachable.get(name):
+                self.unreachable[name] -= 1
+                return (4, "", "Error: Connection activation failed: The Wi-Fi network could not be found")
             else:
                 self.active.add(name)
             return (0, "", "")
@@ -737,6 +743,35 @@ async def test_a_saved_network_gets_its_autoconnect_before_the_access_point(serv
 
 
 @pytest.mark.asyncio
+async def test_a_saved_network_gets_its_autoconnect_even_when_the_radio_was_already_on(service):
+    """A WiFi-only unit whose box reboots: the radio was on all along, so there
+    was nothing to turn back on — and the wait was granted only to a radio the
+    recovery had just switched on. The AP took the radio 45 s in, from a box
+    that was about to come back."""
+    polls = {"n": 0}
+
+    def router(args):
+        if "status" in args and "DEVICE,STATE" in args:
+            return (0, "wlan0:disconnected", "")
+        if "status" in args and "TYPE,STATE,CONNECTION" in args:
+            polls["n"] += 1
+            return (0, "wifi:connected:milo-Maison" if polls["n"] > 3 else "", "")
+        if "NAME,TYPE" in args:
+            return (0, "milo-Maison:802-11-wireless", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service._recovery_arm is None)
+
+    assert not fake.argv_containing("on"), "the radio was already on"
+    assert polls["n"] > 3, "the autoconnect window was never polled"
+    assert service.hotspot_active is False
+    assert not fake.argv_containing("add")
+
+
+@pytest.mark.asyncio
 async def test_the_radio_setting_is_given_back_once_it_costs_nothing(service):
     """The override is temporary by construction. With ethernet back the radio
     goes off again — and the journal says so, rather than the user's setting
@@ -1120,6 +1155,142 @@ async def test_the_override_is_on_disk_before_the_radio_is_on(service, radio_ove
         await settle_until(lambda: service._recovery_arm is None)
 
     assert on_disk
+
+
+# --------------------------------------------------------------------------- #
+# Back to the home network — what a WiFi-only unit depends on once the AP is up
+# --------------------------------------------------------------------------- #
+
+STATION = "milo-Maison"
+STATION_UP = ("connection", "up", STATION)
+
+
+@pytest.mark.asyncio
+async def test_a_wifi_only_unit_returns_to_its_home_network_after_the_access_point(service):
+    """The box rebooted for longer than the settle window and the AP took the
+    unit's one radio. NM never autoconnects a profile onto a device that already
+    carries one, and only a link coming back took the AP down — which, with the
+    AP on the only radio, could not happen: the unit sat on its own hotspot,
+    off milo.local, Spotify Connect, AirPlay and its satellites, until a reboot.
+
+    Here the box is still away at the first try and back at the second."""
+    nm = FakeNetworkManager(profiles={STATION: "infrastructure"}, unreachable={STATION: 1})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0):
+        await service.evaluate_reachability()
+        await settle_until(lambda: STATION in nm.active)
+        joined = len(fake.calls)
+        await asyncio.sleep(0.05)
+        after_joining = fake.calls[joined:]
+        await service.cleanup()
+
+    tries = [i for i, call in enumerate(fake.calls) if call == STATION_UP]
+    assert len(tries) == 2
+    assert fake.calls[tries[0] - 1] == ("connection", "delete", HOTSPOT_NAME), \
+        "the station was asked for while the AP still held the radio"
+    assert ("connection", "up", HOTSPOT_NAME) in fake.calls[tries[0]:tries[1]], \
+        "a failed try left the unit with neither its network nor its AP"
+    assert after_joining == [], "the retry outlived the network it joined"
+    assert HOTSPOT_NAME not in nm.profiles
+    assert service.hotspot_active is False
+
+
+@pytest.mark.parametrize("client", ["socket-held-open", "page-polling"])
+@pytest.mark.asyncio
+async def test_the_station_retry_spares_an_access_point_serving_a_client(service, client):
+    """Each try takes the AP down for as long as `connection up` runs. Under
+    someone repairing the unit over it — typing the box's new password — that
+    is the page dropping mid-sentence, every few minutes. A page can sit on its
+    socket for minutes without one HTTP request, so an open socket counts as
+    much as a request served since the last try."""
+    nm = FakeNetworkManager(profiles={STATION: "infrastructure"})
+
+    async def a_page_polling_over_the_ap():
+        while True:
+            with service.serving_recovery_client():
+                await asyncio.sleep(0)
+            await asyncio.sleep(0.001)
+
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0.01), \
+         patch("backend.core.network.service.STATION_RETRY_MAX_HOLDS", 1000):
+        with contextlib.ExitStack() as on_the_ap:
+            if client == "socket-held-open":
+                on_the_ap.enter_context(service.serving_recovery_client())
+            else:
+                poller = asyncio.ensure_future(a_page_polling_over_the_ap())
+                on_the_ap.callback(poller.cancel)
+            await service.evaluate_reachability()
+            await settle_until(lambda: HOTSPOT_NAME in nm.active)
+            raised = len(fake.calls)
+            await asyncio.sleep(0.1)  # ten retry periods
+            while_served = fake.calls[raised:]
+
+        # The client left: the next try goes ahead, so the loop was alive.
+        await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    assert while_served == [], "the AP was taken from under its client"
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_never_leaves_holds_the_retry_off_a_bounded_number_of_times(service, caplog):
+    """A phone that once joined the open `Milō` rejoins it on its own while the
+    box is away, and a widget or a forgotten tab keeps polling over it. Holding
+    every try off for it would keep the unit off its home network for good —
+    the very failure the retry exists for."""
+    nm = FakeNetworkManager(profiles={STATION: "infrastructure"})
+    fake, patcher = with_nmcli(nm.route)
+    caplog.set_level(logging.INFO, logger="backend.core.network.service")
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0), \
+         patch("backend.core.network.service.STATION_RETRY_MAX_HOLDS", 2), \
+         service.serving_recovery_client():
+        await service.evaluate_reachability()
+        await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    holds = [r for r in caplog.records if "a client is using the access point" in r.getMessage()]
+    assert len(holds) == 2
+
+
+@pytest.mark.asyncio
+async def test_every_saved_network_gets_its_turn(service):
+    """The WiFi panel's connect replaces the profiles of the SSID it joins, not
+    the others: a unit moved to a new box keeps the old one's profile, and nmcli
+    lists profiles by name. Always asking for the first would ask for a box long
+    gone, every time."""
+    nm = FakeNetworkManager(
+        profiles={"milo-Ancienne": "infrastructure", STATION: "infrastructure"},
+        unreachable={"milo-Ancienne": 1000},
+    )
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0):
+        await service.evaluate_reachability()
+        await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    tries = [call[2] for call in fake.calls if call[:2] == ("connection", "up") and call[2] != HOTSPOT_NAME]
+    assert tries == ["milo-Ancienne", STATION]
+
+
+@pytest.mark.asyncio
+async def test_an_access_point_adopted_after_a_restart_still_retries_the_home_network(service):
+    """The adoption gives the new process the AP's teardown; without the retry
+    loop too, a backend restart while the box was away would leave the AP the
+    previous process raised on the radio for good."""
+    nm = FakeNetworkManager(
+        profiles={HOTSPOT_NAME: "ap", STATION: "infrastructure"}, active={HOTSPOT_NAME},
+    )
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.STATION_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    assert HOTSPOT_NAME not in nm.profiles
+    assert service.hotspot_active is False
 
 
 # --------------------------------------------------------------------------- #

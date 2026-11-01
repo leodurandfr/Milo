@@ -31,7 +31,8 @@ keeps working — just without live updates.
 import asyncio
 import contextlib
 import logging
-from typing import List, Optional, Tuple
+import time
+from typing import Iterator, List, Optional, Tuple
 
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
@@ -58,6 +59,18 @@ HOTSPOT_NAME = "Milō"
 # than this and the AP steals the radio from an association that was about to
 # succeed.
 RECOVERY_AP_DELAY_S = 45.0
+
+# While the access point holds the radio, how often the home network is tried
+# again. NetworkManager never autoconnects a profile onto a device that already
+# carries one, so on a WiFi-only unit nothing else gives the radio back to the
+# box once it returns. Each try takes the AP down for as long as `connection up`
+# runs, so a try is held off while someone is using the AP.
+STATION_RETRY_S = 300.0
+
+# How many tries in a row a client of the AP can hold off. Someone repairing the
+# unit over it is done well within that; a device that merely rejoined the open
+# AP and keeps polling it would otherwise keep the unit off its home network.
+STATION_RETRY_MAX_HOLDS = 2
 
 # The bound on each nmcli call that creates and activates the access point.
 HOTSPOT_NMCLI_TIMEOUT_S = 20.0
@@ -117,6 +130,15 @@ class NetworkService:
         # fire-and-forget one: it has to be cancellable the instant a link
         # appears, or an AP is raised seconds after the unit became reachable.
         self._recovery_arm: Optional[asyncio.Task] = None
+        # The loop that tries the home network again while the AP is up, tracked
+        # for the same reason: anything that takes the AP down ends it.
+        self._station_retry: Optional[asyncio.Task] = None
+        # How many tries have been made, so each saved network gets its turn.
+        self._station_tries: int = 0
+        # Requests and sockets from the AP's clients open right now, and when
+        # the last one ended — a try is skipped under either.
+        self._recovery_clients: int = 0
+        self._recovery_client_left: Optional[float] = None
         # True while the WiFi radio is on only because the recovery path turned
         # it on. Restored to the user's setting the moment it stops costing
         # reachability — see _restore_radio_preference. Kept on disk as well
@@ -175,6 +197,18 @@ class NetworkService:
     def hotspot_active(self) -> bool:
         """Whether the recovery access point is up, or being raised."""
         return self._hotspot_active
+
+    @contextlib.contextmanager
+    def serving_recovery_client(self) -> Iterator[None]:
+        """Held around a request or a socket from a client of the access point
+        (`api/middleware.py::RecoveryClientTracker`). The home-network retry is
+        held off while one is open, or after one was served since its last try."""
+        self._recovery_clients += 1
+        try:
+            yield
+        finally:
+            self._recovery_clients -= 1
+            self._recovery_client_left = time.monotonic()
 
     # =========================================================================
     # Public API
@@ -621,9 +655,10 @@ class NetworkService:
             # the attempt with "No suitable device found" naming the *ethernet*
             # device — measured on the appliance 2026-09-04, with the cable out
             # and the WiFi toggle off. So the radio comes back on first: it is a
-            # preference the appliance cannot afford while it is unreachable,
-            # and turning it on may be enough on its own if a network is saved.
-            if await self._ensure_radio_on() and await self._has_station_profile():
+            # preference the appliance cannot afford while it is unreachable.
+            # A saved network then gets its chance whether or not the radio had
+            # to come back: a WiFi-only unit whose box reboots had it on all along.
+            if await self._ensure_radio_on() and await self._station_profiles():
                 await self._wait_for_autoconnect()
 
             # Re-checked rather than trusted: the whole point of the wait is
@@ -642,7 +677,8 @@ class NetworkService:
 
     async def _ensure_radio_on(self) -> bool:
         """Turn the WiFi radio back on if it is off, and wait for wlan0.
-        True when this call turned it on and wlan0 came back usable.
+        True when wlan0 is usable on return — the radio was on, or this call
+        turned it on and the device came back.
 
         The wait is not politeness: `nmcli radio wifi on` returns before NM has
         re-enumerated the device, and an access point activated in that window
@@ -651,7 +687,7 @@ class NetworkService:
         """
         try:
             if await self.get_wifi_enabled():
-                return False
+                return await self._wifi_device_available()
         except Exception as e:
             self.logger.warning("Could not read the WiFi radio state: %s", e)
             return False
@@ -676,17 +712,20 @@ class NetworkService:
         self.logger.warning("wlan0 did not come back within the settle window")
         return False
 
-    async def _has_station_profile(self) -> bool:
-        """Whether any WiFi client profile exists for NM to autoconnect —
-        netplan's included, the recovery AP's own excluded."""
+    async def _station_profiles(self) -> List[str]:
+        """The WiFi client profiles that stand for a home network — `milo-` ones
+        first, as the wizard and the WiFi panel write them, then any other,
+        netplan's included; never one named like the AP, which is the recovery
+        AP's own or a speaker's setup hotspot."""
         rc, stdout, _ = await self._run_nmcli("-t", "-f", "NAME,TYPE", "connection", "show")
         if rc != 0:
-            return False
-        for line in stdout.split("\n"):
-            fields = _parse_nmcli_line(line)
-            if len(fields) >= 2 and "wireless" in fields[1] and fields[0] != HOTSPOT_NAME:
-                return True
-        return False
+            return []
+        names = [
+            fields[0]
+            for fields in map(_parse_nmcli_line, stdout.split("\n"))
+            if len(fields) >= 2 and "wireless" in fields[1] and fields[0] != HOTSPOT_NAME
+        ]
+        return sorted(names, key=lambda name: not name.startswith("milo-"))
 
     async def _wait_for_autoconnect(self) -> None:
         """Give NM's autoconnect of a saved network its chance on the radio
@@ -766,14 +805,94 @@ class NetworkService:
             "No network connection — access point '%s' raised so the unit stays reachable",
             HOTSPOT_NAME,
         )
+        self._arm_station_retry()
 
     async def _stop_hotspot(self, reason: str) -> None:
-        """Take the AP down. The single teardown — `_connect_impl` uses it too,
-        where dropping the AP before switching to station mode is sequencing
-        (one radio), not cleanup."""
+        """Take the AP down. The single teardown — `_connect_impl` and the
+        station retry use it too, where dropping the AP before switching to
+        station mode is sequencing (one radio), not cleanup. It ends the retry
+        loop, unless the loop is the caller."""
         self._hotspot_active = False
+        self._cancel_station_retry()
         await self._delete_hotspot_profile()
         self.logger.info("Access point '%s' removed (%s)", HOTSPOT_NAME, reason)
+
+    def _arm_station_retry(self) -> None:
+        """Start the home-network retry for an AP just raised or adopted. One
+        loop at most: one still running goes on with the AP."""
+        if self._station_retry is None or self._station_retry.done():
+            self._station_retry = asyncio.create_task(self._retry_station_while_hotspot())
+
+    def _cancel_station_retry(self) -> None:
+        """End the retry loop — from anywhere but the loop itself, whose own
+        teardown of the AP is the start of a try, not the end of the loop."""
+        task = self._station_retry
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            self._station_retry = None
+
+    async def _retry_station_while_hotspot(self) -> None:
+        """Give the radio back to the home network every STATION_RETRY_S while
+        the AP holds it.
+
+        Once the AP was up, only a link coming back took it down, and on a
+        WiFi-only unit no link can: the AP holds the one radio, and NM's
+        autoconnect "never replaces or competes with an already active profile"
+        (`man nm-settings-nmcli`). A box that rebooted for longer than the settle
+        window left the unit on its own hotspot until a reboot. A try is held
+        off while a client of the AP is served, STATION_RETRY_MAX_HOLDS times
+        in a row at most.
+        """
+        try:
+            holds = 0
+            while self._hotspot_active:
+                waited_from = time.monotonic()
+                await asyncio.sleep(STATION_RETRY_S)
+                left = self._recovery_client_left
+                in_use = self._recovery_clients > 0 or (left is not None and left >= waited_from)
+                if in_use and holds < STATION_RETRY_MAX_HOLDS:
+                    holds += 1
+                    self.logger.info("Home network not tried: a client is using the access point")
+                    continue
+                holds = 0
+                try:
+                    await self._retry_station()
+                except Exception as e:
+                    self.logger.error("The home network could not be tried again: %s", e)
+        finally:
+            if self._station_retry is asyncio.current_task():
+                self._station_retry = None
+
+    async def _retry_station(self) -> None:
+        """One try: the AP down, one saved network asked for — each in turn, as
+        nmcli lists them by name and the first may be a box long gone — and the
+        AP back at once if it does not join, not after the settle window: the
+        home network just had its chance, and the AP is how the unit is reached."""
+        async with self._connect_lock:
+            if not self._hotspot_active:
+                return
+            profiles = await self._station_profiles()
+            if not profiles:
+                return
+            profile = profiles[self._station_tries % len(profiles)]
+            self._station_tries += 1
+            ssid = _ssid_from_profile(profile)
+
+            await self._stop_hotspot(f"trying the home network '{ssid}' again")
+            try:
+                rc, _, stderr = await self._run_nmcli("connection", "up", profile, timeout=30.0)
+            except asyncio.TimeoutError:
+                rc, stderr = None, "timed out"
+            if rc == 0:
+                self.logger.info("Home network '%s' joined again", ssid)
+                return
+            self.logger.info("Home network '%s' still out of reach (%s)", ssid, stderr or f"rc={rc}")
+
+            # `is not True`: the AP is down because this try took it down, and
+            # an unknown answer must not leave the unit with no way in at all.
+            if await self._has_active_connection() is not True:
+                self._cancel_recovery_arm()
+                await self._start_hotspot()
 
     async def _set_radio_override(self, forced: bool) -> None:
         """Set the radio override, on disk as well: NM keeps the radio on across
@@ -1085,7 +1204,9 @@ class NetworkService:
 
         The adoption comes first: the priming spawns the first evaluation, which
         must already see an AP left up. It is an nmcli read, so it stands outside
-        the bus's `try` and does not fail with it.
+        the bus's `try` and does not fail with it. An adopted AP's home-network
+        retry starts last, after the bus's fate: a bus that fails runs
+        `cleanup()`, which would end it.
 
         Returns True if at least the system bus connection succeeded. Even
         when individual interfaces are missing (e.g. boards without wlan0),
@@ -1117,10 +1238,14 @@ class NetworkService:
             )
             await self.cleanup()
             return False
+        finally:
+            if self._hotspot_active:
+                self._arm_station_retry()
 
     async def cleanup(self) -> None:
         """Detach every listener and disconnect the bus. Idempotent."""
         self._cancel_recovery_arm()
+        self._cancel_station_retry()
         await self._bg.cancel_all()
         self._ap_proxy = None
         self._ap_path = None

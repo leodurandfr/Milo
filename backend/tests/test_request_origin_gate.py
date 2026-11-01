@@ -8,13 +8,19 @@ while one that admits anything named is a `POST /api/programs/milo/update` away 
 rebooting the unit from a page on the open web.
 
 Consumers: the Vue frontend (served by nginx, by the kiosk over loopback, and by the
-Vite dev server), Milo-Mac (no `Origin` at all), and curl on the unit itself.
+Vite dev server), Milo-Mac (no `Origin` at all), and curl on the unit itself. The
+last section is the tracker beside the gate, read by the network service's
+home-network retry while the recovery access point is up.
 """
+import contextlib
+
 import pytest
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
-from backend.api.middleware import ALLOWED_ORIGINS, RequestOriginGate
+from backend.api.middleware import (
+    ALLOWED_ORIGINS, RecoveryClientTracker, RequestOriginGate, client_address,
+)
 
 
 @pytest.fixture
@@ -149,3 +155,111 @@ def test_cors_and_the_gate_read_one_allowlist():
 
     cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
     assert cors.kwargs["allow_origins"] is ALLOWED_ORIGINS
+
+
+# --------------------------------------------------------------------------- #
+# Who is on the recovery access point. Read by the station retry, which must
+# not take the AP from under someone repairing the unit over it.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("peer,real_ip,expected", [
+    pytest.param(("127.0.0.1", 41000), "10.42.0.5", "10.42.0.5", id="nginx-names-the-client"),
+    pytest.param(("127.0.0.1", 41000), None, "127.0.0.1", id="loopback-with-no-proxy"),
+    pytest.param(("192.168.1.20", 41000), "10.42.0.5", "192.168.1.20", id="header-sent-straight-to-8000"),
+    pytest.param(None, None, None, id="no-peer-at-all"),
+])
+def test_the_client_address_believes_nginx_alone(peer, real_ip, expected):
+    """uvicorn listens on 0.0.0.0, so anyone on the LAN can reach :8000 with any
+    header; only nginx, on loopback, is entitled to name the client."""
+    headers = [(b"x-real-ip", real_ip.encode())] if real_ip else []
+    assert client_address({"type": "http", "client": peer, "headers": headers}) == expected
+
+
+class RecordingNetwork:
+    """Stands in for what the tracker reads of NetworkService: the AP flag and the hook."""
+
+    def __init__(self):
+        self.hotspot_active = True
+        self.open = 0
+        self.served = 0
+
+    @contextlib.contextmanager
+    def serving_recovery_client(self):
+        self.open += 1
+        try:
+            yield
+        finally:
+            self.open -= 1
+            self.served += 1
+
+
+@pytest.fixture
+def network():
+    return RecordingNetwork()
+
+
+@pytest.fixture
+def tracked(network):
+    app = FastAPI()
+
+    @app.get("/api/thing")
+    async def read():
+        return {"open": network.open}
+
+    @app.websocket("/ws")
+    async def feed(websocket: WebSocket):
+        await websocket.accept()
+        await websocket.send_text(str(network.open))
+        with contextlib.suppress(WebSocketDisconnect):
+            await websocket.receive_text()
+
+    app.add_middleware(RecoveryClientTracker, network_service=network)
+    return app
+
+
+@pytest.mark.parametrize("peer,real_ip,on_the_ap", [
+    pytest.param("127.0.0.1", "10.42.0.5", True, id="phone-on-the-ap-through-nginx"),
+    pytest.param("127.0.0.1", "192.168.1.20", False, id="lan-client-through-nginx"),
+    pytest.param("127.0.0.1", None, False, id="kiosk-over-loopback"),
+    pytest.param("192.168.1.20", "10.42.0.5", False, id="forged-header-straight-to-8000"),
+])
+def test_a_request_counts_as_the_access_points_while_it_runs_and_only_from_it(
+    tracked, network, peer, real_ip, on_the_ap,
+):
+    """A request the tracker misses lets a retry drop the page using the AP; one
+    it counts from elsewhere holds a WiFi-only unit off its home network."""
+    client = TestClient(tracked, client=(peer, 41000))
+    response = client.get("/api/thing", headers={"X-Real-IP": real_ip} if real_ip else {})
+
+    assert response.json()["open"] == (1 if on_the_ap else 0)
+    assert (network.open, network.served) == (0, 1 if on_the_ap else 0)
+
+
+def test_nothing_counts_while_no_access_point_is_up(tracked, network):
+    """A home LAN that happens to be 10.42.0.0/24 is not a recovery AP."""
+    network.hotspot_active = False
+    client = TestClient(tracked, client=("127.0.0.1", 41000))
+    response = client.get("/api/thing", headers={"X-Real-IP": "10.42.0.5"})
+
+    assert (response.json()["open"], network.served) == (0, 0)
+
+
+def test_a_socket_from_the_access_point_counts_for_as_long_as_it_is_open(tracked, network):
+    """The setup page holds `/ws` open for minutes without a single HTTP request."""
+    client = TestClient(tracked, client=("127.0.0.1", 41000))
+    with client.websocket_connect("/ws", headers={"X-Real-IP": "10.42.0.5"}) as ws:
+        assert ws.receive_text() == "1"
+        assert network.open == 1
+
+    assert network.open == 0
+
+
+def test_the_tracker_is_handed_the_network_service_inside_the_gate():
+    """Installed without the service there is nothing to tell; outside the gate a
+    request it refuses would count as someone using the AP."""
+    from backend import main
+
+    stack = [m.cls for m in main.app.user_middleware]
+    tracker = next(m for m in main.app.user_middleware if m.cls is RecoveryClientTracker)
+    assert tracker.kwargs["network_service"] is main.network_service
+    assert stack.index(RequestOriginGate) < stack.index(RecoveryClientTracker)

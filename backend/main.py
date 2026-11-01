@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.dependencies import get_service, initialize_services, get_init_task
 from backend.api import audio
-from backend.api.middleware import ALLOWED_ORIGINS, RequestOriginGate
+from backend.api.middleware import ALLOWED_ORIGINS, RecoveryClientTracker, RequestOriginGate
 from backend.api.routing import create_routing_router
 from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
@@ -237,6 +237,10 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
     redoc_url="/api/redoc",
 )
+
+# Added first, so it sits inside CORS and the gate: a request the gate refuses
+# is nobody using the recovery access point.
+app.add_middleware(RecoveryClientTracker, network_service=network_service)
 
 # CORS configuration - restricted to authorized origins
 app.add_middleware(

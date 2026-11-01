@@ -35,6 +35,9 @@ does not cover a WebSocket: a page served from the internet that opens
 `ws://milo.local/ws` sends a correct Host and reads every frame. Its browser still
 names it in `Origin`, which it sends on every upgrade. A native client sends none,
 or the unit's own name, and passes either way.
+
+`client_address` and `RecoveryClientTracker`, at the end, answer another question
+about the same request — whether it comes from someone on the recovery access point.
 """
 import ipaddress
 import logging
@@ -146,3 +149,59 @@ class RequestOriginGate:
             return f"untrusted Origin {origin!r}"
 
         return ""
+
+
+# The address nginx proxies from (`upstream milo_backend`, provisioning/network.sh).
+_NGINX_PEER = "127.0.0.1"
+
+# The subnet NetworkManager hands the clients of a `shared` connection — 10.42.0.1/24
+# for the first, and the recovery AP (core/network/service.py) is the only one.
+_RECOVERY_AP_SUBNET = ipaddress.ip_network("10.42.0.0/24")
+
+
+def client_address(scope) -> str | None:
+    """Who sent this request: the client nginx names when nginx is the peer, else the peer.
+
+    nginx puts the real client in `X-Real-IP`. The header is believed from nginx
+    alone: uvicorn listens on 0.0.0.0, so anyone on the LAN can reach :8000 directly
+    and send whatever header they like.
+    """
+    peer = scope.get("client")
+    address = peer[0] if peer else None
+    if address == _NGINX_PEER:
+        return Headers(scope=scope).get("x-real-ip") or address
+    return address
+
+
+def is_recovery_ap_client(scope) -> bool:
+    """Whether this request comes from a client of the unit's recovery access point."""
+    try:
+        return ipaddress.ip_address(client_address(scope)) in _RECOVERY_AP_SUBNET
+    except ValueError:  # no peer, or one that is not an address (a test client)
+        return False
+
+
+class RecoveryClientTracker:
+    """Tells the network service while a request or a socket from its access point is open.
+
+    On a WiFi-only unit the recovery AP is taken down every few minutes to try the
+    home network again (`STATION_RETRY_S`, core/network/service.py), and that must
+    not happen under someone repairing the unit over it. The setup page can sit on
+    `/ws` for minutes without one HTTP request, so a socket counts for as long as it
+    is open. Installed inside the gate, so a request it refuses counts for nothing.
+    """
+
+    def __init__(self, app, network_service):
+        self.app = app
+        self.network_service = network_service
+
+    async def __call__(self, scope, receive, send):
+        if (
+            self.network_service.hotspot_active
+            and scope["type"] in ("http", "websocket")
+            and is_recovery_ap_client(scope)
+        ):
+            with self.network_service.serving_recovery_client():
+                await self.app(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
