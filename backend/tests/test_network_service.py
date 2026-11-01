@@ -35,7 +35,10 @@ import types
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from fastapi import HTTPException
+from starlette.requests import Request
 
+from backend.api.route_helpers import RecoveryAccessPointGate
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
 from backend.core.network.service import HOTSPOT_NAME, NetworkService, _parse_nmcli_line
 
@@ -1291,6 +1294,57 @@ async def test_an_access_point_adopted_after_a_restart_still_retries_the_home_ne
 
     assert HOTSPOT_NAME not in nm.profiles
     assert service.hotspot_active is False
+
+
+# --------------------------------------------------------------------------- #
+# The recovery gate while the AP comes down
+# --------------------------------------------------------------------------- #
+
+async def recovery_gate_answer(service) -> int:
+    """What `api/route_helpers.py::RecoveryAccessPointGate` answers a client of
+    the AP sending `PUT /api/system/ssh` through nginx, on a unit set up."""
+    request = Request({
+        "type": "http", "method": "PUT", "path": "/api/system/ssh",
+        "client": ("127.0.0.1", 41000), "headers": [(b"x-real-ip", b"10.42.0.5")],
+    })
+    settings = Mock(get_setting=AsyncMock(return_value=True))
+    try:
+        await RecoveryAccessPointGate(service, settings)(request)
+    except HTTPException as refused:
+        return refused.status_code
+    return 200
+
+
+@pytest.mark.parametrize("teardown", ["station-retry", "link-back"])
+@pytest.mark.asyncio
+async def test_the_recovery_gate_stays_shut_while_nm_is_still_removing_the_access_point(service, teardown):
+    """The gate reads `hotspot_active`, and a flag dropped before `connection
+    delete` returned opened it while NM still carried the AP and its clients:
+    a 10.42.0.x client got SSH, the sudo password or the setup reset for as long
+    as the delete ran. The station retry opens that window at a time anyone can
+    predict, every STATION_RETRY_S; the cable's return opens it too."""
+    nm = FakeNetworkManager(
+        profiles={HOTSPOT_NAME: "ap", STATION: "infrastructure"}, active={HOTSPOT_NAME},
+        unreachable={STATION: 1},
+    )
+    nm.hold("connection", "delete", HOTSPOT_NAME)
+    retry_s = 0 if teardown == "station-retry" else 300
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.STATION_RETRY_S", retry_s):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        evaluation = None
+        if teardown == "link-back":
+            nm.ethernet = True
+            evaluation = asyncio.ensure_future(service.evaluate_reachability())
+        await settle_until(lambda: nm.in_flight)
+        answer = await recovery_gate_answer(service)
+        nm.release()
+        await asyncio.gather(*nm.in_flight, *([evaluation] if evaluation else []))
+        await service.cleanup()
+
+    assert answer == 403
 
 
 # --------------------------------------------------------------------------- #

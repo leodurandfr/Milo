@@ -195,7 +195,8 @@ class NetworkService:
 
     @property
     def hotspot_active(self) -> bool:
-        """Whether the recovery access point is up, or being raised."""
+        """Whether the recovery access point is up, being raised, or still being
+        removed — NM carries it, and its clients, until the delete returns."""
         return self._hotspot_active
 
     @contextlib.contextmanager
@@ -820,10 +821,15 @@ class NetworkService:
         """Take the AP down. The single teardown — `_connect_impl` and the
         station retry use it too, where dropping the AP before switching to
         station mode is sequencing (one radio), not cleanup. It ends the retry
-        loop, unless the loop is the caller."""
+        loop, unless the loop is the caller.
+
+        The flag drops once the delete has returned, not before: until then NM
+        still carries the AP and its clients, and the recovery gate
+        (`api/route_helpers.py::RecoveryAccessPointGate`) refuses them only
+        while `hotspot_active` holds."""
+        await self._delete_hotspot_profile()
         self._hotspot_active = False
         self._cancel_station_retry()
-        await self._delete_hotspot_profile()
         self.logger.info("Access point '%s' removed (%s)", HOTSPOT_NAME, reason)
 
     def _arm_station_retry(self) -> None:
