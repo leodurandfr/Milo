@@ -257,6 +257,9 @@ class AirPlayWorld(WireReader):
             return airplay_module.read_cover_file(path, str(self.covers))
 
         monkeypatch.setattr(airplay_module, "read_artwork", read_artwork)
+        # The unit's monotonic clock: its wall clock minus the boot's epoch,
+        # until a scenario steps the wall (test_airplay_sessions._unit_clock).
+        monkeypatch.setattr(airplay_module, "unit_monotonic", lambda: self.clock.now)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
 

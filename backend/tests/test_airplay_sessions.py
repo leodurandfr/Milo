@@ -725,11 +725,31 @@ async def test_a_unit_clock_stepped_by_ntp_mid_session_is_followed(world, monkey
     assert abs(world.position_ms() - 50_000) <= 1000
 
 
-async def test_old_stamps_in_a_row_never_outweigh_a_fresh_one(world):
-    """Clocks in step, and two re-sent items in a row stamped 90 s ago: their
-    gaps agree as two fresh stamps do after NTP stepped a unit forward. Only a
-    unit that ran behind can have been stepped forward: taken over a fresh
-    stamp for a 90 s offset, they put the bar 90 s back."""
+async def test_a_unit_clock_stepped_by_ntp_is_read_before_the_next_item(world, monkeypatch):
+    """NTP steps a unit that ran two hours behind, and the next thing the
+    sender sends is not an item (a mode, the volume): the offset read before
+    the step, kept until an item came, put the bar two hours on. The step is
+    the unit's own clock moving against its monotonic one."""
+    skew = _unit_clock(monkeypatch, world, -7200)
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    await world.advance(20)
+    skew[0] = 0.0
+
+    await world.signal(RemoteUpdate("shuffle", False))
+
+    assert world.playing()
+    assert abs(world.position_ms() - 20_000) <= 1000
+
+
+@pytest.mark.parametrize("skew_s", [0.0, -7200.0], ids=["clocks in step", "unit two hours behind"])
+async def test_old_stamps_in_a_row_never_outweigh_a_fresh_one(world, monkeypatch, skew_s):
+    """Two re-sent items in a row stamped 90 s ago: their gaps agree as two
+    fresh stamps do after NTP stepped a unit forward. Taken over a fresh
+    stamp for a 90 s offset, they put the bar 90 s back — under a unit that
+    ran behind too, where a step forward is possible: a step is read on the
+    unit's own clock, never off the sender's stamps."""
+    _unit_clock(monkeypatch, world, skew_s)
     await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
     await world.realtime_plays()
     item = world.now_playing

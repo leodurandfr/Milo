@@ -64,6 +64,7 @@ import asyncio
 import hashlib
 import os
 import stat
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional, Tuple
@@ -166,6 +167,12 @@ VOLUME_ECHO_S = 2.0
 VOLUME_EPSILON = 0.005
 
 
+def unit_monotonic() -> float:
+    """The unit's clock that no NTP step moves (SenderClock). Module-level so
+    a test world can put it on its virtual clock, as `wall_time`."""
+    return time.monotonic()
+
+
 def read_cover_file(path: str, cache_dir: str) -> bytes:
     """The picture file at `path`: a regular file of at most ARTWORK_MAX_BYTES
     whose real path lies in `cache_dir`, taken as written (a cache directory
@@ -238,16 +245,22 @@ class SenderClock:
     its pause report until the resume, a restart reads the item as it was. So
     the least gap is the estimate. Alone it is trusted only below
     -CLOCK_SKEW_MIN_S, where no age can put it; above +CLOCK_SKEW_MIN_S an old
-    stamp could, and a stamp from another moment has to agree with it. A wider
-    gap replaces it only under a unit that ran behind, and only when two
-    moments in a row agree on it: NTP stepped the unit's clock forward, which
-    one old stamp cannot be told from. Until then the old offset holds.
+    stamp could, and a stamp from another moment has to agree with it.
+
+    The gaps are taken on the unit's monotonic clock, and put on its wall
+    clock as that reads when they are used: NTP stepping the unit's clock
+    mid-session (internet back) moves the offset at once, read on the unit
+    itself. The stamps cannot tell it: two items re-sent in a row with the
+    same age agree on a wider gap exactly as two fresh ones after a step do.
     """
     least: Optional[Tuple[float, float]] = None   # (at, gap): the estimate
     last: Optional[Tuple[float, float]] = None    # (at, gap): the last moment
     trusted: bool = False
+    reported: float = 0.0                         # the offset the log last named
 
     def observe(self, at: float, received: float) -> None:
+        """A stamp `at` on the sender's clock, `received` on the unit's
+        monotonic one."""
         sample = (at, received - at)
         last, least = self.last, self.least
         if last is not None and abs(at - last[0]) <= SKEW_AGREE_S:
@@ -258,9 +271,7 @@ class SenderClock:
             self.least = sample
             return
         pair = min(sample, last, key=lambda s: s[1])
-        if abs(sample[1] - last[1]) <= SKEW_AGREE_S and (
-            pair[1] <= least[1] or least[1] < -CLOCK_SKEW_MIN_S
-        ):
+        if abs(sample[1] - last[1]) <= SKEW_AGREE_S and pair[1] <= least[1]:
             self.least, self.trusted = pair, True
         elif abs(sample[1] - least[1]) <= SKEW_AGREE_S and abs(at - least[0]) > SKEW_AGREE_S:
             self.least, self.trusted = min(sample, least, key=lambda s: s[1]), True
@@ -269,10 +280,10 @@ class SenderClock:
 
     @property
     def offset(self) -> float:
-        """What a sender's stamp needs added to read on the unit's clock."""
+        """What a sender's stamp needs added to read on the unit's clock now."""
         if self.least is None:
             return 0.0
-        gap = self.least[1]
+        gap = self.least[1] + audio_source.wall_time() - unit_monotonic()
         if gap < -CLOCK_SKEW_MIN_S or (self.trusted and gap > CLOCK_SKEW_MIN_S):
             return gap
         return 0.0
@@ -666,9 +677,12 @@ class AirPlaySource(BaseAudioSource):
                 self._arm_timer("artwork", ARTWORK_SETTLE_SECONDS, session)
 
     def _read_sender_clock(self, session: AirPlaySession, at: float) -> None:
-        before = session.clock.offset
-        session.clock.observe(at, audio_source.wall_time())
-        offset = session.clock.offset
+        clock = session.clock
+        clock.observe(at, unit_monotonic())
+        offset = clock.offset
+        # Compared with what the log last said, not with the offset before
+        # this stamp: a step of the unit's clock moved it with no stamp.
+        before, clock.reported = clock.reported, offset
         if (before == 0.0) != (offset == 0.0):
             if offset:
                 self._logger.info(
