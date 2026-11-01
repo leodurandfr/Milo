@@ -465,13 +465,15 @@ class TestStreamUrl:
 
 class TestCoverArtResilience:
 
-    async def test_an_unreachable_sidecar_is_a_missing_cover_not_an_error(self, client, caplog):
-        """A cover miss 404s and the frontend draws Milō's own placeholder. A
-        boot-race fetch must not paint the error banner on top of that."""
+    async def test_an_unreachable_sidecar_is_neither_a_miss_nor_an_error(self, client, caplog):
+        """A boot-race fetch must not paint the error banner — and must not read
+        as a miss either: a miss lets the route serve Milō's artist photo with
+        the one-year header, over art Navidrome may serve once it is back."""
         attach(client, aiohttp.ClientOSError(111, "Connection refused"))
 
         with caplog.at_level(logging.INFO, logger="source.music_library.navidrome"):
-            assert await client._fetch_cover_bytes("cov-1", None) is None
+            with pytest.raises(NavidromeUnreachable):
+                await client._fetch_cover_bytes("cov-1", None)
 
         assert {r.levelno for r in caplog.records} == {logging.INFO}
 
@@ -568,7 +570,8 @@ class TestCoverArtResilience:
         a one-year client cache — instead of Milō's own photo or placeholder."""
         attach(client, aiohttp.ClientOSError(111, "refused"),
                aiohttp.ClientOSError(111, "refused"))
-        assert await client.get_cover_art("ar-1", size=160) is None
+        with pytest.raises(NavidromeUnreachable):
+            await client.get_cover_art("ar-1", size=160)
 
         session = attach(client, image(b"stand-in"), image(b"stand-in"))
 

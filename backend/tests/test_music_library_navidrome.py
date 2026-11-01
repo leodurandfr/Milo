@@ -971,6 +971,75 @@ class TestCoverRoute:
         assert r.content == b"IMG"
         assert r.headers["cache-control"] == "no-store"
 
+    @staticmethod
+    def _navidrome(source):
+        """The real client over a Navidrome serving real art (resized: other
+        bytes at every size) while ``up``, and refusing every request once it
+        goes down — restarting with the backend."""
+        class _Image:
+            status = 200
+            headers = {"Content-Type": "image/jpeg"}
+
+            def __init__(self, data):
+                self.data = data
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def read(self):
+                return self.data
+
+        class _Navidrome:
+            closed = False
+            up = True
+
+            def get(self, url, **kwargs):
+                if not self.up:
+                    raise aiohttp.ClientOSError(111, "Connection refused")
+                return _Image(f"ART-{kwargs['params'].get('size')}".encode())
+
+        real = NavidromeClient("milo-svc", "secret")
+        real._session = _Navidrome()
+        source.get_navidrome_client = AsyncMock(return_value=real)
+        return real._session
+
+    @pytest.mark.parametrize("seen_before", [False, True])
+    def test_milos_photo_served_while_navidrome_is_down_is_not_cached(
+        self, api, source, seen_before
+    ):
+        """Navidrome not answering is not Navidrome having no art. An artist
+        with an `artist.*` beside the music was served Milō's Deezer photo with
+        the one-year header, so every client kept the wrong picture at that URL
+        long after Navidrome came back — whether the probe had not run yet, or
+        had already confirmed the art."""
+        navidrome = self._navidrome(source)
+        source.artist_images.get_cover = AsyncMock(return_value=(b"PHOTO", "image/jpeg"))
+        if seen_before:
+            first = api.get("/api/music-library/cover/ar-1?size=160")
+            assert first.content == b"ART-160"
+            assert "max-age=31536000" in first.headers["cache-control"]
+        navidrome.up = False
+
+        r = api.get("/api/music-library/cover/ar-1?size=600")
+
+        assert r.status_code == 200
+        assert r.content == b"PHOTO"
+        assert r.headers["cache-control"] == "no-store"
+
+    def test_a_cover_navidrome_did_not_answer_for_is_not_reported_missing(
+        self, api, source, caplog
+    ):
+        """With no photo to stand in, the answer is "not ready", not "no art"."""
+        self._navidrome(source).up = False
+
+        r = api.get("/api/music-library/cover/al-1")
+
+        assert r.status_code == 503
+        assert [rec.getMessage() for rec in caplog.records if rec.levelno >= logging.ERROR] == []
+
     def test_cover_404_when_unavailable(self, api, nav_client):
         nav_client.get_cover_art = AsyncMock(return_value=None)
         assert api.get("/api/music-library/cover/al-1").status_code == 404

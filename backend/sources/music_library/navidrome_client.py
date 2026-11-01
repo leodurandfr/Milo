@@ -705,10 +705,13 @@ class NavidromeClient:
         decided — the caller serves what it gets (a transient Navidrome error
         hides nothing) without remembering it.
         """
-        first = await self._fetch_cover_bytes(cover_id, PLACEHOLDER_PROBE_SIZES[0])
-        if first is None:
+        try:
+            first = await self._fetch_cover_bytes(cover_id, PLACEHOLDER_PROBE_SIZES[0])
+            if first is None:
+                return None
+            second = await self._fetch_cover_bytes(cover_id, PLACEHOLDER_PROBE_SIZES[1])
+        except NavidromeUnreachable:
             return None
-        second = await self._fetch_cover_bytes(cover_id, PLACEHOLDER_PROBE_SIZES[1])
         if second is None:
             return None
         return first[0] == second[0]
@@ -718,10 +721,11 @@ class NavidromeClient:
     ) -> Optional[Tuple[bytes, str]]:
         """Raw getCoverArt fetch → ``(bytes, content_type)`` or None on a miss.
 
-        A miss is a non-200, a non-image body (Subsonic's XML/JSON error for an
-        unknown/stale id), or a connectivity failure — all reported as None: the
-        cover the caller asked for 404s, and a placeholder probe that gets None
-        settles nothing (see :meth:`_is_placeholder`).
+        A miss is a non-200 or a non-image body (Subsonic's XML/JSON error for an
+        unknown/stale id), reported as None: the cover the caller asked for 404s,
+        and a placeholder probe that gets None settles nothing (see
+        :meth:`_is_placeholder`). Navidrome not answering at all raises
+        NavidromeUnreachable instead, because it says nothing about the art.
         """
         await self._ensure_session()
         query = {**self._auth_params(), "id": cover_id, "size": size}
@@ -751,8 +755,8 @@ class NavidromeClient:
                     f"Navidrome did not answer for cover art {cover_id}: "
                     f"{describe_network_error(exc)}"
                 )
-            else:
-                self.logger.error(f"Navidrome getCoverArt error for {cover_id}: {exc}")
+                raise NavidromeUnreachable("getCoverArt") from exc
+            self.logger.error(f"Navidrome getCoverArt error for {cover_id}: {exc}")
             return None
         return data, content_type
 
@@ -778,6 +782,11 @@ class NavidromeClient:
         that settled nothing is neither remembered nor trusted: the image is
         served with ``cacheable=False``, so no client keeps what may turn out to
         be a stand-in, and the next request probes again.
+
+        Raises NavidromeUnreachable when Navidrome did not answer the fetch
+        itself: that is neither a cover nor a miss, and read as a miss it put
+        Milō's own artist photo in every client for a year over an artist whose
+        ``artist.*`` Navidrome serves once it is back.
         """
         real = self._cover_verdict.get(cover_id)
         if real is None:

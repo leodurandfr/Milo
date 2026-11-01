@@ -634,11 +634,18 @@ async def get_cover(
     image served while Navidrome could not say whether it is real art
     (``CoverArt.cacheable``): that one is ``no-store``, because once Navidrome
     answers again the same URL may turn out to be a stand-in — a 404, or Milō's
-    own artist photo.
+    own artist photo. The same holds the other way round for Milō's photo served
+    while Navidrome did not answer at all: it may hold the artist's own
+    ``artist.*``, so the photo is ``no-store`` too, and with no photo the
+    answer is 503, not "not available".
     """
     async with _catalog_errors("Error getting cover art", source):
         client = await _require_client(source)
-        cover = await client.get_cover_art(cover_id, size=size)
+        unanswered: Optional[NavidromeUnreachable] = None
+        try:
+            cover = await client.get_cover_art(cover_id, size=size)
+        except NavidromeUnreachable as exc:
+            cover, unanswered = None, exc
         if cover is not None:
             data, content_type, cacheable = cover
         else:
@@ -646,6 +653,8 @@ async def get_cover(
             # itself, because Navidrome's online tier is off (it picked the wrong
             # person — see artist_images.py). Answers None for any other id.
             photo = await source.artist_images.get_cover(cover_id)
+            if photo is None and unanswered is not None:
+                raise unanswered
             if photo is None:
                 # Expected, not an error: the album has no art (never had any, or
                 # its folder image was removed) — the frontend shows its own
@@ -654,7 +663,7 @@ async def get_cover(
                 logger.debug("Cover art not available: %s", cover_id)
                 raise HTTPException(status_code=404, detail="Cover art not available")
             data, content_type = photo
-            cacheable = True
+            cacheable = unanswered is None
         return Response(
             content=data,
             media_type=content_type,
