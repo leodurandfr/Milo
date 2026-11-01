@@ -1135,6 +1135,13 @@ internet could read it.
 The gate keeps out pages from the internet, not the LAN: a page served by another local machine
 under its private IP passes both checks.
 
+Each satellite's API (port 8001) has its own gate, `OriginGate` (`milo-client/app/origin_gate.py`),
+rewritten rather than imported because a satellite update ships `milo-client/` alone. It is
+stricter, because no browser ever calls a satellite: its one caller is the server, which dials an
+IP address and sends no `Origin`. So a `POST`/`PUT`/`PATCH`/`DELETE` carrying any `Origin` is
+refused, a LAN page's included, and the `Host` must be `localhost`, `milo-client`, `milo-client-<n>`
+(with or without `.local`) or a private IP address. `X-Forwarded-*` headers are ignored.
+
 ### Exposure
 nginx serves the app and proxies `/api/` and `/ws` on port 80. The backend also listens on port
 8000 on every interface, because satellites register with the server there; the gate applies on

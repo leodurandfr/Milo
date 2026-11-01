@@ -16,6 +16,7 @@ from services import EqualizerService, SnapclientService, AppUpdateService, Cami
 from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router, create_diagnostic_router, create_probe_router, create_system_router
 from routes.health import get_hostname
 from access_log import quiet_volume_steps
+from origin_gate import OriginGate
 from services.registration import register_with_main_milo
 from services.server_address_watch import follow_server_address
 
@@ -98,6 +99,7 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+app.add_middleware(OriginGate)
 
 # Register routers
 app.include_router(create_health_router(equalizer_service, snapclient_service, app_update_service, camilladsp_update_service))
