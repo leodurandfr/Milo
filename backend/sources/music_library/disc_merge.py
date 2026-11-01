@@ -267,7 +267,9 @@ async def expand_merged_album(
     Each member's songs are appended in disc order and stamped with a
     ``discNumber`` (from the title marker, else the member's ordinal) unless they
     already carry one — so the frontend's existing disc-separator rendering works.
-    Falls back to whatever members resolve; returns None if none do.
+    A member Navidrome has no record of is left out, and None returned if none
+    resolve; one it did not answer for raises (NavidromeUnreachable) out of here,
+    so the album is never served a disc short.
     """
     members = []
     for member_id in parse_merged_id(synthetic_id):

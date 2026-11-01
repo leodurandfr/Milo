@@ -24,6 +24,7 @@ What breaks when these fail:
   FLAC bit-perfect into CamillaDSP;
 * **the cred file** is the single gate on both clients existing at all.
 """
+import asyncio
 import hashlib
 import logging
 
@@ -35,6 +36,7 @@ from backend.sources.music_library.navidrome_client import (
     CoverArt,
     NavidromeAuthError,
     NavidromeClient,
+    NavidromeUnreachable,
     ScanRequest,
     load_navidrome_credentials,
 )
@@ -343,11 +345,38 @@ class TestWhatTheSentinelDecides:
 
         assert (await client.get_scan_status()).available is True
 
-    async def test_favourites_are_empty_rather_than_broken_when_unreachable(self, client):
-        """The favourites view is a read; an unreachable sidecar shows nothing,
-        it does not raise into the route."""
-        attach(client, aiohttp.ClientOSError(111, "Connection refused"))
+    @pytest.mark.parametrize("failure", [
+        aiohttp.ClientOSError(111, "Connection refused"),
+        asyncio.TimeoutError(),
+    ], ids=["refused", "timeout"])
+    @pytest.mark.parametrize("read", [
+        lambda client: client.get_album("al-1"),
+        lambda client: client.get_artist("ar-1"),
+        lambda client: client.get_playlist("pl-1"),
+        lambda client: client.get_starred([2]),
+    ], ids=["album", "artist", "playlist", "starred"])
+    async def test_a_read_of_an_unreachable_catalog_raises_instead_of_reading_as_absent(
+        self, client, failure, read
+    ):
+        """Navidrome restarts with every backend restart and migrates its
+        database before it listens. Read as None, that window was an album
+        "not found" — a 404 logged at ERROR, so a red banner — and read as empty
+        lists it was a Liked Songs view with every heart off. The route can only
+        answer 503 if the read says the catalog did not answer."""
+        attach(client, failure)
 
+        with pytest.raises(NavidromeUnreachable):
+            await read(client)
+
+    async def test_a_catalog_that_answers_badly_still_reads_as_absent(self, client):
+        """The other half: an HTTP or API error came from a server that is up,
+        and stays the miss the routes already turn into a 404 or an empty
+        list."""
+        attach(client, *(_Response(500, body="boom") for _ in range(4)))
+
+        assert await client.get_album("al-1") is None
+        assert await client.get_artist("ar-1") is None
+        assert await client.get_playlist("pl-1") is None
         assert await client.get_starred([2]) == {"song": [], "album": [], "artist": []}
 
     async def test_an_empty_scope_never_reaches_the_network(self, client):

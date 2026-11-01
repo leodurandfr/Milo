@@ -73,6 +73,7 @@ from backend.sources.music_library.navidrome_client import (
     ALBUM_LIST_TYPES,
     NavidromeAuthError,
     NavidromeClient,
+    NavidromeUnreachable,
     ScanRequest,
 )
 from backend.sources.music_library.source import MusicLibrarySource
@@ -189,7 +190,10 @@ async def _catalog_errors(context: str, source: MusicLibrarySource):
 
     HTTPException passes through (404/503). NavidromeAuthError drops the cached
     client so the next request rebuilds it from a possibly-rotated cred file, and
-    reports 503 (transient) rather than 500. Anything else is logged and 500.
+    reports 503 (transient) rather than 500. NavidromeUnreachable — Navidrome
+    restarting, or past its deadline — is a 503 too, logged at warning with the
+    client kept: it heals itself and is no credential fault. Anything else is
+    logged and 500.
     """
     try:
         yield
@@ -199,6 +203,9 @@ async def _catalog_errors(context: str, source: MusicLibrarySource):
         await source.invalidate_navidrome_client()
         logger.error(f"{context}: {exc}")
         raise HTTPException(status_code=503, detail="Music library catalog auth failed")
+    except NavidromeUnreachable as exc:
+        logger.warning(f"{context}: Navidrome did not answer {exc}")
+        raise HTTPException(status_code=503, detail="Music library catalog not ready")
     except Exception as exc:
         logger.error(f"{context}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -323,7 +330,7 @@ async def get_albums(
             to_year=to_year,
         )
         if albums is None:
-            logger.error("Navidrome did not answer the %s album list", type)
+            logger.warning("Navidrome did not answer the %s album list", type)
             raise HTTPException(
                 status_code=503, detail="Music library catalog not ready"
             )

@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.sources.music_library.disc_merge import build_merged_id
+from backend.sources.music_library.navidrome_client import NavidromeUnreachable
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import settle
 from backend.tests.golden.test_wire_music_library import ALBUM
@@ -447,6 +448,26 @@ async def test_unknown_playlist_is_placed_by_its_first_track(source):
     kept = await source.playlists_in_scope(playlists, library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-here"]
+
+
+async def test_a_playlist_the_catalog_did_not_answer_for_is_not_hidden_for_good(source):
+    # Its placement is memoised until the next rescan, so a read that never
+    # reached Navidrome remembered as "no first track" hid the playlist from
+    # every storage space for hours. The read fails the request instead, and
+    # the next one asks again.
+    source._shares.playlist_storages = AsyncMock(return_value={})
+    client = _with_catalog(source, album_ids=["al-here"], playlist_albums={"pl-1": "al-here"})
+    answer = client.get_playlist.side_effect
+    client.get_playlist.side_effect = NavidromeUnreachable("getPlaylist")
+    playlists = [{"id": "pl-1", "songCount": 5}]
+
+    with pytest.raises(NavidromeUnreachable):
+        await source.playlists_in_scope(playlists, library_id=3)
+
+    client.get_playlist.side_effect = answer
+    kept = await source.playlists_in_scope(playlists, library_id=3)
+
+    assert [p["id"] for p in kept] == ["pl-1"]
 
 
 async def test_track_of_a_merged_multi_disc_album_still_places_its_playlist(source):

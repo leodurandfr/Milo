@@ -12,6 +12,7 @@ Two layers, both off the real Navidrome daemon:
 Payloads mirror the Subsonic 1.16.1 shapes Navidrome returns (subsonic-response
 already unwrapped by _make_request, so the fixtures start at the inner objects).
 """
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
@@ -20,10 +21,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.sources.music_library.artist_images import parse_artist_cover_id
+from backend.sources.music_library.disc_merge import build_merged_id
 from backend.sources.music_library.navidrome_client import (
     PLACEHOLDER_PROBE_SIZES,
     CoverArt,
     NavidromeClient,
+    NavidromeUnreachable,
 )
 from backend.sources.music_library.routes import (
     router,
@@ -229,6 +232,12 @@ class TestNavidromeBrowse:
         assert await client.get_artists([2]) == []
         assert await client.get_playlists() == []
         assert await client.get_songs_by_genre("Techno", [2]) == []
+
+    async def test_a_single_item_read_that_failed_is_a_miss(self, client):
+        """An API error is a server that answered: the item reads as absent and
+        the route answers 404. The network sentinel is not this — see the
+        transport tests, where it raises."""
+        client._make_request = AsyncMock(return_value=None)
         assert await client.get_artist("ar-1") is None
         assert await client.get_album("al-1") is None
 
@@ -1037,3 +1046,57 @@ class TestAuthRecovery:
         r = api.get("/api/music-library/artist/ar-1")
         assert r.status_code == 503
         source.invalidate_navidrome_client.assert_awaited_once()
+
+
+class TestCatalogUnreachable:
+    """Navidrome not answering is a 503, never a "not found" and never empty.
+
+    It restarts with every backend restart and migrates its database before it
+    listens, and a slow index can take it past the 15 s deadline. A 404 there
+    was an album or an artist "not found" — logged at ERROR, so a red banner,
+    and on Milo-Mac a contracted route answering "absent" — and an empty 200 was
+    a Liked Songs view with every heart off until the next resync.
+    """
+
+    @pytest.fixture(autouse=True)
+    def unreachable(self, nav_client):
+        failure = AsyncMock(side_effect=NavidromeUnreachable("did not answer"))
+        nav_client.get_album = failure
+        nav_client.get_artist = failure
+        nav_client.get_playlist = failure
+        nav_client.get_starred = failure
+
+    @pytest.fixture(autouse=True)
+    def nothing_reaches_the_banner(self, caplog, source):
+        """What every case below also holds: the condition heals itself, so it
+        stays under the WebSocketLogHandler's ERROR threshold, and it is not a
+        credential problem, so the cached client is kept."""
+        yield
+        assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+        source.invalidate_navidrome_client.assert_not_awaited()
+
+    def test_album_503_when_the_catalog_does_not_answer(self, api):
+        assert api.get("/api/music-library/album/al-1").status_code == 503
+
+    def test_artist_503_when_the_catalog_does_not_answer(self, api):
+        assert api.get("/api/music-library/artist/ar-1").status_code == 503
+
+    def test_playlist_503_when_the_catalog_does_not_answer(self, api):
+        assert api.get("/api/music-library/playlist/pl-1").status_code == 503
+
+    def test_starred_503_when_the_catalog_does_not_answer(self, api):
+        assert api.get("/api/music-library/starred").status_code == 503
+
+    def test_a_merged_album_with_a_disc_that_does_not_answer_is_not_served_short(
+        self, api, nav_client
+    ):
+        """A two-CD release whose second member timed out opened with one disc
+        and nothing said: the whole album is the read that failed."""
+        nav_client.get_album = AsyncMock(side_effect=[
+            {"id": "al-1", "name": "Live (CD 1)", "song": [{"id": "s-1", "albumId": "al-1"}]},
+            NavidromeUnreachable("did not answer"),
+        ])
+
+        merged = build_merged_id(["al-1", "al-2"])
+
+        assert api.get(f"/api/music-library/album/{merged}").status_code == 503

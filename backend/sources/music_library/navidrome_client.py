@@ -74,6 +74,16 @@ class NavidromeAuthError(Exception):
     """Raised when Navidrome rejects our credentials (Subsonic error 40/41)."""
 
 
+class NavidromeUnreachable(Exception):
+    """Raised by a read when Navidrome did not answer at all (refused, timed out).
+
+    Navidrome restarts with every backend restart and migrates its database
+    before it listens: a self-healing window, which must not read as the item's
+    absence — a 404 "not found" logged at ERROR, or favorites with every heart
+    off.
+    """
+
+
 class ScanRequest(Enum):
     """What became of a ``startScan``, as three outcomes that must not merge.
 
@@ -417,9 +427,14 @@ class NavidromeClient:
         Takes no scope, because Subsonic offers none here: the answer spans every
         library the account can read, which is why the route post-filters its
         album list against the storage spaces that are mounted (see routes.py).
+
+        None on an HTTP or API error, which is how an unknown id answers;
+        raises NavidromeUnreachable when Navidrome did not answer at all.
         """
         response = await self._make_request("getArtist", {"id": artist_id})
-        if not response or response.get("_network_error"):
+        if response and response.get("_network_error"):
+            raise NavidromeUnreachable("getArtist")
+        if not response:
             return None
         artist = response.get("artist")
         if artist:
@@ -427,9 +442,15 @@ class NavidromeClient:
         return artist
 
     async def get_album(self, album_id: str) -> Optional[Dict[str, Any]]:
-        """A single album with its ordered songs (Subsonic ``getAlbum``)."""
+        """A single album with its ordered songs (Subsonic ``getAlbum``).
+
+        None on an HTTP or API error, which is how an unknown id answers;
+        raises NavidromeUnreachable when Navidrome did not answer at all.
+        """
         response = await self._make_request("getAlbum", {"id": album_id})
-        if not response or response.get("_network_error"):
+        if response and response.get("_network_error"):
+            raise NavidromeUnreachable("getAlbum")
+        if not response:
             return None
         return response.get("album")
 
@@ -506,9 +527,15 @@ class NavidromeClient:
         return response.get("playlists", {}).get("playlist", []) or []
 
     async def get_playlist(self, playlist_id: str) -> Optional[Dict[str, Any]]:
-        """A single playlist with its ordered entries (Subsonic ``getPlaylist``)."""
+        """A single playlist with its ordered entries (Subsonic ``getPlaylist``).
+
+        None on an HTTP or API error, which is how an unknown id answers;
+        raises NavidromeUnreachable when Navidrome did not answer at all.
+        """
         response = await self._make_request("getPlaylist", {"id": playlist_id})
-        if not response or response.get("_network_error"):
+        if response and response.get("_network_error"):
+            raise NavidromeUnreachable("getPlaylist")
+        if not response:
             return None
         return response.get("playlist")
 
@@ -586,13 +613,18 @@ class NavidromeClient:
         ``{"song": [...], "album": [...], "artist": [...]}`` — the read side of
         :meth:`star`/:meth:`unstar`, so favourites can actually be enumerated
         (the browse payloads only carry a per-item ``starred`` flag). Navidrome
-        does honour the scope here, unlike on getGenres/getPlaylists."""
+        does honour the scope here, unlike on getGenres/getPlaylists.
+
+        Raises NavidromeUnreachable when Navidrome did not answer: three empty
+        lists would read as "nothing is liked"."""
         if not music_folder_ids:
             return {"song": [], "album": [], "artist": []}
         response = await self._make_request(
             "getStarred2", {"musicFolderId": music_folder_ids}
         )
-        if not response or response.get("_network_error"):
+        if response and response.get("_network_error"):
+            raise NavidromeUnreachable("getStarred2")
+        if not response:
             return {"song": [], "album": [], "artist": []}
         starred = response.get("starred2", {}) or {}
         return {
