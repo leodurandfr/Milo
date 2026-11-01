@@ -64,7 +64,7 @@ import asyncio
 import hashlib
 import os
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
@@ -123,6 +123,15 @@ RESTART_AT_MS = 500
 # Milō heard the `pres` (measured 2026-10-16: a restart by prev, 10:50:30.7745
 # against 30.776); the stale items a pause leaves behind are seconds older.
 CLOCK_SLACK_S = 0.5
+# The unit has no RTC and AirPlay is offered on the LAN alone, so a unit that
+# booted without internet runs on the time it last saved until NTP answers —
+# an hour behind after an hour's power cut — while the sender keeps its own.
+# Past this, the session reads the sender's stamps on the unit's clock
+# (SenderClock); within it, a stamp is taken as it is.
+CLOCK_SKEW_MIN_S = 60.0
+# Two stamps taken at moments this far apart whose gaps to the unit's clock
+# agree this closely say the same offset.
+SKEW_AGREE_S = 2.0
 
 # What opens a session when none is live: a sender connecting, naming itself,
 # or starting a stream (measured, every session opens with `conn`).
@@ -192,6 +201,58 @@ class Cover:
         return f"/api/airplay/artwork?v={self.hash}"
 
 
+@dataclass
+class SenderClock:
+    """How far the unit's clock runs from one sender's, read off its items.
+
+    An item's gap (received - at) is that offset plus the stamp's age, and an
+    age only widens it: the Mac re-sends minutes-old stamps, iPhone Music holds
+    its pause report until the resume, a restart reads the item as it was. So
+    the least gap is the estimate. Alone it is trusted only below
+    -CLOCK_SKEW_MIN_S, where no age can put it; above +CLOCK_SKEW_MIN_S an old
+    stamp could, and a stamp from another moment has to agree with it. A wider
+    gap replaces it only under a unit that ran behind, and only when two
+    moments in a row agree on it: NTP stepped the unit's clock forward, which
+    one old stamp cannot be told from. Until then the old offset holds.
+    """
+    least: Optional[Tuple[float, float]] = None   # (at, gap): the estimate
+    last: Optional[Tuple[float, float]] = None    # (at, gap): the last moment
+    trusted: bool = False
+
+    def observe(self, at: float, received: float) -> None:
+        sample = (at, received - at)
+        last, least = self.last, self.least
+        if last is not None and abs(at - last[0]) <= SKEW_AGREE_S:
+            # The same moment again: its first reception was the freshest.
+            return
+        self.last = sample
+        if last is None:
+            self.least = sample
+            return
+        pair = min(sample, last, key=lambda s: s[1])
+        if abs(sample[1] - last[1]) <= SKEW_AGREE_S and (
+            pair[1] <= least[1] or least[1] < -CLOCK_SKEW_MIN_S
+        ):
+            self.least, self.trusted = pair, True
+        elif abs(sample[1] - least[1]) <= SKEW_AGREE_S and abs(at - least[0]) > SKEW_AGREE_S:
+            self.least, self.trusted = min(sample, least, key=lambda s: s[1]), True
+        elif sample[1] < least[1]:
+            self.least = sample
+
+    @property
+    def offset(self) -> float:
+        """What a sender's stamp needs added to read on the unit's clock."""
+        if self.least is None:
+            return 0.0
+        gap = self.least[1]
+        if gap < -CLOCK_SKEW_MIN_S or (self.trusted and gap > CLOCK_SKEW_MIN_S):
+            return gap
+        return 0.0
+
+    def on_unit(self, at: Optional[float]) -> Optional[float]:
+        return None if at is None else at + self.offset
+
+
 @dataclass(eq=False)
 class AirPlaySession(Session):
     """One sender's session: everything it owns goes with it (E19 — the next
@@ -218,6 +279,7 @@ class AirPlaySession(Session):
     cover: Optional[Cover] = None
     item_gone: bool = False             # the sender emptied its item (an app quit)
     volume_synced: bool = False         # Milō's level was pushed to this sender
+    clock: SenderClock = field(default_factory=SenderClock)
 
 
 class AirPlaySource(BaseAudioSource):
@@ -497,11 +559,12 @@ class AirPlaySource(BaseAudioSource):
             return False
         if item.track_id != session.played_track:
             return True
+        at = session.clock.on_unit(item.at)
         return (
-            item.at is not None
+            at is not None
             and item.elapsed_ms is not None and item.elapsed_ms <= RESTART_AT_MS
             and session.skip_asked_at > session.pause_asked_at
-            and -CLOCK_SLACK_S <= item.at - session.skip_asked_at <= SKIP_WINDOW_S
+            and -CLOCK_SLACK_S <= at - session.skip_asked_at <= SKIP_WINDOW_S
         )
 
     def _phase_of(self, session: AirPlaySession) -> Phase:
@@ -520,7 +583,8 @@ class AirPlaySource(BaseAudioSource):
             if asked or session.paus_settled:
                 return Phase.PAUSED
             # Within the hold: the stream's own facts below decide.
-        if item is not None and item.rate <= 0 and (item.at or 0.0) >= session.resumed_at:
+        stamped = session.clock.on_unit(item.at) if item is not None else None
+        if item is not None and item.rate <= 0 and (stamped or 0.0) >= session.resumed_at:
             if self._changing_track(session, item) and not session.track_wait_over:
                 return Phase.LOADING
             return Phase.PAUSED
@@ -551,6 +615,8 @@ class AirPlaySource(BaseAudioSource):
         if item is session.now_playing:
             return
         session.now_playing, session.item_gone = item, False
+        if item.at is not None:
+            self._read_sender_clock(session, item.at)
         if item.rate > 0:
             session.played_track = item.track_id
             self._disarm_timer("track")
@@ -570,6 +636,19 @@ class AirPlaySource(BaseAudioSource):
             # A new picture is announced and not written yet.
             if not self._timer_armed("artwork"):
                 self._arm_timer("artwork", ARTWORK_SETTLE_SECONDS, session)
+
+    def _read_sender_clock(self, session: AirPlaySession, at: float) -> None:
+        before = session.clock.offset
+        session.clock.observe(at, audio_source.wall_time())
+        offset = session.clock.offset
+        if (before == 0.0) != (offset == 0.0):
+            if offset:
+                self._logger.info(
+                    f"This unit's clock is {abs(offset):.0f} s {'ahead of' if offset > 0 else 'behind'} "
+                    "the AirPlay sender's: its stamps are read on the unit's"
+                )
+            else:
+                self._logger.info("This unit's clock agrees with the AirPlay sender's again")
 
     async def _load_cover(self, session: AirPlaySession, item: NowPlaying) -> None:
         """The picture file of the item: it is the cover, kept in memory and
@@ -617,7 +696,7 @@ class AirPlaySource(BaseAudioSource):
         item = session.now_playing
         if item is None:
             return
-        position = item.position_ms(audio_source.wall_time())
+        position = item.position_ms(audio_source.wall_time() - session.clock.offset)
         if position is None:
             return
         # A session with no playhead takes the first one it is given: a Mac
@@ -629,7 +708,8 @@ class AirPlaySource(BaseAudioSource):
         # An item that says playing over a pause (or the reverse) is about
         # another moment than this one, however recent its stamp.
         agrees = (item.rate > 0) is (session.phase is Phase.PLAYING)
-        if agrees and (item.at or 0.0) >= max(session.resumed_at, session.paused_at) - CLOCK_SLACK_S:
+        stamped = session.clock.on_unit(item.at) or 0.0
+        if agrees and stamped >= max(session.resumed_at, session.paused_at) - CLOCK_SLACK_S:
             self._observe_position(position)
 
     async def _on_timer(self, name: str, token: object) -> None:

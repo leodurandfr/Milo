@@ -7,10 +7,12 @@ seen red on the code before phase 3a for the reason its docstring gives.
 """
 import pytest
 
+from backend.core import audio_source
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.airplay import source as airplay_source
 from backend.sources.airplay.remote import NowPlaying, RemoteUpdate
 from backend.tests.airplay_world import MAC, MAC_COMMANDS, PHONE, SPOTIFY_COMMANDS, AirPlayWorld, ssnc
+from backend.tests.golden.harness import EPOCH
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 
@@ -626,3 +628,114 @@ async def test_a_seek_on_the_phone_moves_the_bar(world):
     await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=150_000, at=stamp)))
 
     assert abs(world.position_ms() - 150_000) < 1000
+
+
+# === The sender's clock and the unit's ===
+
+def _unit_clock(monkeypatch, world: AirPlayWorld, skew_s: float) -> list:
+    """The unit's wall clock `skew_s` off the senders' (theirs stays EPOCH +
+    clock.now): a unit with no RTC that booted without internet. The list it
+    returns moves it, as NTP stepping it would."""
+    skew = [skew_s]
+    monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH + world.clock.now + skew[0])
+    return skew
+
+
+async def test_a_unit_clock_behind_the_sender_neither_rewinds_the_bar_nor_blips_paused(world, monkeypatch):
+    """Two hours behind the phone, every item looked stamped two hours ahead:
+    any update put the bar back at 0:00, and each resume of iPhone Music
+    published a PAUSED, its late pause report now looking newer than the
+    resume."""
+    _unit_clock(monkeypatch, world, -7200)
+    await _phone_plays(world)
+    await world.advance(90)
+    await world.signal(RemoteUpdate("shuffle", False))
+
+    assert abs(world.position_ms() - 90_000) <= 1000
+
+    await world.pauses()
+    await world.advance(5)
+    since = len(world.published())
+    await world.resumes()
+
+    assert _phases_since(world, since).count("paused") == 0
+    assert world.playing()
+
+
+async def test_a_unit_clock_ahead_of_the_sender_is_trusted_once_two_stamps_agree(world, monkeypatch):
+    """An hour ahead of the Mac: its pause, stamped an hour before the stream
+    began on the unit's clock, was not read as a pause (CONNECTED, the status
+    card), and the bar sat at the end of the track. One old stamp cannot tell
+    the clocks apart — a Mac re-sends minutes-old ones —, two taken at
+    different moments can."""
+    _unit_clock(monkeypatch, world, 3600)
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    await world.advance(10)
+    await world.realtime_pauses()
+
+    assert world.phase() == "paused"
+
+    await world.realtime_resumes()
+    await world.advance(30)
+
+    assert world.playing()
+    assert abs(world.position_ms() - 40_000) <= 1000
+
+
+async def test_two_stale_stamps_on_synced_clocks_correct_nothing(world):
+    """Clocks in step, and the only stamps seen are old: the item the phone had
+    three minutes ago, then its pause report held through a 90 s pause. Neither
+    is an offset; taken for one, the resume read the held pause as newer than
+    itself and published a PAUSED."""
+    await world.connects(PHONE, "iPhone de Léo")
+    await world.send(ssnc("pbeg"), ssnc("pres"))
+    await world.advance(0.5)
+    await world.send(ssnc("prsm"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
+    item = world.item("Soul Officer")
+    await world.publishes(NowPlaying(**{**item.__dict__, "at": item.at - 180}), world.cover(name="stale"))
+    assert world.playing()
+
+    await world.pauses()
+    await world.advance(90)
+    since = len(world.published())
+    await world.resumes()
+
+    assert _phases_since(world, since).count("paused") == 0
+    assert world.playing()
+
+
+async def test_a_unit_clock_stepped_by_ntp_mid_session_is_followed(world, monkeypatch):
+    """Internet comes back during the session and NTP steps the unit's clock
+    two hours forward: the offset read before the step is wrong after it, and
+    kept for the session it put the bar at the end of the track. Two stamps in
+    a row that agree on another offset are the step."""
+    skew = _unit_clock(monkeypatch, world, -7200)
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    await world.advance(20)
+    skew[0] = 0.0
+
+    await world.realtime_pauses()
+    await world.advance(5)
+    await world.realtime_resumes()
+    await world.advance(30)
+
+    assert world.playing()
+    assert abs(world.position_ms() - 50_000) <= 1000
+
+
+async def test_old_stamps_in_a_row_never_outweigh_a_fresh_one(world):
+    """Clocks in step, and two re-sent items in a row stamped 90 s ago: their
+    gaps agree as two fresh stamps do after NTP stepped a unit forward. Only a
+    unit that ran behind can have been stepped forward: taken over a fresh
+    stamp for a 90 s offset, they put the bar 90 s back."""
+    await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
+    await world.realtime_plays()
+    item = world.now_playing
+    await world.advance(100)
+    await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=10_000, at=item.at + 10)))
+    await world.advance(10)
+    await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=20_000, at=item.at + 20)))
+
+    assert abs(world.position_ms() - 110_000) <= 1000

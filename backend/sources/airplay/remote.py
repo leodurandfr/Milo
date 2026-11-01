@@ -79,9 +79,10 @@ _REPEAT_TO_LOOP = {mode: loop for loop, mode in _LOOP_TO_REPEAT.items()}
 class NowPlaying:
     """One `NowPlayingInformation`: the sender's current item.
 
-    `at` is the sender's clock (epoch seconds) for `elapsed_ms` — the phone's
-    and the unit's agree within milliseconds (NTP on both). `artwork_path` is
-    a local file, None while the picture is in flight or there is none.
+    `at` is the sender's clock (epoch seconds) for `elapsed_ms`. The unit's can
+    be hours from it (no RTC, and AirPlay plays with no internet to set it),
+    so the session reads it through its SenderClock. `artwork_path` is a local
+    file, None while the picture is in flight or there is none.
     """
     title: Optional[str]
     artist: Optional[str]
@@ -121,7 +122,8 @@ class NowPlaying:
         )
 
     def position_ms(self, now: float) -> Optional[int]:
-        """Where the sender's playhead is at `now`, from its last report."""
+        """Where the sender's playhead is at `now` (on the sender's clock),
+        from its last report."""
         if self.elapsed_ms is None:
             return None
         if self.rate <= 0 or self.at is None:
