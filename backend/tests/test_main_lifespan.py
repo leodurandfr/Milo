@@ -6,10 +6,11 @@ run. Four things live only there:
 
 * **the join.** Startup is not complete until `init_task` has finished; yielding
   earlier serves the first HTTP request over a half-wired graph.
-* **the lingering-unit sweep.** Source units carry `BindsTo=milo-backend`, so
-  systemd restarts them *with* the backend — while the state machine comes up at
-  `source=NONE`. A unit left running holds `hw:Loopback,0,0`, and the first
-  source the user picks cannot open it.
+* **the lingering-unit sweep's place.** Source units carry `BindsTo=milo-backend`,
+  so systemd restarts them *with* the backend, and a unit left running holds
+  `hw:Loopback,0,0` against the first source the user picks. The sweep runs after
+  the join — by then the IR listener is live and a MENU press may have selected
+  a source, whose unit it must leave up; what it stops is tested on the machine.
 * **the shutdown table's ORDER**, whose reasoning is a paragraph of comment in
   `main.py` and was asserted nowhere: the registry's producer is silenced first,
   then the two entries that WRITE, and only then CamillaDSP — the entry most
@@ -29,6 +30,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import backend.main as main
+from backend.core.models.audio_state import AudioSource
+from backend.core.state import AudioStateMachine
+from backend.tests.test_audio_state_machine import Systemd, unit_source
 
 
 class RanTheRealBoot(BaseException):
@@ -38,13 +42,6 @@ class RanTheRealBoot(BaseException):
     `except Exception`, which would log the breach and re-raise it as an
     ordinary startup failure — green run, real graph half-built.
     """
-
-
-def _source(service_name, active):
-    src = MagicMock()
-    src.service_name = service_name
-    src._active = active
-    return src
 
 
 @pytest.fixture
@@ -81,13 +78,11 @@ def boot(monkeypatch):
         return svc
 
     state_machine = MagicMock()
-    state_machine.sources = {}
+    state_machine.stop_lingering_units = AsyncMock()
     state_machine.cleanup = MagicMock()
     state_machine.start_inactivity_monitor = MagicMock()
 
     systemd = MagicMock()
-    systemd.is_active = AsyncMock(return_value=False)
-    systemd.stop = AsyncMock(return_value=True)
 
     network = MagicMock()
     network.evaluate_reachability = AsyncMock()
@@ -179,54 +174,62 @@ class TestStartup:
 
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
 
-    async def test_source_units_left_running_by_systemd_are_stopped(self, boot):
-        """`BindsTo=milo-backend` restarts them with us; the machine starts at NONE.
+    async def test_a_source_selected_during_init_keeps_its_unit(self, boot):
+        """The IR listener is live once `init_async` has started it, before the
+        join: a MENU press in that window selects the next dock source, whose
+        unit is up when the sweep looks.
 
-        A source unit still running holds `hw:Loopback,0,0`, so the first source
-        the user picks cannot open its device — and nothing in the UI explains
-        why, because from Milō's side no source is active.
+        Swept with the rest, the screen said Spotify while the speaker was gone
+        from the phone's Connect list, and re-selecting Spotify answered
+        "Already on source" — only another source brought it back.
         """
-        boot["state_machine"].sources = {
-            "radio": _source("milo-radio", active=True),
-            "spotify": _source("milo-go-librespot", active=False),
-        }
-        boot["systemd"].is_active = AsyncMock(side_effect=lambda name: name == "milo-radio")
+        systemd = Systemd(up={"milo-radio.service"})
+        machine = AudioStateMachine()
+        machine.register_source(AudioSource.RADIO, unit_source(systemd, "milo-radio.service"))
+        machine.register_source(AudioSource.SPOTIFY, unit_source(systemd, "milo-spotify.service"))
+        boot["monkeypatch"].setattr(main, "state_machine", machine)
+        boot["monkeypatch"].setattr(main, "systemd_manager", systemd)
 
-        await _run_lifespan(boot)
+        async def _menu_press_during_init():
+            await machine.transition_to_source(AudioSource.SPOTIFY)
 
-        boot["systemd"].stop.assert_awaited_once_with("milo-radio")
+        task = asyncio.create_task(_menu_press_during_init())
+        boot["monkeypatch"].setattr(main, "get_init_task", lambda: task)
 
-    async def test_a_source_that_owns_no_unit_is_never_probed(self, boot):
-        """Bluetooth has `service_name = None`.
+        async with main.lifespan(MagicMock()):
+            assert systemd.calls == [
+                "start milo-spotify.service", "stop milo-radio.service",
+            ]
+            assert systemd.active["milo-spotify.service"] is True
+            assert machine.system_state.active_source == AudioSource.SPOTIFY
 
-        Passed through, `systemctl is-active None` is a spawn per boot with a
-        nonsense argument, and its answer would decide a stop.
+    async def test_the_sweep_runs_between_the_init_join_and_the_banner(self, boot):
+        """After the join, before the banner is armed — where it has always run.
+        Moved before the join, it would race milo-bluealsa, which systemd starts
+        at boot right after the backend: a race never measured.
+
+        What the sweep stops is the machine's to answer
+        (`test_audio_state_machine.py::TestLingeringUnitSweep`).
         """
-        boot["state_machine"].sources = {"bluetooth": _source(None, active=True)}
+        steps = []
+
+        async def _init_task_body():
+            await asyncio.sleep(0)
+            steps.append("init")
+
+        task = asyncio.create_task(_init_task_body())
+        boot["monkeypatch"].setattr(main, "get_init_task", lambda: task)
+        boot["state_machine"].stop_lingering_units = AsyncMock(
+            side_effect=lambda _systemd: steps.append("sweep")
+        )
+        boot["ws_log_handler"].set_state_machine = MagicMock(
+            side_effect=lambda _machine: steps.append("banner")
+        )
 
         await _run_lifespan(boot)
 
-        boot["systemd"].is_active.assert_not_awaited()
-        boot["systemd"].stop.assert_not_awaited()
-
-    async def test_a_missing_source_entry_is_skipped(self, boot):
-        """`register_source` can be handed None for a source whose creation
-        failed; the sweep runs over the same dict."""
-        boot["state_machine"].sources = {"radio": None}
-
-        await _run_lifespan(boot)
-
-        boot["systemd"].is_active.assert_not_awaited()
-
-    async def test_nothing_lingering_means_no_stop_at_all(self, boot):
-        """The common case — a cold boot. A stop issued anyway is a privileged
-        spawn per source on every single start."""
-        boot["state_machine"].sources = {"radio": _source("milo-radio", active=True)}
-        boot["systemd"].is_active = AsyncMock(return_value=False)
-
-        await _run_lifespan(boot)
-
-        boot["systemd"].stop.assert_not_awaited()
+        assert steps == ["init", "sweep", "banner"]
+        boot["state_machine"].stop_lingering_units.assert_awaited_once_with(boot["systemd"])
 
     async def test_the_error_banner_is_armed_with_the_state_machine(self, boot):
         """`WebSocketLogHandler` is attached to the `backend` logger at import,

@@ -850,8 +850,9 @@ PODCAST_UNIT = "milo-podcast.service"
 class Systemd:
     """systemd for the units a test puts up: what it was asked, what is up.
 
-    A start can be held open (`systemctl start` is a subprocess, and other
-    tasks run while it answers); `probes` counts the is-active answers given.
+    A start or a stop can be held open (`systemctl` is a subprocess, and other
+    tasks run while it answers); `probes` counts the is-active answers given,
+    and `asked` names the units `is_active` was asked about.
     """
 
     def __init__(self, *, up=(), refuse: bool = False) -> None:
@@ -860,7 +861,9 @@ class Systemd:
         # RefuseManualStop=yes on every unit.
         self.refuse = refuse
         self.start_held: Optional[asyncio.Event] = None
+        self.stop_held: Optional[asyncio.Event] = None
         self.probes = 0
+        self.asked = []
 
     async def start(self, name: str) -> bool:
         self.calls.append(f"start {name}")
@@ -871,6 +874,8 @@ class Systemd:
 
     async def stop(self, name: str) -> bool:
         self.calls.append(f"stop {name}")
+        if self.stop_held is not None:
+            await self.stop_held.wait()
         if self.refuse:
             return False
         self.active[name] = False
@@ -879,6 +884,19 @@ class Systemd:
     async def probe_active(self, name: str) -> bool:
         self.probes += 1
         return self.active[name]
+
+    async def is_active(self, name: str) -> bool:
+        self.asked.append(name)
+        return self.active.get(name, False)
+
+
+def unit_source(systemd: Systemd, unit: str):
+    """A registered source whose start puts its unit up in `systemd`."""
+    async def start():
+        return await systemd.start(unit)
+
+    return make_source(service_name=unit, start=AsyncMock(side_effect=start),
+                       shutdown=AsyncMock())
 
 
 class StubbornPodcast(BaseAudioSource):
@@ -1722,6 +1740,104 @@ class TestShutdownSources:
 
         radio.shutdown.assert_awaited_once()
         spotify.shutdown.assert_awaited_once()
+
+
+RADIO_UNIT = "milo-radio.service"
+SPOTIFY_UNIT = "milo-spotify.service"
+
+
+class TestLingeringUnitSweep:
+    """The boot's sweep of the source units systemd brought back with the
+    backend (`BindsTo=milo-backend`): a unit left up holds `hw:Loopback,0,0`
+    against the first source the user picks. It runs after `init_async`, where
+    the IR listener can already have selected a source."""
+
+    @staticmethod
+    def _machine(systemd: Systemd, *units: str) -> AudioStateMachine:
+        machine = AudioStateMachine()
+        for source, unit in ((AudioSource.RADIO, RADIO_UNIT), (AudioSource.SPOTIFY, SPOTIFY_UNIT)):
+            if unit in units:
+                machine.register_source(source, unit_source(systemd, unit))
+        return machine
+
+    async def test_source_units_left_running_by_systemd_are_stopped(self):
+        """Nothing selected: from Milō's side no source is active, so nothing in
+        the UI explains why the first one picked cannot open its device."""
+        systemd = Systemd(up={RADIO_UNIT})
+        machine = self._machine(systemd, RADIO_UNIT, SPOTIFY_UNIT)
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.calls == [f"stop {RADIO_UNIT}"]
+
+    async def test_the_sweep_never_stops_the_selected_source(self):
+        """A MENU press during `init_async` selected Spotify: its unit is up on
+        purpose. Stopped, the speaker left the phone's Connect list while the
+        screen said Spotify, and re-selecting it answered "Already on source"."""
+        systemd = Systemd(up={RADIO_UNIT})
+        machine = self._machine(systemd, RADIO_UNIT, SPOTIFY_UNIT)
+        await machine.transition_to_source(AudioSource.SPOTIFY)
+        systemd.calls.clear()
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.calls == [f"stop {RADIO_UNIT}"]
+        assert systemd.active[SPOTIFY_UNIT] is True
+
+    async def test_a_selection_during_the_sweep_starts_after_it(self):
+        """A press landing while the sweep stops a unit waits for it: started
+        first, the source would have its unit stopped under it."""
+        systemd = Systemd(up={SPOTIFY_UNIT})
+        systemd.stop_held = asyncio.Event()
+        machine = self._machine(systemd, SPOTIFY_UNIT)
+        spotify = machine.sources[AudioSource.SPOTIFY]
+
+        sweep = asyncio.create_task(machine.stop_lingering_units(systemd))
+        await _until(lambda: systemd.calls == [f"stop {SPOTIFY_UNIT}"])
+        press = asyncio.create_task(machine.transition_to_source(AudioSource.SPOTIFY))
+        for _ in range(20):
+            await asyncio.sleep(0)
+
+        spotify.start.assert_not_awaited()
+        systemd.stop_held.set()
+        await sweep
+        assert await press is True
+
+        assert systemd.calls == [f"stop {SPOTIFY_UNIT}", f"start {SPOTIFY_UNIT}"]
+        assert systemd.active[SPOTIFY_UNIT] is True
+
+    async def test_a_source_that_owns_no_unit_is_never_probed(self):
+        """Passed through, `systemctl is-active None` is a spawn per boot with a
+        nonsense argument, and its answer would decide a stop."""
+        systemd = Systemd()
+        machine = AudioStateMachine()
+        machine.register_source(AudioSource.RADIO, make_source(service_name=None))
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.asked == []
+        assert systemd.calls == []
+
+    async def test_an_unregistered_source_is_never_probed(self):
+        """Every AudioSource is a key of `sources` from construction; a source
+        whose creation failed stays None there, and the sweep runs over it."""
+        systemd = Systemd(up={RADIO_UNIT})
+        machine = self._machine(systemd, SPOTIFY_UNIT)
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.asked == [SPOTIFY_UNIT]
+        assert systemd.calls == []
+
+    async def test_nothing_lingering_means_no_stop_at_all(self):
+        """The common case — a cold boot. A stop issued anyway is a privileged
+        spawn per source on every single start."""
+        systemd = Systemd()
+        machine = self._machine(systemd, RADIO_UNIT, SPOTIFY_UNIT)
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.calls == []
 
 
 class TestRerouteOfAFailedSource:

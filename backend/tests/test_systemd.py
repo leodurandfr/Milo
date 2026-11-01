@@ -449,9 +449,10 @@ class TestControlServiceFailureArms:
         `communicate()` has reaped the child: `kill()` answers
         ProcessLookupError, which the sibling `except Exception` cannot catch
         because it is raised inside a handler. `_control_service` then raises
-        where every caller expects a bool — `main.py`'s lingering-unit sweep
-        gathers these at startup without return_exceptions, so one wedged
-        probe on a slow boot stopped the backend from coming up at all.
+        where every caller expects a bool — the boot's lingering-unit sweep
+        (`AudioStateMachine.stop_lingering_units`) gathers these without
+        return_exceptions, so one wedged probe on a slow boot stopped the
+        backend from coming up at all.
 
         `_hanging_proc` cannot express this: its `kill` is a silent Mock, so
         the arm reads as exercised while the real failure is a raise.

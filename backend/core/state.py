@@ -861,6 +861,27 @@ class AudioStateMachine:
             self._inactivity_monitor_task.cancel()
             self._inactivity_monitor_task = None
 
+    async def stop_lingering_units(self, systemd_manager) -> None:
+        """Stop the unit of every source but the selected one (backend boot, main.py).
+
+        Source units carry `BindsTo=milo-backend`, so systemd brings them back
+        with a restarted backend, and a unit left up holds `hw:Loopback,0,0`
+        against the first source picked. The boot runs this after `init_async`,
+        which has already started the IR listener: a MENU press in that window
+        selects a source, and its unit is up on purpose. Under the transition
+        lock, so a press landing during the sweep starts its source after it.
+        """
+        async with self._transition_lock:
+            active = self.system_state.active_source
+            lingering = [
+                instance.service_name for source, instance in self.sources.items()
+                if source != active and instance and instance.service_name
+                and await systemd_manager.is_active(instance.service_name)
+            ]
+            if lingering:
+                logger.info("Stopping lingering source services: %s", lingering)
+                await asyncio.gather(*[systemd_manager.stop(svc) for svc in lingering])
+
     async def shutdown_sources(self) -> None:
         """End every registered source's mailbox (backend teardown, main.py)."""
         for instance in self.sources.values():

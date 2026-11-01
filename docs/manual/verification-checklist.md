@@ -93,6 +93,7 @@ clean run. Three verification passes recorded it as evidence before anyone notic
 | Cold boot | Kiosk reaches the dock without a manual refresh; no blank page, no Vite banner | smoke |
 | Units | `systemctl --failed` empty; `milo-backend`, `milo-camilladsp`, `milo-kiosk` active | smoke |
 | Source units | Only the units for *enabled* dock sources are running; `BindsTo` holds (stopping `milo-backend` stops them) | targeted |
+| Selection right after a restart | While nothing plays, `sudo systemctl restart milo-backend`: once the journal shows `Milo backend startup completed`, the state reads `source: none` and `systemctl is-active` answers `inactive` for every source unit. Select Spotify: `avahi-browse -rt _spotify-connect._tcp` lists the unit, and so does the phone's Connect list. A source selected before the boot's lingering-unit sweep (an IR MENU press while the services initialize) once had its unit stopped behind it: the screen said Spotify, the speaker was gone from the phone, and re-selecting Spotify answered "Already on source" | targeted |
 | Warnings | `journalctl -u milo-backend --since -10min \| grep -E "ERROR:\|WARNING:"` shows nothing new | smoke |
 | Schema versions | No fail-loud banner in the journal (`SchemaVersionMismatch` → the unit restart-loops) | smoke |
 | Dock | Every source enabled in Settings > Dock appears, in the configured order; disabled ones absent | targeted |
