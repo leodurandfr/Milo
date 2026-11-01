@@ -2741,6 +2741,59 @@ async def test_an_nmcli_that_hangs_is_killed(service):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("call", ["connect", "save_network"])
+async def test_nmcli_timeout_log_never_carries_the_psk(service, call):
+    """Both put the PSK in `connection add`'s argv, and a timeout logs that argv
+    at ERROR: errors.log is world-readable, the line is the banner on every UI,
+    and the diagnostic report copies it. The timed-out command must still be
+    named, or the line is useless to whoever reads it."""
+    psk = "c0rrect-h0rse-battery"
+
+    async def times_out():
+        raise asyncio.TimeoutError()
+
+    def route(args):
+        if args[:2] == ("connection", "add"):
+            return times_out()
+        return (0, "", "")
+
+    _, patcher = with_nmcli(route)
+    with patcher, caplog_at_error() as records, pytest.raises(asyncio.TimeoutError):
+        await getattr(service, call)("Maison", psk)
+
+    messages = [r.getMessage() for r in records]
+    timed_out = [m for m in messages if "nmcli timed out" in m]
+    assert timed_out, f"no timeout logged: {messages}"
+    assert not [m for m in messages if psk in m]
+    assert "connection add" in timed_out[0] and "Maison" in timed_out[0]
+
+
+@pytest.mark.asyncio
+async def test_a_timed_out_secret_read_still_names_its_command(service):
+    """The credential read asks for `…,802-11-wireless-security.psk` in its
+    field list. The list names the PSK without carrying it, so masking what
+    follows it would only blank the verb of the very line that says which
+    nmcli hung."""
+    async def times_out():
+        raise asyncio.TimeoutError()
+
+    def route(args):
+        if "--active" in args:
+            return (0, "milo-Maison:wlan0", "")
+        if args[0] == "-s":
+            return times_out()
+        return (0, "", "")
+
+    _, patcher = with_nmcli(route)
+    with patcher, caplog_at_error() as records, pytest.raises(asyncio.TimeoutError):
+        await service.get_active_wifi_profile()
+
+    timed_out = [r.getMessage() for r in records if "nmcli timed out" in r.getMessage()]
+    assert timed_out, "no timeout logged"
+    assert "connection show milo-Maison" in timed_out[0]
+
+
+@pytest.mark.asyncio
 async def test_every_dbus_read_fails_open_when_the_object_is_gone(service, wired):
     """NM destroys these objects on a roam or a device removal, and a read that
     lands on a dead path raises out of dbus-next. Each of the four is on the

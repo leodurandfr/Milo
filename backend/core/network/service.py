@@ -1547,8 +1547,22 @@ class NetworkService:
         except asyncio.TimeoutError:
             if proc:
                 proc.kill()
-            self.logger.error("nmcli timed out: nmcli %s", " ".join(args))
+            self.logger.error("nmcli timed out: nmcli %s", _redact_nmcli_args(args))
             raise
+
+
+def _redact_nmcli_args(args: Tuple[str, ...]) -> str:
+    """The argv as a log line, with the value of every `*.psk` / `*password`
+    key replaced by `***` (a `-f` field list, comma-joined, is not a key).
+
+    A logged line lands in the world-readable errors.log, every UI's error
+    banner and the diagnostic report, none of them a place for a secret —
+    the rule `api/system.py::set_device_password` applies to argv itself.
+    """
+    return " ".join(
+        "***" if prev.endswith((".psk", "password")) and "," not in prev else arg
+        for prev, arg in zip(("", *args), args)
+    )
 
 
 def _parse_nmcli_line(line: str) -> List[str]:
