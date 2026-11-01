@@ -491,6 +491,9 @@ async function persistDelay(value) {
     await multiroomClientStore.setClientDelay(props.macId, value);
   } catch (error) {
     logger.error('multiroom', 'Error saving client delay', error);
+    // Same order as the trim: snapserver is asked before the value is
+    // recorded, so a failure means the room kept its delay — show that.
+    delayMs.value = client.value?.delay_ms ?? 0;
   }
 }
 

@@ -424,16 +424,17 @@ def create_multiroom_router(
     async def set_client_delay(mac_id: str, request: ClientDelayRequest):
         """Set a client's playback delay (native Snapcast latency, in ms).
 
-        Milō owns the value as source of truth: it is applied to snapserver now
-        when the client is online, and re-pushed on reconnection either way.
-        Addresses the exact client — a zone member and a standalone alike, never
-        a zone redirect.
+        Milō owns the value as source of truth: it is applied to snapserver
+        first when the client is online, and re-pushed on reconnection either
+        way. Addresses the exact client — a zone member and a standalone alike,
+        never a zone redirect.
 
         Returns:
             {"status": "success", "client": {...}}
 
         Raises:
             404: Client not found
+            502: snapserver did not confirm the delay
         """
         async with api_error_handler(f"Error setting delay for client {mac_id}", logger):
             client = registry_service.get_client(mac_id)
@@ -443,15 +444,21 @@ def create_multiroom_router(
                     detail=f"Client with mac_id '{mac_id}' not found"
                 )
 
-            updated_client = await registry_service.set_client_delay(mac_id, request.delay_ms)
-
-            # Apply to snapserver now. set_latency looks fail-open (it returns
-            # True unconditionally) but _request raises SnapcastRequestError, so
-            # a refusal reaches api_error_handler as a 500 — not best-effort. The
-            # snapcast client id is the mac_id by construction (see compute_mac_id);
-            # an offline client recovers the value via the admission re-push.
+            # Hardware first, as for the trim: set_latency answers a refusal
+            # (HTTP error, timeout, JSON-RPC error) with False, and a record
+            # written before it would broadcast a delay the room never took. The
+            # snapcast client id is the mac_id by construction (see
+            # compute_mac_id); an offline client has nothing to refuse and
+            # recovers the value via the admission re-push.
             if snapcast_service and client.online:
-                await snapcast_service.set_latency(mac_id, request.delay_ms)
+                if not await snapcast_service.set_latency(mac_id, request.delay_ms):
+                    logger.error(f"snapserver refused the {request.delay_ms} ms delay for {mac_id}")
+                    raise HTTPException(
+                        status_code=502,
+                        detail="snapserver did not confirm the delay"
+                    )
+
+            updated_client = await registry_service.set_client_delay(mac_id, request.delay_ms)
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 

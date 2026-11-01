@@ -21,6 +21,7 @@ from backend.api.multiroom import create_multiroom_router
 from backend.api.models import ZoneCreate, ZoneUpdate, MAX_ZONE_NAME_LENGTH
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.multiroom.models import Client, Zone, EqualizerSettings
+from backend.core.multiroom.snapcast import SnapcastService
 
 
 @pytest.fixture
@@ -478,6 +479,59 @@ class TestClientDelayEndpoint:
         client, _, _, _ = tuning_client
         resp = client.patch("/api/multiroom/clients/nope/delay", json={"delay_ms": 10})
         assert resp.status_code == 404
+
+    @pytest.mark.parametrize("status, payload", [
+        (200, {"error": {"code": -32603, "message": "Internal error"}}),
+        (503, None),
+    ], ids=["json-rpc-error", "http-503"])
+    def test_delay_refused_by_snapserver_answers_502_and_keeps_the_stored_delay(
+        self, tuning_client, monkeypatch, status, payload
+    ):
+        """`SnapcastService.set_latency` turns a refusal into False rather than
+        raising. Read as a success, the route recorded and broadcast 40 ms
+        while snapserver kept the old delay: every screen showed a room
+        alignment the room was not playing, and only a WARNING said so."""
+        _, registry, eq, _ = tuning_client
+        sent = []
+
+        class _Response:
+            def __init__(self):
+                self.status = status
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def json(self):
+                return payload
+
+        class _Snapserver:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def post(self, url, json=None):
+                sent.append(json)
+                return _Response()
+
+        monkeypatch.setattr(aiohttp, "ClientSession", _Snapserver)
+        app = FastAPI()
+        app.include_router(create_multiroom_router(
+            registry, eq, None, None, SnapcastService(systemd_manager=Mock())
+        ))
+
+        resp = TestClient(app).patch("/api/multiroom/clients/mac-1/delay", json={"delay_ms": 40})
+
+        assert [body["method"] for body in sent] == ["Client.SetLatency"]
+        assert resp.status_code == 502
+        registry.set_client_delay.assert_not_awaited()
 
 
 # =============================================================================

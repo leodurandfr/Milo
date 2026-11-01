@@ -970,6 +970,33 @@ class SnapcastWebSocketService:
             self.logger.warning(f"SYNC_GAIN: Failed to sync the trim to {mac_id}: {e}")
             return False
 
+    async def _pin_snapserver(
+        self, mac_id: str, snapcast_id: Optional[str], delay_ms: int
+    ) -> bool:
+        """Lift snapserver's mute and push the client's delay; True once both are acknowledged.
+
+        Snapserver stays a passthrough — attenuation is CamillaDSP's job on the
+        client. Every snapclient runs `--mixer none`, which ignores snapserver's
+        volume but still obeys its mute (measured on 0.35), and snapserver keeps
+        a mute across its restarts: one set from snapweb or a home-automation
+        client would silence the room for good, with Milō showing it unmuted.
+        The per-client delay is native Snapcast latency Milō owns, and a delay
+        set while the client was away never reached snapserver.
+
+        Both calls answer a refusal (HTTP error, timeout, JSON-RPC error) with
+        False rather than raising. A caller without a snapcast id has nothing to
+        pin: snapserver keys its clients by its own id.
+        """
+        if not (snapcast_id and self._snapcast_service):
+            return True
+        if not await self._snapcast_service.set_volume(snapcast_id, 100):
+            self.logger.warning(f"SYNC_RECONNECT: snapserver refused to lift the mute of {mac_id}")
+            return False
+        if not await self._snapcast_service.set_latency(snapcast_id, delay_ms):
+            self.logger.warning(f"SYNC_RECONNECT: snapserver refused the {delay_ms} ms delay of {mac_id}")
+            return False
+        return True
+
     async def _sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool = False,
         max_retries: int = 5, retry_delay: float = 3.0,
@@ -979,11 +1006,12 @@ class SnapcastWebSocketService:
         Bring a client that just (re)appeared to the state Milō holds for it.
 
         The one admission recipe, shared by all four notifications that can see
-        a client arrive: restore the snapserver passthrough, resolve the level
-        the client itself last held, apply it, re-push its EQ record and
-        its snapclient buffer config, then show it online. Retries because a
-        remote client is often still booting when its snapclient connects, its
-        API (port 8001) answering seconds after snapserver has it.
+        a client arrive: restore the snapserver passthrough and the client's
+        delay, resolve the level the client itself last held, apply it, re-push
+        its EQ record and its snapclient buffer config, then show it online.
+        Retries because a remote client is often still booting when its
+        snapclient connects, its API (port 8001) answering seconds after
+        snapserver has it.
 
         Owns the _syncing_mac_ids guard: marks the mac_id as in-flight on
         entry and clears it on exit, preventing duplicate sync tasks for
@@ -995,7 +1023,8 @@ class SnapcastWebSocketService:
                 successful sync (keeps client offline/muted in frontend until
                 volume is confirmed on hardware).
             snapcast_id: Snapcast client id, when the caller has it. Used to
-                restore the snapserver passthrough (see the callee).
+                restore the snapserver passthrough and the delay
+                (see _pin_snapserver).
         """
         if not self.registry or not self._volume_service:
             return False
@@ -1018,22 +1047,6 @@ class SnapcastWebSocketService:
         snapcast_id: Optional[str] = None
     ) -> bool:
         """Internal sync implementation (called under _syncing_mac_ids guard)."""
-        if snapcast_id and self._snapcast_service:
-            # Snapserver stays a passthrough — attenuation is CamillaDSP's job on
-            # the client. Every snapclient runs `--mixer none`, which ignores
-            # snapserver's volume but still obeys its mute (measured on 0.35),
-            # and snapserver keeps a mute across its restarts: one set from
-            # snapweb or a home-automation client would silence the room for
-            # good, with Milō showing it unmuted. Every admission lifts it.
-            await self._snapcast_service.set_volume(snapcast_id, 100)
-
-            # Re-push the per-client delay the same way: it is native Snapcast
-            # latency Milō owns, and a delay set while the client was away never
-            # reached snapserver.
-            client = self.registry.get_client(mac_id)
-            if client:
-                await self._snapcast_service.set_latency(snapcast_id, client.delay_ms)
-
         target_volume = self._resolve_target_volume(mac_id)
 
         self.logger.info(f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
@@ -1041,17 +1054,23 @@ class SnapcastWebSocketService:
         for attempt in range(max_retries + 1):
             # A client deleted during a retry wait is not admitted: the apply
             # below would put its level back in the store the delete emptied.
-            if self.registry.get_client(mac_id) is None:
+            client = self.registry.get_client(mac_id)
+            if client is None:
                 self.logger.info(f"SYNC_RECONNECT: {mac_id} removed during admission, abandoning")
                 return False
             try:
+                # Pinned inside the attempt, not before them: a refusal is a
+                # failed attempt, retried like an apply the satellite refused,
+                # and never followed by showing the client online.
+                pushed_delay_ms = client.delay_ms
+                pinned = await self._pin_snapserver(mac_id, snapcast_id, pushed_delay_ms)
                 # Resolved again on every attempt: a zone or global move made
                 # while this one waited moved the away room's stored level, and
                 # the room comes back where its room went, not where it stood
                 # when the admission began.
                 if attempt:
                     target_volume = self._resolve_target_volume(mac_id)
-                volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
+                volume_synced = pinned and await self._apply_target_volume_to_client(mac_id, target_volume)
                 if volume_synced:
                     # Re-push the client's EQ record now that it's reachable again.
                     # This path (Server.OnUpdate online-status flip) historically
@@ -1092,7 +1111,7 @@ class SnapcastWebSocketService:
                         await self._volume_service.broadcast_volume_state(show_bar=False)
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
                     return True
-                else:
+                elif pinned:
                     self.logger.warning(
                         f"SYNC_RECONNECT: {mac_id} hardware apply returned False "
                         f"(attempt {attempt + 1}/{max_retries + 1})"

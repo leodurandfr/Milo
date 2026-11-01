@@ -25,7 +25,7 @@ Measured 2026-08-27, none of these arms had run. They fall in three groups:
 """
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import aiohttp
 import pytest
@@ -337,6 +337,54 @@ class TestTheDuplicateSyncGuard:
 
         snapcast.set_volume.assert_not_called()
         snapcast.set_latency.assert_not_called()
+
+    async def test_a_refused_latency_is_retried_before_the_client_is_shown_online(
+        self, service, registry, snapcast
+    ):
+        """`set_latency` answers a refusal with False, not an exception. Read
+        before the attempts and never checked, it let the room come online
+        without its delay — out of step with the others until its next
+        admission, while every screen showed the delay in place."""
+        await registry.register_client(MAC, "Canapé", IP)
+        await registry.set_client_online(MAC, False)
+        await registry.set_client_delay(MAC, 40)
+        shown_online_at_each_push = []
+        answers = iter([False, True])
+
+        async def set_latency(client_id, ms):
+            shown_online_at_each_push.append(registry.get_client(MAC).online)
+            return next(answers)
+
+        snapcast.set_latency = AsyncMock(side_effect=set_latency)
+
+        ok = await service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=1, retry_delay=0.0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        assert snapcast.set_latency.await_args_list == [call(SNAPCAST_ID, 40)] * 2
+        assert shown_online_at_each_push == [False, False]
+        assert ok is True
+        assert registry.get_client(MAC).online is True
+
+    async def test_a_refused_passthrough_keeps_the_client_offline(
+        self, service, registry, snapcast
+    ):
+        """`--mixer none` still obeys snapserver's mute, and snapserver keeps
+        it across restarts: an admission that could not lift it and showed the
+        room online anyway offered controls for a speaker that stays silent."""
+        await registry.register_client(MAC, "Canapé", IP)
+        await registry.set_client_online(MAC, False)
+        snapcast.set_volume = AsyncMock(return_value=False)
+
+        ok = await service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        snapcast.set_volume.assert_awaited_once_with(SNAPCAST_ID, 100)
+        assert ok is False
+        assert registry.get_client(MAC).online is False
 
     async def test_a_sync_that_is_not_an_admission_does_not_change_what_is_shown(
         self, service, registry
