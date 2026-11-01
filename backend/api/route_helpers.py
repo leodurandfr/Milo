@@ -6,14 +6,19 @@ Provides:
 - run_source_command(): Wraps source.command() with standard success check + error handling
 - api_error_handler(): Async context manager for the common try/except HTTPException/Exception pattern
 - parse_audio_source(): Parse user-provided source name to enum, or raise HTTP 400
+- RecoveryAccessPointGate: dependency refusing a client of the open recovery AP (HTTP 403)
 - CONTRACTED: the `openapi_extra` of every operation a companion app's manifest pins
 """
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
+from backend.api.middleware import client_address, is_recovery_ap_client
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
+
+logger = logging.getLogger(__name__)
 
 # Marks an operation Milo-Mac or Milo-iOS calls (tests/contracts/milo_*_contract.json)
 # as `x-stability: contracted` in OpenAPI; the set is held equal to the two manifests
@@ -115,4 +120,44 @@ def parse_audio_source(name: str) -> AudioSource:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown audio source: '{name}'",
+        )
+
+
+class RecoveryAccessPointGate:
+    """Dependency that refuses, with 403, a client of the recovery access point.
+
+    The AP the network service raises during an outage is open, so that the
+    owner can always reach a unit that lost its network — which lets anyone in
+    radio range reach it too, and this API authenticates nobody. A route whose
+    effect outlives the outage (SSH, the `milo` password, which is sudo's) is
+    therefore refused to 10.42.0.0/24 while the AP is up, once setup is done:
+    the first-boot wizard runs over that same AP. Routes the AP exists for stay
+    open.
+
+    The address is `middleware.client_address`: uvicorn, trusting loopback
+    alone (`backend/main.py`), has already resolved nginx's `X-Forwarded-For`
+    into the peer, and `X-Real-IP` from loopback is only a net. Without a
+    network service (a dev host) no AP can be up, and the gate opens; without a
+    settings service the unit counts as set up.
+    """
+
+    def __init__(self, network_service, settings_service):
+        self.network_service = network_service
+        self.settings_service = settings_service
+
+    async def __call__(self, request: Request) -> None:
+        if self.network_service is None or not self.network_service.hotspot_active:
+            return
+        if not is_recovery_ap_client(request.scope):
+            return
+        settings = self.settings_service
+        if settings is not None and not await settings.get_setting("setup_completed"):
+            return
+        logger.warning(
+            "Refused %s %s to %s: a client of the recovery access point",
+            request.method, request.url.path, client_address(request.scope),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Not available over the recovery access point",
         )

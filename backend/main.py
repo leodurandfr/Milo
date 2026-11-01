@@ -327,6 +327,8 @@ system_router = create_system_router(
     hardware_service=hardware_service,
     diagnostic_service=get_service("diagnostic_service"),
     state_machine=state_machine,
+    network_service=network_service,
+    settings_service=settings_service,
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 
@@ -402,4 +404,7 @@ if __name__ == "__main__":
         reload=False,
         access_log=False,
         log_level="warning",
+        # Only nginx, on loopback, may name the client in X-Forwarded-For. Pinned so
+        # FORWARDED_ALLOW_IPS cannot widen it: the recovery-AP gate reads the result.
+        forwarded_allow_ips="127.0.0.1",
     )

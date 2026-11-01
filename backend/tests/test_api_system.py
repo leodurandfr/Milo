@@ -29,13 +29,16 @@ What breaks when these fail:
 import asyncio
 import builtins
 import io
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, Mock
 
+import backend.main as main
 from backend.api import system as api_system
+from backend.api.route_helpers import RecoveryAccessPointGate
 from backend.api.system import create_system_router
 from backend.tests.conftest import shortened_wait_for
 
@@ -704,6 +707,121 @@ class TestDevicePassword:
 
         assert response.status_code == 422
         assert spawn.calls == []
+
+
+class TestRecoveryAccessPoint:
+    """The three routes whose effect outlives an outage, refused to the recovery AP.
+
+    The AP (`core/network/service.py`) is open on purpose: it is how an owner
+    repairs a unit that lost its network. Anyone in radio range can join it too,
+    and nothing on this API authenticates, so `PUT /ssh` then `POST /password`
+    used to hand root to a passer-by, and both survived the link coming back.
+    Refused once setup is done, while the AP is up, to a 10.42.0.0/24 client.
+    """
+
+    GUARDED = ["ssh", "password", "reset-setup"]
+
+    @pytest.fixture
+    def network(self):
+        """What the gate reads of NetworkService: the AP flag, nothing else."""
+        return SimpleNamespace(hotspot_active=True)
+
+    @pytest.fixture
+    def settings(self):
+        stored = {"setup_completed": True}
+        service = Mock()
+        service.get_setting = AsyncMock(side_effect=lambda key: stored[key])
+        service.stored = stored
+        return service
+
+    @pytest.fixture
+    def reached_from(self, systemd, hostname_conflict, network, settings):
+        app = FastAPI()
+        app.include_router(
+            create_system_router(
+                systemd, hostname_conflict,
+                network_service=network, settings_service=settings,
+            ),
+            prefix="/api/system",
+        )
+        return lambda peer: TestClient(app, client=(peer, 41000))
+
+    @pytest.fixture
+    def routes(self, systemd, spawn, tmp_path, monkeypatch):
+        """Each guarded route: the request that drives it, and whether it touched the box."""
+        reset_marker = tmp_path / "reset-setup"
+        monkeypatch.setattr(api_system, "RESET_SETUP_MARKER", reset_marker)
+        monkeypatch.setattr(api_system, "PASSWORD_CHANGED_MARKER", tmp_path / "password-changed")
+        systemd.set_enabled = AsyncMock(return_value=True)
+        systemd.is_enabled = AsyncMock(return_value=True)
+        systemd.is_active = AsyncMock(return_value=True)
+        spawn.script(returncode=0)
+        return {
+            "ssh": (
+                "put", "/api/system/ssh", {"enabled": True},
+                lambda: systemd.set_enabled.await_count > 0,
+            ),
+            "password": (
+                "post", "/api/system/password", {"password": "correct horse"},
+                lambda: bool(spawn.calls),
+            ),
+            "reset-setup": (
+                "post", "/api/system/reset-setup", None,
+                lambda: reset_marker.exists() or systemd.power.await_count > 0,
+            ),
+        }
+
+    @staticmethod
+    def _send(client, route, real_ip):
+        method, path, body, touched = route
+        headers = {"X-Real-IP": real_ip} if real_ip else {}
+        response = getattr(client, method)(path, json=body, headers=headers)
+        return response.status_code, touched()
+
+    @pytest.mark.parametrize("name", GUARDED)
+    @pytest.mark.parametrize("peer,real_ip", [
+        pytest.param("127.0.0.1", "10.42.0.5", id="through-nginx"),
+        pytest.param("10.42.0.5", None, id="straight-to-8000"),
+        pytest.param("10.42.0.5", "127.0.0.1", id="forged-header-straight-to-8000"),
+    ])
+    def test_a_client_of_the_recovery_access_point_is_refused(
+        self, reached_from, routes, name, peer, real_ip,
+    ):
+        """A 200 here is SSH opened, the sudo password set, or the unit sent back to
+        its wizard by whoever happened to be in radio range of an outage."""
+        assert self._send(reached_from(peer), routes[name], real_ip) == (403, False)
+
+    @pytest.mark.parametrize("name", GUARDED)
+    @pytest.mark.parametrize("peer,real_ip,ap_up,setup_done", [
+        pytest.param("127.0.0.1", None, True, True, id="kiosk-over-loopback"),
+        pytest.param("10.42.0.5", None, False, True, id="lan-numbered-like-the-ap"),
+        pytest.param("10.42.0.5", None, True, False, id="first-boot-wizard-on-the-ap"),
+    ])
+    def test_everyone_else_is_served(
+        self, reached_from, routes, network, settings, name, peer, real_ip, ap_up, setup_done,
+    ):
+        """The kiosk is the owner at the unit itself, a home LAN may well be
+        10.42.0.0/24, and an unconfigured unit has nothing yet to protect."""
+        network.hotspot_active = ap_up
+        settings.stored["setup_completed"] = setup_done
+
+        assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
+
+    def test_the_production_router_hands_the_gate_both_services(self):
+        """The services are optional and the gate opens without them, so a
+        router built without them guards nothing and answers every test above."""
+        for method, path in (("PUT", "/ssh"), ("POST", "/password"), ("POST", "/reset-setup")):
+            route = next(
+                r for r in main.system_router.routes
+                if r.path == path and method in r.methods
+            )
+            gates = [
+                d.dependency for d in route.dependencies
+                if isinstance(d.dependency, RecoveryAccessPointGate)
+            ]
+            assert len(gates) == 1, f"{method} {path} is not gated"
+            assert gates[0].network_service is main.network_service
+            assert gates[0].settings_service is main.settings_service
 
 
 class TestTimezone:
