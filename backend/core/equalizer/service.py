@@ -412,24 +412,41 @@ class CamillaDSPService:
             if not applied:
                 self.logger.error(f"Reconnected but CamillaDSP refused to {effect}")
 
-            # Mono is a spatial setting, not an effect — restore independently of bypass
-            if self._mono and not await self.set_mono(enabled=True, persist=False):
-                self.logger.error("Reconnected but CamillaDSP refused to restore mono")
+            # Mono and the subwoofer split are spatial settings, not effects —
+            # restored independently of bypass, and in both directions. A restarted
+            # daemon comes back with its config file's graph (stereo, no split), but
+            # a refused command also drops the connection to a daemon that kept
+            # running its own, and a setting switched off meanwhile reached the
+            # cache alone (`update_cache`, CrossoverService). So what is off is
+            # pushed only where the live graph still holds it: a pristine graph
+            # costs no reload. Only the first Mixer step says mono — the config
+            # file defines the mono mixer whether it is used or not. An effects push
+            # refused above has already dropped the client; the setters below then
+            # refuse by name rather than this read raising.
+            live = await self._get_config() if self.connected else {"filters": {}, "pipeline": []}
+            mixer = next((s for s in live["pipeline"] if s.get("type") == "Mixer"), {})
+            if self._mono:
+                if not await self.set_mono(enabled=True, persist=False):
+                    self.logger.error("Reconnected but CamillaDSP refused to restore mono")
+            elif mixer.get("name") == "mono" and not await self.set_mono(enabled=False, persist=False):
+                self.logger.error("Reconnected but CamillaDSP refused to drop mono")
 
-            # And the subwoofer split, for the same reason the satellite needs no
-            # equivalent: its config file carries the filters across a restart,
-            # this one's does not. Updating CamillaDSP from the Update Manager
-            # stops and starts this unit alone, and without these two lines the
-            # speaker came back full range under a subwoofer still playing bass,
-            # until the next client admission re-derived it.
-            if self._crossover["enabled"] and not await self.set_crossover_filter(
-                True, self._crossover["frequency"], self._crossover["q"]
+            # The satellite needs no equivalent for the split: its config file
+            # carries the filters across a restart, this one's does not. Updating
+            # CamillaDSP from the Update Manager stops and starts this unit alone,
+            # and without this the speaker came back full range under a subwoofer
+            # still playing bass, until the next client admission re-derived it.
+            wired = {n for s in live["pipeline"] if s.get("type") == "Filter" for n in s.get("names", [])}
+            for label, cache, setter in (
+                ("highpass", self._crossover, self.set_crossover_filter),
+                ("lowpass", self._lowpass, self.set_lowpass_filter),
             ):
-                self.logger.error("Reconnected but CamillaDSP refused to restore the highpass")
-            if self._lowpass["enabled"] and not await self.set_lowpass_filter(
-                True, self._lowpass["frequency"], self._lowpass["q"]
-            ):
-                self.logger.error("Reconnected but CamillaDSP refused to restore the lowpass")
+                name = f"crossover_{label}"
+                if cache["enabled"]:
+                    if not await setter(True, cache["frequency"], cache["q"]):
+                        self.logger.error(f"Reconnected but CamillaDSP refused to restore the {label}")
+                elif (name in live["filters"] or name in wired) and not await setter(False):
+                    self.logger.error(f"Reconnected but CamillaDSP refused to drop the {label}")
 
         except Exception as e:
             self.logger.error(f"Error restoring the DSP graph after reconnect: {e}")

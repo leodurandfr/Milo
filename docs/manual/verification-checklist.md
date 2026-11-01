@@ -277,6 +277,7 @@ makes this silent.
 | Bands | Moving a single band is audible and the curve is reflected in the UI | targeted |
 | Loudness | Enabling loudness at low volume audibly lifts bass/treble | targeted |
 | Compressor | Enabling it audibly narrows the loud/quiet gap | targeted |
+| Mono across a reconnect | With nothing playing, `PUT /api/equalizer/target/local/mono` `{"enabled": true}`: the daemon's `GetConfigJson` (ws `127.0.0.1:1234`) names its first `Mixer` step `mono`, and still does once `sudo systemctl restart milo-camilladsp` has logged `Reconnected:`. Then `{"enabled": false}`: `stereo`, before and after another restart. Leave it on stereo. The record, the screen and the daemon must agree in both directions — a room left summed under a stereo screen is reproducible only from the daemon's graph | targeted |
 | Bypass | Effects toggle off/on without a gap or click in the audio | targeted |
 | Per-client EQ ⚠ | A remote client's EQ applies to that client only; a zone shows no EQ of its own | targeted |
 | Curve while loading | Switching target, re-enabling after a bypass, or reopening the page must **never** show a flat curve on the way to the real one — until the record lands the figures read "—" and the sliders are hidden. A flat curve is indistinguishable from a real `flat` preset, and this is a race, so repeat it ~5× before calling it clean | targeted |

@@ -1049,10 +1049,11 @@ class TestRestoreAfterReconnect:
     """
 
     @pytest.fixture
-    def service(self):
+    def service(self, mock_camilla_client):
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
         svc = CamillaDSPService(settings_service=settings)
+        svc._client = mock_camilla_client
         svc._connected = True
         return svc
 
@@ -1086,6 +1087,59 @@ class TestRestoreAfterReconnect:
             await service._restore_after_reconnect()
 
         assert "refused to restore mono" in caplog.text
+
+    async def test_a_refused_mono_drop_is_reported_at_error(
+        self, service, camilla_daemon, caplog
+    ):
+        """A live daemon still summing a room the cache says is stereo."""
+        camilla_daemon.load({"filters": {}, "pipeline": [{"type": "Mixer", "name": "mono"}]})
+        service._effects_enabled = True
+        service.restore_effects = AsyncMock(return_value=True)
+        service.set_mono = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert "refused to drop mono" in caplog.text
+
+    async def test_a_refused_passband_drop_is_reported_at_error(
+        self, service, camilla_daemon, mock_camilla_client, caplog
+    ):
+        """A live daemon still cutting the bass of a speaker whose subwoofer left."""
+        camilla_daemon.load({
+            "filters": {"crossover_highpass": {"type": "Biquad", "parameters": {}}},
+            "pipeline": [{"type": "Filter", "channels": [0], "names": ["crossover_highpass"]}],
+        })
+        mock_camilla_client.set_config.side_effect = RuntimeError("config rejected")
+        service._effects_enabled = True
+        service.restore_effects = AsyncMock(return_value=True)
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert "refused to drop the highpass" in caplog.text
+
+    async def test_a_refused_effects_push_still_names_what_else_was_lost(
+        self, service, mock_camilla_client, caplog
+    ):
+        """The refusal drops the client, so the restore goes on without one.
+
+        The mono and subwoofer lines are what tells a reader of errors.log which
+        part of the room is wrong; a generic exception in their place names
+        nothing.
+        """
+        mock_camilla_client.set_config.side_effect = RuntimeError("config rejected")
+        service._effects_enabled = True
+        service._mono = True
+        service._crossover["enabled"] = True
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert "refused to restore equalizer effects" in caplog.text
+        assert "refused to restore mono" in caplog.text
+        assert "refused to restore the highpass" in caplog.text
+        assert "Error restoring the DSP graph" not in caplog.text
 
     async def test_a_daemon_that_took_everything_logs_no_error(self, service, caplog):
         """The positive control — without it the three above would pass on any

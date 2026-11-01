@@ -18,6 +18,7 @@ These run against `CamillaDaemonDouble`, so `_get_config` / `_set_config` execut
 for real and the assertions are on the graph that was pushed.
 """
 import logging
+from dataclasses import replace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -367,13 +368,17 @@ class TestLevelTrim:
 
 
 class TestRestoreAfterReconnect:
-    """What the server puts back when the daemon comes back without its graph.
+    """What the server puts back, or takes out, when the connection comes back.
 
     The satellite needs none of this: it writes its CamillaDSP config to disk, so
     a restart reloads the filters. The server's `_set_config` is set_active only,
     so every non-effect setting has to be re-applied from a cache here — and
     `UpdateService` stops and starts `milo-camilladsp.service` alone when the
     operator updates CamillaDSP, which is a normal gesture, not a crash.
+
+    The daemon is not always the one that went away: a refused command drops the
+    connection to a daemon still running its graph, so what was switched off in
+    the meantime has to be taken out of it too.
     """
 
     async def test_a_reconnect_puts_the_subwoofer_split_back(self, service, camilla_daemon):
@@ -416,6 +421,52 @@ class TestRestoreAfterReconnect:
 
         for pushed in camilla_daemon.pushed_configs[pushes_before:]:
             assert "crossover_highpass" not in pushed["filters"]
+        # The effects state is the one push; mono and the split had nothing to take out.
+        assert len(camilla_daemon.pushed_configs) - pushes_before == 1
+
+    async def test_a_reconnect_to_a_live_daemon_drops_a_mono_switched_off_meanwhile(
+        self, service, camilla_daemon
+    ):
+        """A refused command drops the connection while the daemon keeps running
+        its graph. A stereo record staged in that window (`update_cache`, the
+        disconnected path) must reach the daemon on reconnect, or the room stays
+        summed while the record and the UI say stereo."""
+        camilla_daemon.load({
+            "mixers": {"stereo": {}, "mono": {}},
+            "filters": {},
+            "pipeline": [{"type": "Mixer", "name": "stereo"}],
+        })
+        await service.set_mono(enabled=True)
+        service._connected = False
+        await service.update_cache(replace(service.get_equalizer_settings(), mono=False))
+        service._connected = True
+
+        await service._restore_after_reconnect()
+
+        assert camilla_daemon.active_config["pipeline"][0]["name"] == "stereo"
+
+    @pytest.mark.parametrize("setter, name", [
+        ("set_crossover_filter", "crossover_highpass"),
+        ("set_lowpass_filter", "crossover_lowpass"),
+    ])
+    async def test_a_reconnect_to_a_live_daemon_drops_a_passband_switched_off_meanwhile(
+        self, service, camilla_daemon, setter, name
+    ):
+        """CrossoverService switches a passband off by writing the cache even when
+        the daemon is disconnected. On a live daemon the filter is still wired in:
+        a highpass left there is a speaker with no bass once the subwoofer left,
+        a lowpass a subwoofer playing the whole range."""
+        camilla_daemon.load({"filters": {}, "pipeline": []})
+        await getattr(service, setter)(True, frequency=120.0)
+        service._connected = False
+        assert await getattr(service, setter)(False) is False
+        service._connected = True
+
+        await service._restore_after_reconnect()
+
+        graph = camilla_daemon.active_config
+        assert name not in graph["filters"]
+        assert name not in [n for s in graph["pipeline"] for n in s.get("names", [])]
 
     async def test_the_level_trim_is_not_restored_from_here(self, service, camilla_daemon):
         """It comes back through the reconnect *callback* instead — VolumeService
