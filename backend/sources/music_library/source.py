@@ -916,6 +916,13 @@ class MusicLibrarySource(MpvAudioSource):
         ON shuffles the tracks after the current index; OFF restores their
         pristine order. The played/current head is left as-is either way, and
         mpv's entries after the current one are replaced in place.
+
+        mpv moves on by itself while this runs (a gapless advance, announced
+        behind this command), and a command whose answer misses its deadline
+        may still have been carried out. So the session is never rewritten
+        from the commands sent: the queue is rebuilt from mpv's own playlist
+        once the commands are done, and handed to the session in one step — a
+        stop that cuts the reorder keeps the whole queue to come back to.
         """
         session = self._session
         target = bool(params.shuffle)
@@ -926,9 +933,24 @@ class MusicLibrarySource(MpvAudioSource):
         if client is None:
             return self.error_response("Music library catalog not ready")
 
-        head = session.queue[: session.index + 1]
+        by_entry = dict(zip(session.entries, session.queue))
+        keep = session.index
+        refused = False
+        for index in range(len(session.entries) - 1, keep, -1):
+            if index == keep + 1:
+                # The track mpv moved on to while the later entries went is
+                # part of the head now, not of the tail.
+                playing = await self._mpv.get_property("playlist-playing-pos")
+                if isinstance(playing, int) and playing > keep:
+                    keep = playing
+                    break
+            if not await self._mpv.remove_entry(index):
+                refused = True
+                break
+
+        head = session.queue[: keep + 1]
         if target:
-            tail = session.queue[session.index + 1:]
+            tail = session.queue[keep + 1:]
             random.shuffle(tail)
         else:
             # Pristine order minus the played/current head, consumed *positionally*:
@@ -943,28 +965,52 @@ class MusicLibrarySource(MpvAudioSource):
                     continue
                 tail.append(track)
 
-        # The session follows mpv step by step: a refusal partway leaves a
-        # shorter queue that matches mpv's playlist, never entry ids mpv does
-        # not hold (the end of the queue would then never be recognized).
-        refused = False
-        for index in range(len(session.entries) - 1, session.index, -1):
-            if not await self._mpv.remove_entry(index):
-                refused = True
-                break
-            del session.entries[index]
-            del session.queue[index]
+        # An append whose answer is lost may be in mpv all the same; the URL
+        # sent is the only thing that names it (each one carries a fresh salt).
+        lost: Optional[Tuple[str, Dict[str, Any]]] = None
         if not refused:
             for track in tail:
-                entry = await self._mpv.loadfile(client.stream_url(track["id"]), mode="append")
+                stream = client.stream_url(track["id"])
+                entry = await self._mpv.loadfile(stream, mode="append")
                 if entry is None:
-                    refused = True
+                    lost = (stream, track)
                     break
-                session.entries.append(entry)
-                session.queue.append(track)
+                by_entry[entry] = track
+
+        playlist = await self._mpv.get_property("playlist")
+        entries, queue = [], []
+        for item in playlist if isinstance(playlist, list) else []:
+            track = by_entry.get(item.get("id"))
+            if track is None and lost is not None and item.get("filename") == lost[0]:
+                track, lost = lost[1], None
+            entries.append(item.get("id"))
+            queue.append(track)
+        if None in queue or entries[: keep + 1] != session.entries[: keep + 1]:
+            # Unanswered, or not the queue this left: a queue that is not mpv's
+            # would never see its end recognized.
+            await self._end_playback(
+                EndReason.STREAM_LOST, detail="mpv's playlist unreadable after a reorder"
+            )
+            return self.error_response("Failed to reorder queue")
+        session.entries, session.queue = entries, queue
+
+        if len(queue) > keep + 1 and await self._mpv.get_property("idle-active"):
+            # mpv stopped with tracks left to play: the entry it had just
+            # reached was taken out with nothing after it, or its track ended
+            # before the tail was back — and an append starts nothing. One
+            # read is enough: mpv answers no command while it plays out its
+            # last sound (measured on 0.40), so it reads idle by then.
+            if not await self._mpv.play_index(keep + 1):
+                await self._end_playback(EndReason.STREAM_LOST, detail="mpv stopped by a reorder")
+                return self.error_response("Failed to reorder queue")
+            self._move_to_track(session, keep + 1)
+            session.opened = session.played_out = False
+            self._sync_phase(session, PhaseEvent.TRACK_CHANGE)
+        if queue == head + tail:
             session.shuffle = target
         self._publish()
-        if refused:
-            self._logger.error("mpv refused part of the reorder; the queue now ends where mpv's does")
+        if session.shuffle != target:
+            self._logger.error("mpv did not take the whole reorder; the queue now ends where mpv's does")
             return self.error_response("Failed to reorder queue")
         return self.success_response("Shuffle on" if target else "Shuffle off")
 

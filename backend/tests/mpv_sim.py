@@ -27,6 +27,12 @@ consistent truth. Every behaviour below was observed on the unit
   no start-file. `remaining-file-loops` is the option's value again at every
   file start and on every set (0 for `no`). Both options survive a `stop`.
   (Measured 2026-10-04, mpv 0.40 with a null audio output.)
+- `playlist-remove` of the entry playing ends it with `end-file
+  reason=stop`, then starts the entry after it — the first one again under
+  `loop-playlist` — or, with none, goes idle at once (`idle`, `idle-active`
+  true). `playlist` lists each entry's `filename` and `id`, with `current`
+  and `playing` true on the one playing; `playlist-playing-pos` is -1 while
+  idle. (Measured 2026-11-01, mpv 0.40 with a null audio output.)
 - A seek before the file is open is refused (E57, measured 3/3).
 - A stream that stops delivering sets `paused-for-cache` and sends nothing
   else (measured: 155 s before an `eof`, never for a stalled socket).
@@ -272,7 +278,14 @@ class MpvSim:
         self.sent.append(("remove_entry", index))
         if not self._ok() or not 0 <= index < len(self.playlist):
             return False
-        self.playlist.pop(index)
+        if self.playlist.pop(index) is self.current:
+            self._end_current("stop")
+            if index < len(self.playlist):
+                self._start(self.playlist[index])
+            elif self.playlist and self.props.get("loop-playlist") not in (None, "no"):
+                self._start(self.playlist[0])
+            else:
+                self._go_idle()
         return True
 
     # === The model ===
@@ -282,6 +295,7 @@ class MpvSim:
 
     def _read(self, name: str) -> Any:
         playing_file = self.current is not None and self.opened
+        position = self.playlist.index(self.current) if self.current in self.playlist else -1
         values = {
             "pause": self.paused,
             "idle-active": self.current is None,
@@ -290,8 +304,14 @@ class MpvSim:
             "playback-time": self.position if playing_file else None,
             "time-pos": self.position if playing_file else None,
             "duration": self._duration() if playing_file else None,
-            "playlist-pos": self.playlist.index(self.current) if self.current in self.playlist else -1,
+            "playlist-pos": position,
+            "playlist-playing-pos": position,
             "playlist-count": len(self.playlist),
+            "playlist": [
+                {"filename": entry.url, "id": entry.id,
+                 **({"current": True, "playing": True} if entry is self.current else {})}
+                for entry in self.playlist
+            ],
             "metadata": dict(self.metadata),
             "remaining-file-loops": self.remaining_loops,
         }

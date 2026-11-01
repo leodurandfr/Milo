@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from backend.core import audio_source
+from backend.core.models.audio_state import AudioSource
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library import source as library_module
 from backend.sources.music_library.source import MusicLibrarySource
@@ -1501,7 +1502,7 @@ async def test_a_reorder_refused_halfway_still_ends_the_queue(rig):
     async def refuse_second(index):
         calls.append(index)
         if len(calls) == 2:
-            return False                     # mpv's reply lost (timeout)
+            return False                     # mpv refuses this one
         return await real(index)
 
     rig.mpv.remove_entry = refuse_second
@@ -1542,3 +1543,169 @@ async def test_a_reorder_whose_append_is_refused_keeps_the_now_playing_true(rig)
 
     playing_url = rig.mpv.current.url
     assert f"id={details(rig)['track_id']}&" in playing_url
+
+
+async def finish(rig):
+    """mpv plays out what it holds, one entry after the other."""
+    for _ in range(len(rig.mpv.playlist)):
+        if rig.mpv.current is None:
+            return
+        await rig.mpv.ends("eof")
+        await settle()
+
+
+def assert_follows_mpv(rig):
+    """The track on screen is the one mpv plays, and the queue is mpv's."""
+    assert rig.mpv.current is not None, "the reorder left mpv idle"
+    assert f"id={details(rig)['track_id']}&" in rig.mpv.current.url
+    assert [url(t["id"]) for t in details(rig)["queue"]] == [e.url for e in rig.mpv.playlist]
+
+
+async def test_shuffle_racing_a_gapless_advance_keeps_the_queue_playing(rig):
+    """mpv moving on to the next track while a reorder takes the upcoming
+    entries out: the reorder removed the track mpv had just started, mpv went
+    idle, and the session stayed PLAYING over silence — on screen, in the
+    widget and on the lock screen — until someone pressed next."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.remove_entry
+    calls = []
+
+    async def advance_first(index):
+        calls.append(index)
+        if len(calls) == 1:
+            await rig.mpv.ends("eof")       # s1 ends as the reorder starts: mpv plays s2
+        return await real(index)
+
+    rig.mpv.remove_entry = advance_first
+    await rig.command("set_shuffle", {"shuffle": True})
+
+    assert_follows_mpv(rig)
+    await finish(rig)
+    assert rig.mpv.current is None
+    assert session(rig) is None
+
+
+async def test_shuffle_taking_out_the_track_mpv_just_reached_starts_the_next_one(rig):
+    """mpv reaching the next track between the reorder's check and that
+    track's removal: the removal stops mpv, and an append starts nothing."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.get_property
+
+    async def advance_after_answering(name, timeout=None):
+        value = await real(name, timeout)
+        if name == "playlist-playing-pos":
+            await rig.mpv.ends("eof")       # s1 ends right after mpv answered: s2 plays
+        return value
+
+    rig.mpv.get_property = advance_after_answering
+    result = await rig.command("set_shuffle", {"shuffle": True})
+
+    assert result["success"] is True
+    assert_follows_mpv(rig)
+    await finish(rig)
+    assert session(rig) is None
+
+
+async def test_a_stop_during_a_reorder_keeps_the_whole_queue_to_resume(rig):
+    """A source switch cutting a reorder halfway: the session was shortened
+    entry by entry as mpv's went, so the resume point kept only the tracks not
+    yet taken out, and the rest of the album was gone when the library came
+    back."""
+    tracks = [dict(TRACKS[0], id=f"t{n}", title=f"Track {n}") for n in range(6)]
+    await rig.select()
+    await play(rig, tracks=tracks)
+    await rig.tick()
+    real = rig.mpv.remove_entry
+    calls, leaving, never = [], [], asyncio.Event()
+
+    async def switch_away_on_third(index):
+        calls.append(index)
+        if len(calls) == 3:
+            leaving.append(asyncio.create_task(rig.machine.transition_to_source(AudioSource.NONE)))
+            await never.wait()
+        return await real(index)
+
+    rig.mpv.remove_entry = switch_away_on_third
+    toggle = asyncio.create_task(rig.source.command("set_shuffle", {"shuffle": True}))
+    await settle()
+    await leaving[0]
+    await toggle
+    await rig.select()
+
+    data = details(rig)
+    assert [t["id"] for t in data["queue"]] == [t["id"] for t in tracks]
+    assert data["shuffle"] is False
+
+
+async def test_a_reorder_whose_reply_was_lost_still_ends_the_queue(rig):
+    """A removal mpv carried out whose answer came back too late (the frame was
+    written; the reply missed its deadline) was read as a refusal: the session
+    kept an entry mpv no longer held, and the queue never ended — PLAYING over
+    an idle mpv."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.remove_entry
+    calls = []
+
+    async def lose_second_reply(index):
+        calls.append(index)
+        done = await real(index)
+        return False if len(calls) == 2 else done
+
+    rig.mpv.remove_entry = lose_second_reply
+    await rig.command("set_shuffle", {"shuffle": True})
+
+    await finish(rig)
+    assert rig.mpv.current is None
+    assert session(rig) is None
+
+
+async def test_a_reorder_whose_append_reply_was_lost_keeps_the_now_playing_true(rig):
+    """An append mpv carried out whose answer came back too late: the session
+    ended its queue one entry short of mpv's, and from the entry it never
+    listed on, the track on screen was not the one playing."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.loadfile
+    calls = []
+
+    async def lose_second_reply(stream, **kw):
+        calls.append(stream)
+        entry = await real(stream, **kw)
+        return None if len(calls) == 2 else entry
+
+    rig.mpv.loadfile = lose_second_reply
+    await rig.command("set_shuffle", {"shuffle": True})
+
+    for _ in range(2):                       # s1 ends, then the first of the tail
+        await rig.mpv.ends("eof")
+        await settle()
+
+    assert f"id={details(rig)['track_id']}&" in rig.mpv.current.url
+
+
+async def test_a_reorder_mpv_cannot_read_back_ends_the_session(rig):
+    """A playlist that does not answer after a reorder: publishing the queue
+    the commands assumed is how the session came to list entries mpv did not
+    hold. It ends as a lost stream instead, the whole queue kept to resume."""
+    await rig.select()
+    await play(rig)
+    await rig.tick()
+    real = rig.mpv.get_property
+
+    async def playlist_unanswered(name, timeout=None):
+        return None if name == "playlist" else await real(name, timeout)
+
+    rig.mpv.get_property = playlist_unanswered
+    result = await rig.command("set_shuffle", {"shuffle": True})
+
+    assert result["success"] is False
+    assert session(rig) is None
+    assert rig.errors() == ["stream_disconnected"]
+    assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s2", "s3"]
