@@ -187,7 +187,7 @@ class TestDacMode:
         camilladsp.set_volume.assert_awaited_once_with(0.0)
         camilladsp.set_mute.assert_awaited_once_with(False)
 
-    async def test_a_reconnect_in_dac_mode_never_reads_the_store(self, service, camilladsp):
+    async def test_a_reconnect_in_dac_mode_never_pushes_the_stored_level(self, service, camilladsp):
         """The managed branch below it would push the stored level.
 
         Falling through to it on a DAC unit re-attenuates a signal the amplifier
@@ -200,6 +200,58 @@ class TestDacMode:
         await service.reapply_current_volume()
 
         assert camilladsp.set_volume.await_args_list == [((0.0,), {})]
+
+    async def test_a_reconnect_in_dac_mode_keeps_the_stored_mute(self, registered, camilladsp):
+        """A DAC server muted from its room's toggle, then CamillaDSP restarts.
+
+        A mute is not a level: the router mutes a DAC's DSP like any other. The
+        re-pin used to unmute it as well, and the room played at the amp's level
+        while the web UI, Milo-Mac and the iOS widget all showed it muted.
+        """
+        svc, _ = await registered(registry_flag=True)
+        await svc.set_local_volume_control(False)
+        await svc.set_client_mute(LOCAL, True)
+        camilladsp.reset_mock()
+
+        await svc.reapply_current_volume()
+
+        assert camilladsp.set_volume.await_args_list[-1].args == (0.0,)
+        assert [c.args for c in camilladsp.set_mute.await_args_list] == [(True,)]
+
+    async def test_a_dac_boot_keeps_the_stored_mute(self, registered, camilladsp):
+        """The same pin at boot, for a DAC server left muted at shutdown: the
+        first boot after a night's mute opened the room at the amp's level."""
+        svc, _ = await registered(registry_flag=False, hardware_flag=False)
+        await svc.state_store.set_client_mute(LOCAL, True)
+
+        assert await svc.initialize() is True
+
+        assert camilladsp.set_volume.await_args_list[-1].args == (0.0,)
+        assert [c.args for c in camilladsp.set_mute.await_args_list] == [(True,)]
+
+    async def test_leaving_multiroom_unmutes_a_dac_server_muted_in_its_zone(
+        self, registered, camilladsp, state_machine
+    ):
+        """Muted in multiroom, then back to direct, where it is the only speaker.
+
+        The way to direct unmuted the store and skipped the daemon for a DAC:
+        every screen said unmuted while the room stayed silent, with no volume
+        control on screen to get out of it.
+        """
+        svc, registry = await registered(registry_flag=True)
+        await registry.set_client_online(LOCAL, True)
+        routing = Mock(get_state=Mock(return_value={"multiroom_enabled": True}))
+        svc.set_routing_service(routing)
+        await svc.set_local_volume_control(False)
+        await svc.set_client_mute(LOCAL, True)
+        assert camilladsp.set_mute.await_args_list[-1].args == (True,)
+        routing.get_state.return_value = {"multiroom_enabled": False}
+
+        await svc.update_volume_mode(False)
+
+        published = state_machine.broadcast.await_args_list[-1].args[0].state["global_mute"]
+        assert published is False
+        assert camilladsp.set_mute.await_args_list[-1].args == (published,)
 
     async def test_setting_a_level_in_direct_dac_mode_is_accepted_and_ignored(self, service, camilladsp):
         """Direct + DAC has no client to control, and the API must not 500.
@@ -823,6 +875,7 @@ class TestLocalLevelTrim:
 
         await trimmed.reapply_current_volume()
 
+        trimmed._equalizer_controller.set_equalizer_mute.assert_awaited_once()
         trimmed._equalizer_controller.set_equalizer_gain.assert_not_awaited()
 
 

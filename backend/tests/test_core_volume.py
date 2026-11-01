@@ -807,16 +807,18 @@ class TestVolumeService:
         mock_camilladsp_service.set_mute.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_a_dac_mode_switch_leaves_camilladsp_alone(self, service, mock_camilladsp_service):
-        """No local volume control: CamillaDSP stays as reapply_current_volume
-        pinned it, even on the way to direct, where a managed unit unmutes."""
+    async def test_a_dac_server_is_unmuted_on_the_way_to_direct(self, service, mock_camilladsp_service):
+        """No local volume control, and still the unmute: a mute is not a level,
+        and the router mutes a DAC's DSP like any other. Skipped, a room muted
+        in multiroom came back to direct silent while every screen said
+        unmuted. The level stays where the pin left it."""
         self._two_clients_apart(service)
         service._volume_control = False
 
         await service.update_volume_mode(False)
 
+        mock_camilladsp_service.set_mute.assert_awaited_once_with(False)
         mock_camilladsp_service.set_volume.assert_not_called()
-        mock_camilladsp_service.set_mute.assert_not_called()
 
     def test_volume_config_access(self, service):
         """Test volume_config property access."""

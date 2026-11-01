@@ -215,6 +215,7 @@ class TestVolumeGuardsFailOpen:
         reconnect restore re-applies both."""
         camilladsp.set_mute = AsyncMock(side_effect=RuntimeError("daemon down"))
         volume.broadcast_volume_state = AsyncMock()
+        volume.state_store.ensure_local_client("aa:bb:cc:dd:ee:ff", -40.0)
 
         with caplog.at_level(logging.WARNING):
             await volume.update_volume_mode(multiroom_enabled=False)

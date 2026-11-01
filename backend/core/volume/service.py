@@ -367,11 +367,9 @@ class VolumeService:
         local_mac = self._state_store.local_mac_id
         if not multiroom_enabled and local_mac:
             await self._state_store.set_client_mute(local_mac, False)
-
-        # DAC mode makes no CamillaDSP call at all here: reapply_current_volume
-        # pins it at 0 dB and unmuted, and the external amp owns the rest.
-        if self._volume_control and not multiroom_enabled:
-            # Through the door, ordered after any mute still in flight to it.
+            # A DAC server too: a mute is not a level, and the router mutes
+            # its DSP like any other. Through the door, ordered after any mute
+            # still in flight to it.
             if await self._equalizer_controller.set_equalizer_mute(local_mac, False, force=True):
                 self.logger.info("Switched to direct: CamillaDSP unmuted, no level changed")
             else:
@@ -794,25 +792,33 @@ class VolumeService:
     async def _pin_local_at_unity(self, local_mac: Optional[str]) -> None:
         """DAC mode: CamillaDSP at 0 dB, with the stored mute (the amp owns the level).
 
+        The one pin of the flip, the CamillaDSP reconnect and the boot. It keeps
+        the stored mute rather than unmuting: the router mutes a DAC's DSP like
+        any other, so an unmute here would open a room every screen shows muted.
+
         Through the door, queued behind whatever is still in flight to this
         daemon: a level sent before the flip would otherwise land after the pin
         and attenuate a path the amp now owns. What is submitted is the stored
         level, not 0 dB: the router sends unity for it while the flag says DAC,
         and the level itself if a flip back to managed overtook this one —
         where a 0 dB would leave at the operator's ceiling. With no local MAC
-        there is no door to key it on, and nothing can be in flight to it either.
+        there is no door to key it on, no mute stored for it, and nothing can
+        be in flight to it either.
         """
         if local_mac:
-            await self._equalizer_controller.set_equalizer_volume(
+            level_taken = await self._equalizer_controller.set_equalizer_volume(
                 local_mac, self._state_store.local_volume_db, force=True
             )
-            await self._equalizer_controller.set_equalizer_mute(
+            mute_taken = await self._equalizer_controller.set_equalizer_mute(
                 local_mac, self._state_store.get_client_mute(local_mac), force=True
             )
         else:
-            await self._camilladsp_service.set_volume(0.0)
-            await self._camilladsp_service.set_mute(False)
-        self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
+            level_taken = await self._camilladsp_service.set_volume(0.0)
+            mute_taken = await self._camilladsp_service.set_mute(False)
+        if level_taken and mute_taken:
+            self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
+        else:
+            self.logger.warning("DAC mode: CamillaDSP did not take the 0 dB pin")
 
     def _recorded_gain(self, mac_id: str) -> float:
         """The level trim the registry holds for a client (0.0 when unknown)."""
@@ -871,12 +877,10 @@ class VolumeService:
         """Re-apply current volume and mute state to CamillaDSP (after reconnection)."""
         if not self._camilladsp_service:
             return
-        if not self._volume_control:
-            await self._camilladsp_service.set_volume(0.0)
-            await self._camilladsp_service.set_mute(False)
-            self.logger.info("DAC mode: re-pinned CamillaDSP at 0 dB after reconnect")
-            return
         local_mac_id = self._state_store.local_mac_id
+        if not self._volume_control:
+            await self._pin_local_at_unity(local_mac_id)
+            return
         if local_mac_id is None or not self._state_store.has_client(local_mac_id):
             # Boot race: CamillaDSP connected before the state store was restored.
             # Don't clobber it with DEFAULT_VOLUME_DB — the startup path
@@ -917,15 +921,12 @@ class VolumeService:
                 self.logger.warning("CamillaDSP not connected after 10s, startup volume not applied")
                 return
 
-        # DAC mode: pin CamillaDSP at 0 dB (external amp manages volume)
+        local_mac_id = self._state_store.local_mac_id
+
         if not self._volume_control:
             if self._camilladsp_service:
-                await self._camilladsp_service.set_volume(0.0)
-                await self._camilladsp_service.set_mute(False)
-            self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
+                await self._pin_local_at_unity(local_mac_id)
             return
-
-        local_mac_id = self._state_store.local_mac_id
 
         # In restore mode, the local client's own persisted volume is authoritative.
         # Before the local client is resolved (fresh boot), fall back to the
