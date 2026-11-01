@@ -573,7 +573,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // PLAYLIST WRITES (create/rename/add/reorder-remove/delete). Navidrome owns
   // the data; every successful write refreshes the cached playlist list so the
   // tab (names + counts) stays truthful. Drill-down views hold their own copy
-  // of a playlist's entries and pass the full new order to setPlaylistTracks.
+  // of a playlist's entries and pass setPlaylistTracks the order an edit was made
+  // from and the order it leaves; the backend keeps the entries of an unmounted
+  // storage space, which that copy never holds, where they are, and refuses the
+  // edit if the playlist no longer shows the first.
   // =========================================================================
   async function createPlaylist(name, songIds = null) {
     // The storage space rides along: a playlist created empty has no track to be
@@ -604,8 +607,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const renamePlaylist = (playlistId, name) => editPlaylist(playlistId, { name });
   const addToPlaylist = (playlistId, songIds) =>
     editPlaylist(playlistId, { song_ids_to_add: songIds });
-  const setPlaylistTracks = (playlistId, trackIds) =>
-    editPlaylist(playlistId, { track_ids: trackIds });
+  const setPlaylistTracks = (playlistId, shownIds, trackIds) =>
+    editPlaylist(playlistId, { shown_track_ids: shownIds, track_ids: trackIds });
+  const removeFromPlaylist = (playlistId, songIds) =>
+    editPlaylist(playlistId, { remove_song_ids: songIds });
 
   async function deletePlaylist(playlistId) {
     const result = await apiCall.delete(`${BASE}/playlist/${playlistId}`, {
@@ -1112,6 +1117,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     renamePlaylist,
     addToPlaylist,
     setPlaylistTracks,
+    removeFromPlaylist,
     deletePlaylist,
     addToPlaylistSongIds,
     requestAddToPlaylist,

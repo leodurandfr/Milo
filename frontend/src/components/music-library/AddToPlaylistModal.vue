@@ -155,19 +155,13 @@ watch(() => props.isOpen, async (open) => {
   await refreshAddedIds();
 });
 
-async function removeFrom(pl) {
-  const playlist = await store.fetchPlaylist(pl.id);
-  const remainingIds = (playlist?.entry || [])
-    .filter((song) => !props.songIds.includes(song.id))
-    .map((song) => song.id);
-  return store.setPlaylistTracks(pl.id, remainingIds);
-}
-
 async function toggleIn(pl) {
   if (busy.value) return;
   busy.value = true;
   const wasAdded = addedIds.value.has(pl.id);
-  const ok = wasAdded ? await removeFrom(pl) : await store.addToPlaylist(pl.id, props.songIds);
+  const ok = wasAdded
+    ? await store.removeFromPlaylist(pl.id, props.songIds)
+    : await store.addToPlaylist(pl.id, props.songIds);
   busy.value = false;
   if (!ok) return;
   const next = new Set(addedIds.value);

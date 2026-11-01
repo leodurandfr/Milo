@@ -115,8 +115,11 @@ const playlist = ref(null);
 const loading = ref(false);
 
 // Local, mutable copy of the ordered entries — the edit surface (reorder/remove)
-// works on this and persists the whole new order through setPlaylistTracks.
+// works on this and persists its new order through setPlaylistTracks, with the
+// order the edit was made from. It holds only what a mounted storage space
+// serves; the backend keeps the rest in place.
 const tracks = ref([]);
+const trackIds = () => tracks.value.map((s) => s.id);
 const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
 
 const editing = ref(false);
@@ -174,17 +177,15 @@ async function handleDelete() {
   else confirmDelete.value = false;
 }
 
-// === Remove a track (persist the whole remaining order) ===
+// === Remove a track (persist the order of the rows left) ===
 async function removeAt(index) {
+  const shown = trackIds();
   tracks.value.splice(index, 1);
-  await persistOrder();
+  await persistOrder(shown);
 }
 
-async function persistOrder() {
-  const ok = await store.setPlaylistTracks(
-    props.playlistId,
-    tracks.value.map((s) => s.id)
-  );
+async function persistOrder(shown) {
+  const ok = await store.setPlaylistTracks(props.playlistId, shown, trackIds());
   // On failure, re-read the authoritative order from Navidrome.
   if (!ok) await reload();
 }
@@ -192,6 +193,7 @@ async function persistOrder() {
 // === Reorder (drag grip → swap, mirrors DockSettings) ===
 const dragState = ref({ index: -1, startY: 0, currentY: 0, itemHeight: 0 });
 let reordered = false;
+let shownBeforeDrag = [];
 
 function getDragItemStyle(index) {
   if (dragState.value.index !== index) return {};
@@ -213,6 +215,7 @@ function onGripDown(event, index) {
     itemHeight: wrapper ? wrapper.offsetHeight : 0,
   };
   reordered = false;
+  shownBeforeDrag = trackIds();
   document.addEventListener('pointermove', onDragMove);
   document.addEventListener('pointerup', onDragEnd);
   document.addEventListener('pointercancel', onDragEnd);
@@ -244,7 +247,7 @@ function onDragEnd() {
   removeDragListeners();
   if (reordered) {
     reordered = false;
-    persistOrder();
+    persistOrder(shownBeforeDrag);
   }
 }
 

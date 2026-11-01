@@ -688,6 +688,14 @@ class TestPlaylistRoutes:
         assert api.get("/api/music-library/playlist/nope").status_code == 404
 
 
+def _raw_playlist(*entries):
+    """A playlist as Subsonic getPlaylist returns it: (song id, album id) pairs."""
+    return {
+        "id": "pl-1",
+        "entry": [{"id": song_id, "albumId": album_id} for song_id, album_id in entries],
+    }
+
+
 class TestPlaylistWriteRoutes:
     def test_create_returns_playlist(self, api, nav_client):
         r = api.post("/api/music-library/playlists", json={"name": "Road Trip"})
@@ -717,15 +725,170 @@ class TestPlaylistWriteRoutes:
         nav_client.update_playlist.assert_awaited_once_with("pl-1", song_ids_to_add=["s-3"])
 
     def test_update_replace_order(self, api, nav_client):
-        api.put("/api/music-library/playlist/pl-1", json={"track_ids": ["s-2", "s-1"]})
+        nav_client.get_playlist = AsyncMock(return_value=_raw_playlist(("s-1", "al-1"), ("s-2", "al-1")))
+        api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["s-1", "s-2"], "track_ids": ["s-2", "s-1"]},
+        )
         nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", ["s-2", "s-1"])
         nav_client.update_playlist.assert_not_called()
 
     def test_update_replace_empty_clears(self, api, nav_client):
         # track_ids=[] is a valid single op (distinct from None) — clears the playlist.
-        r = api.put("/api/music-library/playlist/pl-1", json={"track_ids": []})
+        nav_client.get_playlist = AsyncMock(return_value=_raw_playlist(("s-1", "al-1"), ("s-2", "al-1")))
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["s-1", "s-2"], "track_ids": []},
+        )
         assert r.status_code == 200
         nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", [])
+
+    # The edits below run against a playlist mixing the mounted space (album
+    # al-1) with an unplugged key (al-usb), whose index Navidrome keeps on
+    # purpose: GET /playlist/{id} shows [a, b], Navidrome stores [a, u, b].
+    @staticmethod
+    def _mixed():
+        return _raw_playlist(("a", "al-1"), ("u", "al-usb"), ("b", "al-1"))
+
+    def test_a_reorder_keeps_the_entries_no_mounted_space_can_serve(self, api, nav_client):
+        """The playlist view sends the order of the rows it shows, which never
+        include an unplugged key's tracks. Written as is, the list deleted them
+        from Navidrome for good — still gone once the key was back."""
+        nav_client.get_playlist = AsyncMock(return_value=self._mixed())
+
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["a", "b"], "track_ids": ["b", "a"]},
+        )
+
+        assert r.status_code == 200
+        nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", ["b", "u", "a"])
+
+    def test_a_removal_from_the_visible_order_keeps_the_absent_space(self, api, nav_client):
+        """Removing a row in the playlist view sends the rows left: the hidden
+        track stays, and stays where it was against the rows around it."""
+        nav_client.get_playlist = AsyncMock(return_value=self._mixed())
+
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["a", "b"], "track_ids": ["b"]},
+        )
+
+        assert r.status_code == 200
+        nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", ["u", "b"])
+
+    def test_a_removal_keeps_the_entries_of_an_absent_space(self, api, nav_client):
+        """Unchecking a playlist in the ⋯ picker removes that song and nothing
+        else. It recomputed the remaining list from the filtered read, so every
+        track of an unplugged key left with it."""
+        nav_client.get_playlist = AsyncMock(return_value=self._mixed())
+
+        r = api.put("/api/music-library/playlist/pl-1", json={"remove_song_ids": ["a"]})
+
+        assert r.status_code == 200
+        nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", ["u", "b"])
+
+    def test_a_removal_takes_the_song_off_every_storage_space(self, api, nav_client):
+        """The picker's checkmark comes from the raw playlist, so unchecking it
+        must take the song out wherever it sits, an unplugged key included —
+        every occurrence of it, or the checkmark comes back on the next open."""
+        nav_client.get_playlist = AsyncMock(
+            return_value=_raw_playlist(("u", "al-usb"), ("a", "al-1"), ("u", "al-usb"))
+        )
+
+        api.put("/api/music-library/playlist/pl-1", json={"remove_song_ids": ["u"]})
+
+        nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", ["a"])
+
+    def test_a_removal_of_a_song_not_in_the_playlist_writes_nothing(self, api, nav_client):
+        nav_client.get_playlist = AsyncMock(return_value=self._mixed())
+
+        r = api.put("/api/music-library/playlist/pl-1", json={"remove_song_ids": ["zz"]})
+
+        assert r.status_code == 200
+        nav_client.set_playlist_tracks.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "edit",
+        [{"shown_track_ids": ["a", "b"], "track_ids": ["a"]}, {"remove_song_ids": ["a"]}],
+    )
+    def test_an_edit_is_refused_when_the_raw_playlist_cannot_be_read(self, api, nav_client, edit):
+        """A failed read used to become an empty list, and the empty list a
+        write that cleared the whole playlist — reported as a success."""
+        nav_client.get_playlist = AsyncMock(return_value=None)
+
+        r = api.put("/api/music-library/playlist/pl-1", json=edit)
+
+        assert r.status_code == 502
+        nav_client.set_playlist_tracks.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("mounted_now", "stored", "shown", "order"),
+        [
+            # The key came back in: u is shown now, so leaving it out of the
+            # order read as removing it, and it was deleted for good.
+            ({"al-1", "al-usb"}, [("a", "al-1"), ("u", "al-usb"), ("b", "al-1")], ["a", "b"], ["b"]),
+            # An album page failed on this read: b is not shown now, so
+            # removing it changed nothing and was answered as a success.
+            (set(), [("u", "al-usb"), ("b", "al-1")], ["b"], []),
+        ],
+        ids=["a space appeared", "the inventory came back short"],
+    )
+    def test_an_edit_made_from_other_shown_entries_is_refused(
+        self, api, nav_client, source, mounted_now, stored, shown, order
+    ):
+        """What a reorder or a removal leaves out is read against what the view
+        was shown. If that has changed since, a shown entry left out may be one
+        the user never saw: nothing is written, and the view reloads."""
+        nav_client.get_playlist = AsyncMock(return_value=_raw_playlist(*stored))
+        source.mounted_album_ids = AsyncMock(return_value=mounted_now)
+
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": shown, "track_ids": order},
+        )
+
+        assert r.status_code == 409
+        nav_client.set_playlist_tracks.assert_not_called()
+
+    def test_a_reorder_naming_an_entry_no_longer_shown_is_refused(self, api, nav_client):
+        """The view read u while its key was in; unplugged since, u has no rank
+        among the shown entries left to put it in."""
+        nav_client.get_playlist = AsyncMock(return_value=self._mixed())
+
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["a", "u", "b"], "track_ids": ["u", "b", "a"]},
+        )
+
+        assert r.status_code == 409
+        nav_client.set_playlist_tracks.assert_not_called()
+
+    def test_a_reorder_cannot_duplicate_a_shown_entry(self, api, nav_client):
+        nav_client.get_playlist = AsyncMock(return_value=self._mixed())
+
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["a", "b"], "track_ids": ["a", "a"]},
+        )
+
+        assert r.status_code == 409
+        nav_client.set_playlist_tracks.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "edit",
+        [{"track_ids": ["a"]}, {"shown_track_ids": ["a"]}],
+        ids=["no shown order", "shown order alone"],
+    )
+    def test_a_reorder_comes_with_the_order_it_was_made_from(self, api, edit):
+        assert api.put("/api/music-library/playlist/pl-1", json=edit).status_code == 422
+
+    def test_update_rejects_two_list_operations(self, api):
+        r = api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["a"], "track_ids": ["a"], "remove_song_ids": ["b"]},
+        )
+        assert r.status_code == 422
 
     def test_update_rejects_no_operation(self, api):
         assert api.put("/api/music-library/playlist/pl-1", json={}).status_code == 422

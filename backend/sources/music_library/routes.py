@@ -42,6 +42,7 @@ not provisioned yet) surfaces as 503 on browse routes.
 """
 import asyncio
 import logging
+from collections import Counter
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
@@ -90,6 +91,12 @@ set_source_provider, get_source = make_source_dependency("Music Library")
 LIBRARY_ID_DESC = "Scope to one storage space (Navidrome library id)"
 
 
+def _is_playable(entry: Dict[str, Any], album_ids: set) -> bool:
+    """Whether a mounted storage space serves this album or playlist entry —
+    the one rule the filtered reads show by and a playlist edit is checked by."""
+    return entry.get("albumId") in album_ids
+
+
 def _keep_playable(item: Dict[str, Any], key: str, album_ids: set) -> None:
     """Drop an album's or playlist's entries that no storage space can serve.
 
@@ -99,10 +106,53 @@ def _keep_playable(item: Dict[str, Any], key: str, album_ids: set) -> None:
     the duration). Every entry carries its own ``albumId``, so a merged multi-disc
     set spanning a mounted and an absent space keeps exactly the discs that play.
     """
-    kept = [entry for entry in item.get(key) or [] if entry.get("albumId") in album_ids]
+    kept = [entry for entry in item.get(key) or [] if _is_playable(entry, album_ids)]
     item[key] = kept
     item["songCount"] = len(kept)
     item["duration"] = sum(int(entry.get("duration") or 0) for entry in kept)
+
+
+def _reordered(
+    entries: List[Dict[str, Any]],
+    shown_ids: List[str],
+    track_ids: List[str],
+    album_ids: set,
+) -> Optional[List[str]]:
+    """A raw playlist's ids once the entries ``GET /playlist/{id}`` shows, which
+    the caller saw as ``shown_ids``, are put in ``track_ids``'s order — a reorder,
+    or a removal where some are left out.
+
+    The shown entries ``track_ids`` leaves out are dropped and the ranks of the
+    others are filled in its order; an entry no mounted space serves keeps its
+    place among them. Written as sent, the list deleted those entries from
+    Navidrome, which keeps an unplugged key's index on purpose.
+
+    None when the shown entries are no longer ``shown_ids`` — a storage space was
+    plugged or unplugged, a catalog read came back short, another edit landed —
+    or when ``track_ids`` is not drawn from them: an entry left out could then be
+    one the caller never saw, and an entry named could have no rank to fill.
+    """
+    shown = [entry["id"] for entry in entries if _is_playable(entry, album_ids)]
+    if shown != shown_ids or Counter(track_ids) - Counter(shown):
+        return None
+    dropped = Counter(shown) - Counter(track_ids)
+    order = iter(track_ids)
+    kept = []
+    for entry in entries:
+        if not _is_playable(entry, album_ids):
+            kept.append(entry["id"])
+        elif dropped[entry["id"]]:
+            dropped[entry["id"]] -= 1
+        else:
+            kept.append(next(order))
+    return kept
+
+
+def _without(entries: List[Dict[str, Any]], song_ids: List[str]) -> List[str]:
+    """A raw playlist's ids with every occurrence of ``song_ids`` taken out,
+    whichever storage space holds them, mounted or not."""
+    removed = set(song_ids)
+    return [entry["id"] for entry in entries if entry["id"] not in removed]
 
 
 def newest_first(albums: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -477,25 +527,63 @@ async def create_playlist(
         return {"status": "success", "playlist": playlist}
 
 
+async def _raw_playlist(client: NavidromeClient, playlist_id: str) -> Dict[str, Any]:
+    """The playlist as Navidrome stores it, every storage space's entries
+    included — what an edit is computed against. Never passed to
+    ``_keep_playable``, which filters in place."""
+    playlist = await client.get_playlist(playlist_id)
+    if playlist is None:
+        logger.error("Playlist %s could not be read, edit not written", playlist_id)
+        raise HTTPException(status_code=502, detail="Playlist could not be read")
+    return playlist
+
+
 @router.put("/playlist/{playlist_id}")
 async def update_playlist(
     playlist_id: str,
     request: UpdatePlaylistRequest,
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """Edit a playlist (Subsonic update/create): rename, append tracks, or replace
-    the whole ordered list (reorder/remove). The request carries exactly one of
-    those operations (enforced by the model)."""
+    """Edit a playlist (Subsonic update/create): rename, append tracks, reorder or
+    remove the shown entries, or remove songs. The request carries exactly one of
+    those operations (enforced by the model).
+
+    Subsonic can only replace a playlist's list whole, so a reorder or a removal
+    is computed here against the playlist as Navidrome stores it — never against
+    the filtered read the caller saw, which leaves out every entry an unplugged
+    key holds. A read that fails writes nothing, and so does a reorder whose
+    shown entries moved since the caller read them (409: the view reloads).
+    """
     async with _catalog_errors("Error updating playlist", source):
         client = await _require_client(source)
-        if request.track_ids is not None:
-            ok = await client.set_playlist_tracks(playlist_id, request.track_ids)
+        if request.name is not None:
+            ok = await client.update_playlist(playlist_id, name=request.name)
         elif request.song_ids_to_add is not None:
             ok = await client.update_playlist(
                 playlist_id, song_ids_to_add=request.song_ids_to_add
             )
         else:
-            ok = await client.update_playlist(playlist_id, name=request.name)
+            entries = (await _raw_playlist(client, playlist_id)).get("entry") or []
+            if request.remove_song_ids is not None:
+                song_ids = _without(entries, request.remove_song_ids)
+            else:
+                song_ids = _reordered(
+                    entries,
+                    request.shown_track_ids,
+                    request.track_ids,
+                    await source.mounted_album_ids(),
+                )
+                if song_ids is None:
+                    logger.error(
+                        "Playlist %s changed since it was read, edit not written",
+                        playlist_id,
+                    )
+                    raise HTTPException(
+                        status_code=409, detail="Playlist changed since it was read"
+                    )
+            if song_ids == [entry["id"] for entry in entries]:
+                return {"status": "success"}
+            ok = await client.set_playlist_tracks(playlist_id, song_ids)
         if not ok:
             logger.error("Navidrome rejected playlist update: %s", playlist_id)
             raise HTTPException(status_code=502, detail="Navidrome rejected playlist update")

@@ -48,25 +48,38 @@ class UpdatePlaylistRequest(BaseModel):
 
     - ``name``            → rename (Subsonic ``updatePlaylist``).
     - ``song_ids_to_add`` → append tracks (the ⋯ "add to playlist" action).
-    - ``track_ids``       → replace the whole ordered list (reorder/remove; an
-      empty list clears the playlist). ``None`` means "not this operation" —
-      distinct from ``[]`` — so removing the last track is expressible.
+    - ``track_ids``       → the new order of the entries ``GET /playlist/{id}``
+      shows (reorder/remove in the playlist view; an empty list removes them
+      all), with ``shown_track_ids`` the order it was made from. Entries no
+      mounted storage space serves are not shown, so they are in neither and
+      keep their place; the edit is refused if the playlist no longer shows
+      ``shown_track_ids``, since a row the caller never saw would otherwise read
+      as one it removed. ``None`` means "not this operation" — distinct from
+      ``[]`` — so removing the last track is expressible.
+    - ``remove_song_ids`` → take every occurrence of these songs out, whatever
+      storage space holds them (unchecking a playlist in the ⋯ picker).
     """
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     song_ids_to_add: Optional[List[str]] = None
     track_ids: Optional[List[str]] = None
+    shown_track_ids: Optional[List[str]] = None
+    remove_song_ids: Optional[List[str]] = None
 
     @model_validator(mode="after")
     def _exactly_one_edit(self) -> "UpdatePlaylistRequest":
         provided = sum(
             field is not None
-            for field in (self.name, self.song_ids_to_add, self.track_ids)
+            for field in (
+                self.name, self.song_ids_to_add, self.track_ids, self.remove_song_ids
+            )
         )
         if provided != 1:
             raise ValueError(
-                "provide exactly one of: name, song_ids_to_add, track_ids"
+                "provide exactly one of: name, song_ids_to_add, track_ids, remove_song_ids"
             )
+        if (self.track_ids is None) != (self.shown_track_ids is None):
+            raise ValueError("track_ids and shown_track_ids go together")
         return self
 
 
