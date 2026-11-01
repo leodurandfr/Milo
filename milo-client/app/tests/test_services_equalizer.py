@@ -153,12 +153,23 @@ class TestEqualizerServiceLevels:
     """Test EqualizerService audio level operations."""
 
     @pytest.mark.asyncio
-    async def test_get_levels_returns_peaks(self, equalizer_service):
-        """Should return input and output peak levels."""
+    async def test_levels_read_only_the_playback_peak(self, equalizer_service, mock_camilla_client):
+        """A levels poll is one round trip to the daemon: the playback peak, nothing else.
+
+        What breaks when this fails: the server polls this at 10 Hz while the EQ
+        modal targets the satellite, and every extra read queues behind the
+        client's single socket lock for a field no consumer reads — the server's
+        LevelsMonitor and the frontend read `output_peak` only.
+        """
+        mock_camilla_client.reset_mock()
+
         levels = await equalizer_service.get_levels()
-        assert levels["available"] is True
-        assert "input_peak" in levels
-        assert "output_peak" in levels
+
+        assert mock_camilla_client.mock_calls == [call.get_playback_peak()]
+        assert levels == {
+            "available": True,
+            "output_peak": mock_camilla_client.get_playback_peak.return_value,
+        }
 
 
 def _answer_one_at_a_time(client, answers, hold):

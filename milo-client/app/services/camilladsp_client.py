@@ -2,8 +2,9 @@
 
 The satellite's half of `backend/core/equalizer/camilladsp_client.py`, and it is
 deliberately a parallel rather than a copy: it has no import from the backend to
-make, its own logger, and one command fewer — nothing here reads the capture
-rate, which only the server's status surface shows.
+make, its own logger, and two commands fewer — nothing here reads the capture
+rate, which only the server's status surface shows, nor the capture peak, which
+no levels consumer reads.
 
 Replacing `pycamilladsp` removes two reach-ins this file used to need: the
 library was synchronous, so every DSP call crossed a thread executor, and the
@@ -207,9 +208,6 @@ class CamillaDspClient:
 
     async def get_playback_peak(self) -> List[float]:
         return await self._query("GetPlaybackSignalPeak")
-
-    async def get_capture_peak(self) -> List[float]:
-        return await self._query("GetCaptureSignalPeak")
 
     async def get_config_file_path(self) -> Optional[str]:
         return await self._query("GetConfigFilePath")

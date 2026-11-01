@@ -32,7 +32,7 @@ def mock_equalizer_service():
     # Async methods
     service.get_status = AsyncMock(return_value={"available": True, "state": "running"})
     service.get_filters = AsyncMock(return_value=[])
-    service.get_levels = AsyncMock(return_value={"available": True, "input_peak": [-30, -30]})
+    service.get_levels = AsyncMock(return_value={"available": True, "output_peak": [-30, -30]})
     service.set_filter = AsyncMock(return_value=True)
     service.set_volume = AsyncMock(return_value=True)
     service.set_mute = AsyncMock(return_value=True)

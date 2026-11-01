@@ -47,7 +47,7 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
 
     @router.get("/levels")
     async def get_levels():
-        """Get real-time audio levels (peak/RMS)."""
+        """Real-time playback peak (`output_peak`), polled by the server's LevelsMonitor."""
         return await equalizer_service.get_levels()
 
     # === Filters ===

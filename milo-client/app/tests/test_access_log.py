@@ -1,15 +1,16 @@
 """
-The access log keeps everything but a volume step that succeeded.
+The access log keeps everything but a volume step or a levels poll that succeeded.
 
-What breaks when this fails: a turn of the knob buries the one log surface a
-satellite has (`sat logs`) under access lines, or a refused step, or any other
-request — a mute above all — vanishes from it.
+What breaks when this fails: a turn of the knob, or the 10 Hz levels poll of an
+open EQ modal, buries the one log surface a satellite has (`sat logs`) under
+access lines, or a refused request, or any other request — a mute above all —
+vanishes from it. Method and path count together: only the pair is quiet.
 """
 import logging
 
 import pytest
 
-from access_log import VolumeStepFilter
+from access_log import QuietRequestFilter
 
 
 def _access(method, path, status):
@@ -26,8 +27,11 @@ def _access(method, path, status):
     ("GET", "/equalizer/volume", 200, True),
     ("PUT", "/equalizer/filters", 200, True),
     ("POST", "/app/update", 200, True),
+    ("GET", "/equalizer/levels", 200, False),
+    ("GET", "/equalizer/levels", 500, True),
+    ("PUT", "/equalizer/levels", 200, True),
 ])
-def test_only_a_successful_volume_step_leaves_the_access_log(method, path, status, kept):
+def test_only_a_successful_volume_step_or_levels_poll_leaves_the_access_log(method, path, status, kept):
     record = _access(method, path, status)
     assert record.getMessage()  # the args are the shape uvicorn formats
-    assert VolumeStepFilter().filter(record) is kept
+    assert QuietRequestFilter().filter(record) is kept

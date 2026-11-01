@@ -48,7 +48,6 @@ def mock_camilla_client():
     client.get_volume.return_value = -20.0
     client.get_mute.return_value = False
 
-    client.get_capture_peak.return_value = [-30.0, -30.0]
     client.get_playback_peak.return_value = [-25.0, -25.0]
 
     return client

@@ -835,15 +835,10 @@ class EqualizerService:
             return False
 
     async def get_levels(self) -> Dict[str, Any]:
-        """Get current audio levels (peak values for input/output)."""
+        """The playback peak, what the server's LevelsMonitor reads (`output_peak`)."""
         try:
-            capture_levels = await self._exec(lambda c: c.get_capture_peak())
             playback_levels = await self._exec(lambda c: c.get_playback_peak())
-            return {
-                "available": True,
-                "input_peak": capture_levels,
-                "output_peak": playback_levels
-            }
+            return {"available": True, "output_peak": playback_levels}
         except Exception as e:
             self.logger.debug(f"Error getting levels: {e}")
             return {"available": False}
