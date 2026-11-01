@@ -3,6 +3,7 @@ Unit tests for EqualizerService.
 """
 import asyncio
 import copy
+import logging
 from pathlib import Path
 
 import pytest
@@ -448,7 +449,7 @@ class TestEqualizerServiceConnection:
         config read that fails is the other connect-then-fail pass, pinned by
         test_a_config_read_refused_after_the_restore_backs_off.
         """
-        from services.equalizer import EqualizerService
+        from services.equalizer import EqualizerService, RECONNECT_DELAY
         service = EqualizerService()
         service._probe_connection = AsyncMock()
         service._load_state_from_config = AsyncMock()
@@ -475,6 +476,10 @@ class TestEqualizerServiceConnection:
             await service._connection_loop()
 
         assert slept, "the loop retried without waiting: a refusing daemon would spin"
+        assert slept[0] == RECONNECT_DELAY, (
+            f"a daemon that accepted the connect and refused the restore was retried "
+            f"after {slept[0]}s: only a connect nothing listened to earns the short retry"
+        )
         assert slept == sorted(slept) and slept[-1] > slept[0], (
             f"the backoff never grew: {slept}. A delay reset on every successful "
             f"connect churns a fresh client every RECONNECT_DELAY for ever."
@@ -576,6 +581,176 @@ class TestEqualizerServiceConnection:
         assert len(slept) == len(passes), (
             f"{len(slept)} sleeps for {len(passes)} passes: a healthy session "
             f"that dropped paid a reconnect delay it did not owe"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_refused_first_connect_is_retried_within_a_second(
+        self, mock_camilla_client, caplog
+    ):
+        """The startup refusal must not cost the backoff a failing daemon earns.
+
+        milo-client-camilladsp.service is ordered After= this unit, which is
+        Type=notify, so the loop's first connect lands before the daemon has
+        even started: refused by construction, and listening ~0.2 s later.
+        Retried after the 5 s backoff, that refusal kept the room muted at its
+        `--gain` floor for ~4.8 s after every boot, app push or crash, and spent
+        two of the server's admission retries on 400s (Bureau, 2026-10-23). It
+        happens on every start, so it is not worth a warning either.
+
+        The daemon and the clock are the only stand-ins: the connect, the
+        restore, the config read and the probe are the service's own.
+        """
+        from services.equalizer import EqualizerService
+
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            service = EqualizerService()
+
+            # A guard, not the stop: a regression must fail, not hang the suite.
+            connects = []
+            async def refused_then_listening():
+                connects.append(1)
+                if len(connects) >= 5:
+                    service._running = False
+                if len(connects) == 1:
+                    raise ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 1234)")
+            mock_camilla_client.connect.side_effect = refused_then_listening
+
+            # Stopped at the first idle-probe wait, once the session is up.
+            slept = []
+            async def record(delay):
+                slept.append(delay)
+                if service.connected:
+                    service._running = False
+
+            caplog.set_level(logging.INFO)
+            with patch("services.equalizer.asyncio.sleep", record):
+                await service._connection_loop()
+
+        assert slept[0] < 1.0, (
+            f"the refused first connect was retried after {slept[0]}s: the room "
+            f"sits muted at its floor for as long, on every start"
+        )
+        mock_camilla_client.set_volume.assert_awaited()  # the level was restored
+        warned = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warned == [], f"an ordinary start logged at warning: {warned}"
+
+    @pytest.mark.asyncio
+    async def test_a_daemon_that_never_listens_still_backs_off(
+        self, mock_camilla_client, caplog
+    ):
+        """The short retry for a refusal must grow to the same ceiling, not spin.
+
+        A refusal is retried quickly because at startup the daemon is a fraction
+        of a second away. One that never comes up — a config it will not start
+        on, a unit held stopped — must still back off like any other failure,
+        and be reported at warning from the second refusal on.
+        """
+        from services.equalizer import EqualizerService, MAX_RECONNECT_DELAY
+
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            service = EqualizerService()
+
+            # Stopped by counting connects, never by the sleep under test.
+            connects = []
+            async def refuse():
+                connects.append(1)
+                if len(connects) >= 16:
+                    service._running = False
+                raise ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 1234)")
+            mock_camilla_client.connect.side_effect = refuse
+
+            slept = []
+            caplog.set_level(logging.INFO)
+            with patch("services.equalizer.asyncio.sleep", AsyncMock(side_effect=lambda d: slept.append(d))):
+                await service._connection_loop()
+
+        # Every pass waits, but the one that stopped the loop.
+        assert len(slept) == len(connects) - 1, (
+            f"{len(slept)} sleeps for {len(connects)} refused connects: a daemon "
+            f"that never listens is reconnected in a hot loop"
+        )
+        assert MAX_RECONNECT_DELAY in slept, f"the backoff never reached its ceiling: {slept}"
+        ceiling = slept.index(MAX_RECONNECT_DELAY)
+        growth = slept[:ceiling + 1]
+        assert all(a < b for a, b in zip(growth, growth[1:])), f"the backoff did not grow: {slept}"
+        assert all(d == MAX_RECONNECT_DELAY for d in slept[ceiling:]), f"the backoff left its ceiling: {slept}"
+        warned = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warned) == len(connects) - 1, (
+            f"{len(warned)} warnings for {len(connects)} refusals: only the first one is expected"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_after_a_session_is_reported_at_warning(
+        self, mock_camilla_client, caplog
+    ):
+        """Only the process's first attempt is refused quietly.
+
+        That one is every start's. A refusal once a session was up is a daemon
+        that went away — a crash, an OOM kill — and logged as "not listening
+        yet" at info it would be invisible to every read that greps WARNING.
+        """
+        from services.equalizer import EqualizerService
+
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            service = EqualizerService()
+
+            # Stopped by counting connects, never by the sleep under test.
+            connects = []
+            async def up_then_gone():
+                connects.append(1)
+                if len(connects) >= 2:
+                    service._running = False
+                    raise ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 1234)")
+            mock_camilla_client.connect.side_effect = up_then_gone
+            # The idle probe finds the daemon gone.
+            mock_camilla_client.get_state.side_effect = ConnectionError(
+                "Lost connection to CamillaDSP during GetState"
+            )
+
+            caplog.set_level(logging.INFO)
+            with patch("services.equalizer.asyncio.sleep", AsyncMock()):
+                await service._connection_loop()
+
+        assert len(connects) == 2, "the session never dropped: the path under test never ran"
+        refusal = [r.levelno for r in caplog.records if "Connect call failed" in r.getMessage()]
+        assert refusal == [logging.WARNING], (
+            "a daemon that refused after a session was up was not reported at warning"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("error", [
+        pytest.param(TimeoutError("timed out during opening handshake"), id="timeout"),
+        pytest.param(CamillaDspError("CamillaDSP answered GetVersion with 'Ok'"), id="handshake"),
+    ])
+    async def test_a_connect_that_fails_otherwise_keeps_the_backoff(self, mock_camilla_client, error):
+        """Only a refusal earns the short retry.
+
+        A connect that times out or fails its version handshake reached
+        something that does not answer as CamillaDSP — a starved daemon, a
+        foreign listener — and retrying it every half second is the churn the
+        backoff exists to prevent. TimeoutError is an OSError, so a refusal
+        caught as one would take it too.
+        """
+        from services.equalizer import EqualizerService, RECONNECT_DELAY
+
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            service = EqualizerService()
+
+            # Stopped by counting connects, never by the sleep under test.
+            connects = []
+            async def fail():
+                connects.append(1)
+                if len(connects) >= 2:
+                    service._running = False
+                raise error
+            mock_camilla_client.connect.side_effect = fail
+
+            slept = []
+            with patch("services.equalizer.asyncio.sleep", AsyncMock(side_effect=lambda d: slept.append(d))):
+                await service._connection_loop()
+
+        assert slept == [RECONNECT_DELAY], (
+            f"a connect that failed with {type(error).__name__} was retried after {slept}"
         )
 
     @pytest.mark.asyncio

@@ -98,10 +98,12 @@ async def lifespan(app: FastAPI):
 
     # No connect attempt here on purpose. milo-client-camilladsp.service is ordered
     # After=milo-client.service, and this unit is Type=notify — so CamillaDSP does
-    # not even start until the READY=1 sent a few lines below. A cold-boot connect
-    # can therefore never succeed; it only bought ~4.5 s of sleeps and an ERROR in
-    # the journal on every boot. The loop owns every attempt, the first included,
-    # and it also restores volume/mute, which the startup connect never did.
+    # not even start until the READY=1 sent a few lines below. The loop's first
+    # connect is therefore refused by construction, and the loop retries a refusal
+    # after REFUSED_RETRY_DELAY rather than the backoff a failing daemon earns:
+    # the daemon listens ~0.2 s after READY=1, and the room stays muted at its
+    # floor until the loop's restore. The loop owns every attempt, the first
+    # included, and it also restores volume/mute.
     # Nothing else may connect: _exec refuses when there is none, so no command
     # can reach a daemon still sitting at the floor its unit started it on.
     equalizer_service.start_connection_loop()
