@@ -52,6 +52,10 @@ from backend.core.network.models import (
 # scanner deduplicates by SSID and only one of them is adoptable at a time.
 HOTSPOT_NAME = "Milō"
 
+# nmcli's exit status for "Connection, device, or access point does not exist"
+# (nmcli(1), EXIT STATUS): a delete that found nothing to remove.
+NMCLI_NO_SUCH_CONNECTION = 10
+
 # How long the unit may sit with no usable link before it raises the access
 # point. Sized on NetworkManager's own behaviour rather than on taste: a cold
 # boot has no connection until autoconnect plus a DHCP transaction completes,
@@ -126,6 +130,9 @@ class NetworkService:
         self.state_machine = state_machine
         self.settings_service = settings_service
         self._hotspot_active: bool = False
+        # One teardown of the AP at a time: a second one waits for the first,
+        # then finds the AP gone, or tries again where the first could not.
+        self._hotspot_teardown = asyncio.Lock()
         # The pending "still no link" timer. A tracked task on self, not a
         # fire-and-forget one: it has to be cancellable the instant a link
         # appears, or an AP is raised seconds after the unit became reachable.
@@ -195,8 +202,8 @@ class NetworkService:
 
     @property
     def hotspot_active(self) -> bool:
-        """Whether the recovery access point is up, being raised, or still being
-        removed — NM carries it, and its clients, until the delete returns."""
+        """Whether the recovery access point is up, being raised, or not yet
+        removed — NM carries it, and its clients, until a delete succeeds."""
         return self._hotspot_active
 
     @contextlib.contextmanager
@@ -799,17 +806,16 @@ class NetworkService:
         the profile with it for the same reason. A cancellation leaves the flag
         up on purpose: it comes from a caller that found the unit reachable and
         runs the teardown next, or from shutdown, after which the next process
-        adopts the AP (`_adopt_recovery_state`).
+        adopts the AP (`_adopt_recovery_state`). A removal NM did not carry out
+        keeps the AP owned, with the retry loop armed to take it down again.
         """
         self._hotspot_active = True
         try:
             await self._activate_hotspot()
         except Exception as e:
             self.logger.error("Failed to activate the recovery access point: %s", e)
-            try:
-                await self._delete_hotspot_profile()
-            finally:
-                self._hotspot_active = False
+            if not await self._stop_hotspot("it did not come up"):
+                self._arm_station_retry()
             return
         self.logger.info(
             "No network connection — access point '%s' raised so the unit stays reachable",
@@ -817,20 +823,37 @@ class NetworkService:
         )
         self._arm_station_retry()
 
-    async def _stop_hotspot(self, reason: str) -> None:
-        """Take the AP down. The single teardown — `_connect_impl` and the
-        station retry use it too, where dropping the AP before switching to
-        station mode is sequencing (one radio), not cleanup. It ends the retry
-        loop, unless the loop is the caller.
+    async def _stop_hotspot(self, reason: str) -> bool:
+        """Take the AP down; True once it is down. The single teardown —
+        `_connect_impl` and the station retry use it too, where dropping the AP
+        before switching to station mode is sequencing (one radio), not
+        cleanup. It ends the retry loop, unless the loop is the caller.
 
-        The flag drops once the delete has returned, not before: until then NM
-        still carries the AP and its clients, and the recovery gate
+        The AP stays owned until NM has removed it, the mirror of
+        `_start_hotspot` owning it before `connection up`: until then NM still
+        carries the AP and its clients, and the recovery gate
         (`api/route_helpers.py::RecoveryAccessPointGate`) refuses them only
-        while `hotspot_active` holds."""
-        await self._delete_hotspot_profile()
-        self._hotspot_active = False
-        self._cancel_station_retry()
+        while `hotspot_active` holds. A delete NM did not carry out — nmcli
+        timed out, or NM refused — keeps the flag and the retry loop, so the
+        next evaluation or the loop's next turn takes the AP down again."""
+        async with self._hotspot_teardown:
+            if not self._hotspot_active:
+                return True
+            try:
+                failure = await self._delete_hotspot_profile()
+            except (asyncio.TimeoutError, OSError) as e:
+                failure = repr(e)
+            if failure is not None:
+                self.logger.error(
+                    "Access point '%s' kept: NetworkManager did not confirm its removal (%s)"
+                    " — taken down again at the next evaluation or retry",
+                    HOTSPOT_NAME, failure,
+                )
+                return False
+            self._hotspot_active = False
+            self._cancel_station_retry()
         self.logger.info("Access point '%s' removed (%s)", HOTSPOT_NAME, reason)
+        return True
 
     def _arm_station_retry(self) -> None:
         """Start the home-network retry for an AP just raised or adopted. One
@@ -886,14 +909,22 @@ class NetworkService:
         async with self._connect_lock:
             if not self._hotspot_active:
                 return
+            # A link back by another path owes a teardown, not a try: the
+            # evaluation's own could not be carried out, and a unit with no
+            # saved network has no try to make anyway.
+            if await self._has_active_connection() is True:
+                await self._stop_hotspot("a network connection came back")
+                return
             profiles = await self._station_profiles()
             if not profiles:
                 return
             profile = profiles[self._station_tries % len(profiles)]
-            self._station_tries += 1
             ssid = _ssid_from_profile(profile)
 
-            await self._stop_hotspot(f"trying the home network '{ssid}' again")
+            # An AP NM still carries holds the radio: no station under it.
+            if not await self._stop_hotspot(f"trying the home network '{ssid}' again"):
+                return
+            self._station_tries += 1
             try:
                 rc, _, stderr = await self._run_nmcli("connection", "up", profile, timeout=30.0)
             except asyncio.TimeoutError:
@@ -1008,7 +1039,9 @@ class NetworkService:
         """Create and activate an open (no password) NetworkManager hotspot.
         Raises on failure; `_start_hotspot` removes what it leaves behind."""
         # Clean up any stale profile from a previous crashed run
-        await self._delete_hotspot_profile()
+        stale = await self._delete_hotspot_profile()
+        if stale is not None:
+            self.logger.debug("Hotspot profile cleanup: %s", stale)
 
         # Create an open AP profile (nmcli device wifi hotspot always adds WPA).
         # autoconnect=no is load-bearing: nmcli defaults it to yes, and a profile
@@ -1211,13 +1244,16 @@ class NetworkService:
         if survivors:
             raise RuntimeError(f"Failed to delete WiFi profile(s) {', '.join(survivors)} for '{ssid}'")
 
-    async def _delete_hotspot_profile(self) -> None:
-        """Remove the hotspot NM connection profile (ignores if missing)."""
+    async def _delete_hotspot_profile(self) -> Optional[str]:
+        """Remove the hotspot NM connection profile. None once NM holds no such
+        profile — deleted, or missing, the normal answer to the stale-profile
+        clear-out — else what NM answered. Raises asyncio.TimeoutError."""
         rc, _, stderr = await self._run_nmcli(
             "connection", "delete", HOTSPOT_NAME
         )
-        if rc != 0:
-            self.logger.debug("Hotspot profile cleanup (rc=%d): %s", rc, stderr)
+        if rc in (0, NMCLI_NO_SUCH_CONNECTION):
+            return None
+        return stderr or f"rc={rc}"
 
     # =========================================================================
     # NetworkManager D-Bus subscription (live status updates)

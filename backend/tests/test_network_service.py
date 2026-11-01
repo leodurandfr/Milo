@@ -138,6 +138,7 @@ class FakeNetworkManager:
     command starting with `prefix` in flight until `release()`, and NM applies
     it then **whether or not its nmcli is still waited on** — a caller that is
     cancelled or times out does not undo an activation NM already accepted.
+    `fail(*command)` is the opposite: one later `command` that NM never applies.
     """
 
     def __init__(self, *, ethernet=False, radio=True, profiles=None, active=(), activating=(), unreachable=None):
@@ -150,6 +151,7 @@ class FakeNetworkManager:
         self.in_flight: list[asyncio.Task] = []
         self._held: tuple[str, ...] = ()
         self._released = asyncio.Event()
+        self._failing: tuple | None = None
 
     def hold(self, *prefix: str) -> None:
         self._held = prefix
@@ -157,7 +159,25 @@ class FakeNetworkManager:
     def release(self) -> None:
         self._released.set()
 
+    def fail(self, *command: str, answer=None, after: int = 0) -> None:
+        """The next `command` once `after` more of them went through is not
+        applied: its nmcli times out (`answer` None — NM stalled: five nmcli
+        timeouts in this appliance's errors.log, 2026-09/10) or NM answers
+        `answer`."""
+        self._failing = (command, after, answer)
+
+    @staticmethod
+    async def _stall():
+        raise asyncio.TimeoutError
+
     def route(self, args):
+        if self._failing is not None and args == self._failing[0]:
+            command, after, answer = self._failing
+            if after:
+                self._failing = (command, after - 1, answer)
+            else:
+                self._failing = None
+                return self._stall() if answer is None else answer
         if self._held and args[:len(self._held)] == self._held:
             task = asyncio.ensure_future(self._apply_once_released(args))
             self.in_flight.append(task)
@@ -1345,6 +1365,104 @@ async def test_the_recovery_gate_stays_shut_while_nm_is_still_removing_the_acces
         await service.cleanup()
 
     assert answer == 403
+
+
+# nmcli(1)'s status 7, "Connection deletion failed": NM answered and kept the AP.
+NM_REFUSED_DELETE = (7, "", "Error: not all connections deleted.")
+DELETE_AP = ("connection", "delete", HOTSPOT_NAME)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "refused"])
+@pytest.mark.asyncio
+async def test_an_access_point_nm_did_not_remove_is_removed_at_the_next_evaluation(service, failure):
+    """The cable is back and the delete never happened. Ownership dropped
+    anyway left an open AP, NATed to the LAN, that nothing would take down
+    again — `hotspot_active: false` published everywhere and the recovery gate
+    open to its clients — until a reboot."""
+    nm = FakeNetworkManager(profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus:
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        nm.ethernet = True
+        nm.fail(*DELETE_AP, answer=NM_REFUSED_DELETE if failure == "refused" else None)
+        await service.evaluate_reachability()
+        while_still_up = await recovery_gate_answer(service)
+        await service.evaluate_reachability()
+        await service.cleanup()
+
+    assert while_still_up == 403
+    assert HOTSPOT_NAME not in nm.active
+    assert service.hotspot_active is False
+
+
+@pytest.mark.parametrize("failure", ["timeout", "refused"])
+@pytest.mark.asyncio
+async def test_a_station_retry_whose_teardown_nm_did_not_carry_out_tries_again(service, failure):
+    """A try that asked for the station anyway did it under an AP NM still
+    carried, and with ownership gone the loop ended there: a WiFi-only unit
+    back on its own hotspot for good, which is what the retry exists to end."""
+    nm = FakeNetworkManager(profiles={HOTSPOT_NAME: "ap", STATION: "infrastructure"}, active={HOTSPOT_NAME})
+    nm.fail(*DELETE_AP, answer=NM_REFUSED_DELETE if failure == "refused" else None)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.STATION_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    deletes = [i for i, call in enumerate(fake.calls) if call == DELETE_AP]
+    tries = [i for i, call in enumerate(fake.calls) if call == STATION_UP]
+    assert len(deletes) == 2
+    assert tries[0] > deletes[1], "the station was asked for under an AP NM still carried"
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_the_retry_loop_takes_down_an_access_point_left_up_once_a_link_is_back(service):
+    """An ethernet-only unit has no saved network to try, so its loop did
+    nothing: an AP whose teardown failed at the cable's return waited for the
+    next NM event, which on a settled link can be hours away (a lease renewal)."""
+    nm = FakeNetworkManager(ethernet=True, profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+    nm.fail(*DELETE_AP)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.STATION_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: HOTSPOT_NAME not in nm.active)
+        await service.cleanup()
+
+    assert service.hotspot_active is False
+    assert not fake.argv_containing("up")
+
+
+@pytest.mark.parametrize("failure", ["timeout", "refused"])
+@pytest.mark.asyncio
+async def test_an_access_point_whose_activation_and_removal_both_fail_stays_owned(service, failure):
+    """`connection up` timed out and NM finished the activation anyway; the
+    delete that should have followed did not happen either. A flag dropped in
+    a `finally` regardless left that AP up with no owner."""
+    nm = FakeNetworkManager()
+    nm.hold("connection", "up")
+    # The first delete is the stale-profile clear-out before `connection add`.
+    nm.fail(*DELETE_AP, answer=NM_REFUSED_DELETE if failure == "refused" else None, after=1)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), \
+         patch("backend.core.network.service.HOTSPOT_NMCLI_TIMEOUT_S", 0.01):
+        await service.evaluate_reachability()
+        await settle_until(lambda: service._recovery_arm is None)
+        nm.release()
+        await asyncio.gather(*nm.in_flight)
+        while_up = await recovery_gate_answer(service)
+        nm.ethernet = True
+        await service.evaluate_reachability()
+        await service.cleanup()
+
+    assert while_up == 403
+    assert HOTSPOT_NAME not in nm.active
+    assert service.hotspot_active is False
 
 
 # --------------------------------------------------------------------------- #
