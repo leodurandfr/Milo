@@ -924,9 +924,17 @@ class AirPlaySource(BaseAudioSource):
 
     # === Public API ===
 
+    def _on_air_cover(self) -> Optional[Cover]:
+        session = self._session
+        return session.cover if isinstance(session, AirPlaySession) else None
+
     def get_artwork(self) -> Optional[Tuple[bytes, str]]:
         """Return current artwork as (data, mime_type), or None."""
-        session = self._session
-        if isinstance(session, AirPlaySession) and session.cover is not None:
-            return session.cover.data, session.cover.mime
-        return None
+        cover = self._on_air_cover()
+        return (cover.data, cover.mime) if cover else None
+
+    @property
+    def artwork_version(self) -> Optional[str]:
+        """The `v` the current cover's URL carries, or None without a cover."""
+        cover = self._on_air_cover()
+        return cover.hash if cover else None

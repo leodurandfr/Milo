@@ -186,6 +186,7 @@ These are shared by every source; they break for all of them at once.
 | Discovery | Milō appears as an AirPlay target from iPhone and from a Mac | targeted |
 | Audio | Audio starts within a couple of seconds of selecting it | targeted |
 | Metadata | **Artwork**, title and artist appear in the full player within ~2 s of a track change | targeted |
+| Artwork under fast skips | Three `next` about 1 s apart over tracks from different albums: after each, the `session.artwork` URL of `GET /api/audio/state` answers exactly the bytes of the file shairport-sync wrote (sha256 of the `ArtworkPath` in `NowPlayingInformation`) with `immutable`; the previous step's URL answers 404, never another cover; the bare `/api/airplay/artwork` answers `no-store`. The kiosk and the lock screen show the cover of the track on screen | targeted |
 | Device name | The sender's name ("Léo's iPhone") is shown | targeted |
 | Controls | Pause, resume, next and prev from Milō act on the iPhone and on a Mac; the main button never flashes play during a next/prev; shuffle and repeat follow both ways | targeted |
 | Volume | The iPhone's volume moves Milō's, and Milō's moves the iPhone's slider; muting Milō does not drop the house to its floor | targeted |

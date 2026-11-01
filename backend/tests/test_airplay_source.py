@@ -1313,6 +1313,44 @@ class TestTheArtworkRoute:
 
         assert "private" in cache and "immutable" in cache
 
+    async def test_an_old_version_is_never_served_the_current_cover(self, world):
+        """A client that read the state before a skip asks for the cover it
+        names after the next one landed: answered with the new bytes marked
+        immutable, Milo-iOS files them under the old URL's key for good, and
+        the lock screen shows that cover whenever the old album plays again."""
+        await _on_air(world)
+        await _plays(world, "Says")
+        old = _shown(world.state())["artwork"]
+        await world.signal(RemoteUpdate("now_playing", world.item(
+            "Plasma", artwork_id="art-2", artwork_path=world.cover(png(color="teal"), "plasma"))))
+        current = _shown(world.state())["artwork"]
+        assert current not in (None, old), "the second cover never replaced the first"
+        client = self._client(world.source)
+
+        assert client.get(old).status_code == 404
+        fresh = client.get(current)
+        assert fresh.status_code == 200 and "immutable" in fresh.headers["cache-control"]
+
+    async def test_an_unknown_version_is_a_404(self, world):
+        """A version that names no cover Milō published must not be handed the
+        current one under a year of immutable caching."""
+        await _on_air(world)
+        await _plays(world, "Says")
+
+        assert self._client(world.source).get("/api/airplay/artwork?v=deadbeef0000").status_code == 404
+
+    async def test_without_a_version_the_cover_is_never_cached(self, world):
+        """The bare URL names whatever is on air, so whatever a cache keeps
+        under it is the wrong cover after the next track."""
+        await _on_air(world)
+        await _plays(world, "Says")
+
+        resp = self._client(world.source).get("/api/airplay/artwork")
+
+        assert resp.status_code == 200
+        assert "no-store" in resp.headers["cache-control"]
+        assert "immutable" not in resp.headers["cache-control"]
+
     async def test_a_sender_that_pushed_no_cover_is_a_404_and_not_an_error(self, world, caplog):
         """Plenty of senders push none. Logged at ERROR this would raise the
         WebSocket error banner on an ordinary AirPlay session."""
