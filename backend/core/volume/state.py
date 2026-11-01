@@ -418,7 +418,15 @@ class VolumeStateStore:
     # ========== Zone Operations ==========
 
     def has_volume_control(self, mac_id: str) -> bool:
-        """Check if a client has volume control (not a DAC with external amp)."""
+        """Check if a client has volume control (not a DAC with external amp).
+
+        This unit's own answer is the hardware flag VolumeService sets here, the
+        one the router drives the local DSP by — never the registry's copy,
+        which nothing resyncs in direct mode (a card swap left it stale until a
+        multiroom admission), so the published flag would contradict the DSP.
+        """
+        if mac_id == self._local_mac_id:
+            return self._volume_control
         if not self._registry:
             return True
         client = self._registry.get_client(mac_id)
@@ -515,8 +523,8 @@ class VolumeStateStore:
             VolumeState with all clients and zones
         """
         async with self._lock:
-            # One entry per client, `available` and `volume_control` from the
-            # registry: they are already the filters the averages below apply,
+            # One entry per client, `available` and `volume_control` as the
+            # moves read them: they are already the filters the averages below apply,
             # and publishing them means a reader can build the same set instead
             # of guessing which speakers Milo counted (the lock screen draws a
             # slider for exactly those).

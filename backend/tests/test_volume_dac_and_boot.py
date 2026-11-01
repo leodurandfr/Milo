@@ -35,6 +35,7 @@ from backend.core.settings import SettingsService
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import RegistryEventType
 from backend.core.multiroom.equalizer_router import EqualizerRouter
+from backend.core.push.service import PushService
 from backend.core.volume import VolumeService, VolumeStateStore
 from backend.tests.volume_world import world
 from backend.core.volume.state import StoredLevel
@@ -507,6 +508,32 @@ class TestDacMode:
         assert await svc.adjust_volume_db(-4.0) is True
 
         assert [c.args[0] for c in camilladsp.set_volume.await_args_list] == [-40.0, -44.0]
+
+    @pytest.mark.parametrize("registry_flag, hardware_flag", [(False, True), (True, False)])
+    async def test_a_stale_registry_flag_does_not_decide_the_published_flag(
+        self, registered, registry_flag, hardware_flag
+    ):
+        """A card swap in direct mode: hardware.json moved, the registry's copy did not.
+
+        `clients[local].volume_control` of the volume state is what the lock
+        screen (and Milo-iOS awake) filters its sliders on. Read from the
+        registry's copy, a DAC board swapped for an amplifier lost the only
+        room's slider until a multiroom admission resynced it, and the other
+        way round drew a slider that moved nothing — while the DSP, which the
+        router drives from the hardware flag, did the opposite of the screen.
+        """
+        svc, registry = await registered(registry_flag=registry_flag, hardware_flag=hardware_flag)
+        assert await svc.initialize() is True
+
+        state = await svc.get_volume_state()
+        sliders = await PushService(
+            token_registry=Mock(), apns_client=Mock(),
+            volume_service=svc, client_registry_service=registry,
+        )._devices()
+
+        assert state.volume_control is hardware_flag
+        assert state.clients[LOCAL].volume_control is hardware_flag
+        assert [d.id for d in sliders] == ([LOCAL] if hardware_flag else [])
 
     async def test_a_move_during_the_flip_to_dac_cannot_land_after_the_unity_pin(
         self, registered, camilladsp
