@@ -109,6 +109,24 @@ def _snapcast_client(*, mac_id=MAC, ip=IP, name="Canapé", client_id=SNAPCAST_ID
     return {"mac_id": mac_id, "id": client_id, "ip": ip, "name": name, "host": HOST}
 
 
+@pytest.fixture
+def store(tmp_path, registry):
+    """The real VolumeStateStore, subscribed to the real registry."""
+    from backend.core.models.volume import VolumeConfig
+    from backend.core.volume.state import VolumeStateStore
+
+    settings = AsyncMock()
+    settings.get_setting = AsyncMock(return_value=None)
+    store = VolumeStateStore()
+    store.STORAGE_PATH = tmp_path / "last_volume.json"
+    config = VolumeConfig()
+    config.startup_volume_db = -20.0
+    config.restore_last_volume = True
+    store.set_volume_config(config)
+    store.set_registry(registry)
+    return store
+
+
 class TestTheConnectSweepRefusals:
     """The sweep that admits everything already connected when the socket opens."""
 
@@ -895,22 +913,6 @@ class TestWhatANewClientIsAdmittedAt:
     """
 
     @pytest.fixture
-    def store(self, tmp_path, registry):
-        from backend.core.models.volume import VolumeConfig
-        from backend.core.volume.state import VolumeStateStore
-
-        settings = AsyncMock()
-        settings.get_setting = AsyncMock(return_value=None)
-        store = VolumeStateStore()
-        store.STORAGE_PATH = tmp_path / "last_volume.json"
-        config = VolumeConfig()
-        config.startup_volume_db = -20.0
-        config.restore_last_volume = True
-        store.set_volume_config(config)
-        store.set_registry(registry)
-        return store
-
-    @pytest.fixture
     def service_with_store(self, service, store):
         service._volume_service.state_store = store
         service._volume_service.volume_config.restore_last_volume = True
@@ -949,3 +951,64 @@ class TestWhatANewClientIsAdmittedAt:
         await registry.register_client(MAC, "Canapé", IP, host=HOST)
 
         assert service_with_store._resolve_target_volume(MAC) == -66.0
+
+
+class TestAClientDeletedDuringItsAdmission:
+    """A satellite deleted while its admission waits between two attempts.
+
+    A satellite whose snapclient is up but whose API refuses (an app update gone
+    wrong, a reboot before the API answers) keeps its admission retrying, and the
+    offline client screen offers only Delete, so a delete landing in a retry wait
+    is the ordinary way to meet this. Driven through the real registry, store,
+    controller and router over a mocked CamillaDSP and a refusing satellite: the
+    fault is the store recreating the level the delete removed, and the router
+    reading the unknown mac as direct mode.
+    """
+
+    async def test_a_client_deleted_while_its_admission_retries_never_reaches_the_local_dsp(
+        self, service, registry, store, monkeypatch
+    ):
+        """What it cost: the satellite's startup level and an unmute went to the
+        server's CamillaDSP, so a muted main room came back at -20 dB, while the
+        store and every screen still showed it muted and the admission answered
+        True."""
+        from backend.core.multiroom.equalizer_router import EqualizerRouter
+        from backend.core.volume.equalizer_controller import EqualizerController
+
+        monkeypatch.setattr(
+            "backend.core.multiroom.equalizer_router.get_local_mac",
+            lambda: "aa:bb:cc:dd:ee:ff",
+        )
+        dsp = MagicMock()
+        dsp.set_volume = AsyncMock(return_value=True)
+        dsp.set_mute = AsyncMock(return_value=True)
+        proxy = MagicMock()
+        proxy.request = AsyncMock(return_value={"status": "error"})
+        service._volume_service.state_store = store
+        service._volume_service.equalizer_controller = EqualizerController(
+            equalizer_router=EqualizerRouter(registry, dsp, proxy),
+            client_registry=registry,
+        )
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        asked_before_the_delete = []
+
+        async def _sleep(delay, *a, **k):
+            if delay == 3.0 and registry.get_client(MAC):
+                asked_before_the_delete.append(proxy.request.await_count)
+                await registry.unregister_client(MAC)
+            await _REAL_SLEEP(0)
+
+        monkeypatch.setattr(asyncio, "sleep", _sleep)
+
+        ok = await service._do_sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=5, retry_delay=3.0
+        )
+
+        # Non-triviality first: the satellite was asked and refused, so the
+        # delete landed in a retry wait and not before the first attempt.
+        assert asked_before_the_delete and asked_before_the_delete[0] > 0
+        assert ok is False
+        dsp.set_volume.assert_not_awaited()
+        dsp.set_mute.assert_not_awaited()
+        assert store.has_client(MAC) is False
+        assert proxy.request.await_count == asked_before_the_delete[0]

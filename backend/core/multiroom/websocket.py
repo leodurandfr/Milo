@@ -1039,6 +1039,11 @@ class SnapcastWebSocketService:
         self.logger.info(f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
 
         for attempt in range(max_retries + 1):
+            # A client deleted during a retry wait is not admitted: the apply
+            # below would put its level back in the store the delete emptied.
+            if self.registry.get_client(mac_id) is None:
+                self.logger.info(f"SYNC_RECONNECT: {mac_id} removed during admission, abandoning")
+                return False
             try:
                 # Resolved again on every attempt: a zone or global move made
                 # while this one waited moved the away room's stored level, and

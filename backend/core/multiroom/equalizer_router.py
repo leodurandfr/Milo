@@ -9,11 +9,16 @@ Architecture:
 - Lookup client in ClientRegistry by mac_id
 - If client.is_local → local camilladsp_service
 - Else → proxy_service to remote client
+- Not in the registry → local camilladsp_service only when the mac names this
+  unit (the `LOCAL_TARGET` sentinel or its own MAC, or no registry at all);
+  any other mac is a satellite the registry forgot, and is refused
 """
 import logging
 from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
 
 from backend.config.constants import LOUDNESS_REFERENCE_DB, MAX_VOLUME_DB
+from backend.core.equalizer.multiroom_service import LOCAL_TARGET
+from backend.core.multiroom.identity import get_local_mac
 
 if TYPE_CHECKING:
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
@@ -63,6 +68,23 @@ class EqualizerRouter:
         """Check if client is local (running on this device)."""
         return client.is_local if client else False
 
+    def _names_this_unit(self, mac_id: str) -> bool:
+        """Whether a mac the registry does not hold still addresses this unit.
+
+        The registry is populated only by Snapcast connections, so in direct
+        mode it is empty and this unit's own targets arrive unregistered: the
+        `LOCAL_TARGET` sentinel of the EQ API, and the MAC VolumeService keys
+        the local level by. Any other mac is a satellite the registry forgot,
+        deleted while its admission was retrying for one, and answering it
+        here would put that room's level and unmute on this unit's speaker.
+        With no registry at all, nothing can have been forgotten.
+        """
+        return (
+            self._registry is None
+            or mac_id == LOCAL_TARGET
+            or mac_id == get_local_mac()
+        )
+
     async def _route(
         self,
         mac_id: str,
@@ -88,10 +110,7 @@ class EqualizerRouter:
         client = self._get_client(mac_id)
 
         if not client:
-            # Client not in registry — fall back to local CamillaDSP.
-            # This happens in non-multiroom mode where the registry is empty
-            # (populated only by Snapcast connections).
-            if self._camilladsp_service:
+            if self._camilladsp_service and self._names_this_unit(mac_id):
                 logger.debug(f"Client {mac_id} not in registry, falling back to local CamillaDSP for {action_name}")
                 return await local_action()
             logger.warning(f"Client {mac_id} not found for {action_name}")

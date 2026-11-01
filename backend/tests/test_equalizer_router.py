@@ -12,11 +12,15 @@ were unexecuted by the whole backend suite — every existing test drives a
 satellite. A single Milo with no satellite routes every EQ change through the
 registry-miss fallback (`_route`, "client not in registry"), which nothing
 exercised, and the local closures of the six setting methods were dark with it.
+That fallback serves this unit's own targets only, the `local` sentinel and the
+MAC `/sys` gives it (patched here to LOCAL_MAC): any other mac the registry
+lacks is a satellite it forgot, and is refused.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 from backend.config.constants import LOUDNESS_REFERENCE_DB
+from backend.core.equalizer.multiroom_service import LOCAL_TARGET
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client
 from backend.config.constants import MAX_VOLUME_DB
@@ -37,14 +41,23 @@ LOCAL_SETTINGS = [
     ("set_mono", {"settings": {"enabled": True}}, "set_mono"),
 ]
 
+# The two reads, with the CamillaDSPService method each one asks.
+LOCAL_READS = [
+    ("get_status", {}, "get_status"),
+    ("get_levels", {}, "get_levels"),
+]
+
 
 @pytest.fixture
 def camilladsp():
-    """The local DSP, as EqualizerRouter's collaborator: every setter succeeds."""
+    """The local DSP, as EqualizerRouter's collaborator: every setter succeeds
+    and both reads answer."""
     dsp = MagicMock()
     for name in ("set_volume", "set_mute", "set_filter", "set_compressor",
                  "set_loudness", "set_mono"):
         setattr(dsp, name, AsyncMock(return_value=True))
+    for name in ("get_status", "get_levels"):
+        setattr(dsp, name, AsyncMock(return_value={"available": True}))
     return dsp
 
 
@@ -64,7 +77,11 @@ def registry():
 
 
 @pytest.fixture
-def router(registry, camilladsp, proxy):
+def router(registry, camilladsp, proxy, monkeypatch):
+    # This unit's MAC is read from /sys, which on CI is the runner's.
+    monkeypatch.setattr(
+        "backend.core.multiroom.equalizer_router.get_local_mac", lambda: LOCAL_MAC
+    )
     return EqualizerRouter(registry, camilladsp, proxy)
 
 
@@ -78,13 +95,53 @@ class TestLocalRouting:
         """An empty registry means one unit with no satellite — the default mode.
 
         The registry is populated only by Snapcast connections, so on a unit in
-        direct mode `get_client` answers None for every mac. That fallback is the
-        path every EQ change takes on such a unit, and routing it to the proxy
-        instead would send it nowhere.
+        direct mode `get_client` answers None for every mac, this unit's own
+        among them, the one VolumeService keys the local level by. That fallback
+        is the path every level and EQ change takes on such a unit, and routing
+        it to the proxy instead would send it nowhere.
         """
         registry.get_client.return_value = None
 
         result = await getattr(router, method)(LOCAL_MAC, **kwargs)
+
+        assert result["status"] == "success"
+        assert getattr(camilladsp, dsp_method).await_count == 1
+        proxy.request.assert_not_awaited()
+
+    @pytest.mark.parametrize("method,kwargs,dsp_method", LOCAL_SETTINGS + LOCAL_READS)
+    async def test_a_satellite_mac_the_registry_forgot_is_not_routed_to_the_local_dsp(
+        self, router, camilladsp, proxy, registry, method, kwargs, dsp_method
+    ):
+        """A satellite deleted while its admission was retrying is a mac the
+        registry no longer holds, and the next attempt still sends it a level
+        and an unmute. Read as direct mode, that applied the satellite's level
+        and unmute to the main room's speaker while every screen showed it
+        muted, and a read answered the satellite's EQ tab from this unit's DSP.
+        """
+        registry.get_client.return_value = None
+
+        result = await getattr(router, method)(REMOTE_MAC, **kwargs)
+
+        assert result["status"] == "error"
+        getattr(camilladsp, dsp_method).assert_not_awaited()
+        assert proxy.method_calls == []
+
+    @pytest.mark.parametrize("method,kwargs,dsp_method", LOCAL_SETTINGS)
+    async def test_the_local_sentinel_still_reaches_the_dsp_without_a_registry_entry(
+        self, router, camilladsp, proxy, registry, monkeypatch, method, kwargs, dsp_method
+    ):
+        """`PUT /api/equalizer/target/local/...` reaches the router as the
+        sentinel itself (`multiroom_service._apply_partial_update`), never as a
+        MAC. Refused, every EQ, compressor, loudness and mono change of a unit
+        with no satellite would fail. This unit's MAC is made unreadable so the
+        sentinel alone has to carry it.
+        """
+        monkeypatch.setattr(
+            "backend.core.multiroom.equalizer_router.get_local_mac", lambda: None
+        )
+        registry.get_client.return_value = None
+
+        result = await getattr(router, method)(LOCAL_TARGET, **kwargs)
 
         assert result["status"] == "success"
         assert getattr(camilladsp, dsp_method).await_count == 1
