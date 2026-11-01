@@ -1534,6 +1534,18 @@ class BaseAudioSource(ABC):
             return False
         return await self._service_manager.probe_active(self.service_name)
 
+    async def stop_unit(self) -> bool:
+        """Stop this source's unit, outside the mailbox: the state machine's
+        last resort once a STOP came back False and `probe_service_active`
+        still saw the unit up.
+
+        Touches systemd only, never the session — a mailbox message could wait
+        behind the feeds of a player still playing. The end that follows comes
+        through the player's link or the pidfd watch, as a unit stopped on
+        purpose: USER_STOP (E71).
+        """
+        return await self._stop_service()
+
     async def _start_service_and_wait(self, settle: float = 0.5) -> bool:
         """Start the systemd service and wait for it to settle."""
         if not await self._start_service():

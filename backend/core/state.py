@@ -641,30 +641,47 @@ class AudioStateMachine:
 
     @handle_errors(default=None)
     async def _stop_source(self, source: AudioSource) -> None:
-        """Stop specified source, and say so when it refuses.
+        """Stop specified source; when its unit is seen still up, stop the unit.
 
-        `stop()` reports its own refusal at warning — journal-only — and the
-        transition then started the next source over one still holding the ALSA
-        device, with nothing in the banner to explain the silence that follows.
+        `stop()` reports its own refusal at warning — journal-only. A STOP can
+        fail before it reaches the unit (the podcast's progress save raising
+        first) and leave the daemon playing, and nothing downstream fails on
+        it: mpv starts `--idle` with no output open, and each source writes its
+        own Loopback substream. Starting the next source over it kept the old
+        one audible (in multiroom, in every room), so the unit is stopped here,
+        and the end that follows is the source's own (USER_STOP, E71).
 
         The verdict is deliberately *not* propagated. Refusing the transition
         would turn every unclean stop into a source selection the user cannot
-        make, while `_start_source` already fails on its own when the device is
-        genuinely still held — and that path settles with a message. The two
-        unwind callers could not act on it either. So the trace is the whole
-        fix; a bool nobody reads would just move this finding up one frame.
+        make, and the two unwind callers could not act on it either.
         """
         instance = self.sources.get(source)
         if not instance or await instance.stop():
             return
+
+        # Selected again while this stop ran (a teardown the budget gave up on,
+        # or a retry): its START comes next — queued behind this STOP, or next
+        # in this task — and a unit stopped now could go down under it. Read
+        # before the probe: a queued START runs while the probe answers.
+        sm = self.system_state
+        selected_again = sm.transitioning and sm.active_source == source
 
         # stop() answers False for two different facts: the unit refused, or
         # the call ran out of budget with nothing confirmed. Only the first
         # justifies a line that reaches the banner — the second used to borrow
         # its wording and accuse a source that had already stopped.
         still_up = await instance.probe_service_active()
-        if still_up is True:
-            logger.error("%s would not stop; starting over it", source.value)
+        if still_up is True and selected_again:
+            logger.error(
+                "%s would not stop; selected again, its start takes the unit over",
+                source.value,
+            )
+        elif still_up is True:
+            logger.error("%s would not stop; stopping its unit", source.value)
+            if not await instance.stop_unit():
+                logger.error(
+                    "%s unit refused its stop too; it may still be playing", source.value
+                )
         elif still_up is None:
             logger.warning(
                 "%s stop went unconfirmed — the unit may still hold the device",

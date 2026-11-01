@@ -19,8 +19,10 @@ import logging
 
 import pytest
 import asyncio
+from typing import Optional
 from unittest.mock import Mock, AsyncMock
 
+from backend.core.audio_source import BaseAudioSource
 from backend.core.state import AudioStateMachine
 from backend.tests.conftest import free_mailbox
 from backend.core.models.audio_state import (
@@ -705,27 +707,177 @@ class TestAFailureIsTheLastWordOfAFailedStart:
         assert state_machine.get_current_state()["service"] == "running"
 
 
-class TestASourceThatWillNotStop:
-    """`stop()` reporting False is journal-only, and the transition proceeds.
+PODCAST_UNIT = "milo-podcast.service"
 
-    The next source is then started over one still holding the ALSA device, and
-    the silence that follows had no trace at banner level. The transition is not
-    refused — `_start_source` fails on its own when the device is genuinely held,
-    and refusing here would make the source unselectable — so the log IS the fix.
+
+class Systemd:
+    """systemd for the units a test puts up: what it was asked, what is up.
+
+    A start can be held open (`systemctl start` is a subprocess, and other
+    tasks run while it answers); `probes` counts the is-active answers given.
     """
 
-    async def test_a_refused_stop_is_reported_at_error(self, state_machine, caplog):
-        """The unit answered that it is still up: this is the real refusal."""
-        stubborn = Mock()
-        stubborn.stop = AsyncMock(return_value=False)
-        stubborn.probe_service_active = AsyncMock(return_value=True)
-        state_machine.sources[AudioSource.SPOTIFY] = stubborn
+    def __init__(self, *, up=(), refuse: bool = False) -> None:
+        self.active = {name: True for name in up}
+        self.calls = []
+        # RefuseManualStop=yes on every unit.
+        self.refuse = refuse
+        self.start_held: Optional[asyncio.Event] = None
+        self.probes = 0
 
-        with caplog.at_level(logging.ERROR):
-            await state_machine._stop_source(AudioSource.SPOTIFY)
+    async def start(self, name: str) -> bool:
+        self.calls.append(f"start {name}")
+        if self.start_held is not None:
+            await self.start_held.wait()
+        self.active[name] = True
+        return True
 
-        assert "would not stop" in caplog.text
-        assert AudioSource.SPOTIFY.value in caplog.text
+    async def stop(self, name: str) -> bool:
+        self.calls.append(f"stop {name}")
+        if self.refuse:
+            return False
+        self.active[name] = False
+        return True
+
+    async def probe_active(self, name: str) -> bool:
+        self.probes += 1
+        return self.active[name]
+
+
+class StubbornPodcast(BaseAudioSource):
+    """A podcast whose STOP comes back False with its unit still up.
+
+    `save_fails` is the progress save raising before the unit stop, in the
+    podcast's own `_do_stop` order, after `save_held` is set when one is given;
+    without it, the STOP reaches the unit and systemd decides.
+    """
+
+    def __init__(
+        self, systemd: Systemd, *, save_fails: bool, save_held: Optional[asyncio.Event] = None
+    ) -> None:
+        super().__init__(source_id="podcast", service_name=PODCAST_UNIT,
+                         systemd_manager=systemd)
+        self.save_fails = save_fails
+        self.save_held = save_held
+
+    async def _do_start(self) -> bool:
+        return await self._start_service()
+
+    async def _do_stop(self) -> bool:
+        if self.save_fails:
+            if self.save_held is not None:
+                await self.save_held.wait()
+            raise OSError("podcast_data.json: Operation not permitted")
+        return await self._stop_service()
+
+
+async def _until(predicate) -> None:
+    for _ in range(1000):
+        if predicate():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition never reached")
+
+
+class TestASourceThatWillNotStop:
+    """`stop()` reporting False: the unit is stopped again only when it is
+    seen still up, and the transition proceeds either way.
+
+    A STOP can fail before it reaches the unit and leave the daemon playing.
+    Nothing downstream fails on it — mpv starts `--idle` with no output open,
+    and each source writes its own Loopback substream — so the next source was
+    started over one still playing, in every room. Refusing the transition
+    instead would make the source unselectable.
+    """
+
+    async def test_a_unit_that_would_not_stop_is_stopped_before_the_next_source_starts(
+        self, state_machine
+    ):
+        """The podcast's progress save raised before its unit stop: without a
+        second stop, Music Library started with the podcast's unit still up."""
+        systemd = Systemd(up={PODCAST_UNIT})
+        podcast = StubbornPodcast(systemd, save_fails=True)
+        podcast_up_at_start = []
+
+        async def start():
+            podcast_up_at_start.append(systemd.active[PODCAST_UNIT])
+            return True
+
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source(
+            start=AsyncMock(side_effect=start)
+        )
+        state_machine.system_state.active_source = AudioSource.PODCAST
+
+        try:
+            assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is True
+        finally:
+            await podcast.shutdown()
+
+        assert podcast_up_at_start == [False]
+        assert systemd.calls == [f"stop {PODCAST_UNIT}"]
+
+    async def test_a_unit_that_refuses_its_stop_too_is_reported_twice(
+        self, state_machine, caplog
+    ):
+        """RefuseManualStop: the second stop is refused like the first. Both
+        reach the banner, and the transition still proceeds — refusing it would
+        turn an unclean stop into a source the user cannot select."""
+        systemd = Systemd(up={PODCAST_UNIT}, refuse=True)
+        podcast = StubbornPodcast(systemd, save_fails=False)
+        target = make_source()
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = target
+        state_machine.system_state.active_source = AudioSource.PODCAST
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.state"):
+            try:
+                assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is True
+            finally:
+                await podcast.shutdown()
+
+        errors = [
+            r.getMessage() for r in caplog.records
+            if r.name == "backend.core.state" and r.levelno == logging.ERROR
+        ]
+        assert len(errors) == 2
+        assert "podcast would not stop" in errors[0]
+        assert systemd.calls == [f"stop {PODCAST_UNIT}"] * 2
+        target.start.assert_awaited_once()
+
+    async def test_a_teardown_that_ends_after_its_source_was_selected_again_leaves_it_up(
+        self, state_machine
+    ):
+        """The budget gave up on the podcast's stop, the user selected the
+        podcast again, and its START queued behind that STOP. A unit stopped
+        when the STOP finally failed would go down under the start just made:
+        the podcast selected and running, over a dead unit."""
+        save_held = asyncio.Event()
+        systemd = Systemd(up={PODCAST_UNIT})
+        podcast = StubbornPodcast(systemd, save_fails=True, save_held=save_held)
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source()
+        state_machine.system_state.active_source = AudioSource.PODCAST
+
+        try:
+            state_machine.TRANSITION_TIMEOUT = state_machine.TEARDOWN_GRACE = 0.01
+            assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is False
+            del state_machine.TRANSITION_TIMEOUT, state_machine.TEARDOWN_GRACE
+
+            reselected = asyncio.ensure_future(
+                state_machine.transition_to_source(AudioSource.PODCAST)
+            )
+            await _until(lambda: state_machine.system_state.active_source == AudioSource.PODCAST)
+            systemd.start_held = asyncio.Event()
+            save_held.set()
+            await _until(lambda: systemd.probes == 1 and systemd.calls)
+            systemd.start_held.set()
+            assert await reselected is True
+        finally:
+            await podcast.shutdown()
+
+        assert systemd.calls == [f"start {PODCAST_UNIT}"]
+        assert systemd.active[PODCAST_UNIT] is True
 
     async def test_a_stop_that_landed_late_is_not_called_a_refusal(
         self, state_machine, caplog
@@ -740,20 +892,24 @@ class TestASourceThatWillNotStop:
         late = Mock()
         late.stop = AsyncMock(return_value=False)
         late.probe_service_active = AsyncMock(return_value=False)
+        late.stop_unit = AsyncMock(return_value=True)
         state_machine.sources[AudioSource.SPOTIFY] = late
 
         with caplog.at_level(logging.ERROR):
             await state_machine._stop_source(AudioSource.SPOTIFY)
 
         assert caplog.text == ""
+        late.stop_unit.assert_not_awaited()
 
     async def test_an_unreadable_unit_is_reported_as_unconfirmed(
         self, state_machine, caplog
     ):
-        """Neither silence nor an accusation: the device may still be held."""
+        """Neither silence nor an accusation: the device may still be held,
+        and a stop sent on that guess is a blind second stop."""
         opaque = Mock()
         opaque.stop = AsyncMock(return_value=False)
         opaque.probe_service_active = AsyncMock(return_value=None)
+        opaque.stop_unit = AsyncMock(return_value=True)
         state_machine.sources[AudioSource.SPOTIFY] = opaque
 
         with caplog.at_level(logging.WARNING):
@@ -761,6 +917,7 @@ class TestASourceThatWillNotStop:
 
         assert "unconfirmed" in caplog.text
         assert "would not stop" not in caplog.text
+        opaque.stop_unit.assert_not_awaited()
 
     async def test_a_clean_stop_says_nothing(self, state_machine, mock_source, caplog):
         state_machine.sources[AudioSource.SPOTIFY] = mock_source
@@ -769,17 +926,6 @@ class TestASourceThatWillNotStop:
             await state_machine._stop_source(AudioSource.SPOTIFY)
 
         assert caplog.text == ""
-
-    async def test_the_transition_still_proceeds_over_it(self, state_machine, mock_source):
-        """Refusing would turn an unclean stop into a source the user cannot
-        select — worse than the failure it guards."""
-        stubborn = make_source(stop=AsyncMock(return_value=False))
-        state_machine.sources[AudioSource.SPOTIFY] = stubborn
-        state_machine.sources[AudioSource.BLUETOOTH] = mock_source
-        state_machine.system_state.active_source = AudioSource.SPOTIFY
-
-        assert await state_machine.transition_to_source(AudioSource.BLUETOOTH) is True
-        mock_source.start.assert_awaited_once()
 
 
 class TestGetCurrentState:

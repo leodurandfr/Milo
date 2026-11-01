@@ -106,6 +106,7 @@ These are shared by every source; they break for all of them at once.
 | Source switch | radio → spotify → radio: the previous source stops audibly within ~1 s; no two sources audible at once | smoke |
 | No ghost state | After switching away, the old source's artwork/title never reappears behind the new one | smoke |
 | Transition drop | Switching sources rapidly 4–5 times ends on the source last selected, not on an intermediate one | targeted |
+| Stop that fails before its unit | `sudo chattr +i /var/lib/milo/podcast_data.json` (undone by `chattr -i` in a trap) makes the podcast's progress save fail first. Play an episode ≥10 s, then select Music Library, in direct mode then in multiroom: the podcast falls silent in every room, `systemctl is-active milo-podcast` answers `inactive`, errors.log carries "podcast would not stop; stopping its unit". With a `/run` drop-in setting `RefuseManualStop=yes` instead, both stops are refused: errors.log carries that line and "unit refused its stop too", and Music Library still starts | targeted |
 | Progress bar | Advances in real time and matches the audio (±1 s) for spotify, cd, podcast, music_library, airplay, qobuz, tidal | targeted |
 | Seek | Dragging the bar moves the audio to that point (spotify, cd, podcast, music_library) | targeted |
 | WS resync | Background the tab ≥60 s, then return: volume, active source, metadata and multiroom state all match reality | smoke |
