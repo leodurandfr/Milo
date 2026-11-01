@@ -1100,3 +1100,115 @@ class TestCatalogUnreachable:
         merged = build_merged_id(["al-1", "al-2"])
 
         assert api.get(f"/api/music-library/album/{merged}").status_code == 503
+
+
+class TestAnInventoryThatDoesNotAnswer:
+    """The descent routes' filter is the mounted inventory, walked page by page
+    (getAlbumList2). getAlbum can answer while that walk does not — Navidrome
+    indexing a large key past its 15 s deadline — and an inventory cut short,
+    read as the catalog, dropped every track past the break in silence: an
+    album opened with no songs, a two-CD set with one disc, on the kiosk and on
+    Milo-Mac (whose album fan-out then queues nothing for it).
+
+    The real source and the real client; only Navidrome's answers
+    (``_make_request``) and the storage list are simulated.
+    """
+
+    PAGE = 500  # source._ALBUM_PAGE: a full page is what makes the walk go on
+
+    @pytest.fixture
+    def inventory(self):
+        """What the getAlbumList2 walk answers: page offset -> albums, or the
+        network sentinel for a page Navidrome did not answer."""
+        return {0: {"_network_error": True}}
+
+    @pytest.fixture
+    def writes(self):
+        return []
+
+    @pytest.fixture
+    def real_api(self, inventory, writes):
+        from backend.sources.music_library.source import MusicLibrarySource
+
+        def answer(endpoint, params):
+            if endpoint == "getAlbumList2":
+                page = inventory[params["offset"]]
+                return page if "_network_error" in page else {"albumList2": {"album": page}}
+            if endpoint == "getAlbum":
+                n = params["id"].rsplit("-", 1)[-1]
+                return {"album": {"id": params["id"], "name": f"Live (CD {n})", "song": [
+                    {"id": f"s-{n}", "albumId": params["id"], "duration": 100},
+                ]}}
+            if endpoint == "getArtist":
+                return {"artist": {"id": params["id"], "name": "Daft Punk", "album": [
+                    {"id": "al-1", "name": "Discovery"},
+                ]}}
+            if endpoint == "getPlaylist":
+                return {"playlist": {"id": params["id"], "entry": [
+                    {"id": "s-1", "albumId": "al-1", "duration": 100},
+                    {"id": "s-2", "albumId": "al-1", "duration": 100},
+                ]}}
+            writes.append(endpoint)
+            return {}
+
+        nav = NavidromeClient("milo-svc", "secret")
+
+        async def make_request(endpoint, params=None):
+            return answer(endpoint, params or {})
+
+        nav._make_request = make_request
+        src = MusicLibrarySource(config={}, state_machine=MagicMock())
+        src._shares = MagicMock()
+        src._shares.storages = AsyncMock(return_value=[
+            {"kind": "share", "id": "nas-1", "library_id": 2, "mounted": True},
+        ])
+        src.get_navidrome_client = AsyncMock(return_value=nav)
+        app = FastAPI()
+        setup_music_library_routes(lambda: src)
+        app.include_router(router, prefix="/api")
+        return TestClient(app)
+
+    @pytest.fixture(autouse=True)
+    def nothing_reaches_the_banner(self, caplog):
+        yield
+        assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+    def test_a_walk_that_answers_lets_the_album_through(self, real_api, inventory):
+        """The rig's control: with the inventory read, the same album opens
+        whole — so a 503 below is the walk's, not the rig's."""
+        inventory[0] = [{"id": "al-1", "name": "Discovery"}]
+
+        r = real_api.get("/api/music-library/album/al-1")
+
+        assert r.status_code == 200
+        assert [song["id"] for song in r.json()["album"]["song"]] == ["s-1"]
+
+    def test_an_album_is_not_opened_empty(self, real_api):
+        assert real_api.get("/api/music-library/album/al-1").status_code == 503
+
+    def test_a_merged_album_is_not_opened_with_one_disc(self, real_api, inventory):
+        """Disc 1 sits on the inventory's first page, the page that would have
+        held disc 2 did not answer."""
+        inventory[0] = [{"id": "al-1", "name": "Live (CD 1)"}] + [
+            {"id": f"pad-{i}", "name": f"Pad {i:04d}"} for i in range(self.PAGE - 1)
+        ]
+        inventory[self.PAGE] = {"_network_error": True}
+
+        merged = build_merged_id(["al-1", "al-2"])
+
+        assert real_api.get(f"/api/music-library/album/{merged}").status_code == 503
+
+    def test_an_artist_is_not_opened_with_no_albums(self, real_api):
+        assert real_api.get("/api/music-library/artist/ar-1").status_code == 503
+
+    def test_a_playlist_is_not_opened_empty(self, real_api):
+        assert real_api.get("/api/music-library/playlist/pl-1").status_code == 503
+
+    def test_a_reorder_writes_nothing(self, real_api, writes):
+        r = real_api.put(
+            "/api/music-library/playlist/pl-1",
+            json={"shown_track_ids": ["s-1", "s-2"], "track_ids": ["s-2", "s-1"]},
+        )
+
+        assert r.status_code == 503
+        assert writes == []

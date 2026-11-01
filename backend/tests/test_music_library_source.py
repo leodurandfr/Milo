@@ -25,6 +25,7 @@ from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library import source as library_module
+from backend.sources.music_library.navidrome_client import NavidromeUnreachable
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import AsyncioProxy, settle
 from backend.tests.golden.test_wire_music_library import FakeNavidrome
@@ -1124,6 +1125,24 @@ class TestMergedAlbumCache:
 
         # This call still answers with what it got — a partial grid beats none.
         assert [a["id"] for a in albums] == ["a1", "a2"]
+        assert source._album_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_a_filter_is_never_built_from_a_walk_cut_short(self, source):
+        """What the grid tolerates the descent filter cannot: every track past
+        the break would be dropped as unmounted, and an album would open empty
+        with nothing to say why."""
+        source._shares = Mock(storages=AsyncMock(return_value=[
+            {"kind": "share", "id": "nas-1", "library_id": 2, "mounted": True},
+        ]))
+        source.get_navidrome_client = AsyncMock(
+            return_value=self._client([[{"id": "a1"}, {"id": "a2"}], None])
+        )
+
+        with patch("backend.sources.music_library.source._ALBUM_PAGE", 2):
+            with pytest.raises(NavidromeUnreachable):
+                await source.mounted_album_ids()
+
         assert source._album_cache == {}
 
     @pytest.mark.asyncio

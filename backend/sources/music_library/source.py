@@ -59,7 +59,7 @@ from backend.sources.music_library.models import (
     SeekParams,
 )
 from backend.sources.music_library.artist_images import ArtistImageService
-from backend.sources.music_library.navidrome_client import NavidromeClient
+from backend.sources.music_library.navidrome_client import NavidromeClient, NavidromeUnreachable
 from backend.sources.music_library.shares import NetworkShareService
 
 # Within this many seconds of a track, `prev` restarts the current track;
@@ -294,9 +294,11 @@ class MusicLibrarySource(MpvAudioSource):
         """Every album id readable right now — the descent routes' filter.
 
         ``getArtist``/``getAlbum``/``getPlaylist`` take no scope in Subsonic, so
-        what they return is post-filtered against this set.
+        what they return is post-filtered against this set. Raises
+        NavidromeUnreachable when the inventory walk stopped short (see
+        :meth:`get_merged_albums`'s ``strict``).
         """
-        return await self._scope_album_ids(await self.browse_scope())
+        return await self._scope_album_ids(await self.browse_scope(), strict=True)
 
     async def get_artist_index(self, scope: List[int]) -> List[Dict[str, Any]]:
         """A browse scope's A–Z artist index (``getArtists``), cached.
@@ -326,7 +328,9 @@ class MusicLibrarySource(MpvAudioSource):
             self._artist_cache[key] = (now, index)
         return index
 
-    async def get_merged_albums(self, scope: List[int]) -> List[Dict[str, Any]]:
+    async def get_merged_albums(
+        self, scope: List[int], *, strict: bool = False
+    ) -> List[Dict[str, Any]]:
         """A browse scope's catalog, alphabetical, multi-disc sets collapsed.
 
         The album grid pages over this list (see routes.get_albums) so a split
@@ -337,6 +341,15 @@ class MusicLibrarySource(MpvAudioSource):
         catalog is reachable, and caches only a walk that ran to the end — a
         not-yet-ready daemon and a page that failed mid-catalog both retry on the
         next call rather than serving what they got for the whole TTL.
+
+        ``strict`` is for the descent filter (:meth:`mounted_album_ids`), which
+        sorts an item's tracks by this list instead of drawing it: there a walk
+        that stopped short — a page unanswered, or answered with an error the
+        client has logged — raises NavidromeUnreachable, a 503 at the route like
+        a failed page of any other album list. Read as the catalog, a partial
+        inventory drops every track past the break as unmounted: an album opened
+        with no songs, a two-CD set with one disc, nothing said. A listing (this
+        grid, the playlist pane) keeps the partial answer.
         """
         key = tuple(sorted(scope))
         now = asyncio.get_event_loop().time()
@@ -357,6 +370,8 @@ class MusicLibrarySource(MpvAudioSource):
                 offset=offset,
             )
             if page is None:
+                if strict:
+                    raise NavidromeUnreachable("getAlbumList2")
                 # A failed request ends the walk short of the catalog. This call
                 # still serves what it has — a partial grid beats none — but the
                 # result is not the catalog and must not become the answer for
@@ -467,16 +482,16 @@ class MusicLibrarySource(MpvAudioSource):
         order = {playlist["id"]: index for index, playlist in enumerate(playlists)}
         return sorted(kept, key=lambda playlist: order[playlist["id"]])
 
-    async def _scope_album_ids(self, scope: List[int]) -> set:
+    async def _scope_album_ids(self, scope: List[int], *, strict: bool = False) -> set:
         """Every album id in a browse scope, merged sets expanded.
 
         The grid's merged catalog is reused rather than re-fetched, so this
         usually costs nothing — but a merged multi-disc album carries a
         synthetic id, and a track points at the member album, so the members are
-        what has to be in the set.
+        what has to be in the set. ``strict`` as in :meth:`get_merged_albums`.
         """
         ids: set = set()
-        for album in await self.get_merged_albums(scope):
+        for album in await self.get_merged_albums(scope, strict=strict):
             album_id = album.get("id")
             if not album_id:
                 continue

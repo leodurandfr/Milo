@@ -425,6 +425,15 @@ def test_collaborators_are_exposed_not_proxied(source_id):
             )
 
 
+def _is_exception(node: ast.ClassDef) -> bool:
+    """A class deriving, by name, from an exception (``Exception``, ``ValueError``,
+    a package's own ``…Error``)."""
+    return any(
+        isinstance(base, ast.Name) and base.id.endswith(("Exception", "Error"))
+        for base in node.bases
+    )
+
+
 @pytest.mark.parametrize("source_id", SOURCE_IDS)
 def test_one_construction_site_per_collaborator(source_id):
     """Each service class in a source package is built in exactly one module.
@@ -440,7 +449,9 @@ def test_one_construction_site_per_collaborator(source_id):
         if path.name == "models.py":  # Pydantic models are built at every call site
             continue
         for node in ast.parse(path.read_text()).body:
-            if isinstance(node, ast.ClassDef):
+            # An exception is a value raised wherever its failure is seen, with
+            # no session and no lifecycle to split: not a service.
+            if isinstance(node, ast.ClassDef) and not _is_exception(node):
                 declared[node.name] = path.name
     assert declared, f"{source_id}: no classes parsed — the extractor is broken"
 
