@@ -15,7 +15,8 @@ This directory contains systemd service files for Milo Client satellites. These 
 - **Role**: Snapcast client for synchronized multiroom audio
 - **Port**: Connects to milo.local:1704
 - **Dependencies**: milo-client.service; `network-online.target` orders nothing on the image, which masks
-  NetworkManager-wait-online, so the launcher itself waits for an eth0 that is still activating
+  NetworkManager-wait-online, so the launcher itself waits for NetworkManager's startup (`nm-online -s`),
+  eth0's IPv4 included
 - **Startup**: Enabled at boot
 - **Notes**: Receives audio stream from main Milo's snapserver
 

@@ -14,7 +14,7 @@
 # unit once the literal below has gone stale *and* snapclient holds no
 # connection — a client that is streaming is never interrupted for an address.
 #
-# Before resolving, it waits for an eth0 that is still coming up: the image masks
+# Before resolving, it waits for NetworkManager's startup: the image masks
 # NetworkManager-wait-online, so the unit's After=network-online.target waits for
 # nothing, and a wired satellite that also holds the server's WiFi leases wlan0
 # first — snapclient then connected from the WiFi address and kept that
@@ -39,34 +39,22 @@ if [ "$audio_id" = "none" ]; then
     exit 0
 fi
 
-# NetworkManager's state of eth0 as a number; 0 when it cannot say (no eth0, NM
-# not answering yet). 40-99 is an activation in progress, and 100 means IPv4 is
-# up (90-milo-ethernet-ipv4.conf). An eth0 with no carrier (20) or no activation
-# started yet (30) does not wait, so a satellite on WiFi alone starts at once.
-# The cap runs on /proc/uptime, since the wall clock is stepped at boot.
-eth0_state() {
-    s=$(timeout 3 nmcli -t -g GENERAL.STATE device show eth0 2>/dev/null | cut -d' ' -f1)
-    case "$s" in ''|*[!0-9]*) s=0 ;; esac
-    echo "$s"
-}
+# Run what the masked NetworkManager-wait-online ran (nm-online -s, 60 s): wait
+# for NetworkManager's startup, which completes once eth0 has its IPv4
+# (90-milo-ethernet-ipv4.conf) or gave up. One read of eth0's state cannot do it:
+# a cable still negotiating reads "no carrier" (20) for seconds, exactly like a
+# missing one. A missing cable holds startup only for NetworkManager's own
+# carrier wait (carrier-wait-timeout, 6 s), and only at boot, while wlan0 comes
+# up; after boot nm-online -s answers at once (an app restart, a push). 60 s
+# outlasts that carrier wait plus eth0's DHCP timeout (45 s), and the timeout is
+# monotonic, so the clock step at boot cannot cut it short. Fails open.
 uptime_s() { read -r up _ < /proc/uptime; echo "${up%.*}"; }
-activating() { [ "$state" -ge 40 ] && [ "$state" -lt 100 ]; }
-
-state=$(eth0_state)
-if activating; then
-    started=$(uptime_s)
-    now=$started
-    echo "milo-client-snapclient-launcher: eth0 is activating (state $state), waiting up to 45 s"
-    while activating && [ "$now" -lt $((started + 45)) ]; do
-        sleep 1
-        state=$(eth0_state)
-        now=$(uptime_s)
-    done
-    if activating; then
-        echo "milo-client-snapclient-launcher: eth0 still activating (state $state) after 45 s, starting anyway" >&2
-    else
-        echo "milo-client-snapclient-launcher: eth0 reached state $state after $((now - started)) s"
-    fi
+started=$(uptime_s)
+if nm-online -s -q -t 60; then
+    echo "milo-client-snapclient-launcher: NetworkManager startup complete after $(($(uptime_s) - started)) s"
+else
+    rc=$?
+    echo "milo-client-snapclient-launcher: nm-online -s exited $rc after $(($(uptime_s) - started)) s, starting anyway" >&2
 fi
 
 # Resolve MILO_PRINCIPAL_IP if it looks like a hostname.

@@ -28,14 +28,19 @@ read by pid 1 on a machine no test runner touches: there is no import to fail an
 no route to 404.
 
 The satellite's snapclient launcher is pinned here too, for the same reason: the
-image masks `NetworkManager-wait-online`, so its own wait for eth0 is the only
-thing that keeps a wired satellite's stream off its WiFi at boot.
+image masks `NetworkManager-wait-online`, so its own wait for NetworkManager's
+startup is the only thing that keeps a wired satellite's stream off its WiFi at
+boot. That one is run, not read: under `sh`, with NetworkManager, the resolver
+and snapclient faked on PATH.
 
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
 an empty surface.
 """
+import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -323,9 +328,61 @@ def test_the_apply_helper_can_defer_its_reboot():
 SAT_LAUNCHER = (
     REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-snapclient-launcher"
 )
+SAT_ETHERNET_DROPIN = (
+    REPO_ROOT / "milo-client" / "rootfs" / "etc" / "NetworkManager" / "conf.d" / "90-milo-ethernet-ipv4.conf"
+)
 
 
-def test_the_satellite_snapclient_waits_for_an_activating_eth0():
+def _run_sat_launcher(tmp_path: Path, nm_online_rc: int) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """Run the real launcher under `sh`, with the outside world faked.
+
+    NetworkManager (`nm-online`), the resolver (`getent`) and `snapclient` are
+    stand-ins on PATH that append each call to one log, in order; the fake
+    `nm-online` logs again when it returns, so a launcher that does not wait for
+    it shows `getent` in between. The hardware file and the snapclient binary are
+    absolute paths in the script, so the copy run here points them at the
+    stand-ins — and the substitution must hit exactly once, or the copy is no
+    longer the launcher.
+    """
+    calls = tmp_path / "calls"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fakes = {
+        "nm-online": f'echo "nm-online $*" >> "{calls}"; sleep 0.2; echo "nm-online returned" >> "{calls}"; '
+        f"exit {nm_online_rc}",
+        "getent": f'echo "getent $*" >> "{calls}"; echo "192.0.2.10 milo.local"',
+        "snapclient": f'echo "snapclient $*" >> "{calls}"',
+    }
+    for name, body in fakes.items():
+        fake = bin_dir / name
+        fake.write_text(f"#!/bin/sh\n{body}\n")
+        fake.chmod(0o755)
+
+    hardware = tmp_path / "hardware.json"
+    hardware.write_text(json.dumps({"audio": {"id": "hifiberry-dac"}}))
+    script = SAT_LAUNCHER.read_text(encoding="utf-8")
+    for real, stand_in in (
+        ("/var/lib/milo-client/hardware.json", hardware),
+        ("/usr/bin/snapclient", bin_dir / "snapclient"),
+    ):
+        assert script.count(real) == 1, f"the launcher no longer names {real} exactly once"
+        script = script.replace(real, str(stand_in))
+    launcher = tmp_path / "milo-client-snapclient-launcher"
+    launcher.write_text(script)
+
+    result = subprocess.run(
+        ["sh", str(launcher)],
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "MILO_PRINCIPAL_IP": "milo.local"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return result, calls.read_text().splitlines() if calls.exists() else []
+
+
+@pytest.mark.parametrize("nm_online_rc", [0, 1], ids=["startup-complete", "startup-never-completes"])
+def test_the_satellite_snapclient_waits_for_networkmanager_startup(tmp_path, nm_online_rc):
     """`network-online.target` orders nothing on the image, so the launcher waits.
 
     The image masks `NetworkManager-wait-online` on both roles, so the unit's
@@ -335,33 +392,44 @@ def test_the_satellite_snapclient_waits_for_an_activating_eth0():
     address and kept that connection for 5 h 20, and nothing re-resolves it,
     because the server's address never moved.
 
-    So the launcher reads eth0's NetworkManager state before it resolves or
-    connects anything, and waits while that link is activating (states 40-99),
-    bounded on /proc/uptime like the readiness deadline. An eth0 with no carrier
-    (20) must not wait at all: a satellite on WiFi alone would sit out the whole
-    cap at every start.
+    One sample of eth0's state cannot tell a missing cable from one still
+    negotiating: on the server's boot of 2026-10-29 eth0 read "unavailable" (20)
+    for 3 s with its cable in, and Bureau's snapclient started the very second
+    its carrier came up. So the launcher waits, before it resolves anything, for
+    what wait-online waited for: NetworkManager's startup, which completes once
+    eth0 has its IPv4 or gave up (measured 2 ms after eth0 activated). The wait
+    outlasts the IPv4 wait the drop-in sets, or it gives up while NetworkManager
+    is still holding the cable. And it fails open: a NetworkManager that never
+    reports startup must not keep the room silent.
     """
-    code = "\n".join(
-        line.split("#", 1)[0] for line in SAT_LAUNCHER.read_text(encoding="utf-8").splitlines()
+    result, calls = _run_sat_launcher(tmp_path, nm_online_rc)
+    assert result.returncode == 0, f"the launcher failed: {result.stderr}"
+    assert calls and calls[-1].startswith("snapclient "), (
+        f"the launcher never execed snapclient (calls: {calls}, stderr: {result.stderr})"
     )
-    assert "getent" in code, "the launcher no longer resolves the server"
-    assert "exec /usr/bin/snapclient" in code, "the launcher no longer execs snapclient"
+    if nm_online_rc:
+        assert "nm-online" in result.stderr, (
+            "the launcher started without waiting and said nothing: the journal is the only trace of it"
+        )
 
-    probe = re.search(r"nmcli\b[^\n]*GENERAL\.STATE[^\n]*\beth0\b", code)
-    assert probe, "the launcher reads no NetworkManager state of eth0"
-    assert probe.start() < code.index("getent"), (
-        "eth0's state is read only after the server is resolved"
+    asked = [c for c in calls if c.startswith("nm-online ")]
+    assert asked, "the launcher never waits for NetworkManager's startup before it dials"
+    args = asked[0].split()[1:]
+    assert "-s" in args or "--wait-for-startup" in args, (
+        f"nm-online is not asked for startup ({args}): without -s it returns as soon as "
+        "wlan0 alone is connected"
+    )
+    resolved = next((i for i, c in enumerate(calls) if c.startswith("getent ")), None)
+    assert resolved is not None, f"the launcher no longer resolves the server (calls: {calls})"
+    assert "nm-online returned" in calls[:resolved], (
+        f"the server is resolved before NetworkManager's startup is over (calls: {calls})"
     )
 
-    assert "/proc/uptime" in code, "the eth0 wait reads no monotonic clock"
-    assert not re.search(r"\bSECONDS\b", code), (
-        "the launcher reads $SECONDS, which a clock step moves; time the wait from /proc/uptime"
-    )
-
-    assert re.search(r"-ge\s+40\b", code), (
-        "the wait does not start at NetworkManager's first activating state (40); "
-        "a lower bound would hold an unplugged eth0 (20) for the whole cap"
-    )
-    assert re.search(r"-lt\s+100\b|-le\s+99\b", code), (
-        "the wait does not end at NetworkManager's activated state (100)"
+    required = re.search(r"^ipv4\.required-timeout=(\d+)\s*$", SAT_ETHERNET_DROPIN.read_text(), re.MULTILINE)
+    assert required, "90-milo-ethernet-ipv4.conf sets no ipv4.required-timeout; the extractor is broken"
+    timeout = re.search(r"(?:-t|--timeout)[ =](\d+)", " ".join(args))
+    assert timeout, f"nm-online runs on its default timeout ({args}); bound it explicitly"
+    assert int(timeout.group(1)) > int(required.group(1)) / 1000, (
+        f"the wait ({timeout.group(1)} s) gives up before NetworkManager stops waiting for "
+        f"eth0's IPv4 ({required.group(1)} ms)"
     )
