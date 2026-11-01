@@ -17,8 +17,10 @@ from routes import create_health_router, create_snapclient_router, create_equali
 from routes.health import get_hostname
 from access_log import quiet_volume_steps
 from origin_gate import OriginGate
+from services.camilladsp_update import CAMILLADSP_SERVICE
 from services.registration import register_with_main_milo
 from services.server_address_watch import follow_server_address
+from services.snapclient import SNAPCLIENT_SERVICE
 
 # Constants
 API_PORT = 8001
@@ -41,6 +43,40 @@ def _sd_notify_ready():
     with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
         sock.sendto(b"READY=1", addr)
     logger.info("sd_notify: READY=1 sent to systemd")
+
+
+async def _start_bound_unit(unit: str) -> None:
+    """`sudo systemctl start <unit>`, logged at error when it fails."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "systemctl", "start", unit,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+    except Exception as e:
+        logger.error("systemctl start %s failed: %s", unit, e)
+        return
+    if proc.returncode != 0:
+        logger.error("systemctl start %s failed: %s", unit, stderr.decode(errors="replace").strip())
+
+
+async def _start_bound_units() -> None:
+    """Start the two units BindsTo= this one, which a crash of the app stops.
+
+    `Restart=always` brings the app back, but BindsTo= has already stopped
+    CamillaDSP and snapclient and nothing restarts them: the room stays mute,
+    and with no snapclient the server never admits the satellite again. At boot
+    and during an update their start job is already queued, and this start
+    merges into it. Concurrent, since neither unit is ordered after the other:
+    a slow CamillaDSP start must not hold back the snapclient that gets the
+    satellite admitted. Two calls rather than a loop: the sudoers contract test
+    resolves a unit name from a constant, not from a loop over constants.
+    """
+    await asyncio.gather(
+        _start_bound_unit(CAMILLADSP_SERVICE),
+        _start_bound_unit(SNAPCLIENT_SERVICE),
+    )
 
 
 # Create service instances
@@ -77,6 +113,10 @@ async def lifespan(app: FastAPI):
     # connects to snapserver AFTER our API is accepting requests.
     _sd_notify_ready()
 
+    # After READY=1, not before: both units are After= this one, so a start
+    # issued earlier would wait for this unit's own start to finish.
+    bound_units_task = asyncio.create_task(_start_bound_units())
+
     # Register with main Milo (background task, retries until successful)
     registration_task = asyncio.create_task(register_with_main_milo())
 
@@ -86,6 +126,7 @@ async def lifespan(app: FastAPI):
 
     yield  # Application runs here
 
+    bound_units_task.cancel()
     registration_task.cancel()
     address_watch_task.cancel()
     await equalizer_service.stop_connection_loop()
