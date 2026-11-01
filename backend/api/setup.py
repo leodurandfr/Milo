@@ -84,32 +84,48 @@ def create_setup_router(
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 
+    # A wizard completion in flight, from the route's first line to the end of
+    # its apply. `setup_completed` cannot guard that window: it is written only
+    # once milo-apply-hardware has rewritten config.txt, seconds after the
+    # route answered.
+    completing = False
+
     @router.post("/complete")
     async def complete_setup(payload: SetupCompleteRequest, background_tasks: BackgroundTasks):
         """
         Atomic wizard completion: set language, save hardware config, mark setup complete, reboot.
 
-        On failure: rolls back setup_completed to false so the wizard reappears.
+        On failure setup_completed stays false, so the wizard reappears. A submit
+        arriving while another is in flight, or once setup is complete, answers
+        "rebooting" and applies nothing.
         """
+        nonlocal completing
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
         from backend.core.settings import VALID_LANGUAGES
 
-        # Idempotency guard — prevent double-submit triggering two reboots
-        already_done = await settings_service.get_setting("setup_completed")
-        if already_done:
+        # Idempotency guard — a second device pressing Finish (the kiosk and a
+        # phone) must not run a second milo-apply-hardware over config.txt nor
+        # a second reboot. Checked and set before the first await: a check
+        # separated from its write by an await lets both submits pass.
+        if completing:
             return {"status": "rebooting"}
-
-        # Validate language
-        if payload.language not in VALID_LANGUAGES:
-            raise HTTPException(status_code=400, detail=f"Invalid language: {payload.language}")
-
-        # Validate audio card and screen
-        if payload.audio_id not in AUDIO_CARDS:
-            raise HTTPException(status_code=400, detail=f"Unknown audio card: {payload.audio_id}")
-        if payload.screen_type not in SCREENS:
-            raise HTTPException(status_code=400, detail=f"Unknown screen type: {payload.screen_type}")
+        completing = True
+        scheduled = False
 
         try:
+            if await settings_service.get_setting("setup_completed"):
+                return {"status": "rebooting"}
+
+            # Validate language
+            if payload.language not in VALID_LANGUAGES:
+                raise HTTPException(status_code=400, detail=f"Invalid language: {payload.language}")
+
+            # Validate audio card and screen
+            if payload.audio_id not in AUDIO_CARDS:
+                raise HTTPException(status_code=400, detail=f"Unknown audio card: {payload.audio_id}")
+            if payload.screen_type not in SCREENS:
+                raise HTTPException(status_code=400, detail=f"Unknown screen type: {payload.screen_type}")
+
             # 1. Set language
             if not await settings_service.set_setting("language", payload.language):
                 raise RuntimeError("Failed to persist language setting")
@@ -160,22 +176,31 @@ def create_setup_router(
             # wizard, no message anywhere. Applying first makes every cut before
             # the flag bring the wizard back, and a cut after it lands on a
             # config.txt that is already correct.
+            #
+            # The submit is released however this ends: once the flag is
+            # written it guards on its own, and an apply that failed leaves the
+            # wizard on screen, to be submitted again.
             async def _delayed_apply():
-                await asyncio.sleep(1)  # Allow HTTP response to flush to the client
+                nonlocal completing
                 try:
-                    await hardware_service.apply_and_reboot(reboot=False)
-                except Exception as e:
-                    logger.error(f"Setup wizard: hardware apply failed: {e}")
-                    return
+                    await asyncio.sleep(1)  # Allow HTTP response to flush to the client
+                    try:
+                        await hardware_service.apply_and_reboot(reboot=False)
+                    except Exception as e:
+                        logger.error(f"Setup wizard: hardware apply failed: {e}")
+                        return
 
-                if not await settings_service.set_setting("setup_completed", True):
-                    logger.error("Setup wizard: failed to persist setup_completed — not rebooting")
-                    return
-                logger.info("Setup wizard: setup_completed set to true")
+                    if not await settings_service.set_setting("setup_completed", True):
+                        logger.error("Setup wizard: failed to persist setup_completed — not rebooting")
+                        return
+                    logger.info("Setup wizard: setup_completed set to true")
 
-                await systemd_manager.power("reboot")
+                    await systemd_manager.power("reboot")
+                finally:
+                    completing = False
 
             background_tasks.add_task(_delayed_apply)
+            scheduled = True
 
             return {"status": "rebooting"}
 
@@ -189,6 +214,9 @@ def create_setup_router(
             # existed to guarantee.
             logger.error(f"Setup wizard failed: {e}")
             raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
+        finally:
+            if not scheduled:
+                completing = False
 
     @router.post("/become-client")
     async def become_client(payload: BecomeClientRequest, background_tasks: BackgroundTasks):

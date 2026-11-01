@@ -418,17 +418,115 @@ class TestCompleteSetup:
         saved = services.hardware.save_config.await_args.args[0]
         assert saved["audio"]["volume_control"] is False
 
-    def test_a_second_submit_does_not_reboot_again(self, client, services):
-        """The wizard's Finish button is reachable twice on a slow first boot;
-        the second reboot lands mid-apply.
-        """
-        services.settings.get_setting = AsyncMock(return_value=True)
+    @staticmethod
+    def _reflecting_store(services) -> dict:
+        """Settings that read back what the route wrote, starting from a fresh unit.
 
+        The guard reads `setup_completed`, so a stand-in answering a fixed value
+        decides by itself whether a second submit is "after" the first one: the
+        flag must reach the store through the route, never through the test.
+        """
+        store = {"setup_completed": False}
+
+        async def _get(key):
+            return store.get(key)
+
+        async def _set(key, value):
+            store[key] = value
+            return True
+
+        services.settings.get_setting = AsyncMock(side_effect=_get)
+        services.settings.set_setting = AsyncMock(side_effect=_set)
+        return store
+
+    async def test_a_second_submit_inside_the_apply_window_applies_nothing(self, services):
+        """The kiosk and a phone both on the wizard, Finish pressed on each a few
+        seconds apart. `setup_completed` is written only once
+        `milo-apply-hardware` has rewritten config.txt, so a second submit
+        landing while the first apply runs used to pass the guard: two helpers
+        interleaving their `sed -i` and `cat >>` on config.txt — which can end
+        with no MILO AUDIO block, a mute unit marked configured — then two
+        reboots, the first one killing the second helper mid-script.
+
+        Only the first apply is slow: httpx's ASGI transport returns a response
+        once its background tasks are done, so a second apply that also waited
+        would never let the second request answer. The route's one-second delay
+        is kept rather than patched: `asyncio.sleep` is the asyncio module's own,
+        so a patch would reach the transport too, running in this test's loop.
+        """
+        import asyncio
+        import httpx
+
+        self._reflecting_store(services)
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def _apply(**_):
+            if services.hardware.apply_and_reboot.await_count == 1:
+                entered.set()
+                await release.wait()
+        services.hardware.apply_and_reboot.side_effect = _apply
+
+        app = FastAPI()
+        app.include_router(create_setup_router(
+            services.settings, services.hardware, services.network, services.systemd
+        ))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            first = asyncio.create_task(
+                http.post("/api/setup/complete", json=self._payload())
+            )
+            await entered.wait()
+
+            second = await http.post("/api/setup/complete", json=self._payload())
+            release.set()
+            first = await first
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert second.json() == {"status": "rebooting"}
+        assert services.hardware.apply_and_reboot.await_count == 1
+        assert services.hardware.save_config.await_count == 1
+        services.systemd.power.assert_awaited_once_with("reboot")
+
+    def test_a_submit_after_setup_completed_applies_nothing(self, client, services):
+        """The wizard's Finish button is reachable again on a slow first boot,
+        after the flag is written and while the reboot is on its way: a second
+        apply there lands mid-shutdown."""
+        self._reflecting_store(services)
+
+        client.post("/api/setup/complete", json=self._payload())
         response = client.post("/api/setup/complete", json=self._payload())
 
         assert response.status_code == 200
-        services.hardware.save_config.assert_not_awaited()
-        services.hardware.apply_and_reboot.assert_not_awaited()
+        assert response.json() == {"status": "rebooting"}
+        services.hardware.apply_and_reboot.assert_awaited_once()
+        services.systemd.power.assert_awaited_once_with("reboot")
+
+    def test_a_failed_apply_lets_the_wizard_be_submitted_again(self, client, services):
+        """The wizard stays on screen after a failed apply; a submit refused
+        there forever would leave a fresh unit with no way to finish its setup
+        short of a backend restart."""
+        self._reflecting_store(services)
+        services.hardware.apply_and_reboot.side_effect = [
+            RuntimeError("config.txt is read-only"), None,
+        ]
+
+        client.post("/api/setup/complete", json=self._payload())
+        client.post("/api/setup/complete", json=self._payload())
+
+        assert services.hardware.apply_and_reboot.await_count == 2
+        services.systemd.power.assert_awaited_once_with("reboot")
+
+    def test_a_refused_payload_does_not_hold_the_wizard(self, client, services):
+        """A 400 is answered before anything is scheduled, so nothing would
+        ever release a submit held by it."""
+        self._reflecting_store(services)
+
+        refused = client.post("/api/setup/complete", json=self._payload(language="klingon"))
+        client.post("/api/setup/complete", json=self._payload())
+
+        assert refused.status_code == 400
+        services.hardware.apply_and_reboot.assert_awaited_once()
 
     def test_the_reboot_runs_after_the_response_and_not_during_it(self, client, services):
         """Rewriting config.txt and rebooting inline would take the box down
