@@ -267,9 +267,12 @@ async def test_a_phone_leaving_during_a_multiroom_toggle_is_seen_leaving(bt):
     assert bt.exposed()
 
 
-async def test_a_writer_that_will_not_come_back_after_a_toggle_is_reported(bt, caplog):
+async def test_a_writer_that_will_not_come_back_after_a_toggle_settles_failed(bt, caplog):
     """The mode switch itself stands, so the failure is not raised — but it is
-    reported, and the screen is not left on the STARTING the toggle put up."""
+    reported, and the source is settled as a failed start: published `running`
+    over a dead writer, the room stayed silent under a card offering no retry
+    and re-selecting was a no-op. Stopped like any failed start, the appliance
+    is closed again, and re-selecting the source brings the stack back up."""
     await playing_iphone(bt)
     bt.failing_units.add(APLAY_UNIT)
 
@@ -277,8 +280,15 @@ async def test_a_writer_that_will_not_come_back_after_a_toggle_is_reported(bt, c
         await bt.reroute()
 
     assert "re-acquire returned False" in caplog.text
-    assert bt.state()["service"] == "running" and not bt.state()["switching"]
-    assert bt.active()
+    assert bt.state()["service"] == "failed" and not bt.state()["switching"]
+    assert not bt.active()
+    assert not bt.exposed()
+
+    bt.failing_units.discard(APLAY_UNIT)
+    await bt.select()
+
+    assert bt.state()["service"] == "running"
+    assert all(bt.units[unit] for unit in (BLUEZ_UNIT, BLUEALSA_UNIT, APLAY_UNIT))
 
 
 # === The phone's player ===

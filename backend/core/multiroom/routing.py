@@ -566,8 +566,8 @@ class AudioRoutingService:
         under it: reconcile snapcast, then regenerate routing.env.
 
         The source's side — reading which source is active inside the transition
-        lock, RELEASE before the output moves, ACQUIRE after, republishing its
-        real state when the reacquire fails — is the state machine's
+        lock, RELEASE before the output moves, ACQUIRE after, settling it
+        failed when the reacquire does not come back — is the state machine's
         (`reroute_active_source`). Lock order is always: `_routing_lock` (held
         by the caller) → the transition lock.
 

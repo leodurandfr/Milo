@@ -9,7 +9,7 @@ the responses callers get back.
 """
 import asyncio
 from typing import List
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -324,6 +324,39 @@ async def test_a_held_mailbox_queues_what_arrives_meanwhile(probe):
     await pressed
     assert probe._service_manager.calls[-2:] == ["stop", "stop done"]
     assert not probe._service_manager.active
+
+
+async def test_what_queued_behind_a_reroute_that_did_not_come_back_is_interrupted(probe):
+    """A press during a multiroom toggle targets the session the reroute was
+    carrying. When the reacquire does not come back, the source is stopped
+    before the mailbox gets to that press: answered as interrupted, it never
+    runs against a source that is not started."""
+    from backend.core.models.audio_state import AudioSource
+    from backend.core.state import AudioStateMachine
+
+    async def send(envelope):
+        for _ in range(5):  # a broadcast yields, as socket writes do
+            await asyncio.sleep(0)
+
+    machine = AudioStateMachine()
+    machine.ws_manager = Mock(broadcast_dict=AsyncMock(side_effect=send))
+    machine.ALSA_RELEASE_SETTLE_S = 0
+    machine.register_source(AudioSource.RADIO, probe)
+    assert await machine.transition_to_source(AudioSource.RADIO)
+    pressed = []
+
+    async def switch_output():
+        pressed.append(asyncio.ensure_future(probe.command("play", None)))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        probe._service_manager.start = AsyncMock(return_value=False)
+
+    await machine.reroute_active_source(switch_output)
+
+    answer = await pressed[0]
+    assert machine.get_current_state()["service"] == "failed"
+    assert not answer["success"] and "interrupted" in answer["error"]
+    assert probe.log == []
 
 
 # === Work on the hardware outlives a stop (DeviceToken) ===

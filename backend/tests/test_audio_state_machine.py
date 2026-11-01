@@ -1092,6 +1092,110 @@ class TestRerouteActiveSource:
 
         mock_source.acquire_after_reroute.assert_awaited_once()
 
+    @pytest.mark.parametrize("acquire", [
+        AsyncMock(return_value=False),
+        AsyncMock(side_effect=RuntimeError("mpv IPC did not connect")),
+    ], ids=["returns-false", "raises"])
+    async def test_a_failed_reacquire_makes_reselect_the_retry(
+        self, state_machine, mock_source, acquire
+    ):
+        """A source whose ACQUIRE did not come back is silent and not started
+        (its CONTENT commands are refused). Published `running` with the stale
+        session and its controls, the card offered no retry, and re-selecting
+        the source answered "Already on source" without starting it: another
+        source was the only way back."""
+        sent = recorded(state_machine)
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = acquire
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+        live = SourceView(session=session_view("Live").session, controls=("stop",))
+        await state_machine.update_source_view(AudioSource.RADIO, live)
+
+        async def switch_output():
+            pass
+
+        await state_machine.reroute_active_source(switch_output)
+
+        final = envelopes(sent, "source", "state")[-1]["data"]
+        assert final["service"] == "failed"
+        assert final["service_error"]["reason"] == "start_failed"
+        assert (final["session"], final["controls"]) == (None, [])
+        mock_source.start.assert_not_awaited()
+
+        assert await state_machine.transition_to_source(AudioSource.RADIO) is True
+        mock_source.start.assert_awaited_once()
+
+    async def test_a_failed_reacquire_lands_before_the_source_is_stopped(
+        self, state_machine, mock_source
+    ):
+        """E03 on the reroute: the failure is on the wire before the source that
+        did not come back is stopped, so no client reads the stale session for
+        as long as the stop takes."""
+        sent = recorded(state_machine)
+        on_the_wire_at_stop = []
+
+        async def stop():
+            on_the_wire_at_stop.append(envelopes(sent, "source", "state")[-1]["data"]["service"])
+            return True
+
+        mock_source.stop = AsyncMock(side_effect=stop)
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+
+        async def switch_output():
+            pass
+
+        await state_machine.reroute_active_source(switch_output)
+
+        assert on_the_wire_at_stop == ["failed"]
+
+    async def test_an_apply_whose_receiver_does_not_come_back_settles_failed(
+        self, state_machine, mock_source
+    ):
+        """The Mac link's Apply answered `success` over a roc-recv that did not
+        come back, under a card that read `running`: the card must offer the
+        retry once the switch it holds is over."""
+        sent = recorded(state_machine)
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.MAC, mock_source)
+        state_machine.system_state.active_source = AudioSource.MAC
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+
+        async def write_env():
+            pass
+
+        assert await state_machine.restart_source_if_active(AudioSource.MAC, write_env) is False
+
+        final = envelopes(sent, "source", "state")[-1]["data"]
+        assert (final["switching"], final["service"]) == (False, "failed")
+
+    async def test_a_failed_switch_and_a_failed_reacquire_settle_failed_then_raise(
+        self, state_machine, mock_source
+    ):
+        """Both halves fail: the caller still hears the switch's failure, and
+        the source that did not come back under the old mode is settled failed
+        first — raising before it left the card on `running` over silence."""
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+
+        async def switch_output():
+            raise RuntimeError("Failed to start snapcast services")
+
+        with pytest.raises(RuntimeError, match="snapcast"):
+            await state_machine.reroute_active_source(switch_output)
+
+        assert state_machine.get_current_state()["service"] == "failed"
+        mock_source.stop.assert_awaited_once()
+
     async def test_restarting_one_source_leaves_any_other_alone(self, state_machine, mock_source):
         """The Mac panel's Apply reroutes only Mac. Carried while Radio played,
         the Mac settings would have released and restarted Radio for nothing;
@@ -1357,6 +1461,32 @@ class TestRerouteOfAFailedSource:
             pass
 
         await state_machine.reroute_active_source(switch_output)
+
+        state = state_machine.get_current_state()
+        assert (state["service"], state["service_error"]) == ("running", None)
+        assert state["session"]["title"] == "Back"
+
+    async def test_a_reacquire_that_succeeds_under_a_failed_switch_clears_it_too(
+        self, state_machine, mock_source
+    ):
+        """A switch that raised still has its source taken back, under the old
+        mode (E08). Raised before the resync, a reacquire that succeeded left
+        the source playing under a card still saying "Retry"."""
+        mock_source.start = AsyncMock(return_value=False)
+        mock_source.release_for_reroute = AsyncMock(return_value=True)
+        mock_source.acquire_after_reroute = AsyncMock(return_value=True)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        state_machine.ALSA_RELEASE_SETTLE_S = 0
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+        assert state_machine.get_current_state()["service"] == "failed"
+
+        mock_source.view = session_view("Back")
+
+        async def switch_output():
+            raise RuntimeError("Failed to start snapcast services")
+
+        with pytest.raises(RuntimeError, match="snapcast"):
+            await state_machine.reroute_active_source(switch_output)
 
         state = state_machine.get_current_state()
         assert (state["service"], state["service_error"]) == ("running", None)

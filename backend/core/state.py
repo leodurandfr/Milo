@@ -327,8 +327,10 @@ class AudioStateMachine:
         ACQUIRE follows RELEASE even when `apply_mode` raised: the mode in force
         is then the old one, and a source left released would stay silent under
         it (E08: Spotify's output parked on `null`). `apply_mode` raising is
-        re-raised after that; an ACQUIRE failure is not, since the mode itself is
-        committed and the user can retry the source.
+        re-raised after that, once the state says how the ACQUIRE went. One
+        that does not come back raises nothing of its own: the source is
+        settled as a failed start (stopped, `service: failed`), so re-selecting
+        it is the retry.
         """
         async with self._transition_lock:
             active = self.system_state.active_source
@@ -390,20 +392,34 @@ class AudioStateMachine:
                 reacquired = await instance.acquire_after_reroute()
                 if not reacquired:
                     logger.warning(
-                        "Source %s re-acquire returned False after the reroute "
-                        "(the reroute itself stands)", active.value
+                        "Source %s re-acquire returned False after the reroute; "
+                        "settling it failed", active.value
                     )
             except Exception as e:
                 logger.warning(
-                    "Source %s re-acquire failed after the reroute (non-fatal): %s",
+                    "Source %s re-acquire failed after the reroute; settling it failed: %s",
                     active.value, e,
                 )
-            if switch_failed is not None:
-                raise switch_failed
-        if reacquired and self.system_state.service_error is not None:
+            if not reacquired:
+                # Silent and not started: settled as a failed start, so the card
+                # offers the retry and re-selecting the source is that retry.
+                # The failure lands before the stop (E03).
+                error = ServiceError(
+                    reason="start_failed",
+                    message=f"{active.value} did not come back after the output switch",
+                )
+                await self._land_failure(active, error)
+        if not reacquired:
+            # Nothing awaited between the hold's end and this stop's post, so
+            # the mailbox has not run what queued behind the hold: the stop
+            # answers it as interrupted, never run against a stopped source.
+            await self._settle_failed_transition(active, error, None)
+        elif self.system_state.service_error is not None:
             # The reacquire is a full start that succeeded: the one thing
             # that lifts a failed start, which no publish of the source's may do.
             await self._resync_after_start(active, instance)
+        if switch_failed is not None:
+            raise switch_failed
         return reacquired
 
     async def _resync_after_start(self, active: AudioSource, instance) -> None:
@@ -544,19 +560,24 @@ class AudioStateMachine:
                     error.message,
                     f" (link is {blocked})" if blocked else "",
                 )
-                # The failure lands with `transitioning` cleared, in the same
-                # write: a "starting" left in it drew a spinner under the
-                # failure for as long as the failed target took to stop (E03).
-                async with self._state_lock:
-                    self.system_state.transitioning = False
-                    self.system_state.view = SourceView()
-                    self.system_state.service_error = (
-                        error if target_source != AudioSource.NONE else None
-                    )
-                await self.publish_state()
-
+                await self._land_failure(target_source, error)
                 await self._settle_failed_transition(target_source, error, teardown)
                 return False
+
+    async def _land_failure(self, source: AudioSource, error: ServiceError) -> None:
+        """Put a failed start on the wire before its source is stopped (E03).
+
+        `transitioning` is cleared in the same write: a "starting" left in it
+        drew a spinner under the failure for as long as the failed target took
+        to stop.
+        """
+        async with self._state_lock:
+            self.system_state.transitioning = False
+            self.system_state.view = SourceView()
+            self.system_state.service_error = (
+                error if source != AudioSource.NONE else None
+            )
+        await self.publish_state()
 
     async def update_source_view(self, source: AudioSource, view: SourceView) -> None:
         """Take what `source` published as the state's, and broadcast what

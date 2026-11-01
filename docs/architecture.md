@@ -113,9 +113,12 @@ Three things are worth spelling out:
 **Two kinds of error, two mechanisms, no overlap.** A source that will not start
 is the service axis: the failed transition leaves the source **selected** with
 `service: failed` and `service_error.reason` `start_timeout` or `start_failed`
-(re-selecting it is therefore the retry). It is sticky: `update_source_view()`
-drops every publish while it holds, and only the resync after a start that
-succeeded (a transition, or a reroute's reacquire) lifts it — a source whose
+(re-selecting it is therefore the retry). A reroute whose reacquire does not
+come back (a multiroom toggle, the Mac link's Apply) settles the same way, as
+`start_failed`: the source is stopped, and re-selecting it restarts it. The
+failure is sticky: `update_source_view()` drops every publish while it holds,
+and only the resync after a start that succeeded (a transition, or a reroute's
+reacquire, even under a mode switch that failed) lifts it — a source whose
 feed outlives its start (the CD's disc watcher) otherwise published over it,
 and the card lost its retry. An *operation* that fails while the source
 keeps working — a station that will not tune, a rejected command — rides the

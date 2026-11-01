@@ -651,12 +651,13 @@ class TestAudioRoutingService:
     async def test_a_toggle_whose_reacquire_returns_false_still_ends_the_switch(
         self, routing_service, mock_systemd_manager, mock_source
     ):
-        """A best-effort reacquire failure must still end the switch.
+        """A reacquire that returns False ends the switch with the source
+        settled failed, so re-tapping it is the retry.
 
-        A source that merely returns False publishes nothing, and the toggle
-        does not fail because the reacquire is non-fatal — so the card spun for
-        the rest of the session, and re-tapping the source was a no-op because
-        the state machine believed it was starting.
+        The mode itself is committed, so the toggle succeeds — but the source
+        did not come back: published `running`, the room stayed silent under a
+        card offering no retry, and re-tapping the source was a no-op
+        ("Already on source"). The half-started source is stopped.
         """
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
@@ -667,14 +668,16 @@ class TestAudioRoutingService:
             assert await routing_service.set_multiroom_enabled(True) is True
 
         final = self._switch_ended(routing_service)
-        assert (final.switching, final.service.value) == (False, "running")
+        assert (final.switching, final.service.value) == (False, "failed")
+        mock_source.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_a_toggle_whose_reacquire_raises_still_ends_the_switch(
         self, routing_service, mock_systemd_manager, mock_source
     ):
         """The raising reacquire owes the same end as the one above: it is
-        caught where it happens, so the toggle goes on to its end."""
+        caught where it happens, so the toggle goes on to its end, with the
+        source settled failed and stopped."""
         mock_systemd_manager.start = AsyncMock(return_value=True)
         routing_service.state_machine.register_source(AudioSource.SPOTIFY, mock_source)
         routing_service.state_machine.system_state.active_source = AudioSource.SPOTIFY
@@ -684,7 +687,8 @@ class TestAudioRoutingService:
             assert await routing_service.set_multiroom_enabled(True) is True
 
         final = self._switch_ended(routing_service)
-        assert (final.switching, final.service.value) == (False, "running")
+        assert (final.switching, final.service.value) == (False, "failed")
+        mock_source.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_apply_transition_source_acquire_failure_is_non_fatal(

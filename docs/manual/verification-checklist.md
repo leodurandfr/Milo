@@ -255,6 +255,7 @@ flowing; anything else is "connected" (a Mac publishes no state for its first 10
 | Audio | Continuous audio, no dropouts, at the configured latency profile | targeted |
 | Left while off | A Mac that picked another output while Milō played another source is not shown when Mac is selected again (`session: null`, the card reads ready) | targeted |
 | roc-recv killed | `kill -9` its MainPID mid-stream: the session ends (the card reads ready) and the banner shows at once; systemd restarts it ~5 s later and the Mac is back on screen by itself, banner gone | targeted |
+| Apply mid-stream | With Mac the active source, change a "Reception (Milō)" value (the target latency) in the Mac settings and Apply — a "Sending (Mac)" value alone restarts nothing: roc-recv is active again afterwards (`systemctl is-active milo-mac`), and `GET /api/audio/state` reads `service: running` with no `service_error` and `switching: false`; the Mac's audio resumes. A `service: failed` here means the receiver did not come back — selecting Mac again is the retry | targeted |
 
 ## Volume and CamillaDSP
 
