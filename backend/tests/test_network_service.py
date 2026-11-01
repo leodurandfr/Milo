@@ -2621,31 +2621,100 @@ async def test_a_saved_ssid_that_cannot_be_read_is_none(service):
 
 
 @pytest.mark.asyncio
-async def test_forgetting_a_network_while_nm_is_down_deletes_nothing(service):
-    """`_delete_ssid_profiles` runs before every save and every connect. Reading
-    a failed list as an empty one is what must not happen the other way round —
-    here the failure simply deletes nothing, and the caller's own `connection
-    add` reports the real problem."""
+async def test_forgetting_a_network_while_nm_is_down_raises_and_deletes_nothing(service):
+    """A forget is the one caller with no `connection add` behind it to report
+    the failure. A listing that never happened answered as a success lets the
+    settings panel drop an SSID that NetworkManager still holds and rejoins."""
     fake, patcher = with_nmcli(lambda args: (1, "", "NetworkManager not running"))
-    with patcher:
+    with patcher, pytest.raises(RuntimeError, match="NetworkManager not running"):
         await service.forget_network("Maison")
     assert not fake.argv_containing("delete")
 
 
 @pytest.mark.asyncio
-async def test_a_profile_that_refuses_to_be_deleted_is_logged(service, caplog):
-    """The delete is best-effort by design, but a profile that survives is what
-    makes the next `connection up` activate the old credentials — the operator
-    log is the only place that says so."""
+async def test_a_profile_that_refuses_to_be_deleted_fails_the_forget(service, caplog):
+    """A profile that survives keeps its credentials and its autoconnect, so the
+    forget must not read as done: the exception and the operator log both name
+    the profile NetworkManager kept."""
     def route(args):
         if args[:2] == ("connection", "delete"):
             return (1, "", "Error: unknown connection")
         return (0, "milo-Maison:802-11-wireless", "")
 
     fake, patcher = with_nmcli(route)
-    with patcher, caplog.at_level(logging.ERROR):
+    with patcher, caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as raised:
         await service.forget_network("Maison")
+    assert "milo-Maison" in str(raised.value)
     assert "milo-Maison" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_one_refused_delete_does_not_stop_the_others_and_only_survivors_are_named(service):
+    """One refusal must not stop the others — a netplan twin left behind is the
+    profile that breaks the next connect — and the error names only what
+    survived, which is what the operator has to remove by hand."""
+    attempted = []
+
+    def route(args):
+        if args[:2] == ("connection", "delete"):
+            attempted.append(args[2])
+            if args[2] == "milo-Maison":
+                return (1, "", "Error: unknown connection")
+            return (0, "", "")
+        return (0, "milo-Maison:802-11-wireless\nnetplan-wlan0-Maison:802-11-wireless", "")
+
+    fake, patcher = with_nmcli(route)
+    with patcher, pytest.raises(RuntimeError) as raised:
+        await service.forget_network("Maison")
+    assert attempted == ["milo-Maison", "netplan-wlan0-Maison"]
+    assert "milo-Maison" in str(raised.value)
+    assert "netplan-wlan0-Maison" not in str(raised.value)
+
+
+def test_a_forget_nm_refused_answers_an_error_on_the_route(service):
+    """`useNetwork.js` drops the SSID from the settings panel only on a success,
+    so the route is where a kept profile must surface: a 200 shows a network
+    forgotten that the unit rejoins at its next autoconnect."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.api.network import create_network_router
+
+    def route(args):
+        if args[:2] == ("connection", "delete"):
+            return (1, "", "Error: unknown connection")
+        return (0, "milo-Maison:802-11-wireless", "")
+
+    app = FastAPI()
+    app.include_router(create_network_router(service))
+    fake, patcher = with_nmcli(route)
+    with patcher:
+        response = TestClient(app).delete("/api/network/wifi/saved/Maison")
+    assert response.status_code == 500
+    assert "milo-Maison" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["listing", "delete"])
+@pytest.mark.parametrize("call", ["save_network", "connect"])
+async def test_saving_and_connecting_still_proceed_when_the_old_profile_survives(service, call, failure):
+    """Both clear the SSID's old profiles before their own `connection add`, and
+    that add is what reports a NetworkManager that is down. A clear-out that
+    raised here would cost the wizard its save over a profile that the new one
+    replaces anyway."""
+    def route(args):
+        if args[-2:] == ("connection", "show"):
+            if failure == "listing":
+                return (1, "", "NetworkManager not running")
+            return (0, "milo-Maison:802-11-wireless", "")
+        if args[:2] == ("connection", "delete"):
+            return (1, "", "Error: unknown connection")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(route)
+    with patcher:
+        await getattr(service, call)("Maison", "secret")
+    assert fake.argv_containing("add"), f"{call} stopped at the clear-out"
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,7 @@ What breaks when one of these fails:
   overlay out of config.txt — dropping it disables the receiver on a unit that
   has one, silently, at the one moment the user cannot yet notice.
 """
+import logging
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -253,6 +254,25 @@ class TestBecomeClientOrder:
         assert response.status_code == 500
         assert not marker.exists()
         services.network.forget_network.assert_awaited_once_with(ADOPT["wifi_ssid"])
+        services.systemd.power.assert_not_called()
+
+    def test_a_rollback_that_cannot_forget_keeps_the_original_error(
+        self, client, marker, services, caplog
+    ):
+        """`forget_network` raises when NetworkManager keeps the profile. The
+        wizard must still show why the adoption failed — the flag — with the
+        rollback's own failure in the log beside it, not in its place.
+        """
+        services.settings.set_setting = AsyncMock(return_value=False)
+        services.network.forget_network = AsyncMock(side_effect=RuntimeError("delete refused"))
+
+        with caplog.at_level(logging.WARNING):
+            response = client.post("/api/setup/become-client", json=ADOPT)
+
+        assert response.status_code == 500
+        assert "setup_completed" in response.json()["detail"]
+        assert "delete refused" not in response.json()["detail"]
+        assert "delete refused" in caplog.text
         services.systemd.power.assert_not_called()
 
     def test_an_open_target_network_is_saved_without_a_psk(self, client, marker, services):

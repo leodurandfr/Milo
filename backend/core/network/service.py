@@ -319,7 +319,9 @@ class NetworkService:
             await self._set_radio_override(False)
             self.logger.info("Saving WiFi network: %s", ssid)
 
-            await self._delete_ssid_profiles(ssid)
+            # Best effort: the `connection add` below reports what matters.
+            with contextlib.suppress(RuntimeError):
+                await self._delete_ssid_profiles(ssid)
 
             con_name = f"milo-{ssid}"
             add_args = [
@@ -374,8 +376,10 @@ class NetworkService:
         if self._hotspot_active:
             await self._stop_hotspot("switching to station mode")
 
-        # Remove all existing profiles for this SSID to avoid stale profiles
-        await self._delete_ssid_profiles(ssid)
+        # Remove all existing profiles for this SSID to avoid stale profiles —
+        # best effort: the `connection add` below reports what matters.
+        with contextlib.suppress(RuntimeError):
+            await self._delete_ssid_profiles(ssid)
 
         # Create profile and activate in two steps with psk-flags=0
         # to store the password in the system file (not via secret agent,
@@ -417,7 +421,12 @@ class NetworkService:
         return await self.get_network_status()
 
     async def forget_network(self, ssid: str) -> None:
-        """Forget (delete) all saved WiFi connection profiles for this SSID."""
+        """Forget (delete) all saved WiFi connection profiles for this SSID.
+
+        Raises when NetworkManager could not be read or kept a profile: unlike
+        a save or a connect, no `connection add` follows to report it, and a
+        profile that survives still autoconnects.
+        """
         await self._delete_ssid_profiles(ssid)
         self.logger.info("Forgot WiFi network: %s", ssid)
 
@@ -1162,14 +1171,21 @@ class NetworkService:
         """Delete all NM connection profiles matching a given SSID.
 
         Handles netplan-prefixed names (e.g. 'netplan-wlan0-MySSID') and
-        milo-prefixed names from previous connections.
+        milo-prefixed names from previous connections. A refused delete does
+        not stop the others; RuntimeError once they are all tried if the
+        listing failed or a profile survived.
         """
-        rc, stdout, _ = await self._run_nmcli(
+        rc, stdout, stderr = await self._run_nmcli(
             "-t", "-f", "NAME,TYPE", "connection", "show"
         )
         if rc != 0:
-            return
+            # A warning: a forget's caller logs the raise at error, and a save's
+            # or a connect's own `connection add` reports NetworkManager down.
+            reason = stderr or f"nmcli exited with code {rc}"
+            self.logger.warning("Failed to list WiFi profiles before deleting '%s': %s", ssid, reason)
+            raise RuntimeError(f"Failed to list WiFi profiles: {reason}")
 
+        survivors = []
         for line in stdout.split("\n"):
             if not line:
                 continue
@@ -1185,6 +1201,9 @@ class NetworkService:
                     self.logger.info("Deleted WiFi profile: %s", name)
                 else:
                     self.logger.error("Failed to delete WiFi profile %s: %s", name, stderr2)
+                    survivors.append(name)
+        if survivors:
+            raise RuntimeError(f"Failed to delete WiFi profile(s) {', '.join(survivors)} for '{ssid}'")
 
     async def _delete_hotspot_profile(self) -> None:
         """Remove the hotspot NM connection profile (ignores if missing)."""
