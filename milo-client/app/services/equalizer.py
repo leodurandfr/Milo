@@ -218,11 +218,15 @@ class EqualizerService:
                     # cached level never reached the daemon and the speaker sat
                     # muted at the floor until the next pass.
                     if await self._restore_after_reconnect():
-                        # A session that reached the daemon: the backoff has
-                        # served its purpose and starts over.
-                        reconnect_delay = RECONNECT_DELAY
-                        usable = True
                         await self._load_state_from_config()
+                        # A session that reached the daemon: the backoff has
+                        # served its purpose and starts over. A config read
+                        # refused after the restore is not one: the load
+                        # swallows its own error, and only `_exec` clearing
+                        # `_connected` says it failed.
+                        usable = self._connected
+                        if usable:
+                            reconnect_delay = RECONNECT_DELAY
 
                         # Idle: periodically probe CamillaDSP to detect silent disconnections
                         while self._running and self._connected:
@@ -240,10 +244,11 @@ class EqualizerService:
             # because `_exec` no longer reconnects and every `/equalizer/*` call
             # answers 400 until the loop is back: waiting there would spend the
             # server's sync retries on a daemon that is probably already up.
-            # What must back off is the connect-then-fail pass — `-w` holding an
-            # invalid config, or a GetConfig timing out under CPU starvation —
-            # which otherwise churns a fresh websocket client and three log lines
-            # every RECONNECT_DELAY for ever.
+            # What must back off is the connect-then-fail pass — a restore the
+            # daemon refuses, a GetConfigJson timing out under CPU starvation, a
+            # config file it cannot read — which otherwise churns a fresh
+            # websocket client and its log lines at the pace of the failure for
+            # ever, and in a hot loop when the refusal comes back at once.
             if self._running and not usable:
                 self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
                 await asyncio.sleep(reconnect_delay)

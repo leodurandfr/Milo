@@ -9,6 +9,8 @@ import pytest
 import yaml
 from unittest.mock import AsyncMock, call, patch
 
+from services.camilladsp_client import CamillaDspError
+
 
 class TestEqualizerServiceProperties:
     """Test EqualizerService property accessors."""
@@ -322,10 +324,11 @@ class TestEqualizerServiceConnection:
         """A connect that succeeds and a restore that then fails must not spin.
 
         The delay used to be slept only when `_connect_once` itself failed, so
-        this path — connect ok, GetConfig error, `_exec` clears `_connected`,
-        idle loop exits at once — went straight back to connecting with no wait:
-        two log lines a pass, for as long as the daemon refused. `-w` holding an
-        invalid config, or a timeout under CPU starvation, both reach it.
+        this path — connect ok, the restore refused, `_exec` clears `_connected`
+        — went straight back to connecting with no wait: two log lines a pass,
+        for as long as the daemon refused. A restore that lands followed by a
+        config read that fails is the other connect-then-fail pass, pinned by
+        test_a_config_read_refused_after_the_restore_backs_off.
         """
         from services.equalizer import EqualizerService
         service = EqualizerService()
@@ -357,6 +360,65 @@ class TestEqualizerServiceConnection:
         assert slept == sorted(slept) and slept[-1] > slept[0], (
             f"the backoff never grew: {slept}. A delay reset on every successful "
             f"connect churns a fresh client every RECONNECT_DELAY for ever."
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("refused, error", [
+        pytest.param(
+            "get_config", TimeoutError("CamillaDSP did not answer GetConfigJson within 5s"),
+            id="starved",
+        ),
+        pytest.param(
+            "read_config_file", CamillaDspError("CamillaDSP refused ReadConfigFile"),
+            id="unreadable",
+        ),
+    ])
+    async def test_a_config_read_refused_after_the_restore_backs_off(self, refused, error):
+        """A restore that lands and a config read that then fails must back off too.
+
+        `_load_state_from_config` swallows its own exception, so the refused
+        read shows only as `_exec` clearing `_connected`, and the idle probe
+        loop exits at once. Marked usable as soon as the restore landed, that
+        pass skipped the backoff and reset the delay: a GetConfigJson timing out
+        under CPU starvation reconnected, restored and logged at the pace of the
+        timeout for ever, and a config file the daemon cannot read became a hot
+        loop — 20 868 connects in one second against a fake daemon.
+
+        The daemon is the only stand-in: the connect, the restore, the config
+        read and `_exec` are the service's own.
+        """
+        from services.equalizer import EqualizerService
+
+        daemon = AsyncMock()
+        daemon.get_config.return_value = None  # no graph loaded: the file is read instead
+        daemon.get_config_file_path.return_value = "/var/lib/milo-client/camilladsp/config.yml"
+        getattr(daemon, refused).side_effect = error
+
+        with patch("services.equalizer.CamillaDspClient", return_value=daemon):
+            service = EqualizerService()
+
+            # Stopped by counting connects, never by the sleep under test.
+            connects = []
+            async def connect():
+                connects.append(1)
+                if len(connects) >= 3:
+                    service._running = False
+            daemon.connect.side_effect = connect
+
+            slept = []
+            with patch("services.equalizer.asyncio.sleep", AsyncMock(side_effect=lambda d: slept.append(d))):
+                await service._connection_loop()
+
+        assert getattr(daemon, refused).await_count == len(connects), (
+            f"{refused} was not reached on every pass: the path under test never ran"
+        )
+        assert daemon.set_mute.await_count == len(connects), (
+            "the restore did not land on every pass: this is the refused-restore case, not this one"
+        )
+        assert slept, "a config read refused after the restore retried without waiting: a hot loop"
+        assert slept == sorted(slept) and slept[-1] > slept[0], (
+            f"the backoff never grew: {slept}. A delay reset by a restore whose "
+            f"config read then failed reconnects at the pace of the failure for ever."
         )
 
     @pytest.mark.asyncio
