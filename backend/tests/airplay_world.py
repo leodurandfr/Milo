@@ -30,7 +30,8 @@ D-Bus — the item (5.6, 2026-10-16, a Mac, iPhone Music, iPhone Spotify):
   Music's says so only with the next update, at the resume, stamped at the
   pause.
 - The modes: set by Milō, the sender echoes them back; the volume: set by
-  Milō, shairport-sync writes it back itself, and the sender sends nothing.
+  Milō, shairport-sync writes it back itself once it has answered (read in
+  5.6.1's source, not measured), and the sender sends nothing.
 
 The daemon's death is observable two ways — /proc no longer carries the pid
 (what a poll reads) and a pidfd turns readable (what a watch hears) — so the
@@ -81,6 +82,12 @@ def png(size: int = 600, color: str = "navy") -> bytes:
 
 
 PNG = png()
+
+
+def _unit_volume(airplay_db: float) -> float:
+    """shairport-sync's airplayVolumeToUnitVolume (general_utilities.c): -30..0
+    dB onto 0..1, and anything below (-144, muted) is 0."""
+    return airplay_db / 30.0 + 1.0 if -30.0 <= airplay_db <= 0.0 else 0.0
 
 
 def ssnc(code: str, payload: Optional[bytes] = None) -> Item:
@@ -134,8 +141,27 @@ class FakeRemote:
         return self.world.remote_answers
 
     async def set_volume(self, airplay_db: float) -> bool:
-        self.world.requests.append(("volume", airplay_db))
-        self.world.later(RemoteUpdate("volume", airplay_db))      # shairport-sync writes it
+        """5.6.1 (remote.c, ap2_remote_set_volume) walks the sender's slider
+        there in steps of 0.09 of the unit volume (the last up to 0.1), 10 ms
+        each, then answers (dbus-service.c); AirplayVolume is written back after
+        the answer, and only if it changed."""
+        world = self.world
+        world.requests.append(("volume", airplay_db))
+        if not world.remote_answers:
+            return False
+        present, desired = _unit_volume(world.slider_db), _unit_volume(airplay_db)
+        steps = 0
+        while abs(desired - present) > 1e-3:
+            if abs(desired - present) < 0.1:
+                present = desired
+            else:
+                present += 0.09 if desired > present else -0.09
+            steps += 1
+        await world.clock.sleep(0.010 * steps)
+        if airplay_db != world.slider_db:
+            world.slider_db = airplay_db
+            world.echoes.append(airplay_db)
+            world.later(RemoteUpdate("volume", airplay_db))
         return True
 
     async def drop_session(self) -> bool:
@@ -171,6 +197,10 @@ class AirPlayWorld(WireReader):
         self.remote_unreachable = False
         self.remote_answers = True   # shairport-sync takes the requests
         self.requests: List[Any] = []
+        # AirplayVolume: where the sender's slider stands (its own level until
+        # Milō puts it somewhere), and every level shairport-sync wrote back.
+        self.slider_db = -7.5
+        self.echoes: List[float] = []
         self.covers = tmp_path / "coverart"
         self.covers.mkdir()
         # What the daemon's D-Bus object holds now.
@@ -442,8 +472,16 @@ class AirPlayWorld(WireReader):
     async def realtime_resumes(self) -> None:
         await self.signal(RemoteUpdate("now_playing", self.moved(self.now_playing, rate=1.0)))
 
+    def slider_reported(self, airplay_db: float) -> None:
+        """The sender moved its slider and shairport-sync signaled it; nothing
+        has handled the signal yet."""
+        self.slider_db = airplay_db
+        if self.remote is not None:
+            self.remote.on_update(RemoteUpdate("volume", airplay_db))
+
     async def moves_its_slider(self, airplay_db: float) -> None:
-        await self.signal(RemoteUpdate("volume", airplay_db))
+        self.slider_reported(airplay_db)
+        await settle()
 
     async def leaves(self, ip: Optional[str] = None) -> None:
         await self.send(ssnc("pend"))

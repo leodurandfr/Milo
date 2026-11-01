@@ -189,6 +189,7 @@ These are shared by every source; they break for all of them at once.
 | Device name | The sender's name ("Léo's iPhone") is shown | targeted |
 | Controls | Pause, resume, next and prev from Milō act on the iPhone and on a Mac; the main button never flashes play during a next/prev; shuffle and repeat follow both ways | targeted |
 | Volume | The iPhone's volume moves Milō's, and Milō's moves the iPhone's slider; muting Milō does not drop the house to its floor | targeted |
+| Volume under a fast turn | Six knob steps up in under a second, then the sender's slider moved while the knob turns (iPhone or Mac): the level never steps back during the climb, the kiosk bar and the sender's slider settle on the last gesture and nothing moves 2 s later — no back-and-forth. Each step shairport-sync writes back once it has answered, so an earlier step's write-back lands after the next one | targeted |
 | Progress | Position advances, returns to 0:00 after a prev that restarts the track, and re-syncs after a sender-side seek | targeted |
 
 > Artwork is the historical silent-failure point here (shairport-sync 5.1 shipped without

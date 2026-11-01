@@ -54,14 +54,19 @@ volume, and Milō's volume — whoever moved it — moves the sender's slider.
 CamillaDSP stays the only attenuation (`ignore_volume_control`): shairport-sync
 reports the slider and never scales the samples. When a sender arrives, Milō's
 level wins: it is pushed to the sender, and what the sender reports of its own
-for VOLUME_HOLD_S after is ignored (a Mac reports a ramp as it connects).
+for VOLUME_HOLD_S after is ignored (a Mac reports a ramp as it connects); a
+push shairport-sync refused leaves the sender to be put there again. Every
+level Milō pushes comes back as a report once shairport-sync has answered, and
+a knob turn can have several in flight: a report matching one of them is that
+write-back, never the sender's move.
 """
 import asyncio
 import hashlib
 import os
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -136,6 +141,11 @@ AIRPLAY_MUTED_DB = -144.0
 # How long a sender's own volume reports are ignored after Milō's level was
 # pushed to it on arrival (a Mac ramps 0 -> its level within 100 ms of `conn`).
 VOLUME_HOLD_S = 2.0
+# How long a level Milō pushed is expected back. shairport-sync 5.6.1 walks the
+# slider there 10 ms a step before it answers (remote.c, ap2_remote_set_volume)
+# and writes AirplayVolume back after the answer, only if it changed: a knob
+# turned faster than that leaves several write-backs in flight.
+VOLUME_ECHO_S = 2.0
 # Two levels this close are the same position on either slider.
 VOLUME_EPSILON = 0.005
 
@@ -265,9 +275,11 @@ class AirPlaySource(BaseAudioSource):
         self._withdrawn: frozenset = frozenset()
         self._shuffle = False
         self._repeat: RepeatMode = "off"
-        # The level both sliders were last put at, and until when the sender's
-        # own reports are ignored.
+        # The level both sliders were last put at, the pushes shairport-sync
+        # took whose write-back has not come yet (level, muted, taken at), and
+        # until when the sender's own reports are ignored.
         self._volume_level: Optional[Tuple[float, bool]] = None
+        self._volume_in_flight: Deque[Tuple[float, bool, float]] = deque(maxlen=8)
         self._volume_hold_until = 0.0
 
     def set_volume_service(self, volume_service) -> None:
@@ -347,14 +359,19 @@ class AirPlaySource(BaseAudioSource):
         # discards the feed with it (_cleanup).
         if self._metadata_reader is None:
             return
+        followed = False    # the sender's slider moved Milō's volume in this batch
         while events:
             event = events.pop(0)
-            if isinstance(event, RemoteUpdate):
+            if isinstance(event, RemoteUpdate) and event.kind == "volume":
+                followed = await self._follow_sender_volume(event.value) or followed
+            elif isinstance(event, RemoteUpdate):
                 await self._apply_remote(event)
             elif isinstance(event, MiloVolume):
                 # A knob turn is dozens of states: the slider goes to the last.
-                if not any(isinstance(later, MiloVolume) for later in events):
-                    await self._push_volume(event.level, event.muted)
+                # A level announced before the sender's move was followed is
+                # the one that move replaced.
+                if not followed and not any(isinstance(later, MiloVolume) for later in events):
+                    await self._follow_milo_volume(event.level, event.muted)
             else:
                 await self._apply(event)
         session = self._session
@@ -434,8 +451,6 @@ class AirPlaySource(BaseAudioSource):
             self._shuffle = update.value
         elif update.kind == "repeat":
             self._repeat = update.value
-        elif update.kind == "volume":
-            await self._follow_sender_volume(update.value)
 
     async def _sender_left(self, ip: Optional[str]) -> None:
         """A `disc` names the sender it is for, and it can arrive long after
@@ -706,50 +721,86 @@ class AirPlaySource(BaseAudioSource):
 
     # === Volume ===
 
-    async def _follow_sender_volume(self, airplay_db: float) -> None:
-        """The sender's slider moved: Milō's volume follows."""
+    async def _follow_sender_volume(self, airplay_db: float) -> bool:
+        """The sender's slider moved: Milō's volume follows. True when it did."""
         session = self._session
         volume = self._volume_service
         if volume is None or not isinstance(session, AirPlaySession):
-            return
+            return False
         if not session.volume_synced:
             # The sender's arrival: Milō's level wins.
             await self._send_milo_volume(session)
-            return
-        if audio_source.wall_time() < self._volume_hold_until:
-            return
+            return False
+        if self._own_echo(airplay_db) or audio_source.wall_time() < self._volume_hold_until:
+            return False
         if airplay_db <= AIRPLAY_MUTED_DB and self._volume_level is not None and self._volume_level[1]:
             # The mute Milō put on the sender's slider, written back.
-            return
+            return False
         level = sender_level(airplay_db)
         if self._volume_level is not None and abs(level - self._volume_level[0]) < VOLUME_EPSILON:
-            return
+            return False
         self._volume_level = (level, False)
         await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
+        return True
+
+    def _own_echo(self, airplay_db: float) -> bool:
+        """The report is shairport-sync writing back a level Milō pushed. The
+        write-backs come in order and a push the slider already showed has
+        none, so the match goes with every push before it."""
+        pushes = self._volume_in_flight
+        now = audio_source.wall_time()
+        while pushes and now - pushes[0][2] >= VOLUME_ECHO_S:
+            pushes.popleft()
+        muted = airplay_db <= AIRPLAY_MUTED_DB
+        level = sender_level(airplay_db)
+        for index, (pushed, pushed_muted, _) in enumerate(pushes):
+            if pushed_muted == muted and (muted or abs(pushed - level) < VOLUME_EPSILON):
+                for _ in range(index + 1):
+                    pushes.popleft()
+                return True
+        return False
+
+    async def _follow_milo_volume(self, level: float, muted: bool) -> None:
+        """Milō's volume moved: the sender's slider follows — or, for a sender
+        that played without ever taking Milō's level, is put there now."""
+        session = self._session
+        if not isinstance(session, AirPlaySession):
+            return
+        if session.volume_synced:
+            await self._push_volume(level, muted)
+        elif session.streamed:
+            await self._send_milo_volume(session)
 
     async def _send_milo_volume(self, session: AirPlaySession) -> None:
-        """Put the sender's slider at Milō's level, as a sender arrives."""
+        """Put the sender's slider at Milō's level, as a sender arrives. Until
+        shairport-sync takes it, the sender is not synced: its next report, or
+        Milō's next move, puts it at Milō's level again."""
         volume = self._volume_service
         if volume is None:
             return
         state = await volume.get_volume_state()
-        session.volume_synced = True
         self._volume_hold_until = audio_source.wall_time() + VOLUME_HOLD_S
         self._volume_level = None
-        await self._push_volume(volume.volume_config.normalize(state.global_volume_db), state.global_mute)
+        session.volume_synced = await self._push_volume(
+            volume.volume_config.normalize(state.global_volume_db), state.global_mute
+        )
 
-    async def _push_volume(self, level: float, muted: bool) -> None:
-        """Milō's volume moved: the sender's slider follows. A level both
-        sides already show is not sent again — including the one the sender's
-        own move just put Milō at."""
-        session = self._session
-        if self._remote is None or not isinstance(session, AirPlaySession) or not session.volume_synced:
-            return
+    async def _push_volume(self, level: float, muted: bool) -> bool:
+        """Put the sender's slider at `level`; False when shairport-sync did
+        not take it. A level both sides already show is not sent again —
+        including the one the sender's own move just put Milō at."""
+        if self._remote is None or not isinstance(self._session, AirPlaySession):
+            return False
         previous = self._volume_level
         if previous is not None and previous[1] == muted and abs(previous[0] - level) < VOLUME_EPSILON:
-            return
+            return True
+        if not await self._remote.set_volume(sender_db(level, muted)):
+            return False
+        # Remembered once taken: its write-back is a later announcement, so it
+        # is never handled before this answer.
         self._volume_level = (level, muted)
-        await self._remote.set_volume(sender_db(level, muted))
+        self._volume_in_flight.append((level, muted, audio_source.wall_time()))
+        return True
 
     # === Publication ===
 

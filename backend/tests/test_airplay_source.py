@@ -101,10 +101,15 @@ def _item(item_type: str, code: str, payload: Optional[bytes] = None) -> str:
 
 # === Driving and reading ===
 
-async def _on_air(world: AirPlayWorld, commands: frozenset = IPHONE_MUSIC_COMMANDS) -> None:
-    """A phone connected and playing a Buffered stream, before any item."""
+async def _on_air(world: AirPlayWorld, commands: frozenset = IPHONE_MUSIC_COMMANDS,
+                  answer_s: float = 0.0) -> None:
+    """A phone connected and playing a Buffered stream, before any item.
+    `answer_s` is time for shairport-sync to answer the push of Milō's level
+    that the first frame makes when a volume service is wired (10 ms a step)."""
     await world.connects(PHONE, "iPhone de Léo", commands)
     await world.send(ssnc("pbeg"), ssnc("pres"), ssnc("pffr", b"1/2"), ssnc("styp", b"Buffered"))
+    if answer_s:
+        await world.advance(answer_s)
     assert world.playing(), "the stream never reached PLAYING"
 
 
@@ -647,7 +652,15 @@ class TestTheTransport:
 
 class TestTheVolume:
     """One level on both sliders: the sender's moves Milō's, Milō's — whoever
-    moved it — moves the sender's. CamillaDSP stays the only attenuation."""
+    moved it — moves the sender's. CamillaDSP stays the only attenuation.
+
+    shairport-sync answers a push only once it has stepped the slider there,
+    and writes the level back after (airplay_world.FakeRemote.set_volume):
+    every push here is given ANSWER_S for that."""
+
+    # The slider's whole range is 12 steps of 10 ms; shorter than
+    # PAUS_SETTLE_S and VOLUME_HOLD_S, so no phase or hold runs out meanwhile.
+    ANSWER_S = 0.2
 
     @pytest.fixture
     def volume(self, world):
@@ -655,25 +668,30 @@ class TestTheVolume:
         world.source.set_volume_service(volume)
         return volume
 
+    @staticmethod
+    def _slider_at(volume: _Volume, volume_db: float) -> Any:
+        """Where Milō's `volume_db` puts the sender's slider, in AirPlay dB."""
+        return pytest.approx(-30.0 * (1 - volume.volume_config.normalize(volume_db)))
+
     async def test_a_sender_arriving_is_put_at_milos_level(self, world, volume):
         """The first frame: Milō's level wins, the sender's slider follows."""
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
 
-        level = volume.volume_config.normalize(-50.0)
-        assert _slider_volumes(world) == [pytest.approx(-30.0 * (1 - level))]
+        assert _slider_volumes(world) == [self._slider_at(volume, -50.0)]
+        assert world.echoes == [self._slider_at(volume, -50.0)]
         assert volume.sets == []
 
     async def test_the_senders_own_level_on_arrival_is_ignored(self, world, volume):
         """A Mac reports a ramp to its own level as it connects (measured
         2026-10-16): taken as a move, it would set the whole house's volume
         to whatever the Mac last had."""
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
         await world.moves_its_slider(-5.0)
 
         assert volume.sets == []
 
     async def test_the_senders_slider_moves_milos_volume(self, world, volume):
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
         await world.advance(VOLUME_HOLD_S + 1)
 
         await world.moves_its_slider(-6.0)
@@ -683,17 +701,18 @@ class TestTheVolume:
     async def test_milos_move_comes_back_from_the_sender_without_an_echo(self, world, volume):
         """shairport-sync writes the level Milō set back on D-Bus; read as the
         sender's move, it would set Milō's volume to itself, and round."""
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
         await world.advance(VOLUME_HOLD_S + 1)
 
         volume.moved_in_milo(-30.0)
-        await world.advance(0)
+        await world.advance(self.ANSWER_S)
 
+        assert world.echoes[-1] == self._slider_at(volume, -30.0)
         assert volume.sets == []
-        assert _slider_volumes(world)[-1] == pytest.approx(-30.0 * (1 - volume.volume_config.normalize(-30.0)))
+        assert _slider_volumes(world)[-1] == self._slider_at(volume, -30.0)
 
     async def test_the_senders_move_is_not_sent_back_to_it(self, world, volume):
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
         await world.advance(VOLUME_HOLD_S + 1)
         sent = len(_slider_volumes(world))
 
@@ -702,42 +721,125 @@ class TestTheVolume:
         assert len(_slider_volumes(world)) == sent
 
     async def test_a_mute_in_milo_mutes_the_senders_slider(self, world, volume):
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
 
         volume.moved_in_milo(-50.0, muted=True)
-        await world.advance(0)
+        await world.advance(self.ANSWER_S)
 
         assert _slider_volumes(world)[-1] == -144.0
 
     async def test_milos_mute_written_back_leaves_the_volume_alone(self, world, volume):
         """shairport-sync writes the -144 Milō sent back on D-Bus: read as the
         sender's slider at 0, it put the whole house at the floor."""
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
         await world.advance(VOLUME_HOLD_S + 1)
 
         volume.moved_in_milo(-50.0, muted=True)
-        await world.advance(0)
+        await world.advance(self.ANSWER_S)
 
-        assert _slider_volumes(world)[-1] == -144.0
+        assert world.echoes[-1] == -144.0
         assert volume.sets == []
 
     async def test_a_knob_turn_moves_the_slider_once(self, world, volume):
         """A turn is dozens of volume states; the slider goes to the last."""
-        await _on_air(world)
+        await _on_air(world, answer_s=self.ANSWER_S)
         sent = len(_slider_volumes(world))
 
         for volume_db in (-48.0, -46.0, -44.0, -42.0):
             volume.moved_in_milo(volume_db)
-        await world.advance(0)
+        await world.advance(self.ANSWER_S)
 
-        level = volume.volume_config.normalize(-42.0)
-        assert _slider_volumes(world)[sent:] == [pytest.approx(-30.0 * (1 - level))]
+        assert _slider_volumes(world)[sent:] == [self._slider_at(volume, -42.0)]
+
+    async def test_a_late_echo_of_an_earlier_push_does_not_move_the_house_back(self, world, volume):
+        """A knob turned faster than shairport-sync answers: the next step
+        reaches the source while the previous one is still stepping the
+        slider, and that one's write-back lands after it. Read as the
+        sender's move, it set the whole house back a step, and the next
+        write-back forward again — 334 sets in 5 s with a 20 ms round trip."""
+        await _on_air(world, answer_s=self.ANSWER_S)
+        await world.advance(VOLUME_HOLD_S + 1)
+        echoed = len(world.echoes)
+
+        volume.moved_in_milo(-48.0)
+        await world.advance(0.005)
+        volume.moved_in_milo(-46.0)
+        await world.advance(0.5)
+
+        assert world.echoes[echoed:] == [self._slider_at(volume, -48.0), self._slider_at(volume, -46.0)]
+        assert volume.sets == []
+        assert _slider_volumes(world)[-1] == self._slider_at(volume, -46.0)
+
+    async def test_a_push_with_no_write_back_does_not_swallow_a_later_move(self, world, volume):
+        """shairport-sync writes nothing back for a level its slider already
+        shows, so a later write-back settles the pushes before it too. Left
+        waiting, that push took the sender's own move to the same level, a
+        second later, for its write-back, and the house stayed where it was."""
+        await _on_air(world, answer_s=self.ANSWER_S)
+        await world.advance(VOLUME_HOLD_S - 0.5)
+        await world.moves_its_slider(-7.5)      # still the arrival's hold: ignored
+        volume.moved_in_milo(-35.0)             # where the slider already is
+        await world.advance(self.ANSWER_S)
+        volume.moved_in_milo(-46.0)
+        await world.advance(1.0)                # past the hold, within -35's echo window
+
+        await world.moves_its_slider(-7.5)
+
+        # -35's push was taken and wrote nothing back; -46's did.
+        assert _slider_volumes(world)[-2:] == [self._slider_at(volume, -35.0), self._slider_at(volume, -46.0)]
+        assert world.echoes == [self._slider_at(volume, -50.0), self._slider_at(volume, -46.0)]
+        assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.75))]
+
+    async def test_a_stale_milo_level_after_a_sender_move_is_not_pushed(self, world, volume):
+        """The sender's move and a level of Milō's announced before it was
+        followed, handled together: that level is the one the move replaces.
+        Pushed, it put the sender's slider back where the house no longer is."""
+        await _on_air(world, answer_s=self.ANSWER_S)
+        await world.advance(VOLUME_HOLD_S + 1)
+        sent = len(_slider_volumes(world))
+
+        world.slider_reported(-6.0)
+        volume.moved_in_milo(-46.0)
+        await world.advance(self.ANSWER_S)
+
+        assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
+        assert _slider_volumes(world)[sent:] == []
+
+    async def test_a_slider_push_that_fails_is_not_remembered_and_milos_level_still_wins(self, world, volume):
+        """shairport-sync refused the arrival's push: the sender's slider is
+        still its own, and its next report is that level, not a move. Taken
+        as one, it set the whole house to the sender's old level."""
+        world.remote_answers = False
+        await _on_air(world)
+        world.remote_answers = True
+        await world.advance(VOLUME_HOLD_S + 1)
+
+        await world.moves_its_slider(-22.5)
+        await world.advance(self.ANSWER_S)
+
+        assert volume.sets == []
+        assert _slider_volumes(world) == [self._slider_at(volume, -50.0)] * 2
+        assert world.echoes == [self._slider_at(volume, -50.0)]
+
+    async def test_milos_next_move_puts_a_sender_whose_push_failed_at_milos_level(self, world, volume):
+        """With the arrival's push refused and the sender silent, the knob is
+        the next chance: it must still move the sender's slider."""
+        world.remote_answers = False
+        await _on_air(world)
+        world.remote_answers = True
+
+        volume.moved_in_milo(-46.0)
+        await world.advance(self.ANSWER_S)
+
+        assert _slider_volumes(world)[-1] == self._slider_at(volume, -46.0)
+        assert world.echoes == [self._slider_at(volume, -46.0)]
 
     async def test_no_sender_no_volume_traffic(self, world, volume):
         volume.moved_in_milo(-30.0)
-        await world.advance(0)
+        await world.advance(self.ANSWER_S)
 
         assert _slider_volumes(world) == []
+
 
 class TestConnectionEvents:
     """`conn`/`disc` are AirPlay 2's own events, sent as soon as a client picks
