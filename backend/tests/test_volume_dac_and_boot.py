@@ -24,6 +24,7 @@ which is exactly how a renamed identifier once left two dead handlers behind.
 The keys asserted here are read off the producer, not invented.
 """
 import asyncio
+import json
 import logging
 from unittest.mock import AsyncMock, Mock
 
@@ -109,6 +110,7 @@ def _wired_service(state_machine, camilladsp, registry, hardware_service=None):
         equalizer_router=router,
     )
     router.set_local_volume_control_source(lambda: svc.volume_control)
+    router.set_local_mac_source(lambda: svc.state_store.local_mac_id)
     return svc
 
 
@@ -635,6 +637,51 @@ class TestStartupVolumeEdges:
             await service._apply_startup_volume()
 
         camilladsp.set_mute.assert_not_awaited()
+
+
+class TestALocalLevelPersistedByAnotherBoard:
+    """`last_volume.json` keys the local level by a MAC this board does not have.
+
+    The SD card is the whole unit, so moving it to another Pi brings the previous
+    board's file along: the store restores its `local_mac_id` and VolumeService
+    keys every local command by it, while in direct mode the registry is empty
+    (only a Snapcast connection fills it), so nothing registers that MAC.
+    """
+
+    async def test_the_local_level_and_the_unmute_still_reach_the_dsp(
+        self, state_machine, camilladsp, tmp_path, monkeypatch
+    ):
+        """What it cost: the router took only this board's MAC for this unit and
+        refused every local command as an unknown client, so CamillaDSP stayed
+        muted at its `-m` floor: no startup level, no unmute and a dead knob, on
+        every boot until multiroom was switched on."""
+        previous_board, this_board = "aa:aa:aa:aa:aa:01", "bb:bb:bb:bb:bb:02"
+        path = tmp_path / "last_volume.json"
+        path.write_text(json.dumps({
+            "local_mac_id": previous_board,
+            "clients": {previous_board: {"volume_db": -40.0, "mute": False}},
+        }))
+        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", path)
+        monkeypatch.setattr("backend.core.multiroom.equalizer_router.get_local_mac", lambda: this_board)
+        monkeypatch.setattr("backend.core.volume.service.get_local_mac", lambda: this_board)
+        registry = ClientRegistryService(
+            settings_service=AsyncMock(get_setting=AsyncMock(return_value=None))
+        )
+        await registry.initialize()
+        svc = _wired_service(state_machine, camilladsp, registry)
+        svc.attach_registry(registry)
+
+        assert await svc.initialize() is True
+
+        # Non-triviality first: the commands went out under the previous
+        # board's key, which the registry does not hold.
+        assert svc.state_store.local_mac_id == previous_board
+        assert registry.get_client(previous_board) is None
+        assert [c.args for c in camilladsp.set_volume.await_args_list] == [(-40.0,)]
+        assert [c.args for c in camilladsp.set_mute.await_args_list] == [(False,)]
+
+        assert await svc.adjust_volume_db(-2.0) is True
+        assert camilladsp.set_volume.await_args_list[-1].args == (-42.0,)
 
 
 class TestStoreLoadAtStartup:

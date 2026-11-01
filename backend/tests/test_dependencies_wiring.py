@@ -194,6 +194,24 @@ class TestCycleWiring:
             registry["volume_service"].volume_control = flag
             assert reader() is flag
 
+    async def test_the_router_reads_the_local_mac_from_the_volume_service(self, registry):
+        """The router serves a target the registry lacks from the local daemon
+        only when it names this unit, and in direct mode (empty registry) the
+        local level arrives keyed by the volume store's MAC, which
+        last_volume.json restores and nothing holds equal to the board's.
+        Unwired, an SD card moved to another Pi had every local command refused
+        and CamillaDSP stayed muted at its floor. Live, like the flag: the store
+        re-keys when the local snapclient registers.
+        """
+        await _run_init(registry)
+
+        wire = registry["equalizer_router"].set_local_mac_source
+        wire.assert_called_once()
+        reader = wire.call_args.args[0]
+        for mac in ("aa:aa:aa:aa:aa:01", "bb:bb:bb:bb:bb:02"):
+            registry["volume_service"].state_store.local_mac_id = mac
+            assert reader() == mac
+
     async def test_volume_and_snapcast_hold_each_other(self, registry):
         await _run_init(registry)
 

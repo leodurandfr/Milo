@@ -454,9 +454,15 @@ async def initialize_services() -> None:
     # Cycle: volume_service ↔ equalizer_router
     #   volume is constructed with the router; the router reads back the local
     #   DAC flag, whose one home is the volume service, to decide whether this
-    #   unit's daemon gets the level or unity.
-    get_service("equalizer_router").set_local_volume_control_source(
+    #   unit's daemon gets the level or unity, and the MAC the volume service
+    #   keys the local level by, to recognize this unit in a target the
+    #   registry does not hold.
+    equalizer_router = get_service("equalizer_router")
+    equalizer_router.set_local_volume_control_source(
         lambda: volume_service.volume_control
+    )
+    equalizer_router.set_local_mac_source(
+        lambda: volume_service.state_store.local_mac_id
     )
 
     # Cycle: airplay_source / spotify_source ↔ volume_service

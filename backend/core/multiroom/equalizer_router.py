@@ -10,11 +10,12 @@ Architecture:
 - If client.is_local → local camilladsp_service
 - Else → proxy_service to remote client
 - Not in the registry → local camilladsp_service only when the mac names this
-  unit (the `LOCAL_TARGET` sentinel or its own MAC, or no registry at all);
-  any other mac is a satellite the registry forgot, and is refused
+  unit (the `LOCAL_TARGET` sentinel or the MAC the volume service keys the
+  local level by, or no registry at all); any other mac is a satellite the
+  registry forgot, and is refused
 """
 import logging
-from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
+from typing import Any, Dict, Callable, Awaitable, Optional, TYPE_CHECKING
 
 from backend.config.constants import LOUDNESS_REFERENCE_DB, MAX_VOLUME_DB
 from backend.core.equalizer.multiroom_service import LOCAL_TARGET
@@ -49,6 +50,8 @@ class EqualizerRouter:
         # Unwired, the local speaker counts as managed: the direction that
         # attenuates, never the one that sends full scale.
         self._local_volume_control: Callable[[], bool] = lambda: True
+        # Unwired, this unit is the MAC the board reports.
+        self._local_mac: Callable[[], Optional[str]] = lambda: get_local_mac()
 
     def set_local_volume_control_source(self, source: Callable[[], bool]) -> None:
         """Hand in the reader of the local unit's DAC flag (VolumeService's).
@@ -60,6 +63,17 @@ class EqualizerRouter:
         the registry's: they live on the satellite and arrive with it.
         """
         self._local_volume_control = source
+
+    def set_local_mac_source(self, source: Callable[[], Optional[str]]) -> None:
+        """Hand in the reader of the MAC the volume service keys the local level by.
+
+        That key is the volume store's, restored from last_volume.json, and
+        nothing holds it equal to the board's MAC: an SD card moved to another
+        Pi brings the previous board's key along. Taken from the board instead,
+        a direct-mode unit (empty registry) had every local command refused as
+        an unknown client, and CamillaDSP stayed muted at its startup floor.
+        """
+        self._local_mac = source
 
     def _get_client(self, mac_id: str):
         return self._registry.get_client(mac_id) if self._registry else None
@@ -74,15 +88,16 @@ class EqualizerRouter:
         The registry is populated only by Snapcast connections, so in direct
         mode it is empty and this unit's own targets arrive unregistered: the
         `LOCAL_TARGET` sentinel of the EQ API, and the MAC VolumeService keys
-        the local level by. Any other mac is a satellite the registry forgot,
-        deleted while its admission was retrying for one, and answering it
-        here would put that room's level and unmute on this unit's speaker.
-        With no registry at all, nothing can have been forgotten.
+        the local level by, read from it (`set_local_mac_source`). Any other
+        mac is a satellite the registry forgot, deleted while its admission was
+        retrying for one, and answering it here would put that room's level
+        and unmute on this unit's speaker. With no registry at all, nothing can
+        have been forgotten.
         """
         return (
             self._registry is None
             or mac_id == LOCAL_TARGET
-            or mac_id == get_local_mac()
+            or mac_id == self._local_mac()
         )
 
     async def _route(
