@@ -41,6 +41,20 @@ class EqualizerRouter:
         self._registry = client_registry
         self._camilladsp_service = camilladsp_service
         self._proxy_service = proxy_service
+        # Unwired, the local speaker counts as managed: the direction that
+        # attenuates, never the one that sends full scale.
+        self._local_volume_control: Callable[[], bool] = lambda: True
+
+    def set_local_volume_control_source(self, source: Callable[[], bool]) -> None:
+        """Hand in the reader of the local unit's DAC flag (VolumeService's).
+
+        The registry carries a copy of that flag on the local client, but the
+        copy is written after the flag moves and only resynced at an admission,
+        so a local level decided on it was unity for a managed card (full
+        scale) or the stored level for a DAC one. The satellites' flags stay
+        the registry's: they live on the satellite and arrive with it.
+        """
+        self._local_volume_control = source
 
     def _get_client(self, mac_id: str):
         return self._registry.get_client(mac_id) if self._registry else None
@@ -111,21 +125,29 @@ class EqualizerRouter:
         on it. The caller still records the level the user asked for; this only
         decides what reaches the daemon, and on a real DAC path it is an
         idempotent no-op.
+
+        Decided when the command leaves, from the local flag for this unit's
+        own daemon and from the registry for a satellite — so a level already
+        queued when the local flag flips leaves at unity, after the pin.
         """
         client = self._get_client(mac_id)
-        if client and not client.volume_control:
+
+        def level(volume_control: bool) -> float:
+            if volume_control:
+                return volume_db
             logger.debug(f"Unity volume for DAC client {mac_id} (external amp owns the level)")
-            volume_db = MAX_VOLUME_DB
+            return MAX_VOLUME_DB
 
         async def local():
             if self._camilladsp_service:
-                success = await self._camilladsp_service.set_volume(volume_db)
-                return {"status": "success" if success else "error", "volume": volume_db}
+                sent = level(self._local_volume_control())
+                success = await self._camilladsp_service.set_volume(sent)
+                return {"status": "success" if success else "error", "volume": sent}
             return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/equalizer/volume", {"volume": volume_db})
-            return result
+            sent = level(client.volume_control)
+            return await self._proxy_service.request(ip, "PUT", "/equalizer/volume", {"volume": sent})
 
         return await self._route(mac_id, local, remote, "set_volume", force=force)
 
@@ -152,20 +174,26 @@ class EqualizerRouter:
         attenuates nothing on that path. (`set_volume` does not skip a DAC — it
         sends unity instead, since a fader left where the unit started it would
         be opened by the unmute that follows.) So a trim is cleared before the
-        DAC flag is set, never after (`VolumeService._clear_local_gain`).
+        DAC flag is set, never after (`VolumeService._clear_local_gain`). The
+        flag is read where `set_volume` reads it: the local one for this unit,
+        the registry's for a satellite.
         """
         client = self._get_client(mac_id)
-        if client and not client.volume_control:
-            logger.debug(f"Skipping level trim for DAC client {mac_id}")
-            return {"status": "skipped", "reason": "external_volume_control"}
+        skipped = {"status": "skipped", "reason": "external_volume_control"}
 
         async def local():
+            if not self._local_volume_control():
+                logger.debug(f"Skipping level trim for DAC client {mac_id}")
+                return skipped
             if self._camilladsp_service:
                 success = await self._camilladsp_service.set_gain(gain_db)
                 return {"status": "success" if success else "error", "gain_db": gain_db}
             return {"status": "error", "message": "Equalizer service not available"}
 
         async def remote(ip: str):
+            if not client.volume_control:
+                logger.debug(f"Skipping level trim for DAC client {mac_id}")
+                return skipped
             return await self._proxy_service.request(
                 ip, "PUT", "/equalizer/gain", {"gain_db": gain_db}
             )

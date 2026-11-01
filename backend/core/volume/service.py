@@ -761,37 +761,58 @@ class VolumeService:
         self._state_store.ensure_local_client(local_mac, self._volume_config.startup_volume_db)
 
     async def set_local_volume_control(self, enabled: bool) -> None:
-        """Update local device's volume_control at runtime (persists + broadcasts)."""
+        """Update local device's volume_control at runtime (persists + broadcasts).
+
+        The flag moves everywhere before CamillaDSP is touched, because the
+        router reads it when each command leaves: flipped after, the reapply
+        would still go out at unity, and a move queued behind the pin at its
+        level.
+        """
+        local_mac = self._state_store.local_mac_id
         if self._hardware_service:
             await self._hardware_service.set_volume_control(enabled)
+        if not enabled:
+            # A level trim is attenuation too: left in the graph it would
+            # make the unity pin a lie. Cleared in the record as well — a
+            # stored trim on a speaker whose amp owns the level is a value
+            # nothing applies again, waiting to come back when the flag flips.
+            await self._clear_local_gain()
         self._volume_control = enabled
         self._state_store.set_volume_control(enabled)
-        # Apply volume change to CamillaDSP immediately
+        # Sync to registry so zone all_external_volume and WS events stay accurate
+        if self._client_registry and local_mac:
+            await self._client_registry.update_client(local_mac, volume_control=enabled)
         if self._camilladsp_service:
             if not enabled:
-                # DAC mode: pin CamillaDSP at 0dB (external amp manages volume).
-                # A command still in flight to it would land after the pin
-                # otherwise, and attenuate a path the amp now owns.
-                if self._state_store.local_mac_id:
-                    await self._equalizer_controller.idle(self._state_store.local_mac_id)
-                await self._camilladsp_service.set_volume(0.0)
-                await self._camilladsp_service.set_mute(False)
-                self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
-                # A level trim is attenuation too: left in the graph it would
-                # make that unity pin a lie. Cleared in the record as well —
-                # a stored trim on a speaker whose amp owns the level is a value
-                # nothing applies again, waiting to come back when the flag flips.
-                await self._clear_local_gain()
+                await self._pin_local_at_unity(local_mac)
             else:
                 # Restore managed volume from state
                 await self.reapply_current_volume()
-        # Sync to registry so zone all_external_volume and WS events stay accurate
-        if self._client_registry and self._state_store.local_mac_id:
-            await self._client_registry.update_client(
-                self._state_store.local_mac_id, volume_control=enabled
-            )
         self.logger.info(f"Local volume_control set to {enabled}")
         await self.broadcast_volume_state(show_bar=False)
+
+    async def _pin_local_at_unity(self, local_mac: Optional[str]) -> None:
+        """DAC mode: CamillaDSP at 0 dB, with the stored mute (the amp owns the level).
+
+        Through the door, queued behind whatever is still in flight to this
+        daemon: a level sent before the flip would otherwise land after the pin
+        and attenuate a path the amp now owns. What is submitted is the stored
+        level, not 0 dB: the router sends unity for it while the flag says DAC,
+        and the level itself if a flip back to managed overtook this one —
+        where a 0 dB would leave at the operator's ceiling. With no local MAC
+        there is no door to key it on, and nothing can be in flight to it either.
+        """
+        if local_mac:
+            await self._equalizer_controller.set_equalizer_volume(
+                local_mac, self._state_store.local_volume_db, force=True
+            )
+            await self._equalizer_controller.set_equalizer_mute(
+                local_mac, self._state_store.get_client_mute(local_mac), force=True
+            )
+        else:
+            await self._camilladsp_service.set_volume(0.0)
+            await self._camilladsp_service.set_mute(False)
+        self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
 
     def _recorded_gain(self, mac_id: str) -> float:
         """The level trim the registry holds for a client (0.0 when unknown)."""

@@ -277,13 +277,6 @@ class EqualizerController:
             self.logger.warning(f"Failed to set mute for {mac_id}: {e}")
             return False
 
-    async def idle(self, mac_id: str) -> None:
-        """Wait until nothing is in flight to this speaker, volume or mute."""
-        for channels in (self._volume_channels, self._mute_channels):
-            channel = channels.get(mac_id)
-            if channel is not None and channel.task is not None:
-                await asyncio.wait({channel.task})
-
     async def cleanup(self) -> None:
         """Cancel every command still in flight; their callers are answered False."""
         await self._bg.cancel_all()

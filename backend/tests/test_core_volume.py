@@ -554,22 +554,26 @@ class TestVolumeService:
                 mock_camilladsp_service, mock_proxy_service):
         """Create VolumeService with mocks.
 
-        The router is the real one over the mocked daemon, as in production:
-        every level reaches a speaker through it, and with no registry it sends
-        everything to the local CamillaDSP.
+        The router is the real one over the mocked daemon, wired as in
+        production: every level reaches a speaker through it, with no registry
+        it sends everything to the local CamillaDSP, and it reads the local DAC
+        flag from this service.
         """
-        return VolumeService(
+        router = EqualizerRouter(
+            client_registry=None,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=mock_proxy_service,
+        )
+        service = VolumeService(
             state_machine=mock_state_machine,
             snapcast_service=mock_snapcast_service,
             settings_service=mock_settings,
             camilladsp_service=mock_camilladsp_service,
             equalizer_client_proxy_service=mock_proxy_service,
-            equalizer_router=EqualizerRouter(
-                client_registry=None,
-                camilladsp_service=mock_camilladsp_service,
-                proxy_service=mock_proxy_service,
-            ),
+            equalizer_router=router,
         )
+        router.set_local_volume_control_source(lambda: service.volume_control)
+        return service
 
     def test_initialization(self, service, mock_state_machine, mock_snapcast_service):
         """Test service initialization."""

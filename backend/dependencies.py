@@ -451,6 +451,14 @@ async def initialize_services() -> None:
     volume_service.set_routing_service(routing_service)
     routing_service.set_volume_service(volume_service)
 
+    # Cycle: volume_service ↔ equalizer_router
+    #   volume is constructed with the router; the router reads back the local
+    #   DAC flag, whose one home is the volume service, to decide whether this
+    #   unit's daemon gets the level or unity.
+    get_service("equalizer_router").set_local_volume_control_source(
+        lambda: volume_service.volume_control
+    )
+
     # Cycle: airplay_source / spotify_source ↔ volume_service
     #   the sender's slider sets Milō's volume, and every volume state that goes
     #   out moves the sender's slider back (Spotify's only while the settings

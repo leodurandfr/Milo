@@ -264,6 +264,7 @@ makes this silent.
 | Startup volume | After a reboot, the level matches the configured policy (restore last / fixed) | targeted |
 | DSP in path | `/proc/asound/card0/pcm0p/sub0/status` reads `RUNNING` while playing (not `PAUSED` — see the silence-pause failure mode) | targeted |
 | Remote steps | BT/IR remote volume uses its own per-click step ⚠ | targeted |
+| DAC flag round trip | With nothing playing, note the stored local level, then Settings > Hardware > "Volume managed by Milō" off and back on (`PATCH /api/volume/volume-control` `false`, then `true`), leaving it off for a few seconds only — off pins CamillaDSP at 0 dB, full scale on an amplifier card. After the "on", the daemon's own `GetVolume` (ws `127.0.0.1:1234`) reads the stored level, never `0.0`, and the next knob step moves it by one step. The router decides unity or level from this flag when each command leaves, so a flag moved after the level is re-applied leaves the room at full scale while every screen shows the stored level | targeted |
 
 ## Equalizer
 

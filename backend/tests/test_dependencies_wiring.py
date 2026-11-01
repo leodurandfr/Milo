@@ -177,6 +177,23 @@ class TestCycleWiring:
             registry["volume_service"].reapply_current_volume
         )
 
+    async def test_the_router_reads_the_local_dac_flag_from_the_volume_service(self, registry):
+        """The router decides unity or level for the local daemon on this flag.
+
+        Its one home is VolumeService; the registry's copy lags behind it.
+        Unwired, the router counts the local card as managed whatever the flag
+        says, and a DAC unit is attenuated under its amp. The reader must be
+        live — a value captured at boot would miss every later flip.
+        """
+        await _run_init(registry)
+
+        wire = registry["equalizer_router"].set_local_volume_control_source
+        wire.assert_called_once()
+        reader = wire.call_args.args[0]
+        for flag in (False, True):
+            registry["volume_service"].volume_control = flag
+            assert reader() is flag
+
     async def test_volume_and_snapcast_hold_each_other(self, registry):
         await _run_init(registry)
 

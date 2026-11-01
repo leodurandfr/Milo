@@ -31,6 +31,7 @@ import pytest
 
 from backend.core.models.volume import VolumeConfig
 from backend.core.settings import SettingsService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import RegistryEventType
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.volume import VolumeService, VolumeStateStore
@@ -68,32 +69,79 @@ def service(state_machine, camilladsp, tmp_path, monkeypatch):
     written content assertable instead of merely refused.
     """
     monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+    # The real door over the mocked daemon: with no registry, the router
+    # sends every level to the local CamillaDSP, as in production direct mode.
+    return _wired_service(state_machine, camilladsp, registry=None)
+
+
+def _volume_settings():
+    """The settings the volume service reads at boot.
+
+    `_load_volume_config` reads every key of the `volume` section with no
+    fallback operand, by design — so answering None for it makes boot log
+    "Error loading volume config" and keep the built-in defaults, which is a
+    degraded path the tests here do not mean to be on. The one test that wants
+    that failure injects it on `_load_volume_config` itself.
+    """
     settings = Mock()
 
-    # `_load_volume_config` reads every key of the `volume` section with no
-    # fallback operand, by design — so answering None for it makes boot log
-    # "Error loading volume config" and keep the built-in defaults, which is a
-    # degraded path the tests here do not mean to be on. The one test that wants
-    # that failure injects it on `_load_volume_config` itself.
     async def _get_setting(key, *a, **kw):
         return SettingsService().defaults["volume"] if key == "volume" else None
 
     settings.get_setting = AsyncMock(side_effect=_get_setting)
     settings.set_setting = AsyncMock()
     settings.invalidate_cache = Mock()
+    return settings
+
+
+def _wired_service(state_machine, camilladsp, registry, hardware_service=None):
+    """A VolumeService and its router, wired to each other as dependencies.py does."""
+    router = EqualizerRouter(
+        client_registry=registry, camilladsp_service=camilladsp, proxy_service=Mock()
+    )
     svc = VolumeService(
         state_machine=state_machine,
         snapcast_service=Mock(),
-        settings_service=settings,
+        settings_service=_volume_settings(),
         camilladsp_service=camilladsp,
         equalizer_client_proxy_service=Mock(),
-        # The real door over the mocked daemon: with no registry, the router
-        # sends every level to the local CamillaDSP, as in production direct mode.
-        equalizer_router=EqualizerRouter(
-            client_registry=None, camilladsp_service=camilladsp, proxy_service=Mock()
-        ),
+        hardware_service=hardware_service,
+        equalizer_router=router,
     )
+    router.set_local_volume_control_source(lambda: svc.volume_control)
     return svc
+
+
+LOCAL = "aa:bb:cc:dd:ee:ff"
+
+
+@pytest.fixture
+def registered(state_machine, camilladsp, tmp_path, monkeypatch):
+    """Build a VolumeService over a real registry that holds the local client.
+
+    The registry keeps its own copy of the local DAC flag on that client. A
+    router built with no registry never reads it, which is how the flip back to
+    managed passed here while it sent 0 dB on the unit. `registry_flag` is that
+    copy, `hardware_flag` what hardware.json says; the local level is -40 dB.
+    """
+    monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+
+    async def build(registry_flag: bool, hardware_flag: bool = True):
+        registry = ClientRegistryService(
+            settings_service=AsyncMock(get_setting=AsyncMock(return_value=None))
+        )
+        await registry.initialize()
+        await registry.register_client(LOCAL, "Main", "127.0.0.1", volume_control=registry_flag)
+        hardware = Mock(
+            get_volume_control=Mock(return_value=hardware_flag),
+            set_volume_control=AsyncMock(),
+        )
+        svc = _wired_service(state_machine, camilladsp, registry, hardware_service=hardware)
+        svc.attach_registry(registry)
+        svc._state_store.ensure_local_client(LOCAL, -40.0)
+        return svc, registry
+
+    return build
 
 
 class TestDacMode:
@@ -328,6 +376,120 @@ class TestDacMode:
         await service.set_local_volume_control(True)
 
         camilladsp.set_volume.assert_awaited_once_with(-40.0)
+
+    async def test_flipping_back_to_managed_with_the_local_client_registered_sends_the_stored_level(
+        self, registered, camilladsp
+    ):
+        """The same flip, with the registry the unit has — the room at full scale.
+
+        The level used to be re-applied before the registry's copy of the flag
+        moved, so the router still saw a DAC and sent 0 dB while the store, the
+        log and every screen said -40, and the next step of the knob fell by
+        about 40 dB.
+        """
+        svc, _ = await registered(registry_flag=True)
+        await svc.set_local_volume_control(False)
+        camilladsp.set_volume.reset_mock()
+
+        await svc.set_local_volume_control(True)
+
+        assert camilladsp.set_volume.await_args_list[-1].args == (-40.0,)
+
+    async def test_flipping_to_dac_pins_at_unity_through_the_door(self, registered, camilladsp):
+        """The pin travels the door like every level, which clamps to
+        `limit_max_db`: only the router's unity substitution makes it 0 dB. A
+        pin that left at the stored level or at the limit would attenuate under
+        an amp that expects line level."""
+        svc, registry = await registered(registry_flag=True)
+        assert svc.state_store.local_volume_db < svc.volume_config.limit_max_db < 0.0
+
+        await svc.set_local_volume_control(False)
+
+        camilladsp.set_volume.assert_awaited_once_with(0.0)
+        assert registry.get_client(LOCAL).volume_control is False
+
+    async def test_a_flip_back_to_managed_that_overtakes_the_pin_leaves_the_stored_level(
+        self, registered, camilladsp
+    ):
+        """Two toggles in quick succession, DAC then managed.
+
+        The managed flip can run whole while the DAC one waits on the registry,
+        and the DAC one's pin then leaves last, under a flag that says managed
+        again. A literal 0 dB pin left at the operator's ceiling (-20 dB by
+        default) over the stored -40 — 20 dB louder than any screen said.
+        """
+        svc, registry = await registered(registry_flag=True)
+        entered, release = asyncio.Event(), asyncio.Event()
+        update_client = registry.update_client
+
+        async def held_once(*args, **kwargs):
+            if not entered.is_set():
+                entered.set()
+                await release.wait()
+            return await update_client(*args, **kwargs)
+
+        registry.update_client = held_once
+        to_dac = asyncio.create_task(svc.set_local_volume_control(False))
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+        await svc.set_local_volume_control(True)
+        release.set()
+        await to_dac
+
+        assert svc.volume_control is True
+        assert camilladsp.set_volume.await_args_list[-1].args == (-40.0,)
+
+    async def test_a_stale_registry_flag_does_not_pin_a_managed_boot_at_unity(
+        self, registered, camilladsp
+    ):
+        """A DAC card swapped for an amplifier board, in direct mode.
+
+        hardware.json says managed; the registry's copy still says DAC, and
+        nothing resyncs it outside a multiroom admission. Decided on that copy,
+        the boot and every step of the knob sent 0 dB — full output, dead knob.
+        """
+        svc, _ = await registered(registry_flag=False, hardware_flag=True)
+
+        assert await svc.initialize() is True
+        assert await svc.adjust_volume_db(-4.0) is True
+
+        assert [c.args[0] for c in camilladsp.set_volume.await_args_list] == [-40.0, -44.0]
+
+    async def test_a_move_during_the_flip_to_dac_cannot_land_after_the_unity_pin(
+        self, registered, camilladsp
+    ):
+        """Multiroom: a step of the knob while the flip is pinning the daemon.
+
+        It used to read the flag before it moved everywhere, and reach the
+        daemon after the pin — leaving the DSP at -42 dB under the amp, with
+        nothing left to correct it.
+        """
+        svc, registry = await registered(registry_flag=True)
+        await registry.set_client_online(LOCAL, True)
+        svc.set_routing_service(Mock(get_state=Mock(return_value={"multiroom_enabled": True})))
+        applied = []
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def set_volume(volume_db):
+            applied.append(volume_db)
+            return True
+
+        async def set_mute(muted):
+            if not entered.is_set():
+                entered.set()
+                await release.wait()
+            return True
+
+        camilladsp.set_volume = AsyncMock(side_effect=set_volume)
+        camilladsp.set_mute = AsyncMock(side_effect=set_mute)
+
+        flip = asyncio.create_task(svc.set_local_volume_control(False))
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+        await svc.adjust_volume_db(-2.0)
+        release.set()
+        await flip
+
+        assert 0.0 in applied, "the pin never reached the daemon"
+        assert applied[-1] == 0.0
 
 
 class TestStartupVolumeEdges:

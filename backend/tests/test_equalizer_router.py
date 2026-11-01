@@ -145,10 +145,18 @@ class TestLocalVerdictReachesTheEnvelope:
         assert "success" not in result
 
 
-class TestLocalRoutingIsRefused:
-    """The two cases that must not reach the DSP at all."""
+class TestTheDacFlag:
+    """Unity or the asked level, decided from the flag each speaker's own home holds.
 
-    async def test_a_dac_client_is_routed_at_unity_never_at_the_asked_level(
+    What breaks when these fail: the server's CamillaDSP goes to 0 dB — full
+    scale, the card's mixer being pinned at unity — under an amplifier board, or
+    attenuates under an external amp that makes the loss up. The local flag's
+    home is VolumeService (`hardware.json`); the registry holds a copy of it on
+    the local client, written after the flag moves and resynced only at a
+    multiroom admission, so in direct mode a card swap left it stale for good.
+    """
+
+    async def test_a_local_dac_is_routed_at_unity_never_at_the_asked_level(
         self, router, camilladsp, proxy, registry
     ):
         """A DAC card's amp owns the level, so Milo asks for unity — but asks.
@@ -158,18 +166,85 @@ class TestLocalRoutingIsRefused:
         used to mean the same thing and stopped meaning it the day CamillaDSP
         started at a floor: the fader would keep whatever its unit started it
         on, and the unmute that always follows a volume push would open the
-        speaker on that.
+        speaker on that. The registry need not know the local client at all —
+        a unit in direct mode has an empty one.
         """
-        registry.get_client.return_value = Client(
-            mac_id=LOCAL_MAC, name="DAC", ip="127.0.0.1", online=True,
-            volume_control=False,
-        )
+        registry.get_client.return_value = None
+        router.set_local_volume_control_source(lambda: False)
 
         result = await router.set_volume(LOCAL_MAC, -18.5)
 
         assert result["status"] == "success"
         camilladsp.set_volume.assert_awaited_once_with(MAX_VOLUME_DB)
         proxy.request.assert_not_awaited()
+
+    async def test_a_stale_registry_copy_does_not_pin_a_managed_local_card_at_unity(
+        self, router, camilladsp, registry
+    ):
+        """The copy said DAC, the card is an amplifier board: the level goes out.
+
+        Decided on the copy, the boot and every step of the knob sent 0 dB
+        while every screen showed the stored level.
+        """
+        registry.get_client.return_value = Client(
+            mac_id=LOCAL_MAC, name="Salon", ip="127.0.0.1", online=True,
+            volume_control=False,
+        )
+        router.set_local_volume_control_source(lambda: True)
+
+        await router.set_volume(LOCAL_MAC, -18.5)
+
+        camilladsp.set_volume.assert_awaited_once_with(-18.5)
+
+    @pytest.mark.parametrize("satellite_volume_control,sent", [
+        (False, MAX_VOLUME_DB),
+        (True, -18.5),
+    ])
+    async def test_a_satellite_follows_its_own_flag_not_the_local_one(
+        self, router, camilladsp, proxy, registry, satellite_volume_control, sent
+    ):
+        """A satellite's flag lives on the satellite and reaches the registry
+        with it; the server's card says nothing about a speaker in another room.
+        The local flag is set to the opposite each time, so reading it here
+        would fail both cases."""
+        registry.get_client.return_value = Client(
+            mac_id=REMOTE_MAC, name="Canape", ip="192.168.1.153", online=True,
+            volume_control=satellite_volume_control,
+        )
+        router.set_local_volume_control_source(lambda: not satellite_volume_control)
+
+        await router.set_volume(REMOTE_MAC, -18.5)
+
+        proxy.request.assert_awaited_once_with(
+            "192.168.1.153", "PUT", "/equalizer/volume", {"volume": sent}
+        )
+        camilladsp.set_volume.assert_not_awaited()
+
+    @pytest.mark.parametrize("local_volume_control", [True, False])
+    async def test_the_local_trim_follows_the_local_flag(
+        self, router, camilladsp, registry, local_volume_control
+    ):
+        """A trim is attenuation too, so a DAC path skips it — the local one on
+        the local flag, with the registry's copy saying the opposite."""
+        camilladsp.set_gain = AsyncMock(return_value=True)
+        registry.get_client.return_value = Client(
+            mac_id=LOCAL_MAC, name="Salon", ip="127.0.0.1", online=True,
+            volume_control=not local_volume_control,
+        )
+        router.set_local_volume_control_source(lambda: local_volume_control)
+
+        result = await router.set_gain(LOCAL_MAC, -3.0)
+
+        if local_volume_control:
+            camilladsp.set_gain.assert_awaited_once_with(-3.0)
+            assert result["status"] == "success"
+        else:
+            camilladsp.set_gain.assert_not_awaited()
+            assert result == {"status": "skipped", "reason": "external_volume_control"}
+
+
+class TestLocalRoutingIsRefused:
+    """The case that must not reach the DSP at all."""
 
     async def test_no_registry_and_no_dsp_reports_an_error_envelope(self, proxy):
         """Nothing to route to is an error, never a silent success."""
