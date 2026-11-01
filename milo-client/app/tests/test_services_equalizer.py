@@ -160,6 +160,52 @@ class TestEqualizerServiceLevels:
         assert "output_peak" in levels
 
 
+def _answer_one_at_a_time(client, answers, hold):
+    """Make the mocked daemon answer as CamillaDSP does: one command at a time, in order.
+
+    `CamillaDspClient._query` holds a FIFO lock around each round trip on the
+    daemon's single socket, so a command sent while another is in flight waits
+    behind it. The first `hold` call stays in flight until `release` is set:
+    the round trip a reconnect leaves open. `wire` is what the daemon received,
+    in the order it answered.
+    """
+    socket = asyncio.Lock()
+    in_flight, release = asyncio.Event(), asyncio.Event()
+    wire = []
+
+    def answering(name, answer):
+        async def round_trip(*args):
+            async with socket:
+                if name == hold and not in_flight.is_set():
+                    in_flight.set()
+                    await release.wait()
+                wire.append((name, *copy.deepcopy(args)))
+                return copy.deepcopy(answer)
+        return round_trip
+
+    for name, answer in answers.items():
+        getattr(client, name).side_effect = answering(name, answer)
+    return wire, in_flight, release
+
+
+async def _start_until_parked(coro):
+    """Start `coro` as a task and come back once it is suspended on its first lock.
+
+    A coroutine runs synchronously up to its first real suspension, so by the
+    time the event it sets on entry wakes this one, it is parked on whichever
+    lock it met first — the config lock or the daemon's socket.
+    """
+    entered = asyncio.Event()
+
+    async def run():
+        entered.set()
+        return await coro
+
+    task = asyncio.create_task(run())
+    await entered.wait()
+    return task
+
+
 class TestEqualizerServiceConnection:
     """Test EqualizerService connection handling."""
 
@@ -211,6 +257,78 @@ class TestEqualizerServiceConnection:
         await equalizer_service._restore_after_reconnect()
         mock_camilla_client.set_volume.assert_called_with(-25.0)
         mock_camilla_client.set_mute.assert_called_with(False)
+
+    @pytest.mark.asyncio
+    async def test_a_mute_sent_during_the_reconnect_restore_is_not_undone(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """The last mute the daemon receives must be the last one the server sent.
+
+        The restore pushes the cached volume, then the cached mute, one round
+        trip each. A mute read before the first one is replayed after a mute
+        that landed during it: the server got 200 `muted: true` and the room
+        plays.
+        """
+        await equalizer_service.set_volume(-30.0)
+        await equalizer_service.set_mute(False)
+        wire, in_flight, release = _answer_one_at_a_time(
+            mock_camilla_client, {"set_volume": None, "set_mute": None}, hold="set_volume"
+        )
+
+        restore = asyncio.create_task(equalizer_service._restore_after_reconnect())
+        await in_flight.wait()
+        mute = await _start_until_parked(equalizer_service.set_mute(True))
+        release.set()
+
+        assert await restore is True
+        assert await mute is True
+        mutes = [args[0] for name, *args in wire if name == "set_mute"]
+        assert mutes[-1] is True, wire
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("change, landed", [
+        pytest.param(
+            lambda service: service.set_gain(2.0),
+            lambda config: config["filters"]["gain_trim"]["parameters"]["gain"] == 2.0,
+            id="trim",
+        ),
+        pytest.param(
+            lambda service: service.set_compressor(enabled=True, threshold=-18.0),
+            lambda config: "compressor" in config["processors"],
+            id="compressor",
+        ),
+        pytest.param(
+            lambda service: service.set_loudness(enabled=True, reference_level=-20.0),
+            lambda config: "loudness" in config["filters"],
+            id="loudness",
+        ),
+    ])
+    async def test_a_setter_racing_the_post_connect_load_keeps_its_change(
+        self, equalizer_service, mock_camilla_client, change, landed
+    ):
+        """A setter acknowledged during the post-connect reload must reach the daemon.
+
+        The reload rewrites the compressor, loudness and trim caches from the
+        config it fetched. A setter that wrote its cache while that fetch was in
+        flight then built its config from the overwritten cache: the effect was
+        dropped — for the trim, nothing was sent at all — and the route answered
+        200.
+        """
+        wire, in_flight, release = _answer_one_at_a_time(
+            mock_camilla_client,
+            {"get_config": mock_camilla_client.get_config.return_value, "set_config": None},
+            hold="get_config",
+        )
+
+        load = asyncio.create_task(equalizer_service._load_state_from_config())
+        await in_flight.wait()
+        setter = await _start_until_parked(change(equalizer_service))
+        release.set()
+        await load
+
+        assert await setter is True
+        sent = [args[0] for name, *args in wire if name == "set_config"]
+        assert sent and landed(sent[-1]), wire
 
     @pytest.mark.asyncio
     async def test_exec_never_opens_a_connection_of_its_own(self, mock_camilla_client):

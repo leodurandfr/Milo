@@ -147,8 +147,8 @@ class EqualizerService:
         """Single connection attempt, guarded by lock to prevent concurrent connects.
 
         `_connection_loop` is the only caller, and it is what makes a connection
-        usable: it follows a successful attempt with `_load_state_from_config()`
-        and `_restore_after_reconnect()`, in that order, outside this lock. A
+        usable: it follows a successful attempt with `_restore_after_reconnect()`
+        and `_load_state_from_config()`, in that order, outside this lock. A
         second caller would hand out a connection to a daemon still sitting at
         its `--gain` floor — which is the whole of the 2026-09-20 incident.
         """
@@ -284,9 +284,13 @@ class EqualizerService:
         and mute are runtime-only parameters that need explicit restoration.
         """
         try:
+            # Each value is read just before its own command, never both up
+            # front: a set_mute that lands during the SetVolume round trip has
+            # already written the cache, and a mute read before it would be
+            # sent after the server's and undo it.
             volume = self._volume["main"]
-            mute = self._volume["mute"]
             await self._exec(lambda c: c.set_volume(volume))
+            mute = self._volume["mute"]
             await self._exec(lambda c: c.set_mute(mute))
             self.logger.info(
                 f"Restored volume after reconnect: {volume:.1f} dB, mute={mute}"
@@ -338,79 +342,87 @@ class EqualizerService:
             raise
 
     async def _load_state_from_config(self):
-        """Load compressor/loudness/trim state from current CamillaDSP config."""
-        try:
-            config = await self._get_config()
-            if not config:
-                return
+        """Load compressor/loudness/trim state from current CamillaDSP config.
 
-            # A section the YAML leaves out comes back as null, not absent: the
-            # shipped config has no `processors`, which CamillaDSP returns as None.
-            processors = config.get("processors") or {}
-            filters = config.get("filters") or {}
-            pipeline = config.get("pipeline") or []
+        Under the config lock, like the setters: it rewrites the caches they
+        build their config from, so a setter that wrote its cache during the
+        GetConfigJson round trip would send the reloaded state instead — the
+        compressor or loudness dropped, the trim not sent at all — and answer
+        success. Never call it from a setter: the lock is not reentrant.
+        """
+        async with self._config_lock:
+            try:
+                config = await self._get_config()
+                if not config:
+                    return
 
-            # Check for compressor in processors
-            if "compressor" in processors:
-                proc = processors["compressor"]
-                params = proc.get("parameters", {})
-                self._compressor = {
-                    "enabled": True,
-                    "threshold": params.get("threshold", -20.0),
-                    "ratio": params.get("factor", 4.0),
-                    "attack": params.get("attack", 0.01) * 1000,  # Convert to ms
-                    "release": params.get("release", 0.1) * 1000,
-                    "makeup_gain": params.get("makeup_gain", 0.0)
-                }
-                self.logger.info("Loaded compressor state from config")
-            else:
-                self._compressor["enabled"] = False
+                # A section the YAML leaves out comes back as null, not absent: the
+                # shipped config has no `processors`, which CamillaDSP returns as None.
+                processors = config.get("processors") or {}
+                filters = config.get("filters") or {}
+                pipeline = config.get("pipeline") or []
 
-            # The native Loudness filter (absent filter == loudness off)
-            loudness = filters.get("loudness")
-            if loudness and loudness.get("type") == "Loudness":
-                params = loudness.get("parameters", {})
-                self._loudness["enabled"] = True
-                self._loudness["low_boost"] = params.get("low_boost", self._loudness["low_boost"])
-                self._loudness["high_boost"] = params.get("high_boost", self._loudness["high_boost"])
-                self._loudness["reference_level"] = params.get("reference_level")
-                self.logger.info("Loaded loudness state from config")
-            else:
-                self._loudness["enabled"] = False
+                # Check for compressor in processors
+                if "compressor" in processors:
+                    proc = processors["compressor"]
+                    params = proc.get("parameters", {})
+                    self._compressor = {
+                        "enabled": True,
+                        "threshold": params.get("threshold", -20.0),
+                        "ratio": params.get("factor", 4.0),
+                        "attack": params.get("attack", 0.01) * 1000,  # Convert to ms
+                        "release": params.get("release", 0.1) * 1000,
+                        "makeup_gain": params.get("makeup_gain", 0.0)
+                    }
+                    self.logger.info("Loaded compressor state from config")
+                else:
+                    self._compressor["enabled"] = False
 
-            # The EQ headroom (absent filter == none)
-            headroom = filters.get("headroom", {})
-            self._headroom_db = headroom.get("parameters", {}).get("gain", 0.0)
+                # The native Loudness filter (absent filter == loudness off)
+                loudness = filters.get("loudness")
+                if loudness and loudness.get("type") == "Loudness":
+                    params = loudness.get("parameters", {})
+                    self._loudness["enabled"] = True
+                    self._loudness["low_boost"] = params.get("low_boost", self._loudness["low_boost"])
+                    self._loudness["high_boost"] = params.get("high_boost", self._loudness["high_boost"])
+                    self._loudness["reference_level"] = params.get("reference_level")
+                    self.logger.info("Loaded loudness state from config")
+                else:
+                    self._loudness["enabled"] = False
 
-            # Check for the level trim (absent filter == no trim)
-            if "gain_trim" in filters:
-                self._gain_db = filters["gain_trim"].get("parameters", {}).get("gain", 0.0)
-                self.logger.info(f"Loaded level trim from config: {self._gain_db:+.1f} dB")
-            else:
-                self._gain_db = 0.0
+                # The EQ headroom (absent filter == none)
+                headroom = filters.get("headroom", {})
+                self._headroom_db = headroom.get("parameters", {}).get("gain", 0.0)
 
-            # Check for mono mixer (pipeline's Mixer step name)
-            for step in pipeline:
-                if step.get("type") == "Mixer":
-                    self._mono = step.get("name") == "mono"
-                    if self._mono:
-                        self.logger.info("Loaded mono state from config")
-                    break
+                # Check for the level trim (absent filter == no trim)
+                if "gain_trim" in filters:
+                    self._gain_db = filters["gain_trim"].get("parameters", {}).get("gain", 0.0)
+                    self.logger.info(f"Loaded level trim from config: {self._gain_db:+.1f} dB")
+                else:
+                    self._gain_db = 0.0
 
-            # Derive master equalizer-enabled state from the persisted pipeline.
-            # set_equalizer_enabled() bypasses by removing eq_band_* from the pipeline
-            # while keeping their definitions, so "bands defined but none piped" means
-            # effects are bypassed. This makes the bypass state survive a restart.
-            eq_band_defs = [n for n in filters if n.startswith("eq_band_")]
-            if eq_band_defs:
-                piped = set()
+                # Check for mono mixer (pipeline's Mixer step name)
                 for step in pipeline:
-                    if step.get("type") == "Filter":
-                        piped.update(step.get("names", []))
-                self._equalizer_enabled = any(name in piped for name in eq_band_defs)
+                    if step.get("type") == "Mixer":
+                        self._mono = step.get("name") == "mono"
+                        if self._mono:
+                            self.logger.info("Loaded mono state from config")
+                        break
 
-        except Exception as e:
-            self.logger.warning(f"Could not load state from config: {e}")
+                # Derive master equalizer-enabled state from the persisted pipeline.
+                # set_equalizer_enabled() bypasses by removing eq_band_* from the pipeline
+                # while keeping their definitions, so "bands defined but none piped" means
+                # effects are bypassed. This makes the bypass state survive a restart.
+                eq_band_defs = [n for n in filters if n.startswith("eq_band_")]
+                if eq_band_defs:
+                    piped = set()
+                    for step in pipeline:
+                        if step.get("type") == "Filter":
+                            piped.update(step.get("names", []))
+                    self._equalizer_enabled = any(name in piped for name in eq_band_defs)
+
+            except Exception as e:
+                self.logger.warning(f"Could not load state from config: {e}")
 
     async def get_status(self) -> Dict[str, Any]:
         """Get equalizer status."""
