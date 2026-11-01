@@ -27,6 +27,10 @@ Nothing else catches this class. These are a bash script and two `.ini` files
 read by pid 1 on a machine no test runner touches: there is no import to fail and
 no route to 404.
 
+The satellite's snapclient launcher is pinned here too, for the same reason: the
+image masks `NetworkManager-wait-online`, so its own wait for eth0 is the only
+thing that keeps a wired satellite's stream off its WiFi at boot.
+
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
 an empty surface.
@@ -309,4 +313,55 @@ def test_the_apply_helper_can_defer_its_reboot():
     assert "--no-reboot" in script, "milo-apply-hardware always reboots"
     assert "/sbin/reboot" in script, (
         "milo-apply-hardware no longer reboots at all — the Hardware page relies on it"
+    )
+
+
+# =============================================================================
+# The satellite's snapclient starts on the cable
+# =============================================================================
+
+SAT_LAUNCHER = (
+    REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-snapclient-launcher"
+)
+
+
+def test_the_satellite_snapclient_waits_for_an_activating_eth0():
+    """`network-online.target` orders nothing on the image, so the launcher waits.
+
+    The image masks `NetworkManager-wait-online` on both roles, so the unit's
+    `After=network-online.target` is met as soon as NetworkManager is up. On a
+    wired satellite that also holds the server's WiFi, wlan0 leases first:
+    measured on Bureau (boot of 2026-10-17), snapclient connected from the WiFi
+    address and kept that connection for 5 h 20, and nothing re-resolves it,
+    because the server's address never moved.
+
+    So the launcher reads eth0's NetworkManager state before it resolves or
+    connects anything, and waits while that link is activating (states 40-99),
+    bounded on /proc/uptime like the readiness deadline. An eth0 with no carrier
+    (20) must not wait at all: a satellite on WiFi alone would sit out the whole
+    cap at every start.
+    """
+    code = "\n".join(
+        line.split("#", 1)[0] for line in SAT_LAUNCHER.read_text(encoding="utf-8").splitlines()
+    )
+    assert "getent" in code, "the launcher no longer resolves the server"
+    assert "exec /usr/bin/snapclient" in code, "the launcher no longer execs snapclient"
+
+    probe = re.search(r"nmcli\b[^\n]*GENERAL\.STATE[^\n]*\beth0\b", code)
+    assert probe, "the launcher reads no NetworkManager state of eth0"
+    assert probe.start() < code.index("getent"), (
+        "eth0's state is read only after the server is resolved"
+    )
+
+    assert "/proc/uptime" in code, "the eth0 wait reads no monotonic clock"
+    assert not re.search(r"\bSECONDS\b", code), (
+        "the launcher reads $SECONDS, which a clock step moves; time the wait from /proc/uptime"
+    )
+
+    assert re.search(r"-ge\s+40\b", code), (
+        "the wait does not start at NetworkManager's first activating state (40); "
+        "a lower bound would hold an unplugged eth0 (20) for the whole cap"
+    )
+    assert re.search(r"-lt\s+100\b|-le\s+99\b", code), (
+        "the wait does not end at NetworkManager's activated state (100)"
     )
