@@ -42,7 +42,6 @@ import asyncio
 import base64
 import itertools
 from io import BytesIO
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
@@ -255,7 +254,7 @@ class AirPlayWorld(WireReader):
 
         async def read_artwork(path: str) -> bytes:
             # In the actor's own step: a thread would finish outside settle().
-            return Path(path).read_bytes()
+            return airplay_module.read_cover_file(path, str(self.covers))
 
         monkeypatch.setattr(airplay_module, "read_artwork", read_artwork)
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))

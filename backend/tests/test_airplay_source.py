@@ -30,6 +30,7 @@ import base64
 import logging
 import contextlib
 import os
+from pathlib import Path
 from typing import Any, Callable, List, Optional
 from unittest.mock import AsyncMock, Mock
 
@@ -41,7 +42,7 @@ from backend.sources.airplay import source as airplay_module
 from backend.sources.airplay.metadata_reader import MetadataReader, PipeEvent, _hex_to_str
 from backend.sources.airplay.remote import RemoteUpdate
 from backend.core.audio_source import POSITION_TOLERANCE_MS
-from backend.sources.airplay.source import ARTWORK_SETTLE_SECONDS, VOLUME_HOLD_S
+from backend.sources.airplay.source import ARTWORK_MAX_BYTES, ARTWORK_SETTLE_SECONDS, VOLUME_HOLD_S
 from backend.tests.airplay_world import (
     IPHONE_MUSIC_COMMANDS, MAC, MAC_COMMANDS, PHONE, SPOTIFY_COMMANDS, AirPlayWorld, png, ssnc,
 )
@@ -353,6 +354,86 @@ class TestTheCover:
 
         assert _shown(world.state())["artwork"] is None
         assert world.source.get_artwork() is None
+
+    async def test_an_artwork_path_outside_the_cover_cache_is_never_read(self, world, tmp_path):
+        """The picture's path arrives on the system bus: read wherever it
+        pointed, a file of milo's was served to the LAN as the cover. A
+        picture, so that only where it lies can refuse it."""
+        await _on_air(world)
+        await _plays(world, "Steam")
+        first = _shown(world.state())["artwork"]
+        published = len(world.published())
+        picture = png(color="red")
+        secret = tmp_path / "settings.json"
+        secret.write_bytes(picture)
+
+        await world.signal(RemoteUpdate("now_playing", world.item(
+            "Plasma", artwork_id="art-2", artwork_path=str(secret))))
+        served = [world.source.get_artwork()]
+        await _after_the_hold(world)
+        served.append(world.source.get_artwork())
+
+        assert all(artwork is None or artwork[0] != picture for artwork in served)
+        assert {s["session"]["artwork"] for s in world.published()[published:]} <= {first, None}
+
+
+def _a_link_out_of_the_cache(tmp_path):
+    cache = tmp_path / "coverart"
+    cache.mkdir()
+    secret = tmp_path / "settings.json"
+    secret.write_bytes(png())
+    (cache / "cover.png").symlink_to(secret)
+    return cache, cache / "cover.png"
+
+
+def _a_cache_that_is_a_link(tmp_path):
+    elsewhere = tmp_path / "home"
+    elsewhere.mkdir()
+    (elsewhere / "cover.png").write_bytes(png())
+    (tmp_path / "coverart").symlink_to(elsewhere)
+    return tmp_path / "coverart", tmp_path / "coverart" / "cover.png"
+
+
+def _a_pipe_in_the_cache(tmp_path):
+    cache = tmp_path / "coverart"
+    cache.mkdir()
+    os.mkfifo(cache / "cover.png")
+    return cache, cache / "cover.png"
+
+
+def _a_file_too_big_to_be_a_cover(tmp_path):
+    cache = tmp_path / "coverart"
+    cache.mkdir()
+    (cache / "cover.png").write_bytes(png())
+    os.truncate(cache / "cover.png", ARTWORK_MAX_BYTES + 1)
+    return cache, cache / "cover.png"
+
+
+def _a_device(tmp_path):
+    return Path("/dev"), Path("/dev/zero")
+
+
+class TestTheCoverFile:
+    """`read_artwork` on the real file system, in its real thread. The path is
+    whatever the item names: a FIFO blocked a thread for good, /dev/zero read
+    until the backend's memory ran out, and a link carried the read anywhere."""
+
+    @pytest.mark.parametrize("planted", [
+        _a_link_out_of_the_cache, _a_cache_that_is_a_link, _a_pipe_in_the_cache,
+        _a_file_too_big_to_be_a_cover, _a_device,
+    ])
+    async def test_what_is_not_a_cover_file_in_the_cache_is_refused_unread(
+            self, monkeypatch, tmp_path, planted):
+        cache, path = planted(tmp_path)
+        monkeypatch.setattr(airplay_module, "COVER_ART_DIR", str(cache))
+        try:
+            with pytest.raises(PermissionError):
+                await asyncio.wait_for(airplay_module.read_artwork(str(path)), 5)
+        finally:
+            if path.is_fifo():
+                # An open that blocks again would hold the loop's executor at teardown.
+                with contextlib.suppress(OSError):
+                    os.close(os.open(path, os.O_WRONLY | os.O_NONBLOCK))
 
 
 class TestThePhase:

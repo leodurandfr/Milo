@@ -204,24 +204,46 @@ class ShairportRemote:
         self._on_update = on_update
         self._bus: Optional[MessageBus] = None
         self._bg = BackgroundTaskSet(logger, "airplay.remote")
+        # The unique name holding BUS_NAME, the only sender listened to: any
+        # local account may signal on the system bus, and a signal sent to
+        # this connection directly bypasses every match rule.
+        self._owner: Optional[str] = None
+        self._owner_changes = 0
 
     async def start(self) -> None:
         """Subscribe, then read what is already there: signals only carry changes."""
         self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        self._bus.add_message_handler(self._on_message)
         for rule in (
-            f"type='signal',interface='{PROPERTIES_IFACE}',member='PropertiesChanged',"
-            f"path='{OBJECT_PATH}'",
+            f"type='signal',sender='{BUS_NAME}',interface='{PROPERTIES_IFACE}',"
+            f"member='PropertiesChanged',path='{OBJECT_PATH}'",
             f"type='signal',sender='{DBUS_DAEMON}',interface='{DBUS_DAEMON}',"
             f"member='NameOwnerChanged',arg0='{BUS_NAME}'",
         ):
-            reply = await self._bus.call(Message(
-                destination=DBUS_DAEMON, path="/org/freedesktop/DBus", interface=DBUS_DAEMON,
-                member="AddMatch", signature="s", body=[rule],
-            ))
+            reply = await self._call_daemon("AddMatch", rule)
             if reply.message_type is MessageType.ERROR:
                 raise RuntimeError(f"AddMatch refused: {reply.error_name} {reply.body}")
-        self._bus.add_message_handler(self._on_message)
+        await self._read_owner()
         await self._read_all()
+
+    async def _call_daemon(self, member: str, arg: str) -> Message:
+        return await self._bus.call(Message(
+            destination=DBUS_DAEMON, path="/org/freedesktop/DBus", interface=DBUS_DAEMON,
+            member=member, signature="s", body=[arg],
+        ))
+
+    async def _read_owner(self) -> None:
+        """Who holds BUS_NAME now — unless the bus announced a change while
+        the answer was on its way, which is newer."""
+        changes = self._owner_changes
+        reply = await self._call_daemon("GetNameOwner", BUS_NAME)
+        if changes != self._owner_changes:
+            return
+        if reply.message_type is MessageType.ERROR:
+            logger.debug(f"{BUS_NAME} has no owner yet: {reply.error_name}")
+            self._owner = None
+        else:
+            self._owner = reply.body[0]
 
     async def stop(self) -> None:
         await self._bg.cancel_all()
@@ -246,11 +268,17 @@ class ShairportRemote:
         if msg.message_type is not MessageType.SIGNAL:
             return
         if msg.member == "NameOwnerChanged" and msg.interface == DBUS_DAEMON:
+            if msg.sender != DBUS_DAEMON or not msg.body or msg.body[0] != BUS_NAME:
+                return
+            self._owner_changes += 1
+            self._owner = msg.body[2] or None
             # A new daemon (Restart=) starts with nothing; read it once it is up.
-            if msg.body and msg.body[0] == BUS_NAME and msg.body[2]:
+            if self._owner:
                 self._bg.spawn(self._read_all(), label="read_all")
             return
         if msg.member != "PropertiesChanged" or msg.path != OBJECT_PATH:
+            return
+        if self._owner is None or msg.sender != self._owner:
             return
         interface, changed, invalidated = msg.body
         if interface not in _WATCHED:

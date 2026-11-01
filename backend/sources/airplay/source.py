@@ -63,9 +63,9 @@ write-back, never the sender's move.
 import asyncio
 import hashlib
 import os
+import stat
 from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
@@ -93,6 +93,13 @@ from backend.shared.artwork import decode_artwork_dimensions
 # the cover; none, and the cover goes. Sized on the slowest replacement
 # measured, a Mac's 5.4 s on a track change (5.5.1).
 ARTWORK_SETTLE_SECONDS = 8.0
+
+# Where shairport-sync writes the pictures it is sent: its built-in
+# cover_art_cache_directory (shairport-sync.conf sets none). The item names its
+# picture over the system bus, so nothing outside this is read.
+COVER_ART_DIR = "/tmp/shairport-sync/.cache/coverart"
+# A sender's cover is a few hundred kB: nothing bigger is one.
+ARTWORK_MAX_BYTES = 8 * 1024 * 1024
 
 # Quitting the app on a Mac (Music, Spotify; measured 2026-10-23) leaves the Mac
 # connected and empties the item (`{}`) and the commands: nothing is playing any
@@ -159,9 +166,30 @@ VOLUME_ECHO_S = 2.0
 VOLUME_EPSILON = 0.005
 
 
+def read_cover_file(path: str, cache_dir: str) -> bytes:
+    """The picture file at `path`: a regular file of at most ARTWORK_MAX_BYTES
+    whose real path lies in `cache_dir`, taken as written (a cache directory
+    replaced by a link is refused too). PermissionError for anything else,
+    which is opened at most — never read: a FIFO would block, a device fill."""
+    real = os.path.realpath(path)
+    if not real.startswith(os.path.join(cache_dir, "")):
+        raise PermissionError(f"{path} is outside the cover cache {cache_dir}")
+    fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC)
+    with open(fd, "rb") as picture:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise PermissionError(f"{path} is not a regular file")
+        if info.st_size > ARTWORK_MAX_BYTES:
+            raise PermissionError(f"{path} is over {ARTWORK_MAX_BYTES} bytes")
+        data = picture.read(ARTWORK_MAX_BYTES + 1)
+    if len(data) > ARTWORK_MAX_BYTES:   # grown since the fstat
+        raise PermissionError(f"{path} is over {ARTWORK_MAX_BYTES} bytes")
+    return data
+
+
 async def read_artwork(path: str) -> bytes:
     """The picture file shairport-sync wrote, read off the event loop."""
-    return await asyncio.to_thread(Path(path).read_bytes)
+    return await asyncio.to_thread(read_cover_file, path, COVER_ART_DIR)
 
 
 def sender_level(airplay_db: float) -> float:
