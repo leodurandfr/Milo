@@ -16,9 +16,10 @@ What that left unmeasured, in order of what it costs:
   floor, so the graph goes back in silence and the unmute opens the room on the
   whole chain.
 * `_connection_ready` is what `VolumeService._apply_startup_volume` waits on for
-  10 s at every boot. Only the *loop* sets it on a failed connect; a connect that
-  fails without the loop noticing costs ten seconds of the boot and then applies
-  no volume at all.
+  10 s at every boot. Only the *loop* sets it — after the restore on a connect,
+  so the startup unmute never races the graph rebuild, and on a failed connect;
+  a connect that fails without the loop noticing costs ten seconds of the boot
+  and then applies no volume at all.
 * `_connect_once` clearing `_client` on failure is what every `if not self._client`
   guard in the file relies on.
 
@@ -153,20 +154,19 @@ class TestConnectOnce:
         assert service.state is CamillaDspState.PAUSED
         assert service.is_volume_control_available() is True
 
-    async def test_a_successful_connect_releases_the_startup_waiter(
+    async def test_a_connect_alone_leaves_the_startup_waiter_armed(
         self, service, client_factory
     ):
-        """`VolumeService._apply_startup_volume` blocks on this event for 10 s.
+        """The waiter is released by the loop once the graph is restored, not here.
 
-        It is the boot's rendezvous: without the set, startup volume is applied
-        ten seconds late at best, and skipped at worst.
+        `VolumeService._apply_startup_volume` unmutes as soon as it is released.
+        Released at the connect, it opened the room on the config file's graph
+        while the loop was still putting the trim's neighbors back.
         """
-        assert not service._connection_ready.is_set()
-
         await service._connect_once()
 
-        assert service._connection_ready.is_set()
-        assert await service.wait_for_connection(timeout=0.01) is True
+        assert service.connected is True
+        assert not service._connection_ready.is_set()
 
     async def test_a_successful_connect_announces_the_state_it_found(
         self, service, client_factory
@@ -338,6 +338,31 @@ class TestConnectionLoop:
         await service._connection_loop()
 
         assert sleeps == [service.MAX_RECONNECT_DELAY] * 3
+
+    async def test_the_boot_is_released_only_once_the_graph_is_restored(self, service, sleeps):
+        """`VolumeService._apply_startup_volume` blocks on this event for 10 s.
+
+        It is the boot's rendezvous: without the set, startup volume is applied
+        ten seconds late at best, and skipped at worst; set before the restore,
+        the startup unmute races it.
+        """
+        seen_by_the_restore = []
+        service._restore_after_reconnect = AsyncMock(
+            side_effect=lambda: seen_by_the_restore.append(service._connection_ready.is_set())
+        )
+
+        async def _connect():
+            service._connected = True
+            service._running = False
+            return True
+
+        service._connect_once = _connect
+
+        await service._connection_loop()
+
+        assert seen_by_the_restore == [False]
+        assert service._connection_ready.is_set()
+        assert await service.wait_for_connection(timeout=0.01) is True
 
     async def test_a_reconnected_daemon_gets_its_state_pushed_back(self, service, sleeps):
         """`_restore_after_reconnect` is the only re-push after a daemon restart.
@@ -722,9 +747,18 @@ class TestInitialize:
 class TestWaitForConnection:
     """The boot rendezvous, read from the waiting side."""
 
-    async def test_an_already_connected_service_answers_without_waiting(self, service):
-        """The fast path exists because the event may have been consumed at boot."""
+    async def test_a_connection_still_being_restored_holds_the_waiter(self, service):
+        """`_connected` is true for the whole restore, so it cannot answer alone.
+
+        A fast path on it released the startup volume into the middle of the
+        graph rebuild — whenever the volume store was read after the connect,
+        which is the common case at boot.
+        """
         service._connected = True
+
+        assert await service.wait_for_connection(timeout=0.01) is False
+
+        service._connection_ready.set()
 
         assert await service.wait_for_connection(timeout=0.01) is True
 
@@ -1077,6 +1111,52 @@ class TestPersistState:
         assert reloaded._filters[0]["gain"] == 6.0
 
 
+async def _a_trimmed_unit_under_a_subwoofer(
+    mock_camilla_client, camilla_daemon, tmp_path, monkeypatch, *, local_level=-30.0, trim=-12.0
+):
+    """A real DSP service, registry, router and VolumeService over the daemon double.
+
+    The local speaker carries a `trim` (-12 dB) and a highpass in the cache, and
+    the daemon has just restarted on its config file's graph, which holds
+    neither. `local_level` None leaves the volume store without the local
+    client, as at a boot whose CamillaDSP connected before the store was read.
+    """
+    monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+    monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+    dsp = CamillaDSPService(settings_service=Mock(
+        get_setting=AsyncMock(return_value=None), set_setting=AsyncMock()
+    ))
+    dsp.state_machine = Mock(broadcast=AsyncMock())
+    dsp._client = mock_camilla_client
+    dsp._connected = True
+
+    registry = ClientRegistryService(
+        settings_service=AsyncMock(get_setting=AsyncMock(return_value=None))
+    )
+    await registry.initialize()
+    await registry.register_client(LOCAL, "Main", "127.0.0.1")
+    await registry.set_client_gain(LOCAL, trim)
+    volume = _wired_service(Mock(broadcast=AsyncMock()), dsp, registry)
+    volume.attach_registry(registry)
+    volume.set_routing_service(Mock(get_state=Mock(return_value={"multiroom_enabled": True})))
+    if local_level is not None:
+        volume._state_store.ensure_local_client(LOCAL, local_level)
+    dsp.set_on_reconnect_callback(volume.reapply_current_volume)
+
+    camilla_daemon.load({"filters": {}, "pipeline": []})
+    await dsp.set_crossover_filter(True, 120.0, 0.5)
+    camilla_daemon.load({"filters": {}, "pipeline": []})  # restarted on the file's graph
+    mock_camilla_client.reset_mock()
+    return dsp, volume
+
+
+def _unmutes_and_writes(mock_camilla_client):
+    calls = mock_camilla_client.mock_calls
+    unmutes = [i for i, c in enumerate(calls) if c == call.set_mute(False)]
+    writes = [i for i, c in enumerate(calls) if c[0] == "set_config"]
+    return unmutes, writes
+
+
 class TestRestoreOrder:
     """The order a reconnect puts the daemon back together in.
 
@@ -1092,37 +1172,118 @@ class TestRestoreOrder:
     async def test_a_reconnect_unmutes_last(
         self, mock_camilla_client, camilla_daemon, tmp_path, monkeypatch
     ):
-        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
-        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
-        dsp = CamillaDSPService(settings_service=Mock(
-            get_setting=AsyncMock(return_value=None), set_setting=AsyncMock()
-        ))
-        dsp.state_machine = Mock(broadcast=AsyncMock())
-        dsp._client = mock_camilla_client
-        dsp._connected = True
-
-        registry = ClientRegistryService(
-            settings_service=AsyncMock(get_setting=AsyncMock(return_value=None))
+        dsp, _ = await _a_trimmed_unit_under_a_subwoofer(
+            mock_camilla_client, camilla_daemon, tmp_path, monkeypatch
         )
-        await registry.initialize()
-        await registry.register_client(LOCAL, "Main", "127.0.0.1")
-        await registry.set_client_gain(LOCAL, -12.0)
-        volume = _wired_service(Mock(broadcast=AsyncMock()), dsp, registry)
-        volume.attach_registry(registry)
-        volume.set_routing_service(Mock(get_state=Mock(return_value={"multiroom_enabled": True})))
-        volume._state_store.ensure_local_client(LOCAL, -30.0)
-        dsp.set_on_reconnect_callback(volume.reapply_current_volume)
-
-        camilla_daemon.load({"filters": {}, "pipeline": []})
-        await dsp.set_crossover_filter(True, 120.0, 0.5)
-        camilla_daemon.load({"filters": {}, "pipeline": []})  # restarted on the file's graph
-        mock_camilla_client.reset_mock()
 
         await dsp._restore_after_reconnect()
 
-        calls = mock_camilla_client.mock_calls
-        unmutes = [i for i, c in enumerate(calls) if c == call.set_mute(False)]
-        writes = [i for i, c in enumerate(calls) if c[0] == "set_config"]
+        unmutes, writes = _unmutes_and_writes(mock_camilla_client)
         assert {"gain_trim", "crossover_highpass"} <= set(camilla_daemon.last_pushed["filters"])
         assert unmutes, "the reconnect never unmuted the restarted daemon"
         assert unmutes[-1] > writes[-1]
+
+
+class TestBootOrder:
+    """The same order at a backend start, where a second writer joins the reconnect.
+
+    milo-camilladsp is `PartOf=milo-backend.service`, so every backend start is
+    also a daemon restart: muted at the floor, on the config file's graph. Two
+    things then put the room back — the connection loop's restore, and
+    `VolumeService._apply_startup_volume`, which waits on `wait_for_connection`.
+    Released at the connect, the startup unmuted while the loop was still
+    rebuilding the graph (measured on the unit: "Startup state applied …
+    mute=False" 67 ms before the reconnect's "Re-applied volume"), and with no
+    trim at all when the reconnect had found the store not yet read (the trim
+    then came at the local admission, 5.2 s later).
+
+    Every daemon round-trip is a WebSocket exchange, so the double yields to
+    the loop on each one: without that the two writers could not interleave. A
+    config exchange yields longer than a volume command, as on the unit, where
+    it carries the whole graph and a set reloads the pipeline.
+    """
+
+    @pytest.fixture
+    def a_daemon_that_answers_over_a_socket(self, mock_camilla_client, camilla_daemon, monkeypatch):
+        def yielding(fn, turns):
+            async def wrapped(*args, **kwargs):
+                for _ in range(turns):
+                    await asyncio.sleep(0)
+                return fn(*args, **kwargs)
+            return wrapped
+
+        mock_camilla_client.get_config.side_effect = yielding(camilla_daemon.get_config, 5)
+        mock_camilla_client.set_config.side_effect = yielding(camilla_daemon.set_config, 5)
+        for name in ("set_volume", "set_mute"):
+            getattr(mock_camilla_client, name).side_effect = yielding(lambda *a, **kw: None, 1)
+        monkeypatch.setattr(service_module, "CamillaDspClient", lambda host, port: mock_camilla_client)
+        return mock_camilla_client
+
+    @staticmethod
+    @contextlib.asynccontextmanager
+    async def _the_connection_loop(dsp, client):
+        """Run the real loop from a fresh connect, and let it reach its idle wait.
+
+        Left only once the daemon has received its first keepalive — which the
+        loop sends after the restore — so a writer that returned early is not
+        excused by the restore being cut off at the end of the test.
+        """
+        dsp._connected = False
+        dsp._client = None
+        dsp.RECONNECT_DELAY = 0.001
+        task = asyncio.create_task(dsp._connection_loop())
+        try:
+            yield task
+
+            async def _idle():
+                while client.get_state.await_count < 2:
+                    await asyncio.sleep(0.001)
+
+            await asyncio.wait_for(_idle(), timeout=2.0)
+        finally:
+            dsp._running = False
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    @pytest.mark.parametrize("trim, rebuilt", [
+        (-12.0, {"gain_trim", "crossover_highpass"}),
+        # The fleet's case: no trim to push, so nothing holds the startup's
+        # unmute behind the crossover's config write but the rendezvous itself.
+        (0.0, {"crossover_highpass"}),
+    ])
+    async def test_the_startup_volume_unmutes_after_the_graph_is_back(
+        self, a_daemon_that_answers_over_a_socket, camilla_daemon, tmp_path, monkeypatch,
+        trim, rebuilt,
+    ):
+        client = a_daemon_that_answers_over_a_socket
+        dsp, volume = await _a_trimmed_unit_under_a_subwoofer(
+            client, camilla_daemon, tmp_path, monkeypatch, trim=trim
+        )
+
+        async with self._the_connection_loop(dsp, client):
+            await volume._apply_startup_volume()
+
+        unmutes, writes = _unmutes_and_writes(client)
+        assert set(camilla_daemon.last_pushed["filters"]) == rebuilt
+        assert unmutes, "the boot never unmuted the restarted daemon"
+        assert unmutes[0] > writes[-1]
+
+    async def test_a_startup_the_reconnect_could_not_level_still_trims_before_it_unmutes(
+        self, a_daemon_that_answers_over_a_socket, camilla_daemon, tmp_path, monkeypatch
+    ):
+        client = a_daemon_that_answers_over_a_socket
+        dsp, volume = await _a_trimmed_unit_under_a_subwoofer(
+            client, camilla_daemon, tmp_path, monkeypatch, local_level=None
+        )
+
+        async with self._the_connection_loop(dsp, client):
+            assert await dsp.wait_for_connection(timeout=1.0) is True
+            # The store is read once the daemon is back: the reconnect skipped.
+            volume._state_store.ensure_local_client(LOCAL, -30.0)
+            await volume._apply_startup_volume()
+
+        unmutes, writes = _unmutes_and_writes(client)
+        assert "gain_trim" in camilla_daemon.last_pushed["filters"]
+        assert unmutes, "the boot never unmuted the restarted daemon"
+        assert unmutes[0] > writes[-1]

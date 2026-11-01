@@ -955,6 +955,11 @@ class VolumeService:
         # have started.
         if target_volume is not None and self._camilladsp_service:
             await self._equalizer_controller.set_equalizer_volume(local_mac_id, target_volume, force=True)
+            # The daemon restarted with the backend (PartOf), so it is muted at
+            # its floor with no trim — and the reconnect callback that would have
+            # pushed one skips when it ran before the store was read. The trim
+            # goes in before the mute, as in reapply_current_volume.
+            await self.sync_local_gain()
             await self._equalizer_controller.set_equalizer_mute(local_mac_id, local_mute, force=True)
             self.logger.info(f"Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}")
         elif self._camilladsp_service:

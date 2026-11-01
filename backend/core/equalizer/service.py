@@ -102,7 +102,7 @@ class CamillaDSPService:
         self._reconnect_task: Optional[asyncio.Task] = None
         self._connected = False
         self._running = True
-        self._connection_ready = asyncio.Event()  # Signaled when first connected to CamillaDSP
+        self._connection_ready = asyncio.Event()  # Set once the first connection is restored (or failed)
 
         # State machine reference (set by container)
         self.state_machine = None
@@ -227,11 +227,17 @@ class CamillaDSPService:
 
     async def wait_for_connection(self, timeout: float = 10.0) -> bool:
         """
-        Wait for CamillaDSP connection to be established.
+        Wait for the first CamillaDSP connection to be established and restored.
 
         This is used by VolumeService to ensure CamillaDSP is ready before applying
         startup volume/mute state. Services initialize in parallel, so we need
         to wait for the connection before sending commands.
+
+        Restored, not merely connected: the daemon starts with the backend, muted
+        at its floor on its config file's graph, and the startup unmute must not
+        open the room while the loop is still putting the trim's neighbors back
+        (effects, mono, crossover). So there is no fast path on `_connected`,
+        which is true for the whole restore.
 
         Args:
             timeout: Maximum time to wait in seconds
@@ -239,9 +245,6 @@ class CamillaDSPService:
         Returns:
             True if connected within timeout, False otherwise
         """
-        if self._connected:
-            return True
-
         try:
             await asyncio.wait_for(self._connection_ready.wait(), timeout=timeout)
             # Event was set, check actual connection status
@@ -300,6 +303,8 @@ class CamillaDSPService:
                 if connected:
                     reconnect_delay = self.RECONNECT_DELAY
                     await self._restore_after_reconnect()
+                    # The boot's rendezvous, released only now: see wait_for_connection.
+                    self._connection_ready.set()
 
                     # Idle, keeping the connection under observation. Waiting for
                     # a command to fail is not detection: measured on the unit,
@@ -373,7 +378,6 @@ class CamillaDSPService:
 
                 self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}, state: {self._state}")
 
-                self._connection_ready.set()
                 await self._broadcast(EqualizerStateChanged(state=self._state.value))
 
                 return True
