@@ -9,12 +9,15 @@ Tests cover:
 - Failure settling: a clean False from start(), a raising start() and the
   timeout all leave the source selected with `service: failed` — plus the
   retry that unlocks and the inactivity sweep that eventually clears it
+- The 12 h inactivity sweep: what it spares — a live session, a multiroom
+  switch in flight, a source selected after the tick decided
 - The transition lock, and the multiroom switch held across a reroute
 - What goes on the wire: `source/state` only when the state moved,
   `source/position` when only the playhead did
 - `availability`: the NM level crossed with each source's own requirement,
   then the source's own reason
 """
+import contextlib
 import logging
 
 import pytest
@@ -468,8 +471,30 @@ class TestConcurrency:
         assert state_machine.system_state.transitioning is False
 
 
+@contextlib.asynccontextmanager
+async def lock_held_by_a_mac_apply(sm):
+    """The transition lock held for the block, with no `switching` raised: the
+    Mac panel's Apply restarting roc-recv while Mac is not the active source,
+    so the restart runs alone."""
+    applying = asyncio.Event()
+    restarted = asyncio.Event()
+
+    async def restart_roc_recv():
+        applying.set()
+        await restarted.wait()
+
+    held = asyncio.create_task(sm.restart_source_if_active(AudioSource.MAC, restart_roc_recv))
+    await applying.wait()
+    try:
+        yield
+    finally:
+        restarted.set()
+        await held
+
+
 class TestFailedTransition:
-    """How a transition that could not complete settles, and how it is retried."""
+    """How a transition that could not complete settles, how it is retried, and
+    what the 12 h inactivity sweep may deselect."""
 
     @pytest.mark.asyncio
     async def test_start_returning_false_settles_the_source_failed(
@@ -597,28 +622,14 @@ class TestFailedTransition:
         await sm.transition_to_source(AudioSource.SPOTIFY)
         clock[0] += sm.INACTIVITY_TIMEOUT + 1
 
-        # The Mac panel's Apply holds the lock while roc-recv restarts; Mac is
-        # not the active source, so the restart runs alone and raises no
-        # `switching` the sweep would wait for.
-        applying = asyncio.Event()
-        restarted = asyncio.Event()
-
-        async def restart_roc_recv():
-            applying.set()
-            await restarted.wait()
-
-        held = asyncio.create_task(sm.restart_source_if_active(AudioSource.MAC, restart_roc_recv))
-        await applying.wait()
-
         source.start = AsyncMock(return_value=True)
         sent = recorded(sm)
         with caplog.at_level(logging.INFO, logger="backend.core.state"):
-            # Created in this order, the retry queues on the lock first.
-            retry = asyncio.create_task(sm.transition_to_source(AudioSource.SPOTIFY))
-            tick = asyncio.create_task(sm._check_inactivity())
-            await _until(lambda: "Deactivating idle source spotify" in caplog.text)
-            restarted.set()
-            await held
+            async with lock_held_by_a_mac_apply(sm):
+                # Created in this order, the retry queues on the lock first.
+                retry = asyncio.create_task(sm.transition_to_source(AudioSource.SPOTIFY))
+                tick = asyncio.create_task(sm._check_inactivity())
+                await _until(lambda: "Deactivating idle source spotify" in caplog.text)
             assert await retry is True
             await tick
 
@@ -690,6 +701,95 @@ class TestFailedTransition:
 
         state = sm.get_current_state()
         assert (state["source"], state["service"]) == ("spotify", "failed")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("selected", "phase"),
+        [(AudioSource.PODCAST, "paused"), (AudioSource.MAC, "connected")],
+        ids=["paused", "connected"],
+    )
+    async def test_an_idle_sweep_spares_a_source_with_a_session(self, clock, selected, phase):
+        """The 12 h sweep deselects a source with no session, never one with a session.
+
+        A paused session stays selected however long it waits (E15), and no
+        idle timeout applies to a CONNECTED one (a Mac sending its output).
+        Neither publishes anything while it waits, so on the clock alone the
+        sweep's switch to "no source" would stop their unit under the sender.
+        """
+        sm = AudioStateMachine()
+        source = make_source()
+        sm.register_source(selected, source)
+        await sm.transition_to_source(selected)
+        await sm.update_source_view(selected, session_view(phase=phase))
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+
+        await sm._check_inactivity()
+
+        state = sm.get_current_state()
+        assert state["source"] == selected.value
+        assert state["session"]["phase"] == phase
+        source.stop.assert_not_awaited()
+
+        # The same clock once the session is gone: the sweep fires.
+        await sm.update_source_view(selected, SourceView())
+        await sm._check_inactivity()
+
+        assert sm.get_current_state()["source"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_an_idle_sweep_spares_a_multiroom_switch(self, clock):
+        """A tick that lands inside a multiroom toggle leaves its source alone.
+
+        A reroute that succeeds stamps no activity, so without the guard a
+        source idle for 12 h is deselected — its unit stopped — in the middle
+        of the toggle the user just pressed.
+        """
+        sm = AudioStateMachine()
+        source = make_source()
+        sm.register_source(AudioSource.AIRPLAY, source)
+        await sm.transition_to_source(AudioSource.AIRPLAY)
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+
+        async with sm.multiroom_switch():
+            await sm._check_inactivity()
+            assert sm.get_current_state()["source"] == "airplay"
+
+        source.stop.assert_not_awaited()
+        # Once the toggle is over, the next tick clears the idle source.
+        await sm._check_inactivity()
+
+        assert sm.get_current_state()["source"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_an_idle_sweep_does_not_deselect_a_source_chosen_meanwhile(
+        self, clock, caplog
+    ):
+        """A tick decided on one source is never carried out on the next one.
+
+        The tick that found Spotify idle waits for the transition lock behind
+        the user's switch to Radio. Carried out after it, it would stop the
+        radio just started and leave "no source": the selection undone by a
+        decision taken before it.
+        """
+        sm = AudioStateMachine()
+        spotify, radio = make_source(), make_source()
+        sm.register_source(AudioSource.SPOTIFY, spotify)
+        sm.register_source(AudioSource.RADIO, radio)
+        await sm.transition_to_source(AudioSource.SPOTIFY)
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+
+        with caplog.at_level(logging.INFO, logger="backend.core.state"):
+            async with lock_held_by_a_mac_apply(sm):
+                # Created in this order, the selection queues on the lock first.
+                selection = asyncio.create_task(sm.transition_to_source(AudioSource.RADIO))
+                tick = asyncio.create_task(sm._check_inactivity())
+                await _until(lambda: "Deactivating idle source spotify" in caplog.text)
+            assert await selection is True
+            await tick
+
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("radio", "running")
+        radio.stop.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_teardown_cut_by_the_timeout_is_finished_not_re_issued(
