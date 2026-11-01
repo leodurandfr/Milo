@@ -87,6 +87,15 @@ def mock_source():
     return make_source()
 
 
+@pytest.fixture
+def clock(monkeypatch):
+    """The machine's monotonic clock, moved by hand: the 12 h sweep reads it.
+    The machine is built after the patch, so its first stamp is this clock's."""
+    now = [1000.0]
+    monkeypatch.setattr("backend.core.state.monotonic", lambda: now[0])
+    return now
+
+
 class TestAudioStateMachineBasics:
     """Test basic state machine operations."""
 
@@ -553,6 +562,134 @@ class TestFailedTransition:
         await state_machine._check_inactivity()
 
         assert state_machine.system_state.active_source == AudioSource.NONE
+
+    @pytest.mark.asyncio
+    async def test_a_failed_start_survives_the_next_inactivity_tick(self, clock):
+        """Choosing a source is activity, whether its start succeeds or not.
+
+        After 12 h with nothing selected, a failed start was cleared by the very
+        next sweep tick (60 s at most): the clock moved only after a successful
+        transition, so the failure and its "Retry" vanished from the screen,
+        Milo-Mac and Milo-iOS before anyone could press it.
+        """
+        sm = AudioStateMachine()
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+        sm.register_source(AudioSource.SPOTIFY, make_source(start=AsyncMock(return_value=False)))
+        await sm.transition_to_source(AudioSource.SPOTIFY)
+
+        await sm._check_inactivity()
+
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("spotify", "failed")
+
+    @pytest.mark.asyncio
+    async def test_a_tick_decided_before_a_transition_does_not_undo_it(self, clock, caplog):
+        """The sweep's guard compares the activity it decided on, not only the source.
+
+        A tick that found the failed source idle queues on the transition lock
+        behind the user's retry. The retry succeeds and leaves the same source
+        selected, so a guard on the source alone let the stale tick deselect
+        what had just been started.
+        """
+        sm = AudioStateMachine()
+        source = make_source(start=AsyncMock(return_value=False))
+        sm.register_source(AudioSource.SPOTIFY, source)
+        await sm.transition_to_source(AudioSource.SPOTIFY)
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+
+        # The Mac panel's Apply holds the lock while roc-recv restarts; Mac is
+        # not the active source, so the restart runs alone and raises no
+        # `switching` the sweep would wait for.
+        applying = asyncio.Event()
+        restarted = asyncio.Event()
+
+        async def restart_roc_recv():
+            applying.set()
+            await restarted.wait()
+
+        held = asyncio.create_task(sm.restart_source_if_active(AudioSource.MAC, restart_roc_recv))
+        await applying.wait()
+
+        source.start = AsyncMock(return_value=True)
+        sent = recorded(sm)
+        with caplog.at_level(logging.INFO, logger="backend.core.state"):
+            # Created in this order, the retry queues on the lock first.
+            retry = asyncio.create_task(sm.transition_to_source(AudioSource.SPOTIFY))
+            tick = asyncio.create_task(sm._check_inactivity())
+            await _until(lambda: "Deactivating idle source spotify" in caplog.text)
+            restarted.set()
+            await held
+            assert await retry is True
+            await tick
+
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("spotify", "running")
+        # Had the tick reached the lock first, it would have deselected the
+        # failed source before the retry restarted it: same end state, but
+        # "none" on the wire in between.
+        assert "none" not in [e["data"]["source"] for e in envelopes(sent, "source", "state")]
+
+    @pytest.mark.asyncio
+    async def test_a_tick_inside_the_final_publish_leaves_the_new_source_selected(
+        self, clock, caplog
+    ):
+        """A selection counts as activity before its last broadcast goes out.
+
+        The clock used to move only after that broadcast, which a slow WS client
+        can hold for a second. AirPlay, idle until a sender connects, was
+        deselected by a tick that fell inside it, after 12 h with no session.
+        """
+        sm = AudioStateMachine()
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+        sm.register_source(AudioSource.AIRPLAY, make_source())
+        in_final_publish = asyncio.Event()
+        delivered = asyncio.Event()
+
+        async def slow_client(envelope):
+            if envelope["type"] == "state" and envelope["data"]["service"] == "running":
+                in_final_publish.set()
+                await delivered.wait()
+
+        sm.ws_manager = Mock(broadcast_dict=AsyncMock(side_effect=slow_client))
+        with caplog.at_level(logging.INFO, logger="backend.core.state"):
+            selection = asyncio.create_task(sm.transition_to_source(AudioSource.AIRPLAY))
+            await in_final_publish.wait()
+            tick = asyncio.create_task(sm._check_inactivity())
+            await _until(lambda: tick.done() or "Deactivating idle source" in caplog.text)
+            delivered.set()
+            assert await selection is True
+            await tick
+
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("airplay", "running")
+
+    @pytest.mark.asyncio
+    async def test_a_reroute_that_fails_survives_the_next_inactivity_tick(self, clock):
+        """A source the output switch did not bring back is a fresh failure.
+
+        Settled failed so that re-selecting it is the retry, it was deselected
+        by the next tick when nothing had played for 12 h: the multiroom toggle
+        the user had just pressed left "no source" instead of the failure.
+        """
+        sm = AudioStateMachine()
+        sm.ALSA_RELEASE_SETTLE_S = 0
+        source = make_source(
+            release_for_reroute=AsyncMock(return_value=True),
+            acquire_after_reroute=AsyncMock(return_value=False),
+        )
+        sm.register_source(AudioSource.SPOTIFY, source)
+        await sm.transition_to_source(AudioSource.SPOTIFY)
+        clock[0] += sm.INACTIVITY_TIMEOUT + 1
+
+        async def switch_output():
+            pass
+
+        async with sm.multiroom_switch():
+            await sm.reroute_active_source(switch_output)
+        await sm._check_inactivity()
+
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("spotify", "failed")
 
     @pytest.mark.asyncio
     async def test_a_teardown_cut_by_the_timeout_is_finished_not_re_issued(

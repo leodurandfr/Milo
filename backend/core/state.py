@@ -434,16 +434,26 @@ class AudioStateMachine:
     async def transition_to_source(
         self,
         target_source: AudioSource,
-        expected_source: Optional[AudioSource] = None
+        expected_source: Optional[AudioSource] = None,
+        *,
+        expected_activity: Optional[float] = None,
     ) -> bool:
         """Perform transition to new source with timeout.
+
+        A selection that switches or retries a source counts as activity for
+        the inactivity sweep, whether its start succeeds or fails; re-selecting
+        the source already running changes nothing, the stamp included.
 
         Args:
             target_source: The source to transition to.
             expected_source: If set, the transition is skipped when the current
-                active source no longer matches (CAS guard for the inactivity
-                monitor — prevents deactivating a source that a user just
-                activated between the decision and the lock acquisition).
+                active source no longer matches (the inactivity monitor's CAS
+                guard, first half — catches a *different* source activated
+                between the decision and the lock acquisition).
+            expected_activity: If set, the transition is skipped when the
+                activity stamp moved since the caller read it (second half —
+                the same source retried meanwhile, or a session that opened,
+                which the source alone cannot tell apart).
         """
         async with self._transition_lock:
             logger.debug(
@@ -458,6 +468,13 @@ class AudioStateMachine:
                     "Transition skipped: expected %s but active is %s",
                     expected_source.value,
                     self.system_state.active_source.value
+                )
+                return False
+
+            if expected_activity is not None and self._last_activity_time != expected_activity:
+                logger.info(
+                    "Transition skipped: %s saw activity since the caller's decision",
+                    self.system_state.active_source.value,
                 )
                 return False
 
@@ -493,6 +510,10 @@ class AudioStateMachine:
                         self.system_state.view = SourceView()
                         # A retry of a failed source starts from a clean slate.
                         self.system_state.service_error = None
+                        # Stamped with the selection, so a start that fails is
+                        # not swept at the next tick, and no tick lands in the
+                        # final publish of one that succeeds.
+                        self._last_activity_time = monotonic()
 
                     await self.publish_state()
 
@@ -518,9 +539,6 @@ class AudioStateMachine:
                         self.system_state.view = source.view if source else SourceView()
 
                     await self.publish_state()
-
-                    # Reset inactivity timer on source change
-                    self._last_activity_time = monotonic()
 
                     # The one place the two axes are worth recording: a source
                     # that started fine and still cannot work. Without it, "the
@@ -745,6 +763,9 @@ class AudioStateMachine:
             self.system_state.service_error = (
                 error if target_source != AudioSource.NONE else None
             )
+            # A failure the user has just been shown is activity: a reroute
+            # whose source did not come back stamps nothing else.
+            self._last_activity_time = monotonic()
 
         # The settled state, once the target let go — republished only if it
         # moved (a publish from the stopping source was dropped meanwhile).
@@ -801,7 +822,12 @@ class AudioStateMachine:
         Idle is a selected source with no session — nothing it could ever
         produce audio from, a failed start included: without it, a failed
         source would stay selected forever — the one outcome the 12 h sweep
-        exists to prevent.
+        exists to prevent. The 12 h are counted from the last selection,
+        settled failure, or publish carrying a session.
+
+        The decision is taken on a snapshot, and the transition that carries it
+        out waits for the lock: it is skipped when the source or the activity
+        stamp moved meanwhile, so a retry queued ahead of it is not undone.
         """
         # Atomic snapshot under lock
         async with self._state_lock:
@@ -809,23 +835,24 @@ class AudioStateMachine:
             source = sm.active_source
             idle = sm.view.session is None
             switching = sm.switching
+            stamp = self._last_activity_time
 
+        elapsed = monotonic() - stamp
         if (
             source != AudioSource.NONE
             and idle
             and not switching
-            and (monotonic() - self._last_activity_time) >= self.INACTIVITY_TIMEOUT
+            and elapsed >= self.INACTIVITY_TIMEOUT
         ):
-            elapsed = monotonic() - self._last_activity_time
             logger.info(
                 "Deactivating idle source %s after %.0fs of inactivity",
                 source.value,
                 elapsed
             )
-            # CAS guard: if active source changed between snapshot
-            # and lock acquisition, transition_to_source will skip
+            # Any stamp written after this decision is at least 12 h past
+            # `stamp`, so equality under the lock means nothing happened since.
             await self.transition_to_source(
-                AudioSource.NONE, expected_source=source
+                AudioSource.NONE, expected_source=source, expected_activity=stamp
             )
 
     def cleanup(self) -> None:
