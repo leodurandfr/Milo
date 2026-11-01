@@ -615,6 +615,39 @@ class TestEqualizerServiceHeadroomAndLoudness:
             "enabled": True, "high_boost": 4.0, "low_boost": 9.0, "reference_level": -20.0
         }
 
+    @pytest.mark.asyncio
+    async def test_load_state_survives_a_null_processors_section(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """The shipped config.yml has no `processors` section, and CamillaDSP
+        4.1.3 hands it back as `processors: null` (measured on Bureau). The read
+        stopped at that key and left every cache at its default, so after a
+        restart with no re-admission a bare enable dropped the headroom and the
+        boosted bands clipped, and a loudness change made while bypassed piped
+        the loudness back in, audible with the EQ shown off."""
+        config = mock_camilla_client.get_config.return_value
+        config["processors"] = None
+        config["filters"]["headroom"] = {"type": "Gain", "parameters": {"gain": -6.0}}
+        config["filters"]["loudness"] = {"type": "Loudness", "parameters": {
+            "fader": "Main", "reference_level": -20.0, "high_boost": 4.0, "low_boost": 9.0}}
+        config["filters"]["gain_trim"] = {"type": "Gain", "parameters": {"gain": 2.0}}
+        config["pipeline"][0]["names"] = []  # bands defined, none piped: bypassed
+        config["pipeline"].append({"type": "Mixer", "name": "mono"})
+
+        await equalizer_service._load_state_from_config()
+
+        assert equalizer_service._headroom_db == -6.0
+        assert equalizer_service.loudness == {
+            "enabled": True, "high_boost": 4.0, "low_boost": 9.0, "reference_level": -20.0
+        }
+        assert equalizer_service.gain_db == 2.0
+        assert equalizer_service.mono is True
+        assert equalizer_service._equalizer_enabled is False
+        assert equalizer_service.compressor["enabled"] is False
+
+        await equalizer_service.set_equalizer_enabled(True)
+        assert self._heads(config) == ["headroom"]
+
 
 class TestEqualizerServiceMasterBypass:
     """Master EQ enable/disable = pipeline-only bypass mirroring the backend's

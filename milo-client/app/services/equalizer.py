@@ -344,9 +344,15 @@ class EqualizerService:
             if not config:
                 return
 
+            # A section the YAML leaves out comes back as null, not absent: the
+            # shipped config has no `processors`, which CamillaDSP returns as None.
+            processors = config.get("processors") or {}
+            filters = config.get("filters") or {}
+            pipeline = config.get("pipeline") or []
+
             # Check for compressor in processors
-            if "processors" in config and "compressor" in config["processors"]:
-                proc = config["processors"]["compressor"]
+            if "compressor" in processors:
+                proc = processors["compressor"]
                 params = proc.get("parameters", {})
                 self._compressor = {
                     "enabled": True,
@@ -361,32 +367,30 @@ class EqualizerService:
                 self._compressor["enabled"] = False
 
             # The native Loudness filter (absent filter == loudness off)
-            if "filters" in config:
-                loudness = config["filters"].get("loudness")
-                if loudness and loudness.get("type") == "Loudness":
-                    params = loudness.get("parameters", {})
-                    self._loudness["enabled"] = True
-                    self._loudness["low_boost"] = params.get("low_boost", self._loudness["low_boost"])
-                    self._loudness["high_boost"] = params.get("high_boost", self._loudness["high_boost"])
-                    self._loudness["reference_level"] = params.get("reference_level")
-                    self.logger.info("Loaded loudness state from config")
-                else:
-                    self._loudness["enabled"] = False
+            loudness = filters.get("loudness")
+            if loudness and loudness.get("type") == "Loudness":
+                params = loudness.get("parameters", {})
+                self._loudness["enabled"] = True
+                self._loudness["low_boost"] = params.get("low_boost", self._loudness["low_boost"])
+                self._loudness["high_boost"] = params.get("high_boost", self._loudness["high_boost"])
+                self._loudness["reference_level"] = params.get("reference_level")
+                self.logger.info("Loaded loudness state from config")
+            else:
+                self._loudness["enabled"] = False
 
-                # The EQ headroom (absent filter == none)
-                headroom = config["filters"].get("headroom", {})
-                self._headroom_db = headroom.get("parameters", {}).get("gain", 0.0)
+            # The EQ headroom (absent filter == none)
+            headroom = filters.get("headroom", {})
+            self._headroom_db = headroom.get("parameters", {}).get("gain", 0.0)
 
             # Check for the level trim (absent filter == no trim)
-            if "filters" in config:
-                if "gain_trim" in config["filters"]:
-                    self._gain_db = config["filters"]["gain_trim"].get("parameters", {}).get("gain", 0.0)
-                    self.logger.info(f"Loaded level trim from config: {self._gain_db:+.1f} dB")
-                else:
-                    self._gain_db = 0.0
+            if "gain_trim" in filters:
+                self._gain_db = filters["gain_trim"].get("parameters", {}).get("gain", 0.0)
+                self.logger.info(f"Loaded level trim from config: {self._gain_db:+.1f} dB")
+            else:
+                self._gain_db = 0.0
 
             # Check for mono mixer (pipeline's Mixer step name)
-            for step in config.get("pipeline", []):
+            for step in pipeline:
                 if step.get("type") == "Mixer":
                     self._mono = step.get("name") == "mono"
                     if self._mono:
@@ -397,10 +401,10 @@ class EqualizerService:
             # set_equalizer_enabled() bypasses by removing eq_band_* from the pipeline
             # while keeping their definitions, so "bands defined but none piped" means
             # effects are bypassed. This makes the bypass state survive a restart.
-            eq_band_defs = [n for n in config.get("filters", {}) if n.startswith("eq_band_")]
+            eq_band_defs = [n for n in filters if n.startswith("eq_band_")]
             if eq_band_defs:
                 piped = set()
-                for step in config.get("pipeline", []):
+                for step in pipeline:
                     if step.get("type") == "Filter":
                         piped.update(step.get("names", []))
                 self._equalizer_enabled = any(name in piped for name in eq_band_defs)

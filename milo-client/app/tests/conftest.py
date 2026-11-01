@@ -37,7 +37,7 @@ def mock_camilla_client():
             "eq_band_1": {"parameters": {"type": "Peaking", "freq": 100, "gain": 0, "q": 1.0}},
             "eq_band_2": {"parameters": {"type": "Peaking", "freq": 1000, "gain": 0, "q": 1.0}},
         },
-        "processors": {},
+        "processors": None,  # the shipped config has none; CamillaDSP returns null
         "pipeline": [
             {"type": "Filter", "channels": [0, 1], "names": ["eq_band_1", "eq_band_2"]}
         ]
