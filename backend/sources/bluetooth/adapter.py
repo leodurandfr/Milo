@@ -43,7 +43,8 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 A2DP_SOURCE_UUID = "0000110a-0000-1000-8000-00805f9b34fb"
 
 # Every call below is bounded by it, Introspect included (dbus-next's own
-# default there is 30 s, and it bounds nothing else). Unbounded, a bluetoothd
+# default there is 30 s, and it bounds nothing else), and so are the pairing
+# agent's AgentManager1 exchanges (agent.py). Unbounded, a bluetoothd
 # that stops answering would park the HTTP request the Disconnect button made,
 # stop the BlueALSA connect/disconnect feed for good (the monitor awaits its
 # connected-callback inline), and hold the source's STOP inside the exposure

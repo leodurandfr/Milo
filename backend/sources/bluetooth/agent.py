@@ -7,6 +7,7 @@ user interaction, then authorize the audio profiles only (A2DP, AVRCP):
 any other service an untrusted device asks for — HID, serial, phonebook — is
 rejected, since pairing itself is Just Works for anyone in range.
 """
+import asyncio
 import contextlib
 import logging
 import uuid
@@ -18,6 +19,7 @@ from dbus_next.service import ServiceInterface, method
 from dbus_next.constants import BusType
 
 from backend.shared.decorators import handle_errors
+from backend.sources.bluetooth import adapter as bluez_adapter
 
 # A2DP and AVRCP in every role. BlueZ asks for A2DP under ADVANCED_AUDIO (110d).
 AUDIO_SERVICE_UUIDS = frozenset(
@@ -57,20 +59,17 @@ class BluetoothAgent(ServiceInterface):
         # Connect to system bus
         self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
+        timeout = bluez_adapter.DBUS_CALL_TIMEOUT
         try:
             # Export agent interface
             self._bus.export(self._path, self)
 
-            # Get AgentManager1 interface
-            introspect = await self._bus.introspect('org.bluez', '/org/bluez')
-            agent_manager = self._bus.get_proxy_object(
-                'org.bluez', '/org/bluez', introspect
-            )
-            agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
-
-            # Register and set as default
-            await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
-            await agent_iface.call_request_default_agent(self._path)
+            # Bounded as a whole: START runs this holding the source's mailbox.
+            await asyncio.wait_for(self._register_with_bluez(), timeout)
+        except asyncio.TimeoutError:
+            self._disconnect()
+            self._logger.warning(f"bluetoothd did not register the agent within {timeout} s")
+            return False
         except BaseException:
             # Nothing else will: unregister() returns early on a failed
             # registration, so the socket would live until the process dies and
@@ -86,7 +85,13 @@ class BluetoothAgent(ServiceInterface):
     @handle_errors(default=False)
     async def unregister(self) -> bool:
         """
-        Unregister agent from BlueZ.
+        Unregister agent from BlueZ, within DBUS_CALL_TIMEOUT for the whole
+        exchange.
+
+        It runs inside the source's STOP, which nothing preempts, ahead of the
+        exposure write. A bluetoothd that does not answer costs nothing past
+        the bound: BlueZ drops an agent whose bus connection closes, and the
+        connection is closed below whatever happened.
 
         Returns:
             True if unregistration succeeded
@@ -94,16 +99,15 @@ class BluetoothAgent(ServiceInterface):
         if not self._registered or not self._bus:
             return True
 
+        bound = bluez_adapter.DBUS_CALL_TIMEOUT
         try:
-            # Get AgentManager1 interface
-            introspect = await self._bus.introspect('org.bluez', '/org/bluez')
-            agent_manager = self._bus.get_proxy_object(
-                'org.bluez', '/org/bluez', introspect
+            await asyncio.wait_for(self._unregister_from_bluez(), bound)
+        except asyncio.TimeoutError:
+            self._logger.warning(
+                f"bluetoothd did not unregister the agent within {bound} s — "
+                "closing its bus connection drops it"
             )
-            agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
-
-            # Unregister agent
-            await agent_iface.call_unregister_agent(self._path)
+            return False
         finally:
             # Whatever BlueZ answered, the socket is ours to close: the source
             # is stopping and register() opens a fresh one on every start.
@@ -113,6 +117,22 @@ class BluetoothAgent(ServiceInterface):
 
         self._logger.info("Agent unregistered")
         return True
+
+    async def _agent_manager(self):
+        """BlueZ's AgentManager1, on this agent's bus."""
+        introspect = await self._bus.introspect('org.bluez', '/org/bluez')
+        agent_manager = self._bus.get_proxy_object('org.bluez', '/org/bluez', introspect)
+        return agent_manager.get_interface('org.bluez.AgentManager1')
+
+    async def _register_with_bluez(self) -> None:
+        """Register, then become the default agent."""
+        agent_iface = await self._agent_manager()
+        await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
+        await agent_iface.call_request_default_agent(self._path)
+
+    async def _unregister_from_bluez(self) -> None:
+        agent_iface = await self._agent_manager()
+        await agent_iface.call_unregister_agent(self._path)
 
     async def register_again(self) -> bool:
         """Register with a bluetoothd that replaced the one this agent was

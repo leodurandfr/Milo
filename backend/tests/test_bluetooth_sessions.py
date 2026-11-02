@@ -13,9 +13,10 @@ import logging
 import pytest
 
 from backend.core.models.ws_events import SourceErrorReason
+from backend.sources.bluetooth import adapter as adapter_module
 from backend.sources.bluetooth import source as source_module
 from backend.tests.bluetooth_world import (
-    APLAY_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, SAYS, Bluetooth,
+    APLAY_UNIT, BLUEALSA_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, SAYS, Bluetooth,
 )
 from backend.tests.golden.harness import settle
 
@@ -238,6 +239,31 @@ async def test_configuring_a_new_bluetoothd_never_holds_the_source(bt):
     from backend.tests.golden.harness import settle
     await settle()
     assert bt.exposed() and bt.bluez.accepts_audio()
+
+
+async def test_a_bluetoothd_silent_on_the_agent_cannot_hold_the_stop(bt, monkeypatch):
+    """A STOP unregisters the agent before it closes the exposure, and nothing
+    preempts a STOP: left to dbus-next's defaults, a bluetoothd that stopped
+    answering held the actor there for good — BlueALSA never stopped, the
+    appliance stayed open, and the next Bluetooth selection queued behind it."""
+    monkeypatch.setattr(adapter_module, "DBUS_CALL_TIMEOUT", 0.05)
+    await bt.select()
+    bt.bluez.agent_gate = asyncio.Event()
+    await asyncio.wait_for(bt.deselect(), 5)
+    assert not bt.units[BLUEALSA_UNIT] and not bt.units[APLAY_UNIT]
+    assert not bt.exposed() and bt.blocked() == EVERY_SENDER
+    bt.bluez.agent_gate = None
+    await asyncio.wait_for(bt.select(), 5)
+    assert bt.exposed() and bt.bluez.accepts_audio()
+
+
+async def test_a_bluetoothd_silent_on_the_agent_cannot_hold_the_start(bt, monkeypatch):
+    """The registration runs inside START, which holds the mailbox: unbounded,
+    a silent AgentManager1 spent the whole transition budget there."""
+    monkeypatch.setattr(adapter_module, "DBUS_CALL_TIMEOUT", 0.05)
+    bt.bluez.agent_gate = asyncio.Event()
+    await asyncio.wait_for(bt.select(), 5)
+    assert bt.exposed() and not bt.bluez.accepts_audio()
 
 
 async def test_a_clean_bluetoothd_restart_is_the_phone_leaving(bt):

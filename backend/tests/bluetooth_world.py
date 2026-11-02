@@ -268,6 +268,7 @@ class FakeBluez:
         self.disconnect_gate: Optional[asyncio.Event] = None   # a Disconnect that takes its time
         self.adapter_busy = 0                        # adapter writes answered Busy (AutoEnable pending)
         self.adapter_gate: Optional[asyncio.Event] = None      # adapter writes held until set
+        self.agent_gate: Optional[asyncio.Event] = None        # AgentManager1 calls held until set
         # Players other than `player` (a phone publishing two, measured:
         # "Musique" and "Spotify"): path -> (phone, status), and the one each
         # device's MediaControl1 names as its live player.
@@ -525,6 +526,8 @@ class _Interface:
 
     async def call_register_agent(self, path: str, capability: str) -> None:
         self._alive()
+        if self._world.agent_gate is not None:
+            await self._world.agent_gate.wait()
         self._world.agents.append(path)
 
     async def call_request_default_agent(self, path: str) -> None:
@@ -532,6 +535,8 @@ class _Interface:
 
     async def call_unregister_agent(self, path: str) -> None:
         self._alive()
+        if self._world.agent_gate is not None:
+            await self._world.agent_gate.wait()
         if path in self._world.agents:
             self._world.agents.remove(path)
 
