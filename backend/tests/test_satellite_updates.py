@@ -17,6 +17,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.programs import create_programs_router
+from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.models import Client
 from backend.core.updates.satellite import SatelliteUpdateService
 
 # What the server names in the call. It resolves the version against its own
@@ -177,6 +179,23 @@ def satellite_service():
     canape.name = "Canapé"
     registry.get_all_clients = Mock(return_value={"dc:a6:32:7e:d3:43": canape})
     return SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry)
+
+
+async def _registry_loaded_from(clients):
+    """A real registry booted from the persisted clients alone (`{mac: (ip, name)}`),
+    with no snapserver to admit them — the registry of a unit in direct mode,
+    which every boot reloads with each client offline."""
+    persisted = {
+        mac: Client(mac_id=mac, name=name, ip=ip).to_dict(include_runtime=False)
+        for mac, (ip, name) in clients.items()
+    }
+    settings = AsyncMock()
+    settings.get_setting = AsyncMock(
+        side_effect=lambda key: persisted if key == "multiroom.clients" else None
+    )
+    registry = ClientRegistryService(settings_service=settings)
+    await registry.initialize()
+    return registry
 
 
 class TestClientTarball:
@@ -682,6 +701,24 @@ class TestAppUpdateOutcome:
         assert result["success"] is False
         assert "timeout" in result["error"]
 
+    async def test_an_app_push_reaches_a_satellite_the_registry_holds_offline(self, client_tree):
+        """The update-app route and the fleet push both land here, and in direct
+        mode nothing admits a client: the push answered "not found or offline"
+        to a satellite whose API was up, without ever asking it."""
+        registry = await _registry_loaded_from({"dc:a6:32:7e:d3:43": ("192.168.1.153", "Canapé")})
+        service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry)
+        satellite = _FakeSatellite(
+            status_payload={"app": {"payload": "0ae3872", "version": "v0.1.0", "started_at": 1000},
+                            "snapclient": {"version": "0.28.0"}},
+            status_after_post={"app": {"payload": SERVER_PAYLOAD, "version": SERVER_VERSION, "started_at": 1200},
+                               "snapclient": {"version": "0.28.0"}},
+        )
+
+        result = await self._push(service, satellite, client_tree)
+
+        assert satellite.posts == ["http://192.168.1.153:8001/app/update"]
+        assert result["success"] is True
+
 
 # --------------------------------------------------------------------------- #
 # No test in this file may reach a real satellite or spawn a real process
@@ -909,6 +946,28 @@ class TestFleetPush:
 
         assert fleet.pushed == ["d8:3a:dd:68:e7:e4"]
         assert left_behind == ["Canapé"]
+
+    async def test_the_fleet_push_probes_a_satellite_the_registry_holds_offline(self, fleet, caplog):
+        """`online` is Snapcast's admission, not the satellite's API answering.
+        In direct mode nothing admits a client, so after the reboot that ends
+        every Milō update the next one skipped the whole fleet: each speaker
+        logged as "not answering its API" while its :8001 answered, and left on
+        client code a release behind the server driving it."""
+        fleet.client_registry_service = await _registry_loaded_from({
+            "dc:a6:32:7e:d3:43": ("192.168.1.153", "Canapé"),
+            "d8:3a:dd:68:e7:e4": ("192.168.1.60", "Bureau"),
+        })
+        assert not any(c.online for c in fleet.client_registry_service.get_all_clients().values())
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.updates.satellite"):
+            left_behind = await self._push_to(fleet, {
+                "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+                "192.168.1.60": self._status("0ae3872", "v0.1.0"),
+            })
+
+        assert fleet.pushed == ["dc:a6:32:7e:d3:43", "d8:3a:dd:68:e7:e4"]
+        assert left_behind == []
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_a_push_that_failed_is_reported_and_not_raised(self, fleet):
         """It runs past the point where the app can still be rolled back: a

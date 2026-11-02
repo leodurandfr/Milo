@@ -40,18 +40,22 @@ class SatelliteUpdateService:
         self.satellite_api_port = CLIENT_API_PORT
 
     @handle_errors(default=[])
-    async def discover_satellites(self) -> List[Dict[str, Any]]:
+    async def discover_satellites(self, *, include_offline: bool = False) -> List[Dict[str, Any]]:
         """Discovers active satellites on the network via the client registry.
 
-        Only probes online, non-local clients to avoid timeout delays on
-        unreachable devices. Probes run in parallel for speed.
+        By default only probes online, non-local clients, so the programs panel
+        does not wait out a timeout per unplugged speaker. Probes run in parallel.
+
+        `online` means Snapcast admitted the client, not that its API answers:
+        every boot reloads the registry offline and direct mode admits nobody.
+        A push of the client app passes `include_offline=True`, or after the
+        reboot that ends a Milō update it would skip satellites that answer.
         """
         all_clients = self.client_registry_service.get_all_clients()
 
-        # Only probe clients that Snapcast reports as online
         candidates = [
             (mac_id, client) for mac_id, client in all_clients.items()
-            if not client.is_local and client.ip and client.online
+            if not client.is_local and client.ip and (include_offline or client.online)
         ]
 
         if not candidates:
@@ -375,7 +379,7 @@ class SatelliteUpdateService:
         """Pushes a milo-client app update to a satellite."""
         tarball_path = None
         try:
-            satellites = await self.discover_satellites()
+            satellites = await self.discover_satellites(include_offline=True)
             satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
 
             if not satellite:
@@ -460,7 +464,9 @@ class SatelliteUpdateService:
             if not remote:
                 return left_behind
 
-            reachable = {s["mac_id"]: s for s in await self.discover_satellites()}
+            reachable = {
+                s["mac_id"]: s for s in await self.discover_satellites(include_offline=True)
+            }
 
             for mac, client in remote.items():
                 name = client.name or mac
