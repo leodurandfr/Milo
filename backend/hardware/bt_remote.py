@@ -477,7 +477,15 @@ class BtRemoteController:
         This is the durable "a remote is set up" signal: it stays true while
         the remote sleeps and disconnects (unlike the transient connected
         state), so the UI uses it to offer the "unpair" action.
+
+        Not asked of a bluetoothd known to be stopped: the Bluetooth source
+        stops it while the remote is disabled, bluetoothctl does not
+        D-Bus-activate it, and every call would wait out its 10 s timeout to
+        answer the same False — on each GET /api/bt-remote/status. A probe that
+        cannot tell (None) still asks BlueZ.
         """
+        if await self._systemd_manager.probe_active(self._bluetooth_service) is False:
+            return False
         return bool(await self._get_matching_devices("Paired"))
 
     async def _disconnect_matching_devices(self):

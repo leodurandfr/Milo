@@ -180,6 +180,7 @@ def bt(monkeypatch):
     systemd.scanning_at_start = []
 
     systemd.start = AsyncMock(side_effect=start)
+    systemd.probe_active = AsyncMock(return_value=True)
 
     controller = bt_remote_module.BtRemoteController(
         volume_service, state_machine, settings,
@@ -635,6 +636,33 @@ async def test_an_empty_name_filter_unpairs_nothing_instead_of_everything(bt):
     assert "remove" not in bt.bluez.argv_names(), "an empty filter removed a bond"
     assert "disconnect" not in bt.bluez.argv_names(), "an empty filter dropped a live link"
     assert ("11:22:33:44:55:66", "Pixel 8") in bt.bluez.paired
+
+
+@pytest.mark.asyncio
+async def test_pairing_is_not_asked_of_a_bluetoothd_that_is_not_running(bt):
+    """The Bluetooth source stops bluetoothd on its way out while the remote is
+    disabled (the default), and bluetoothctl does not D-Bus-activate it: every
+    call then waits out its 10 s timeout. GET /api/bt-remote/status reads
+    is_paired() on every open of the remote's settings panels and in the
+    settings store's resync, so each of them stalled 10 s to say "not paired"."""
+    bt.controller.enabled = False
+    bt.systemd.probe_active = AsyncMock(return_value=False)
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+
+    assert await bt.controller.is_paired() is False
+
+    bt.systemd.probe_active.assert_awaited_once_with("bluetooth.service")
+    assert bt.bluez.calls == [], "bluetoothctl was run against a stopped bluetoothd"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_bluetoothd_state_still_asks_bluez(bt):
+    """Fail open: a probe that could not tell (None) is not a stopped daemon,
+    so the bond is still read rather than reported absent."""
+    bt.systemd.probe_active = AsyncMock(return_value=None)
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+
+    assert await bt.controller.is_paired() is True
 
 
 @pytest.mark.asyncio
