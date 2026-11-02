@@ -1084,8 +1084,8 @@ class MultiroomEqualizerService:
     async def _set_remote_client_enabled(
         self, client_id: str, enabled: bool, *, fallback, announce: bool
     ) -> bool:
-        """Push the enabled flag to an online satellite and persist it on the
-        client's per-client record (the source of truth).
+        """Persist the enabled flag on the client's per-client record (the
+        source of truth), then push it to an online satellite.
 
         ``fallback`` builds the neutral record when the client has none yet —
         ``EqualizerSettings.default`` for a standalone client, ``default_for_zone``
@@ -1096,10 +1096,23 @@ class MultiroomEqualizerService:
         ``zone_enabled_changed`` once the fan-out is done.
 
         Returns True when an online push succeeded OR the flag was persisted for an
-        offline/unknown client (syncs on reconnect); False only when an online push
-        failed.
+        offline/unknown client (syncs on reconnect); False when an online client
+        did not take it. One that refused is resent its whole record
+        (``_arm_resend``), which carries the flag: its admission never runs
+        while it stays online.
         """
         client = self._registry.get_client(client_id) if self._registry else None
+
+        # Stored before the push, in the order the toggles were made: the
+        # resend sends what the registry holds, and a refusal that comes back
+        # after a later toggle landed must not store its flag over it.
+        if self._registry:
+            existing = self._registry.get_client_equalizer(client_id)
+            record = (
+                EqualizerSettings.from_dict(existing.to_dict()) if existing else fallback()
+            )
+            record.enabled = enabled
+            await self._registry.set_client_equalizer(client_id, record, broadcast=announce)
 
         pushed = False
         if client and client.online and client.ip and self._proxy_service:
@@ -1110,14 +1123,10 @@ class MultiroomEqualizerService:
                 pushed = result.get("status") == "success"
             except Exception as e:
                 self.logger.warning(f"Failed to push equalizer enabled to {client_id}: {e}")
-
-        if self._registry:
-            existing = self._registry.get_client_equalizer(client_id)
-            record = (
-                EqualizerSettings.from_dict(existing.to_dict()) if existing else fallback()
-            )
-            record.enabled = enabled
-            await self._registry.set_client_equalizer(client_id, record, broadcast=announce)
+            # A toggle that lands leaves an earlier refusal's resend running:
+            # this push carried one field, the resend carries the whole record.
+            if not pushed:
+                self._arm_resend(client_id)
 
         return pushed if (client and client.online) else True
 
@@ -1176,7 +1185,7 @@ class MultiroomEqualizerService:
         # The event carries the members' flags read back, not the value asked: a
         # local DSP that refused keeps its old one and the zone reads as the
         # conjunction. A satellite's record takes the value even on a refusal
-        # (the re-admission sync replays it), so that one shows in the ERROR alone.
+        # (its record is resent until it takes it), so that one shows in the ERROR alone.
         if len(failed) < len(members) and self._state_machine:
             zone_eq = await self.get_zone_eq(zone_id)
             if zone_eq:

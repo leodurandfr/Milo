@@ -2085,6 +2085,63 @@ class TestARefusedPushIsResent:
         assert stored.filters[0].gain == 6.0
         assert world.satellite.records == [(RESEND_CANAPE_IP, stored.to_dict())]
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_type", ["zone", "client"])
+    async def test_a_refused_master_toggle_resends_the_whole_record(self, two_satellites, target_type):
+        """`enabled` is part of the record and is stored even when the satellite
+        refuses it: the screens and Milo-Mac showed the new state while that room
+        kept its old bypass until its next admission. Bureau, which took it, is
+        sent nothing more."""
+        world = two_satellites
+        world.satellite.refused = {(RESEND_CANAPE_IP, "/equalizer/enabled")}
+        if target_type == "zone":
+            await world.registry.create_zone("salon", "Salon", [RESEND_CANAPE, RESEND_BUREAU])
+            toggled = await world.service.set_zone_equalizer_effects_enabled("salon", False)
+        else:
+            toggled = await world.service.set_client_equalizer_effects_enabled(RESEND_CANAPE, False)
+        await drain_background_tasks()
+
+        assert toggled is False
+        stored = world.registry.get_client_equalizer(RESEND_CANAPE)
+        assert stored.enabled is False
+        assert world.satellite.records == [(RESEND_CANAPE_IP, stored.to_dict())]
+
+    @pytest.mark.asyncio
+    async def test_a_late_refusal_resends_the_last_toggle_not_its_own(self, two_satellites):
+        """Off then on in quick succession, the off refused after the on landed:
+        the resend sends what the registry holds, so the registry must hold the
+        user's last word, not the flag of whichever push came back last."""
+        world = two_satellites
+        gate, toggles = asyncio.Event(), []
+        satellite_request = world.satellite.request
+
+        async def the_first_toggle_is_refused_late(hostname, method, path, body=None, **kw):
+            if path == "/equalizer/enabled":
+                toggles.append(body["enabled"])
+                if len(toggles) == 1:
+                    await gate.wait()
+                    raise SatelliteUnreachable(hostname, "Client error: 400", status_code=400)
+            return await satellite_request(hostname, method, path, body, **kw)
+
+        world.satellite.request = the_first_toggle_is_refused_late
+
+        off = asyncio.create_task(
+            world.service.set_client_equalizer_effects_enabled(RESEND_CANAPE, False)
+        )
+        for _ in range(100):
+            if toggles:
+                break
+            await asyncio.sleep(0)
+        assert toggles == [False]
+        assert await world.service.set_client_equalizer_effects_enabled(RESEND_CANAPE, True) is True
+        gate.set()
+        assert await off is False
+        await drain_background_tasks()
+
+        stored = world.registry.get_client_equalizer(RESEND_CANAPE)
+        assert stored.enabled is True
+        assert world.satellite.records == [(RESEND_CANAPE_IP, stored.to_dict())]
+
 
 class TestZoneEnabledFanout:
     """`set_zone_equalizer_effects_enabled` — the master toggle over a whole zone.
