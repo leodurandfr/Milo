@@ -356,7 +356,7 @@ class UpdateService(VersionService):
         )
 
     def _frontend_paths(self) -> tuple[Path, Path]:
-        """Where the running frontend lives, and where the rollback copy is kept."""
+        """Where the running frontend lives, and where the previous one is moved aside."""
         config = self.programs["milo"]
         return (
             Path(config["git_path"]) / "frontend" / "dist",
@@ -391,8 +391,10 @@ class UpdateService(VersionService):
                     raise Exception(f"Download failed: HTTP {response.status} for {url}")
                 return (await response.text()).strip()
 
-    async def _install_release_frontend(self, tag: str) -> None:
-        """Put the frontend built for `tag` in place of the running one.
+    async def _stage_release_frontend(self, tag: str) -> Path:
+        """Download, verify and extract the frontend built for `tag`, beside
+        the running one, and return the staging directory `_swap_release_frontend`
+        takes.
 
         The unit does not build it any more. Two units updated a month apart
         resolved `npm install` against whatever the registry offered that day
@@ -404,27 +406,26 @@ class UpdateService(VersionService):
 
         The checksum is the reason the sidecar exists: a truncated download
         extracts into a tree that is *almost* a frontend, which nginx then
-        serves. Raises on every failure, so the caller turns it into a
-        rolled-back update.
+        serves. Raises on every failure, staging removed, so the caller turns it
+        into a rolled-back update.
 
         The release is staged in `frontend/`, beside `dist`, because only on the
         same filesystem is the swap two renames. Staged in /tmp — a tmpfs on the
         unit — the second move became a copy, and a copy that failed halfway
         left a `dist` mixing both releases while the old one sat in the backup.
-        The swap is all or nothing: if the new tree cannot be renamed in, the
-        old one is put back before this raises. A staging directory left by a
-        process killed mid-install is removed first; git ignores the pattern,
-        so a leftover never reads as a local change to the next update.
+        A staging directory left by a process killed mid-install is removed
+        first; git ignores the pattern, so a leftover never reads as a local
+        change to the next update.
         """
         config = self.programs["milo"]
         url = config["frontend_asset_url"].format(tag=tag)
-        dist, backup = self._frontend_paths()
+        dist, _ = self._frontend_paths()
 
         for leftover in dist.parent.glob(".dist-staging-*"):
             await self._cleanup_temp_files(str(leftover))
-        temp_dir = tempfile.mkdtemp(prefix=".dist-staging-", dir=dist.parent)
+        staging = Path(tempfile.mkdtemp(prefix=".dist-staging-", dir=dist.parent))
         try:
-            archive = Path(temp_dir) / "frontend.tar.gz"
+            archive = staging / "frontend.tar.gz"
             await self._download_release_asset(url, archive)
 
             published = await self._fetch_release_text(f"{url}.sha256")
@@ -441,7 +442,7 @@ class UpdateService(VersionService):
             # Extracted beside the running frontend and swapped in, never over
             # it: a tar that fails halfway through an in-place extraction leaves
             # a tree that is neither release, and nginx serves it either way.
-            staged = Path(temp_dir) / "staged"
+            staged = staging / "staged"
             staged.mkdir()
             success, output = await self._run_local(
                 "tar", "-xzf", str(archive), "-C", str(staged), timeout=120
@@ -450,10 +451,22 @@ class UpdateService(VersionService):
                 raise Exception(f"Frontend extraction failed: {output}")
             archive.unlink()
 
-            new_dist = staged / "dist"
-            if not (new_dist / "index.html").is_file():
+            if not (staged / "dist" / "index.html").is_file():
                 raise Exception(f"The {tag} frontend asset carries no dist/index.html")
+        except BaseException:
+            await self._cleanup_temp_files(str(staging))
+            raise
+        return staging
 
+    async def _swap_release_frontend(self, staging: Path, tag: str) -> None:
+        """Put the frontend `_stage_release_frontend` staged in place of the
+        running one, and remove the staging.
+
+        All or nothing: if the new tree cannot be renamed in, the old one is put
+        back before this raises, and the error says so when it could not be.
+        """
+        dist, backup = self._frontend_paths()
+        try:
             # The previous one is moved aside rather than deleted: `frontend/dist`
             # is not in git, so it is the one part of the app a checkout back
             # cannot restore.
@@ -463,22 +476,23 @@ class UpdateService(VersionService):
             if moved_aside:
                 os.rename(dist, backup)
             try:
-                os.rename(new_dist, dist)
-            except OSError:
+                os.rename(staging / "staged" / "dist", dist)
+            except OSError as swap_error:
                 if moved_aside:
                     try:
                         self._restore_release_frontend()
                     except Exception as restore_error:
-                        self.update_logger.error(f"Previous frontend not restored: {restore_error}")
+                        raise Exception(
+                            f"{swap_error}; previous frontend not restored: {restore_error}"
+                        ) from swap_error
                 raise
             self.update_logger.info(f"Frontend {tag} installed from the release asset")
-
         finally:
-            await self._cleanup_temp_files(temp_dir)
+            await self._cleanup_temp_files(str(staging))
 
     def _restore_release_frontend(self) -> None:
-        """Put the backed-up frontend back: for the rollback, and for a swap
-        that could not rename the new one in."""
+        """Put the backed-up frontend back, for a swap that could not rename
+        the new one in."""
         dist, backup = self._frontend_paths()
         if not backup.is_dir():
             raise Exception("No frontend backup to restore")
@@ -503,15 +517,13 @@ class UpdateService(VersionService):
         if not success:
             raise Exception(f"pip install failed: {output}")
 
-    async def _rollback_milo_to_commit(self, commit_hash: str, restore_frontend: bool = False) -> bool:
-        """Put the unit back on the commit it was running, frontend included.
+    async def _rollback_milo_to_commit(self, commit_hash: str) -> bool:
+        """Put the unit back on the commit it was running.
 
-        `restore_frontend` is what the forward path learned. The built frontend
-        is not in git, so a checkout back does not bring the old one with it —
-        but the backup only holds the previous release once the install got as
-        far as swapping it. Restoring unconditionally would deploy the *previous*
-        release's frontend over a tree that never left the current one, which is
-        the one outcome worse than the failure being rolled back.
+        The frontend is not touched, and need not be: the built frontend is not
+        in git, but the forward path swaps the release's in only past the last
+        step that can roll back, so a rollback always finds the previous one
+        still in `dist`.
         """
         try:
             self.update_logger.info(f"Rolling back Milo to commit {commit_hash[:8]}...")
@@ -520,9 +532,6 @@ class UpdateService(VersionService):
             if not success:
                 self.update_logger.error(f"Git checkout failed: {output}")
                 return False
-
-            if restore_frontend:
-                self._restore_release_frontend()
 
             await self._install_python_dependencies()
             await self._sync_system_files()
@@ -556,11 +565,18 @@ class UpdateService(VersionService):
         pressed the button on a different day. It also meant a bad version could
         not be withheld: there was nothing to withhold, main was always the
         offer.
+
+        The release's frontend is staged early and swapped in last, just before
+        the reboot. The assets are named by content hash and nginx answers 404
+        for a name it does not hold, so a `dist` swapped before pip, the sync,
+        the reconciliation and the fleet push left every open UI unable to load
+        a view it had not shown yet, for minutes, against a backend still
+        running the previous release.
         """
         config = self.programs["milo"]
         tag = status["latest"]["tag_name"]
         original_commit = None
-        frontend_swapped = False
+        staging = None
 
         try:
             git_dir = Path(config["git_path"]) / ".git"
@@ -592,8 +608,7 @@ class UpdateService(VersionService):
             if not success:
                 raise Exception(f"Git checkout of {tag} failed: {output}")
 
-            await self._install_release_frontend(tag)
-            frontend_swapped = True
+            staging = await self._stage_release_frontend(tag)
 
             await self._install_python_dependencies()
 
@@ -601,10 +616,11 @@ class UpdateService(VersionService):
             await self._sync_system_files()
 
             # Install the dependency set the released commit validated.
-            # Deliberately *after* the app is built and synced: everything above
-            # this line can still roll the app back, and rolling back with the
-            # dependencies already moved would leave the two out of step. Below
-            # it, the only remaining step is the reboot — which is why
+            # Deliberately *after* the app is installed and synced: everything
+            # above this line can still roll the app back, and rolling back with
+            # the dependencies already moved would leave the two out of step.
+            # Below it, nothing rolls back — the frontend swap and the reboot
+            # report their failure instead — which is why
             # _reconcile_dependencies never raises.
             dependency_failures = await self._reconcile_dependencies()
 
@@ -618,6 +634,21 @@ class UpdateService(VersionService):
             # snapserver has finished whatever the reconciliation did to it —
             # a satellite is discovered through it. Never raises, same rule.
             satellite_failures = await self._satellites.push_client_app_to_fleet()
+
+            # No rollback past the reconciliation, as for the reboot below: the
+            # dependencies and the fleet have moved. The swap puts the previous
+            # frontend back if it cannot complete.
+            try:
+                await self._swap_release_frontend(staging, tag)
+            except Exception as e:
+                self.update_logger.error(f"Frontend swap failed after a successful update: {e}")
+                return {
+                    "success": False,
+                    "error": (f"Update applied but the new frontend could not be put in place ({e}); "
+                              "the unit was not rebooted."),
+                    "dependency_failures": dependency_failures,
+                    "satellite_failures": satellite_failures,
+                }
 
             # Reboot to reload all services and configs. Small delay so the
             # WebSocket message goes out first.
@@ -652,13 +683,17 @@ class UpdateService(VersionService):
             # Automatic rollback if we have an original commit
             if original_commit:
                 self.update_logger.info("Initiating automatic rollback...")
-                rollback_success = await self._rollback_milo_to_commit(
-                    original_commit, restore_frontend=frontend_swapped
-                )
+                rollback_success = await self._rollback_milo_to_commit(original_commit)
 
                 return self._failure_after_rollback(f"Update failed: {e}.", rollback_success)
 
             return {"success": False, "error": str(e)}
+
+        finally:
+            # The swap removes its own staging; this catches a step that
+            # failed, or was cancelled, before it.
+            if staging is not None:
+                await self._cleanup_temp_files(str(staging))
 
     async def _run_deploy(self, *args, timeout: int = 120) -> tuple[bool, str]:
         """Run a milo-deploy-update subcommand via sudo."""

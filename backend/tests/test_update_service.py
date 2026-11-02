@@ -81,10 +81,12 @@ def frontend_from_the_release(service):
 
     It is a download plus a checksum plus a directory swap inside the live
     checkout — its own tests drive it directly. Every flow test above it needs
-    it to have happened, not to happen.
+    it to have happened, not to happen. Yields the staging stand-in.
     """
-    with patch.object(service, "_install_release_frontend", new=AsyncMock()) as install:
-        yield install
+    with patch.object(service, "_stage_release_frontend",
+                      new=AsyncMock(return_value=Path("/nonexistent/milo-staging"))) as stage, \
+            patch.object(service, "_swap_release_frontend", new=AsyncMock()):
+        yield stage
 
 
 def _recording_aiofiles_open(sink):
@@ -3953,41 +3955,6 @@ class TestRollbackMiloToCommit:
         sync.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_the_frontend_is_restored_only_when_the_update_had_swapped_it(
-            self, update_service):
-        """`frontend/dist` is not in git, so the checkout back does not bring
-        the previous one with it — but the backup only holds it once the install
-        got as far as the swap. Restoring unconditionally would deploy the
-        *previous* release's frontend over a tree that never left the current
-        one, which is worse than the failure being rolled back.
-        """
-        with spawning(self._router()), \
-                patch.object(update_service, "_sync_system_files"), \
-                patch.object(update_service, "_restart_service", return_value=True), \
-                patch.object(update_service._systemd, "restart_self", new=AsyncMock()), \
-                patch.object(update_service, "_restore_release_frontend") as restore:
-            assert await update_service._rollback_milo_to_commit("abc123def") is True
-            restore.assert_not_called()
-
-            assert await update_service._rollback_milo_to_commit(
-                "abc123def", restore_frontend=True) is True
-            restore.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_a_frontend_that_cannot_be_restored_is_not_a_rollback(self, update_service):
-        """The tree is back on the previous release but nginx still serves the
-        failed one's assets. Reporting True sends the caller's message "Rolled
-        back to previous version" over a unit showing the wrong app.
-        """
-        with spawning(self._router()), \
-                patch.object(update_service, "_sync_system_files") as sync, \
-                patch.object(update_service, "_restore_release_frontend",
-                             side_effect=Exception("No frontend backup to restore")):
-            assert await update_service._rollback_milo_to_commit(
-                "abc123def", restore_frontend=True) is False
-        sync.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_a_venv_that_cannot_be_rebuilt_is_not_a_rollback(self, update_service):
         """The tree is back on the old commit but the venv still holds the new
         release's dependencies. Reporting True sends the caller's message
@@ -4076,7 +4043,7 @@ class TestMiloAppCheckoutArms:
 
         assert "reference is not a tree" in result["error"]
         assert "Rolled back" in result["error"]
-        rollback.assert_awaited_once_with("abc123def456", restore_frontend=False)
+        rollback.assert_awaited_once_with("abc123def456")
 
     @pytest.mark.asyncio
     async def test_a_checkout_that_hangs_is_killed_and_rolls_back(self, update_service):
@@ -4411,8 +4378,9 @@ class ReleaseAssets:
         return _Session()
 
 
-def _frontend_tarball(tmp_path, marker=b"<!doctype html>release build"):
-    """A real gzipped tar carrying `dist/index.html`, and its sha256.
+def _frontend_tarball(tmp_path, marker=b"<!doctype html>release build", extra=()):
+    """A real gzipped tar carrying `dist/index.html` (and the `extra` paths under
+    `dist/`), and its sha256.
 
     Built rather than faked: the install verifies a digest and then looks inside
     the archive for `dist/index.html`, so a stand-in that is not really a tar
@@ -4421,6 +4389,9 @@ def _frontend_tarball(tmp_path, marker=b"<!doctype html>release build"):
     src = tmp_path / "src" / "dist"
     src.mkdir(parents=True)
     (src / "index.html").write_bytes(marker)
+    for name in extra:
+        (src / name).parent.mkdir(parents=True, exist_ok=True)
+        (src / name).write_bytes(b"chunk")
     archive = tmp_path / "milo-frontend.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(str(src), arcname="dist")
@@ -4532,16 +4503,16 @@ class TestTheReleaseInstall:
         (dist / "index.html").write_bytes(b"the previous release")
 
         with self._extracting(assets):
-            await update_service._install_release_frontend("v0.2.0")
+            await self._install(update_service, "v0.2.0")
 
         assert (dist / "index.html").read_bytes() == b"<!doctype html>release build"
         assert assets.requested == [url, f"{url}.sha256"]
 
     @pytest.mark.asyncio
-    async def test_the_previous_frontend_is_kept_for_the_rollback(self, update_service, tmp_path):
-        """`frontend/dist` is not in git, so the checkout back cannot restore
-        it. Moving it aside is the only reason a rolled-back update serves the
-        app it was serving before.
+    async def test_the_previous_frontend_is_kept_aside(self, update_service, tmp_path):
+        """`frontend/dist` is not in git, so no checkout can bring it back.
+        Moved aside rather than deleted, it is what a swap that cannot complete
+        puts back in front of nginx.
         """
         body, digest = _frontend_tarball(tmp_path)
         url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
@@ -4552,7 +4523,7 @@ class TestTheReleaseInstall:
         (dist / "index.html").write_bytes(b"the previous release")
 
         with self._extracting(assets):
-            await update_service._install_release_frontend("v0.2.0")
+            await self._install(update_service, "v0.2.0")
         update_service._restore_release_frontend()
 
         assert (dist / "index.html").read_bytes() == b"the previous release"
@@ -4572,7 +4543,7 @@ class TestTheReleaseInstall:
         (dist / "index.html").write_bytes(b"the previous release")
 
         with self._extracting(assets), pytest.raises(Exception, match="checksum mismatch"):
-            await update_service._install_release_frontend("v0.2.0")
+            await self._install(update_service, "v0.2.0")
 
         assert (dist / "index.html").read_bytes() == b"the previous release"
 
@@ -4599,7 +4570,7 @@ class TestTheReleaseInstall:
 
         extracted_into = []
         with self._extracting(assets, extracted_into):
-            await update_service._install_release_frontend("v0.2.0")
+            await self._install(update_service, "v0.2.0")
 
         assert len(extracted_into) == 1, extracted_into
         dest, device = extracted_into[0]
@@ -4613,21 +4584,17 @@ class TestTheReleaseInstall:
     async def test_a_failed_frontend_swap_restores_the_previous_frontend(self, update_service, tmp_path):
         """The disk refuses the new tree as it goes into `dist` (ENOSPC, EIO on
         the SD card) after the old one has already been moved to the backup.
-        The rollback then checked the previous commit out in front of a
-        partial or missing `dist` — a broken UI announced as "Rolled back" —
-        while the only healthy copy sat in the backup, deleted by the next
-        update. Whichever way the tree is brought in, rename or copy, the
-        previous frontend must be the one served after the failure.
+        Left there, the unit served a partial or missing `dist` while the only
+        healthy copy sat in the backup, deleted by the next update. Whichever
+        way the tree is brought in, rename or copy, the previous frontend must
+        be the one served after the failure.
+
+        The swap is the last step before the reboot, past the reconciliation
+        and the fleet push, so it rolls nothing back — the dependencies and the
+        satellites have moved — and does not reboot onto a frontend it could
+        not install: it reports.
         """
         marker = b"<!doctype html>release build"
-        body, digest = _frontend_tarball(tmp_path, marker)
-        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
-        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
-
-        dist = self._point_at(update_service, tmp_path)
-        (tmp_path / "repo" / ".git").mkdir(parents=True)
-        dist.mkdir(parents=True)
-        (dist / "index.html").write_bytes(b"the previous release")
 
         def carries_the_release(path):
             path = Path(path)
@@ -4646,23 +4613,120 @@ class TestTheReleaseInstall:
                 raise OSError(errno.ENOSPC, "No space left on device", str(dst))
             return real_copyfile(src, dst, *args, **kwargs)
 
-        with ExitStack() as stack:
-            stack.enter_context(self._extracting(assets))
-            stack.enter_context(patch("os.rename", new=rename))
-            stack.enter_context(patch("shutil.copyfile", new=copyfile))
-            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
-            stack.enter_context(patch.object(update_service, "_install_python_dependencies"))
-            stack.enter_context(patch.object(update_service, "_sync_system_files"))
-            stack.enter_context(patch.object(update_service, "_reconcile_dependencies", return_value=[]))
-            stack.enter_context(patch.object(update_service, "_run_deploy", return_value=(True, "")))
-            stack.enter_context(patch.object(update_service, "_restart_service", return_value=True))
-            stack.enter_context(patch.object(update_service._systemd, "restart_self", new_callable=AsyncMock))
+        with self._observed_update(update_service, tmp_path) as (dist, observed), \
+                patch("os.rename", new=rename), patch("shutil.copyfile", new=copyfile):
             result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "No space left on device" in result["error"]
+        assert "Rolled back" not in result["error"], result
+        assert [o["step"] for o in observed] == ["pip", "sync", "reconcile", "push"], observed
         assert (dist / "index.html").read_bytes() == b"the previous release"
-        assert sorted(p.name for p in dist.iterdir()) == ["index.html"]
+        assert sorted(p.relative_to(dist).as_posix() for p in dist.rglob("*")) == [
+            "assets", "assets/index-OLD.js", "index.html"]
+        assert not list(dist.parent.glob(".dist-staging-*"))
+
+    @contextmanager
+    def _observed_update(self, service, tmp_path, *, pip_fails_first=False):
+        """A whole Milo update over a real tarball, with what nginx would serve
+        read at every step past the frontend download.
+
+        The old release's dist holds `assets/index-OLD.js`, the new one's
+        `assets/index-NEW.js` — chunk names are content hashes, so an open UI
+        asking for the first one after it is gone gets a 404. pip, the sync and
+        the reboot are read where they are spawned; the reconciliation and the
+        fleet push where the flow hands over to them.
+        """
+        body, digest = _frontend_tarball(tmp_path, extra=["assets/index-NEW.js"])
+        url = service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+
+        dist = self._point_at(service, tmp_path)
+        (tmp_path / "repo" / ".git").mkdir(parents=True)
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_bytes(b"the previous release")
+        (dist / "assets" / "index-OLD.js").write_bytes(b"chunk")
+        backup = tmp_path / "backups" / "dist"
+
+        observed = []
+
+        def read(step):
+            observed.append({
+                "step": step,
+                "old_served": (dist / "assets" / "index-OLD.js").is_file(),
+                "new_served": (dist / "assets" / "index-NEW.js").is_file(),
+                "old_kept": (backup / "assets" / "index-OLD.js").is_file(),
+            })
+
+        pips = []
+
+        def observe(argv):
+            if str(argv[0]).endswith("pip3"):
+                read("pip")
+                pips.append(argv)
+                return 1 if pip_fails_first and len(pips) == 1 else 0
+            if argv[0] == "sudo" and "sync-system-files" in argv:
+                read("sync")
+            elif argv[0] == "sudo" and "reboot" in argv:
+                read("reboot")
+            return 0
+
+        async def reconcile():
+            read("reconcile")
+            return []
+
+        async def push():
+            read("push")
+            return []
+
+        service._satellites.push_client_app_to_fleet = AsyncMock(side_effect=push)
+        with ExitStack() as stack:
+            stack.enter_context(self._extracting(assets, observe=observe))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(patch.object(service, "_reconcile_dependencies", side_effect=reconcile))
+            stack.enter_context(patch.object(service._systemd, "restart", new=AsyncMock(return_value=True)))
+            stack.enter_context(patch.object(service._systemd, "restart_self", new=AsyncMock()))
+            yield dist, observed
+
+    @pytest.mark.asyncio
+    async def test_the_previous_release_chunks_stay_served_until_the_reboot(
+            self, update_service, tmp_path):
+        """The new `dist` went in right after the download, before pip (up to
+        ten minutes), the sync, the reconciliation (compiles of several
+        minutes) and the fleet push. Every UI left open meanwhile — the kiosk
+        first — asked for the chunks of a view it had not shown yet by their old
+        hash, got a 404 and kept an empty view until it was reloaded: the
+        reboot, or never if the reboot was refused. Swapped just before the
+        reboot, the window is the reboot's own.
+        """
+        with self._observed_update(update_service, tmp_path) as (dist, observed):
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is True, result
+        assert [o["step"] for o in observed] == ["pip", "sync", "reconcile", "push", "reboot"], observed
+        before_reboot, at_reboot = observed[:-1], observed[-1]
+        assert all(o["old_served"] and not o["new_served"] for o in before_reboot), observed
+        assert at_reboot["new_served"] and not at_reboot["old_served"], at_reboot
+        assert at_reboot["old_kept"], at_reboot
+        assert not list(dist.parent.glob(".dist-staging-*"))
+
+    @pytest.mark.asyncio
+    async def test_a_failed_pip_installs_no_frontend_and_leaves_no_staging(
+            self, update_service, tmp_path):
+        """pip fails once the release is staged. The rollback checks the
+        previous commit out and the previous frontend must be the one still
+        served — and the staged release, which now outlives several minutes
+        of the flow, must not stay on the SD card until the next update.
+        """
+        with self._observed_update(update_service, tmp_path, pip_fails_first=True) as (dist, observed):
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is False
+        assert "Rolled back" in result["error"], result
+        assert "reboot" not in [o["step"] for o in observed], observed
+        assert (dist / "index.html").read_bytes() == b"the previous release"
+        assert sorted(p.name for p in (dist / "assets").iterdir()) == ["index-OLD.js"]
+        assert not list(dist.parent.glob(".dist-staging-*"))
 
     @pytest.mark.asyncio
     async def test_a_release_publishing_no_frontend_fails_the_update(self, update_service, tmp_path):
@@ -4675,7 +4739,7 @@ class TestTheReleaseInstall:
         self._point_at(update_service, tmp_path).parent.mkdir(parents=True)
 
         with self._extracting(assets), pytest.raises(Exception, match="HTTP 404"):
-            await update_service._install_release_frontend("v0.2.0")
+            await self._install(update_service, "v0.2.0")
 
         assert assets.requested == [url]
 
@@ -4687,7 +4751,7 @@ class TestTheReleaseInstall:
         """
         spawned = []
         with self._flow(update_service, spawned), \
-                patch.object(update_service, "_install_release_frontend",
+                patch.object(update_service, "_stage_release_frontend",
                              side_effect=Exception("Frontend checksum mismatch for v0.2.0")), \
                 patch.object(update_service, "_rollback_milo_to_commit",
                              return_value=True) as rollback:
@@ -4695,7 +4759,7 @@ class TestTheReleaseInstall:
 
         assert result["success"] is False
         assert "checksum mismatch" in result["error"]
-        rollback.assert_awaited_once_with("abc123def456", restore_frontend=False)
+        rollback.assert_awaited_once_with("abc123def456")
 
     @pytest.mark.asyncio
     async def test_the_fleet_is_pushed_from_the_tree_the_checkout_left(self, update_service):
@@ -4736,6 +4800,11 @@ class TestTheReleaseInstall:
     # ── helpers ──────────────────────────────────────────────────────────────
 
     @staticmethod
+    async def _install(service, tag):
+        """Stage the release's frontend, then swap it in, as the flow does."""
+        await service._swap_release_frontend(await service._stage_release_frontend(tag), tag)
+
+    @staticmethod
     def _point_at(service, tmp_path):
         """Move the milo entry's two paths into tmp_path.
 
@@ -4749,17 +4818,20 @@ class TestTheReleaseInstall:
 
     @staticmethod
     @contextmanager
-    def _extracting(assets, extracted_into=None):
+    def _extracting(assets, extracted_into=None, observe=None):
         """Serve the assets, and let `tar` extract for real, in process.
 
         The archive is a genuine tarball and the extraction is genuine — what
         is stood in for is the spawn, which the file-wide fixture refuses.
         Each extraction's destination and device land in `extracted_into`; git
-        answers as a clean checkout on commit `abc123def456`.
+        answers as a clean checkout on commit `abc123def456`. `observe` sees
+        every argv and may answer a return code other than 0.
         """
         async def spawn(program, *args, **kwargs):
             proc = AsyncMock()
             proc.returncode = 0
+            if observe is not None:
+                proc.returncode = observe((program, *args)) or 0
             stdout = b""
             if program == "tar":
                 argv = list(args)
