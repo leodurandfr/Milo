@@ -281,6 +281,39 @@ async def test_a_writer_that_will_not_come_back_is_reported(bt):
     assert bt.errors() == [SourceErrorReason.STREAM_DISCONNECTED, SourceErrorReason.SERVICE_UNREACHABLE]
 
 
+async def test_a_phone_linking_while_the_writer_is_down_keeps_the_banner(bt):
+    """The banner said a phone linking now would be silent; the phone linking
+    is not what fixes it. The writer is tried again, and while it still will
+    not start the screen keeps saying why the room is silent."""
+    await playing_iphone(bt)
+    await bt.bluealsa_killed()
+    bt.failing_units.add(APLAY_UNIT)
+    await bt.bluealsa_restarted_by_systemd()
+    before = len(bt.unit_calls)
+    await bt.pcm_added(IPHONE)
+    assert ("start", APLAY_UNIT) in bt.unit_calls[before:]
+    assert not bt.units[APLAY_UNIT]
+    assert bt.cleared() == 0
+    assert bt.errors() == [
+        SourceErrorReason.STREAM_DISCONNECTED,
+        SourceErrorReason.SERVICE_UNREACHABLE,
+        SourceErrorReason.SERVICE_UNREACHABLE,
+    ]
+
+
+async def test_a_writer_startable_again_is_started_when_a_phone_links(bt):
+    """A writer that failed at BlueALSA's return but would start now: the next
+    phone gets it, and only then is the banner cleared — no reselection."""
+    await playing_iphone(bt)
+    await bt.bluealsa_killed()
+    bt.failing_units.add(APLAY_UNIT)
+    await bt.bluealsa_restarted_by_systemd()
+    bt.failing_units.discard(APLAY_UNIT)
+    await bt.pcm_added(IPHONE)
+    assert bt.units[APLAY_UNIT]
+    assert bt.active() and bt.cleared() == 1
+
+
 async def test_bluealsa_killed_under_an_unwatched_session_still_ends_it(bt):
     """The pid read when the session opens can be missing (systemd slow on a
     busy card): the monitor's `ServiceStopped` is then the only word of the

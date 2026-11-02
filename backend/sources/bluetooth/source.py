@@ -162,6 +162,9 @@ class BluetoothSource(BaseAudioSource):
         self._running = False
         # bluealsa-aplay is off on purpose while a multiroom reroute holds it.
         self._released = False
+        # bluealsa-aplay's last start failed: a phone linking would be silent,
+        # so the next one tries it again, and its arrival clears no banner.
+        self._writer_down = False
         # Whether BlueALSA is there: without it there is no A2DP sink, so a
         # phone must not be offered one (half of the exposure rule too).
         self._bluealsa_up = False
@@ -185,7 +188,7 @@ class BluetoothSource(BaseAudioSource):
                     raise RuntimeError(f"Failed to start {service}")
 
             # 2. Start playback service
-            if not await self._start_service(self.bluealsa_aplay_service):
+            if not await self._start_writer():
                 raise RuntimeError(f"Failed to start {self.bluealsa_aplay_service}")
 
             # 3. Configure Bluetooth adapter
@@ -287,10 +290,16 @@ class BluetoothSource(BaseAudioSource):
         new MILO_MODE and re-publish state (the transition set it to STARTING).
         """
         self._released = False
-        if not await self._start_service(self.bluealsa_aplay_service):
+        if not await self._start_writer():
             return False
         self._publish()
         return True
+
+    async def _start_writer(self) -> bool:
+        """Start bluealsa-aplay, and remember whether it is down."""
+        ok = await self._start_service(self.bluealsa_aplay_service)
+        self._writer_down = not ok
+        return ok
 
     async def initialize(self) -> bool:
         """Close what a backend killed outright left open.
@@ -441,6 +450,12 @@ class BluetoothSource(BaseAudioSource):
                 banners += await self._bluez_moved(event[1])
             elif kind == "monitor_lost":
                 banners += await self._monitor_lost(event[1])
+        if arrived and self._writer_down and not self._released and not await self._start_writer():
+            self._logger.error(
+                f"{self.bluealsa_aplay_service} still cannot be started — the phone that linked is silent"
+            )
+            banners.append(SourceErrorReason.SERVICE_UNREACHABLE)
+            arrived = False
         session = self._session
         if isinstance(session, BluetoothSession):
             self._read_player(session)
@@ -544,7 +559,7 @@ class BluetoothSource(BaseAudioSource):
             return []
         self._bluealsa_up = True
         banners = []
-        if not self._released and not await self._start_service(self.bluealsa_aplay_service):
+        if not self._released and not await self._start_writer():
             self._logger.error(
                 f"{self.bluealsa_aplay_service} could not be started after BlueALSA came back "
                 f"— a phone linking now would be silent"
