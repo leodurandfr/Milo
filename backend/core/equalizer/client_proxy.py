@@ -26,7 +26,9 @@ class SatelliteUnreachable(Exception):
     exception (the error-handling doctrine forbids raising HTTPException
     from a service). The api/ layer maps this to an HTTPException with the
     carried ``status_code`` (api_error_handler in route_helpers.py); the
-    background sync paths catch it via their generic ``except Exception``.
+    background sync paths catch it via their generic ``except Exception``,
+    and EqualizerController reads that code to tell a satellite that answered
+    and refused (4xx) from one it could not reach.
     """
 
     def __init__(self, hostname: str, detail: str, status_code: int = 503):

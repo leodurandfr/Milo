@@ -12,6 +12,7 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.shared.background import BackgroundTaskSet
 
 if TYPE_CHECKING:
@@ -141,9 +142,26 @@ class EqualizerController:
                     continue
                 self.logger.error(f"Timeout setting volume for {mac_id}")
                 return False
+            except SatelliteUnreachable as e:
+                return self._satellite_failed(mac_id, e, force, "Volume")
             except Exception as e:
                 self.logger.warning(f"Failed to set volume for {mac_id}: {e}")
                 return False
+        return False
+
+    def _satellite_failed(self, mac_id: str, error: SatelliteUnreachable, force: bool,
+                          what: str) -> bool:
+        """A satellite that answered and refused (4xx) is a refusal like the
+        local DSP's, reported once by `_outcome`; the proxy raises it rather
+        than answering a dict.
+
+        Unreachable (503), or refused during a forced send, stays a warning: an
+        admission sends while the satellite's CamillaDSP may still be starting,
+        every call answers 400 until it is up, and the admission retries.
+        """
+        if not force and 400 <= error.status_code < 500:
+            return self._outcome(mac_id, {"status": "error", "message": str(error)}, what)
+        self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
         return False
 
     def _outcome(self, mac_id: str, result: dict, what: str) -> bool:
@@ -273,6 +291,8 @@ class EqualizerController:
                 timeout=self._timeout
             )
             return self._outcome(mac_id, result, "Mute")
+        except SatelliteUnreachable as e:
+            return self._satellite_failed(mac_id, e, force, "Mute")
         except Exception as e:
             self.logger.warning(f"Failed to set mute for {mac_id}: {e}")
             return False

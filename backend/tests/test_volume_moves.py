@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.volume import VolumeConfig
 from backend.core.volume import EqualizerController, VolumeService, VolumeStateStore
 from backend.tests.volume_world import Registry
@@ -42,8 +43,11 @@ def _last_volume_in_tmp(tmp_path, monkeypatch):
 class Router:
     """The outside world behind the door: records what each speaker receives.
 
-    Commands to a speaker in `hold` wait until `release` is set; `answer` maps a
-    speaker to the router result it gets back.
+    Commands to a speaker in `hold` wait until `release` is set; `answer` (and
+    `mute_answer` for the mute) maps a speaker to the router result it gets
+    back, or to the exception it raises. A satellite's refusal is an exception:
+    the proxy raises `SatelliteUnreachable` on any answer but a 200, and only
+    the local DSP answers an error dict.
     """
 
     def __init__(self):
@@ -52,8 +56,16 @@ class Router:
         self.hold = set()
         self.release = asyncio.Event()
         self.answer = {}
+        self.mute_answer = {}
         self.in_flight = {}
         self.peak_in_flight = 0
+
+    @staticmethod
+    def _reply(table, mac_id):
+        reply = table.get(mac_id, {"status": "success"})
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
     async def set_volume(self, mac_id, volume_db, force=False):
         self.in_flight[mac_id] = self.in_flight.get(mac_id, 0) + 1
@@ -62,17 +74,31 @@ class Router:
             if mac_id in self.hold:
                 await self.release.wait()
             self.received.append((mac_id, volume_db))
-            return self.answer.get(mac_id, {"status": "success"})
+            return self._reply(self.answer, mac_id)
         finally:
             self.in_flight[mac_id] -= 1
 
     async def set_mute(self, mac_id, muted, force=False):
         self.muted.append((mac_id, muted))
-        return {"status": "success"}
+        return self._reply(self.mute_answer, mac_id)
 
     def last(self, mac_id):
         values = [volume for mac, volume in self.received if mac == mac_id]
         return values[-1] if values else None
+
+
+SAT_IP = "192.168.1.10"
+
+
+def refused_by_satellite():
+    """What the proxy raises when a satellite answers and refuses: its route
+    answers 400 when its CamillaDSP did not take the command."""
+    return SatelliteUnreachable(SAT_IP, "Client error: 400", status_code=400)
+
+
+def satellite_out_of_reach():
+    """What the proxy raises when nothing answered at all."""
+    return SatelliteUnreachable(SAT_IP, f"Cannot reach client {SAT_IP}", status_code=503)
 
 
 async def settle():
@@ -511,19 +537,22 @@ async def test_a_speaker_that_refuses_keeps_the_level_asked_and_is_reported_once
 
     A satellite answers a refusal after caching the value, and applies it when
     its CamillaDSP comes back — so the level asked for is the one it will play.
-    A turn of the knob against a refusing speaker must not log every step.
+    A turn of the knob against a refusing speaker must not log every step, and
+    the one line is an error, so the banner fires.
     """
     router = Router()
-    router.answer["sat"] = {"status": "error", "message": "CamillaDSP not connected"}
+    router.answer["sat"] = refused_by_satellite()
     service = make_service({LOCAL: -60.0, "sat": -60.0}, online=[LOCAL, "sat"], router=router)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.WARNING):
         for _ in range(3):
             await service.adjust_volume_db(1.0)
             await settle()
 
     assert level(service, "sat") == -57.0
-    assert len([r for r in caplog.records if "not applied to sat" in r.getMessage()]) == 1
+    reported = [r for r in caplog.records if "not applied to sat" in r.getMessage()]
+    assert [r.levelno for r in reported] == [logging.ERROR]
+    assert not [r for r in caplog.records if "Failed to set volume for sat" in r.getMessage()]
 
 
 async def test_a_new_session_with_a_speaker_reports_its_first_refusal_again(controller, caplog):
@@ -531,15 +560,69 @@ async def test_a_new_session_with_a_speaker_reports_its_first_refusal_again(cont
 
     A satellite that refused once, went away, and came back hours later with a
     new fault would otherwise refuse in silence for as long as the process ran.
+    The admission's own refusal is not the news — its CamillaDSP may still be
+    starting — so the next ordinary one is.
     """
-    controller._router.answer["sat"] = {"status": "error", "message": "refused"}
+    controller._router.answer["sat"] = refused_by_satellite()
 
     with caplog.at_level(logging.ERROR):
         await controller.submit_volume("sat", -50.0)
         await controller.submit_volume("sat", -49.0)
         await controller.submit_volume("sat", -48.0, force=True)  # its admission
+        await controller.submit_volume("sat", -47.0)
 
     assert len([r for r in caplog.records if "not applied to sat" in r.getMessage()]) == 2
+
+
+async def test_a_satellite_refusal_is_logged_once_at_error(controller, caplog):
+    """A satellite that answers and refuses is reported like the local DSP: once, at error.
+
+    The proxy raises on its 400, and the sender used to take that for an
+    unreachable host: a warning on every step of the knob and never a banner,
+    for a speaker that is online and silently not following the house or its
+    zone. Volume and mute are two spells of their own.
+    """
+    router = controller._router
+    router.answer["sat"] = refused_by_satellite()
+    router.mute_answer["sat"] = refused_by_satellite()
+
+    with caplog.at_level(logging.WARNING):
+        for step in range(3):
+            assert await controller.submit_volume("sat", -50.0 + step) is False
+            assert await controller.submit_mute("sat", step % 2 == 0) is False
+
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 2
+    assert errors[0].startswith("Volume not applied to sat")
+    assert errors[1].startswith("Mute not applied to sat")
+    assert not [r for r in caplog.records if r.getMessage().startswith("Failed to set")]
+
+
+@pytest.mark.parametrize("what", ["volume", "mute"])
+@pytest.mark.parametrize("raised, force", [
+    (refused_by_satellite, True),
+    (satellite_out_of_reach, False),
+], ids=["admission-refused", "out-of-reach"])
+async def test_an_admission_refusal_stays_a_warning(controller, caplog, what, raised, force):
+    """An admission's refusal, or a satellite out of reach, is a warning and no banner.
+
+    The admission sends while the satellite's CamillaDSP may still be starting,
+    and every call answers 400 until it is up — the server retries, and the
+    triage reads this exact line as that recovery (known entry
+    `satellite-reconnect-400`). A satellite nothing answered for is not
+    refusing anything. A banner for either would fire at every reconnection.
+    """
+    router = controller._router
+    error = raised()
+    (router.answer if what == "volume" else router.mute_answer)["sat"] = error
+    submit = controller.submit_volume if what == "volume" else controller.submit_mute
+
+    with caplog.at_level(logging.WARNING):
+        assert await submit("sat", -50.0 if what == "volume" else True, force=force) is False
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == [f"Failed to set {what} for sat: {error.detail}"]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 async def test_a_move_the_local_speaker_refused_is_still_shown():
