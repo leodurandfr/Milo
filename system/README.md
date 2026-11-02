@@ -329,7 +329,7 @@ When modifying service files:
 
 - All services run as `milo` user (not root)
 - Audio services use group `audio` for ALSA access
-- Kiosk service uses `--no-sandbox` for Chromium (required for unprivileged user)
+- Kiosk Chromium runs with its sandbox (the setuid `chrome-sandbox` helper or user namespaces); never add `--no-sandbox`
 - Sensitive credentials stored in `/var/lib/milo/settings.json` (not in Git)
 
 ## Additional Resources

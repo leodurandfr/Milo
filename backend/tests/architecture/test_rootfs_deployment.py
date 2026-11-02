@@ -36,6 +36,7 @@ extractor asserts its own output is non-trivial first, so a broken parse fails
 loudly instead of passing on an empty surface.
 """
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -330,3 +331,54 @@ def test_bluealsa_storage_directory_is_declared_by_its_unit():
         f"bluealsa is built to store under {binary_dir}, but "
         f"{BLUEALSA_UNIT.relative_to(REPO_ROOT)} creates {unit_dirs or 'no StateDirectory'}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The kiosk's Chromium keeps its sandbox.
+# --------------------------------------------------------------------------- #
+#
+# `milo-kiosk.service` is copied verbatim by `milo-deploy-update` and enabled by
+# pi-gen. Its Chromium draws images picked by whoever publishes a podcast feed,
+# straight from third-party CDNs. With `--no-sandbox` every renderer decoding
+# them ran as uid milo with no seccomp filter, in the host's namespaces: a
+# decoder exploit was then an ordinary milo process, reading the stored Spotify
+# and Qobuz credentials and driving the local API. The flag was justified as
+# "required for unprivileged user", which is false on the image: the setuid
+# `chrome-sandbox` helper ships with Chromium and user namespaces are enabled.
+
+KIOSK_UNIT = REPO_ROOT / "system" / "milo-kiosk.service"
+
+# Every Chromium switch that turns a layer of the Linux sandbox off.
+SANDBOX_OFF_SWITCHES = (
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-namespace-sandbox",
+    "--disable-seccomp-filter-sandbox",
+    "--disable-gpu-sandbox",
+)
+
+# A systemd line continuation: the trailing backslash and the newline it hides.
+CONTINUATION_RE = re.compile(r"\\\n\s*")
+
+
+def _kiosk_argv() -> list[str]:
+    joined = CONTINUATION_RE.sub(" ", KIOSK_UNIT.read_text(encoding="utf-8"))
+    for line in joined.splitlines():
+        line = line.strip()
+        if line.startswith("ExecStart="):
+            return shlex.split(line.removeprefix("ExecStart="))
+    return []
+
+
+def test_kiosk_keeps_the_chromium_sandbox():
+    """The kiosk's renderers run sandboxed.
+
+    Fails when the kiosk unit passes Chromium a switch that turns its sandbox,
+    or one of its layers, off. The consumer is systemd on the unit (cage +
+    Chromium), through `milo-deploy-update` copying `system/*.service`.
+    """
+    argv = _kiosk_argv()
+    assert "/usr/bin/chromium" in argv and "--app=http://localhost" in argv, (
+        f"the kiosk's Chromium invocation was not extracted: {argv!r}"
+    )
+    assert [arg for arg in argv if arg in SANDBOX_OFF_SWITCHES] == []

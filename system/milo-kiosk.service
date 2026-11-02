@@ -70,7 +70,6 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --disable-background-networking \
   --autoplay-policy=no-user-gesture-required \
   --start-fullscreen \
-  --no-sandbox \
   --disable-dev-shm-usage \
   --touch-events=enabled \
   --enable-features=TouchpadAndWheelScrollLatching \

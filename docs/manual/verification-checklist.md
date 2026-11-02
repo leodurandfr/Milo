@@ -370,6 +370,7 @@ makes this silent.
 | Automatic full-screen player | With the setting on, a browser source (radio, podcast, music library, Spotify) **playing** and the screen untouched for its delay opens its full player; a touch before the delay counts it again from zero. Never while paused, never over open lyrics, and a track change does not restart the count (an album with a delay longer than one track still opens it); never on CD/TIDAL/AirPlay/Bluetooth/Qobuz/Mac. A pause leaves the player on screen; a tap on its cover returns to the same page and scroll of the navigation, and the player opens again after another delay if still playing | targeted |
 | Scale | Small / Normal / Large change the layout without clipping | targeted |
 | Kiosk memory | `systemctl status milo-kiosk` shows no recent restart loop after ~1 h of use (past OOM regression) | targeted |
+| Kiosk sandbox | After `sudo systemctl restart milo-kiosk`: the UI draws under cage, touch and scrolling answer, podcast and radio covers draw; `systemctl show -p NRestarts milo-kiosk` stays put over a minute and `journalctl -u milo-kiosk -b` holds no `No usable sandbox`. Each renderer **of the kiosk's own cgroup** (`/sys/fs/cgroup/$(systemctl show -p ControlGroup --value milo-kiosk)/cgroup.procs`, never a global `pgrep`, which can pick up a headless test Chromium) shows `Seccomp: 2` in `/proc/<pid>/status`. Before, the kiosk ran with `--no-sandbox`: renderers decoding third-party podcast artwork as uid milo, seccomp 0, in the host's namespaces | targeted |
 
 ## Network and setup ⚠ blank SD
 
