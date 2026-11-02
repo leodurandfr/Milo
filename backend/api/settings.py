@@ -115,6 +115,8 @@ def create_settings_router(
     """Settings router with proper app deactivation"""
     router = APIRouter()
     settings = settings_service
+    # One lock per settings.json section: read, effects, write and broadcast run under it.
+    section_locks: Dict[str, asyncio.Lock] = {"dock": asyncio.Lock()}
 
     def _from_kiosk(request: Request) -> bool:
         """Whether a request comes from the Pi's own kiosk.
@@ -355,178 +357,182 @@ def create_settings_router(
         applied. Not a transaction — nothing is compensated, because a rollback
         would mean re-entering the audio path from an error handler — but no
         longer a dock showing a tile for a function that was just switched off.
+
+        Serialized: a request that overlaps a switch still in flight waits for
+        it to commit, then computes its diff against the stored list.
         """
         async with api_error_handler("Unexpected error in dock-apps update", logger):
-            enabled_apps = payload.enabled_apps
-            # Validation done by Pydantic
+            async with section_locks["dock"]:
+                enabled_apps = payload.enabled_apps
+                # Validation done by Pydantic
 
-            old_settings = await settings.load_settings()
-            old_enabled_apps = old_settings["dock"]["enabled_apps"]
+                old_settings = await settings.load_settings()
+                old_enabled_apps = old_settings["dock"]["enabled_apps"]
 
-            disabled_apps = set(old_enabled_apps) - set(enabled_apps)
-            enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
+                disabled_apps = set(old_enabled_apps) - set(enabled_apps)
+                enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
 
-            if not disabled_apps and not enabled_apps_new:
-                # No change, just save
-                success = await settings.set_setting("dock.enabled_apps", enabled_apps)
-                if success:
+                if not disabled_apps and not enabled_apps_new:
+                    # No change, just save
+                    success = await settings.set_setting("dock.enabled_apps", enabled_apps)
+                    if success:
+                        await state_machine.broadcast(DockAppsChanged(
+                            config=DockAppsConfig(enabled_apps=enabled_apps)
+                        ))
+                        return {"status": "success", "config": {"enabled_apps": enabled_apps}}
+                    else:
+                        raise HTTPException(status_code=500, detail="Failed to save settings")
+
+                # Operations log for debugging
+                operations_log = []
+
+                # `applied` is the tile list as it stands after each effect that
+                # succeeded; `persisted` is what settings.json actually holds, which
+                # only commit_applied() may advance.
+                applied = list(old_enabled_apps)
+                persisted = list(old_enabled_apps)
+
+                async def commit_applied():
+                    if not await settings.set_setting("dock.enabled_apps", list(applied)):
+                        raise ValueError("Failed to save settings")
+                    persisted[:] = applied
+
+                try:
+                    # === HANDLE DISABLES ===
+                    for app in disabled_apps:
+                        logger.info(f"Processing disable for app: {app}")
+
+                        # === AUDIO SOURCES ===
+                        if app in AUDIO_SOURCE_APPS:
+                            current_source = state_machine.system_state.active_source.value
+
+                            if app == current_source:
+                                # Active source: transition to none (automatically stops)
+                                operations_log.append(f"Transitioning {app} to none")
+                                logger.info(f"Transitioning active source {app} to none")
+                                success = await state_machine.transition_to_source(AudioSource.NONE)
+                                if not success:
+                                    raise ValueError(f"Failed to transition from {app} to none")
+                            else:
+                                # Inactive source: stop services directly
+                                services_to_stop = _get_services_for_source(app)
+                                for service in services_to_stop:
+                                    operations_log.append(f"Stopping service {service}")
+                                    logger.info(f"Stopping service {service}")
+                                    success = await systemd_manager.stop(service)
+                                    if not success:
+                                        raise ValueError(f"Failed to stop service {service}")
+
+                            # The catalog outlives the player, so stopping the source
+                            # left it running. Not awaited: see set_catalog_running.
+                            if app == AudioSource.MUSIC_LIBRARY.value:
+                                operations_log.append("Stopping the music library catalog")
+                                state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(False)
+
+                        # === MULTIROOM ===
+                        elif app == 'multiroom':
+                            # set_multiroom_enabled owns the full transition: source restart
+                            # (the source active once it holds the lock), snapcast stop,
+                            # settings + routing.env writes, and broadcast.
+                            operations_log.append("Disabling multiroom routing and switching to direct mode")
+                            logger.info("Disabling multiroom routing")
+                            success = await routing_service.set_multiroom_enabled(False)
+                            if not success:
+                                raise ValueError("Failed to disable multiroom routing")
+
+                        # === EQUALIZER ===
+                        elif app == 'equalizer':
+                            # Get the active source for logging
+                            active_source = state_machine.system_state.active_source
+
+                            operations_log.append("Disabling equalizer effects")
+                            logger.info(f"Disabling equalizer effects for active source: {active_source.value}")
+                            success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
+                            if not success:
+                                raise ValueError("Failed to disable equalizer effects")
+
+                        applied.remove(app)
+                        await commit_applied()
+
+                    # === HANDLE ENABLES ===
+                    for app in enabled_apps_new:
+                        logger.info(f"Processing enable for app: {app}")
+
+                        # === AUDIO SOURCES: DO NOTHING ===
+                        # Except the music library's catalog, which is not a player:
+                        # it serves the settings screen and indexes USB keys.
+                        if app == AudioSource.MUSIC_LIBRARY.value:
+                            operations_log.append("Starting the music library catalog")
+                            state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(True)
+                        elif app in AUDIO_SOURCE_APPS:
+                            operations_log.append(f"App {app} enabled (no service start needed)")
+                            logger.info(f"App {app} enabled in dock (services will start on source change)")
+
+                        # === MULTIROOM ===
+                        elif app == 'multiroom':
+                            # set_multiroom_enabled owns the full transition: source restart
+                            # (the source active once it holds the lock), snapcast start,
+                            # settings + routing.env writes, and broadcast.
+                            operations_log.append("Enabling multiroom routing and switching to multiroom mode")
+                            logger.info("Enabling multiroom routing")
+                            success = await routing_service.set_multiroom_enabled(True)
+                            if not success:
+                                raise ValueError("Failed to enable multiroom routing")
+
+                        # === EQUALIZER ===
+                        elif app == 'equalizer':
+                            # Get the active source for logging
+                            active_source = state_machine.system_state.active_source
+
+                            operations_log.append("Enabling equalizer effects")
+                            logger.info(f"Enabling equalizer effects for active source: {active_source.value}")
+                            success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
+                            if not success:
+                                raise ValueError("Failed to enable equalizer effects")
+
+                        # Placed where the payload wants it, so the intermediate
+                        # list is already in the requested order.
+                        applied.insert(min(enabled_apps.index(app), len(applied)), app)
+                        await commit_applied()
+
+                    # The step-by-step writes carry the membership; this last one
+                    # also carries the order, which the payload may have changed.
+                    operations_log.append("Saving new settings")
+                    logger.info("All operations successful, saving settings")
+                    success = await settings.set_setting("dock.enabled_apps", enabled_apps)
+                    if not success:
+                        raise ValueError("Failed to save settings")
+
                     await state_machine.broadcast(DockAppsChanged(
                         config=DockAppsConfig(enabled_apps=enabled_apps)
                     ))
-                    return {"status": "success", "config": {"enabled_apps": enabled_apps}}
-                else:
-                    raise HTTPException(status_code=500, detail="Failed to save settings")
 
-            # Operations log for debugging
-            operations_log = []
-
-            # `applied` is the tile list as it stands after each effect that
-            # succeeded; `persisted` is what settings.json actually holds, which
-            # only commit_applied() may advance.
-            applied = list(old_enabled_apps)
-            persisted = list(old_enabled_apps)
-
-            async def commit_applied():
-                if not await settings.set_setting("dock.enabled_apps", list(applied)):
-                    raise ValueError("Failed to save settings")
-                persisted[:] = applied
-
-            try:
-                # === HANDLE DISABLES ===
-                for app in disabled_apps:
-                    logger.info(f"Processing disable for app: {app}")
-
-                    # === AUDIO SOURCES ===
-                    if app in AUDIO_SOURCE_APPS:
-                        current_source = state_machine.system_state.active_source.value
-
-                        if app == current_source:
-                            # Active source: transition to none (automatically stops)
-                            operations_log.append(f"Transitioning {app} to none")
-                            logger.info(f"Transitioning active source {app} to none")
-                            success = await state_machine.transition_to_source(AudioSource.NONE)
-                            if not success:
-                                raise ValueError(f"Failed to transition from {app} to none")
-                        else:
-                            # Inactive source: stop services directly
-                            services_to_stop = _get_services_for_source(app)
-                            for service in services_to_stop:
-                                operations_log.append(f"Stopping service {service}")
-                                logger.info(f"Stopping service {service}")
-                                success = await systemd_manager.stop(service)
-                                if not success:
-                                    raise ValueError(f"Failed to stop service {service}")
-
-                        # The catalog outlives the player, so stopping the source
-                        # left it running. Not awaited: see set_catalog_running.
-                        if app == AudioSource.MUSIC_LIBRARY.value:
-                            operations_log.append("Stopping the music library catalog")
-                            state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(False)
-
-                    # === MULTIROOM ===
-                    elif app == 'multiroom':
-                        # set_multiroom_enabled owns the full transition: source restart
-                        # (the source active once it holds the lock), snapcast stop,
-                        # settings + routing.env writes, and broadcast.
-                        operations_log.append("Disabling multiroom routing and switching to direct mode")
-                        logger.info("Disabling multiroom routing")
-                        success = await routing_service.set_multiroom_enabled(False)
-                        if not success:
-                            raise ValueError("Failed to disable multiroom routing")
-
-                    # === EQUALIZER ===
-                    elif app == 'equalizer':
-                        # Get the active source for logging
-                        active_source = state_machine.system_state.active_source
-
-                        operations_log.append("Disabling equalizer effects")
-                        logger.info(f"Disabling equalizer effects for active source: {active_source.value}")
-                        success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
-                        if not success:
-                            raise ValueError("Failed to disable equalizer effects")
-
-                    applied.remove(app)
-                    await commit_applied()
-
-                # === HANDLE ENABLES ===
-                for app in enabled_apps_new:
-                    logger.info(f"Processing enable for app: {app}")
-
-                    # === AUDIO SOURCES: DO NOTHING ===
-                    # Except the music library's catalog, which is not a player:
-                    # it serves the settings screen and indexes USB keys.
-                    if app == AudioSource.MUSIC_LIBRARY.value:
-                        operations_log.append("Starting the music library catalog")
-                        state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(True)
-                    elif app in AUDIO_SOURCE_APPS:
-                        operations_log.append(f"App {app} enabled (no service start needed)")
-                        logger.info(f"App {app} enabled in dock (services will start on source change)")
-
-                    # === MULTIROOM ===
-                    elif app == 'multiroom':
-                        # set_multiroom_enabled owns the full transition: source restart
-                        # (the source active once it holds the lock), snapcast start,
-                        # settings + routing.env writes, and broadcast.
-                        operations_log.append("Enabling multiroom routing and switching to multiroom mode")
-                        logger.info("Enabling multiroom routing")
-                        success = await routing_service.set_multiroom_enabled(True)
-                        if not success:
-                            raise ValueError("Failed to enable multiroom routing")
-
-                    # === EQUALIZER ===
-                    elif app == 'equalizer':
-                        # Get the active source for logging
-                        active_source = state_machine.system_state.active_source
-
-                        operations_log.append("Enabling equalizer effects")
-                        logger.info(f"Enabling equalizer effects for active source: {active_source.value}")
-                        success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
-                        if not success:
-                            raise ValueError("Failed to enable equalizer effects")
-
-                    # Placed where the payload wants it, so the intermediate
-                    # list is already in the requested order.
-                    applied.insert(min(enabled_apps.index(app), len(applied)), app)
-                    await commit_applied()
-
-                # The step-by-step writes carry the membership; this last one
-                # also carries the order, which the payload may have changed.
-                operations_log.append("Saving new settings")
-                logger.info("All operations successful, saving settings")
-                success = await settings.set_setting("dock.enabled_apps", enabled_apps)
-                if not success:
-                    raise ValueError("Failed to save settings")
-
-                await state_machine.broadcast(DockAppsChanged(
-                    config=DockAppsConfig(enabled_apps=enabled_apps)
-                ))
-
-                return {
-                    "status": "success",
-                    "config": {"enabled_apps": enabled_apps},
-                    "operations": operations_log
-                }
-
-            except Exception as e:
-                # Stop here: nothing is compensated and operations_log is
-                # diagnostic text, never replayed. The effects that ran are
-                # already persisted — including the tile list — so all that is
-                # left is to tell the consumers which dock they are looking at.
-                logger.error(f"Error during dock-apps update: {e}")
-                logger.error(f"Operations completed before error: {operations_log}")
-
-                if persisted != old_enabled_apps:
-                    await state_machine.broadcast(DockAppsChanged(
-                        config=DockAppsConfig(enabled_apps=list(persisted))
-                    ))
-
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "message": f"Failed to update apps: {str(e)}",
-                        "operations_log": operations_log
+                    return {
+                        "status": "success",
+                        "config": {"enabled_apps": enabled_apps},
+                        "operations": operations_log
                     }
-                )
+
+                except Exception as e:
+                    # Stop here: nothing is compensated and operations_log is
+                    # diagnostic text, never replayed. The effects that ran are
+                    # already persisted — including the tile list — so all that is
+                    # left is to tell the consumers which dock they are looking at.
+                    logger.error(f"Error during dock-apps update: {e}")
+                    logger.error(f"Operations completed before error: {operations_log}")
+
+                    if persisted != old_enabled_apps:
+                        await state_machine.broadcast(DockAppsChanged(
+                            config=DockAppsConfig(enabled_apps=list(persisted))
+                        ))
+
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "message": f"Failed to update apps: {str(e)}",
+                            "operations_log": operations_log
+                        }
+                    )
 
     # Global audio auto-stop (applies to every eligible source)
     @router.put("/audio-stop")

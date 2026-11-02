@@ -27,9 +27,11 @@ defaults, so a route reading a key the validator guarantees is testable without
 a fallback that cannot happen in production.
 """
 import asyncio
+import copy
 import logging
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -441,6 +443,84 @@ class TestTheDockAtomicity:
         )
 
         assert response.status_code == 500
+
+
+class TestConcurrentDockRequests:
+    """Two dock gestures more than the frontend's 500 ms debounce apart are two
+    PUTs, and a multiroom switch takes seconds. The second one must be applied
+    against the list the first committed, not the one it found before."""
+
+    async def test_a_dock_request_overlapping_a_multiroom_toggle_is_applied_after_it(
+        self, state_machine, systemd, routing, equalizer, hardware
+    ):
+        """Multiroom switched on, then off while the switch is still running.
+
+        Read against the list from before the switch, the second request finds
+        nothing to do, answers 200 without touching the routing, and the first
+        one then commits its list with multiroom in it: snapcast and the
+        satellites stay up against the user's last gesture, on every screen.
+        """
+        stored = {"dock": {"enabled_apps": ["radio", "settings"]}}
+
+        async def _set_setting(key, value):
+            assert key == "dock.enabled_apps"
+            stored["dock"]["enabled_apps"] = list(value)
+            return True
+
+        settings = Mock()
+        settings.load_settings = AsyncMock(side_effect=lambda: copy.deepcopy(stored))
+        settings.set_setting = AsyncMock(side_effect=_set_setting)
+
+        switching, release = asyncio.Event(), asyncio.Event()
+
+        async def _switch(_enabled):
+            if routing.set_multiroom_enabled.await_count == 1:
+                switching.set()
+                await release.wait()
+            return True
+        routing.set_multiroom_enabled = AsyncMock(side_effect=_switch)
+
+        app = FastAPI()
+        app.include_router(
+            create_settings_router(
+                volume_service=Mock(),
+                state_machine=state_machine,
+                screen_controller=Mock(),
+                systemd_manager=systemd,
+                routing_service=routing,
+                hardware_service=hardware,
+                settings_service=settings,
+                multiroom_equalizer_service=equalizer,
+                mac_link_calibration=Mock(),
+            ),
+            prefix="/api/settings",
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            on = asyncio.create_task(http.put(
+                "/api/settings/dock-apps",
+                json={"enabled_apps": ["radio", "multiroom", "settings"]},
+            ))
+            await switching.wait()
+
+            off = asyncio.create_task(http.put(
+                "/api/settings/dock-apps", json={"enabled_apps": ["radio", "settings"]}
+            ))
+            # Let the second request run as far as it can while the switch is
+            # held: up to its read of the store when nothing serializes it.
+            for _ in range(200):
+                if settings.load_settings.await_count >= 2:
+                    break
+                await asyncio.sleep(0)
+            release.set()
+            on, off = await asyncio.gather(on, off)
+
+        assert on.status_code == 200
+        assert off.status_code == 200
+        assert routing.set_multiroom_enabled.await_args_list == [call(True), call(False)]
+        assert stored["dock"]["enabled_apps"] == ["radio", "settings"]
+        last = state_machine.broadcast.await_args_list[-1].args[0]
+        assert last.config.enabled_apps == ["radio", "settings"]
 
 
 class TestTheHardwareConfig:
