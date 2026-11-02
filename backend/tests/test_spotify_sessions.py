@@ -582,6 +582,11 @@ def remote(world):
     return world.state()["details"]["remote"]
 
 
+def title_shown(world):
+    shown = remote(world)
+    return shown and shown["title"]
+
+
 async def test_another_device_playing_is_shown_without_a_session(signed_in):
     """What plays on the phone is drawn by the Spotify bar, never as a session:
     nothing plays here, and the widget and the Mac read `session` as Milō's."""
@@ -602,6 +607,54 @@ async def test_a_remote_track_not_yet_named_is_not_shown(signed_in):
 
     assert remote(signed_in) is None
     assert signed_in.state()["controls"] == []
+
+
+async def test_the_bar_stays_up_while_the_next_track_elsewhere_is_named(signed_in):
+    """A track change on the Mac, its next track not cached: go-librespot says
+    `remote` with no track, then ~20 ms later with it. Published as such, the
+    bar (useSourcePlaybackVisibility) leaves at once and comes back through
+    its entrance animation on every track. The remote shown is kept until the
+    next one is named."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000, device="Mac mini")
+    sent = len(signed_in.published())
+
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
+
+    shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
+    assert None not in shown
+    assert remote(signed_in)["title"] == "Trois Neuf Trois"
+    assert remote(signed_in)["device_name"] == "Mac mini"
+
+
+async def test_a_next_track_elsewhere_that_is_never_named_takes_the_bar_down(signed_in):
+    """go-librespot gives up resolving a track after 30 s and says nothing
+    more: past the hold, the wire follows /status, and a remote with no track
+    shows nothing and offers nothing to take over."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=None)
+
+    await signed_in.advance(signed_in.source.NEXT_TRACK_HOLD + 1)
+
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+
+
+async def test_events_while_the_next_track_is_named_do_not_extend_the_hold(signed_in):
+    """Only the track being named releases the hold, and nothing else extends
+    it: a pause on the Mac while the track resolves raises another `remote`
+    with no track, which must not keep a stale track on the bar past the
+    deadline the first one set."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=None)
+    assert title_shown(signed_in) == "Parapluie"
+    hold = signed_in.source.NEXT_TRACK_HOLD
+
+    await signed_in.advance(hold - 1)
+    await signed_in.plays_elsewhere(None, paused=True)
+    assert title_shown(signed_in) == "Parapluie"
+    await signed_in.advance(1.5)
+
+    assert remote(signed_in) is None
 
 
 async def test_take_over_asks_once_and_the_session_arrives_like_a_transfer(signed_in):

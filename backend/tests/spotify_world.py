@@ -35,7 +35,11 @@ Another device of the account (go-librespot with `remote`, measured on the
 owner's iPhone 2026-10-05): /status names the active device when it is not this
 one, with its track once resolved and the playhead read when /status was; each
 change raises `remote`. POST /player/transfer answers 200 at once, and the
-session arrives as a phone's transfer does, at the same position.
+session arrives as a phone's transfer does, at the same position. A track
+change on that device whose metadata go-librespot has not cached raises
+`remote` twice (measured on the owner's Mac 2026-11-02, 6 tracks of 7): first
+with no track, while it resolves in the background, then 19-161 ms later with
+the track named.
 
 The play order (the fork's GET /player/queue, measured 2026-10-07 on the
 owner's iPhone): `provider` is "context", "queue" (the user's queue, listed
@@ -863,6 +867,20 @@ class SpotifyWorld(WireReader):
             "track": {**copy.deepcopy(song), "position": at_ms} if song else None,
         }
         await self._says({"type": "remote", "data": copy.deepcopy(self.daemon.remote)})
+
+    async def next_track_elsewhere(self, song: Dict[str, Any], *, at_ms: int = 0,
+                                   resolves_after: Optional[float] = 0.02) -> None:
+        """The same device moves on to `song`, not in go-librespot's metadata
+        cache: `remote` with no track, then, `resolves_after` seconds later,
+        with it (None: the resolution never lands, and nothing more is said)."""
+        d = self.daemon
+        d.remote = {**d.remote, "track": None}
+        await self._says({"type": "remote", "data": copy.deepcopy(d.remote)})
+        if resolves_after is None:
+            return
+        await self.advance(resolves_after)
+        d.remote = {**d.remote, "track": {**copy.deepcopy(song), "position": at_ms}}
+        await self._says({"type": "remote", "data": copy.deepcopy(d.remote)})
 
     async def transfer_lands(self) -> None:
         await self.advance(0.25)

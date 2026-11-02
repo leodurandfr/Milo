@@ -348,11 +348,15 @@ class SpotifySource(BaseAudioSource):
     #   remote, and the session opens ~0.25 s later at its first track;
     # - a session arriving, its track not loaded yet (~0.2 s of buffering);
     # - a phone taking the session over: 204 for ~0.3 s while the daemon signs
-    #   in again, then sometimes ~0.15 s naming nothing, then the phone.
+    #   in again, then sometimes ~0.15 s naming nothing, then the phone;
+    # - the device shown moving on to a track not in the daemon's metadata
+    #   cache: /status names it with no track for 19-161 ms (measured
+    #   2026-11-02 on a Mac, 6 tracks of 7), then names the track.
     # Past it the wire follows /status again.
     TAKE_OVER_HOLD = 10.0
     ARRIVAL_HOLD = 5.0
     HANDOVER_HOLD = 3.0
+    NEXT_TRACK_HOLD = 3.0
 
     # POST /player/transfer answers once Spotify accepted the transfer (~30 ms
     # measured), longer than the 3 s every other call is given on a slow link.
@@ -1366,7 +1370,10 @@ class SpotifySource(BaseAudioSource):
         started by what began the handover runs out (TAKE_OVER_HOLD). Whatever
         /status names is taken at once, held or not. A remote is shown once its
         track is named (go-librespot resolves the artists after the cluster
-        names the track).
+        names the track). A remote named with no track while one is shown is
+        its next track resolving: the one shown stands, and only a named track
+        releases the hold, so another event before it (a pause, a seek) does
+        not extend it (NEXT_TRACK_HOLD).
         """
         announced, self._announced_remote = self._announced_remote, None
         if self._session is not None:
@@ -1375,8 +1382,12 @@ class SpotifySource(BaseAudioSource):
             return
         arriving = bool(status and status.buffering and not (status.track and status.track.get("name")))
         named = status.remote if status is not None else None
-        if named:
+        if named and (self._remote is None or (named.get("track") or {}).get("name")):
             self._release_remote_hold()
+        elif named:
+            # The device shown moving on: its next track is being resolved.
+            if not self._remote_held_until:
+                self._hold_remote(self.NEXT_TRACK_HOLD)
         elif announced:
             # A phone taking the session over: go-librespot announced it, then
             # went to sign in again, so /status cannot name it yet.
