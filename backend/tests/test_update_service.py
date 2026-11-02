@@ -17,8 +17,11 @@ sibling files where that migration *is* right say so in their own headers.
 """
 import asyncio
 import copy
+import errno
 import hashlib
 import logging
+import os
+import shutil
 import tarfile
 import tempfile
 import time
@@ -4574,6 +4577,94 @@ class TestTheReleaseInstall:
         assert (dist / "index.html").read_bytes() == b"the previous release"
 
     @pytest.mark.asyncio
+    async def test_frontend_staging_shares_the_filesystem_of_dist(self, update_service, tmp_path):
+        """The swap is a rename only if the release is staged on the filesystem
+        `dist` lives on. Staged in /tmp — a tmpfs on the unit — the move into
+        `dist` was a copy, and a copy that failed halfway left nginx serving a
+        tree of two releases. The path is what is asserted: under pytest
+        tmp_path sits on /tmp too, so a device comparison alone proves nothing.
+
+        A staging directory left by a killed install is gone after the next
+        one, and so is this one's: git does not see it, but the disk does.
+        """
+        body, digest = _frontend_tarball(tmp_path)
+        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+
+        dist = self._point_at(update_service, tmp_path)
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_bytes(b"the previous release")
+        stale = dist.parent / ".dist-staging-stale"
+        (stale / "dist").mkdir(parents=True)
+
+        extracted_into = []
+        with self._extracting(assets, extracted_into):
+            await update_service._install_release_frontend("v0.2.0")
+
+        assert len(extracted_into) == 1, extracted_into
+        dest, device = extracted_into[0]
+        assert dest.is_relative_to(dist.parent), dest
+        assert device == os.stat(dist.parent).st_dev
+        assert (dist / "index.html").read_bytes() == b"<!doctype html>release build"
+        assert not stale.exists()
+        assert not list(dist.parent.glob(".dist-staging-*"))
+
+    @pytest.mark.asyncio
+    async def test_a_failed_frontend_swap_restores_the_previous_frontend(self, update_service, tmp_path):
+        """The disk refuses the new tree as it goes into `dist` (ENOSPC, EIO on
+        the SD card) after the old one has already been moved to the backup.
+        The rollback then checked the previous commit out in front of a
+        partial or missing `dist` — a broken UI announced as "Rolled back" —
+        while the only healthy copy sat in the backup, deleted by the next
+        update. Whichever way the tree is brought in, rename or copy, the
+        previous frontend must be the one served after the failure.
+        """
+        marker = b"<!doctype html>release build"
+        body, digest = _frontend_tarball(tmp_path, marker)
+        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+
+        dist = self._point_at(update_service, tmp_path)
+        (tmp_path / "repo" / ".git").mkdir(parents=True)
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_bytes(b"the previous release")
+
+        def carries_the_release(path):
+            path = Path(path)
+            index = path / "index.html" if path.is_dir() else path
+            return index.is_file() and index.read_bytes() == marker
+
+        real_rename, real_copyfile = os.rename, shutil.copyfile
+
+        def rename(src, dst, *args, **kwargs):
+            if carries_the_release(src):
+                raise OSError(errno.ENOSPC, "No space left on device", str(dst))
+            return real_rename(src, dst, *args, **kwargs)
+
+        def copyfile(src, dst, *args, **kwargs):
+            if carries_the_release(src):
+                raise OSError(errno.ENOSPC, "No space left on device", str(dst))
+            return real_copyfile(src, dst, *args, **kwargs)
+
+        with ExitStack() as stack:
+            stack.enter_context(self._extracting(assets))
+            stack.enter_context(patch("os.rename", new=rename))
+            stack.enter_context(patch("shutil.copyfile", new=copyfile))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(patch.object(update_service, "_install_python_dependencies"))
+            stack.enter_context(patch.object(update_service, "_sync_system_files"))
+            stack.enter_context(patch.object(update_service, "_reconcile_dependencies", return_value=[]))
+            stack.enter_context(patch.object(update_service, "_run_deploy", return_value=(True, "")))
+            stack.enter_context(patch.object(update_service, "_restart_service", return_value=True))
+            stack.enter_context(patch.object(update_service._systemd, "restart_self", new_callable=AsyncMock))
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is False
+        assert "No space left on device" in result["error"]
+        assert (dist / "index.html").read_bytes() == b"the previous release"
+        assert sorted(p.name for p in dist.iterdir()) == ["index.html"]
+
+    @pytest.mark.asyncio
     async def test_a_release_publishing_no_frontend_fails_the_update(self, update_service, tmp_path):
         """A tag pushed without CI, or a build that did not finish. The update
         must stop at the download rather than reboot onto whatever `dist/`
@@ -4581,7 +4672,7 @@ class TestTheReleaseInstall:
         """
         url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
         assets = ReleaseAssets({})
-        self._point_at(update_service, tmp_path)
+        self._point_at(update_service, tmp_path).parent.mkdir(parents=True)
 
         with self._extracting(assets), pytest.raises(Exception, match="HTTP 404"):
             await update_service._install_release_frontend("v0.2.0")
@@ -4658,22 +4749,29 @@ class TestTheReleaseInstall:
 
     @staticmethod
     @contextmanager
-    def _extracting(assets):
+    def _extracting(assets, extracted_into=None):
         """Serve the assets, and let `tar` extract for real, in process.
 
         The archive is a genuine tarball and the extraction is genuine — what
         is stood in for is the spawn, which the file-wide fixture refuses.
+        Each extraction's destination and device land in `extracted_into`; git
+        answers as a clean checkout on commit `abc123def456`.
         """
         async def spawn(program, *args, **kwargs):
             proc = AsyncMock()
             proc.returncode = 0
+            stdout = b""
             if program == "tar":
                 argv = list(args)
                 archive = argv[argv.index("-xzf") + 1]
                 dest = argv[argv.index("-C") + 1]
+                if extracted_into is not None:
+                    extracted_into.append((Path(dest), os.stat(dest).st_dev))
                 with tarfile.open(archive) as tar:
                     tar.extractall(dest, filter="data")
-            proc.communicate = AsyncMock(return_value=(b"", b""))
+            elif program == "git" and "rev-parse" in args:
+                stdout = b"abc123def456\n"
+            proc.communicate = AsyncMock(return_value=(stdout, b""))
             proc.kill = Mock()
             proc.wait = AsyncMock()
             return proc

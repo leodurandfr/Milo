@@ -406,12 +406,23 @@ class UpdateService(VersionService):
         extracts into a tree that is *almost* a frontend, which nginx then
         serves. Raises on every failure, so the caller turns it into a
         rolled-back update.
+
+        The release is staged in `frontend/`, beside `dist`, because only on the
+        same filesystem is the swap two renames. Staged in /tmp — a tmpfs on the
+        unit — the second move became a copy, and a copy that failed halfway
+        left a `dist` mixing both releases while the old one sat in the backup.
+        The swap is all or nothing: if the new tree cannot be renamed in, the
+        old one is put back before this raises. A staging directory left by a
+        process killed mid-install is removed first; git ignores the pattern,
+        so a leftover never reads as a local change to the next update.
         """
         config = self.programs["milo"]
         url = config["frontend_asset_url"].format(tag=tag)
         dist, backup = self._frontend_paths()
 
-        temp_dir = tempfile.mkdtemp(dir="/tmp")
+        for leftover in dist.parent.glob(".dist-staging-*"):
+            await self._cleanup_temp_files(str(leftover))
+        temp_dir = tempfile.mkdtemp(prefix=".dist-staging-", dir=dist.parent)
         try:
             archive = Path(temp_dir) / "frontend.tar.gz"
             await self._download_release_asset(url, archive)
@@ -437,6 +448,7 @@ class UpdateService(VersionService):
             )
             if not success:
                 raise Exception(f"Frontend extraction failed: {output}")
+            archive.unlink()
 
             new_dist = staged / "dist"
             if not (new_dist / "index.html").is_file():
@@ -447,16 +459,26 @@ class UpdateService(VersionService):
             # cannot restore.
             backup.parent.mkdir(parents=True, exist_ok=True)
             shutil.rmtree(backup, ignore_errors=True)
-            if dist.exists():
-                shutil.move(str(dist), str(backup))
-            shutil.move(str(new_dist), str(dist))
+            moved_aside = dist.exists()
+            if moved_aside:
+                os.rename(dist, backup)
+            try:
+                os.rename(new_dist, dist)
+            except OSError:
+                if moved_aside:
+                    try:
+                        self._restore_release_frontend()
+                    except Exception as restore_error:
+                        self.update_logger.error(f"Previous frontend not restored: {restore_error}")
+                raise
             self.update_logger.info(f"Frontend {tag} installed from the release asset")
 
         finally:
             await self._cleanup_temp_files(temp_dir)
 
     def _restore_release_frontend(self) -> None:
-        """Put the backed-up frontend back, for the rollback only."""
+        """Put the backed-up frontend back: for the rollback, and for a swap
+        that could not rename the new one in."""
         dist, backup = self._frontend_paths()
         if not backup.is_dir():
             raise Exception("No frontend backup to restore")

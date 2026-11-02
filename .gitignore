@@ -41,6 +41,7 @@ roc-toolkit/
 # Frontend
 node_modules/
 /frontend/dist/
+/frontend/.dist-staging-*/
 /frontend/node_modules/
 /frontend/coverage/
 .DS_Store
