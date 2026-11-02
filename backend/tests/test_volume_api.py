@@ -283,8 +283,8 @@ class TestZoneVolumeDelta:
     def mock_volume_service(self):
         """Create a mock VolumeService for zone tests."""
         service = MagicMock()
-        # (new average, delta applied): 3 of the 5 asked, every room at the ceiling
-        service.apply_zone_volume_delta = AsyncMock(return_value=(-35.0, 3.0))
+        # (ok, new average, delta applied): 3 of the 5 asked, every room at the ceiling
+        service.apply_zone_volume_delta = AsyncMock(return_value=(True, -35.0, 3.0))
         service.get_volume_state = AsyncMock()
         return service
 
@@ -355,7 +355,7 @@ class TestZoneVolumeDelta:
         Fails if the level is turned into a delta anywhere but the service, or if
         the answer carries anything but the delta the service applied.
         """
-        mock_volume_service.set_zone_volume = AsyncMock(return_value=(-30.0, 5.0))
+        mock_volume_service.set_zone_volume = AsyncMock(return_value=(True, -30.0, 5.0))
 
         response = test_client.patch("/api/volume/zone/zone-uuid-123", json={"volume_db": -30.0})
 
@@ -364,6 +364,27 @@ class TestZoneVolumeDelta:
         assert response.json()["delta_db"] == 5.0
         mock_volume_service.set_zone_volume.assert_awaited_once_with("zone-uuid-123", -30.0)
         mock_volume_service.apply_zone_volume_delta.assert_not_called()
+
+    @pytest.mark.parametrize("body, method", [
+        ({"delta_db": 5.0}, "apply_zone_volume_delta"),
+        ({"volume_db": -30.0}, "set_zone_volume"),
+    ], ids=["delta", "level"])
+    def test_a_zone_move_the_local_speaker_refused_answers_502(
+        self, test_client, mock_volume_service, body, method
+    ):
+        """A zone move the local speaker refused answers 502, like the client route.
+
+        Consumer: Milo-Mac, whose zone call fails on anything but a 200, and the
+        web slider. Fails if the route answers success for a level the local
+        speaker is not playing, where `/adjust` and `/client/mac` answer an
+        error for the same refusal.
+        """
+        setattr(mock_volume_service, method, AsyncMock(return_value=(False, -35.0, 3.0)))
+
+        response = test_client.patch("/api/volume/zone/zone-uuid-123", json=body)
+
+        assert response.status_code == 502
+        assert "recorded but not applied" in response.json()["detail"]
 
     @pytest.mark.parametrize("body", [
         {"delta_db": 5.0, "volume_db": -30.0},

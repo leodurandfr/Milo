@@ -198,6 +198,12 @@ def create_volume_router(
         average the service holds when the request lands, so two sends of one
         position during a drag move the zone once, not twice.
 
+        Same verdict as the client route: a local speaker that refused the
+        level answers 502, the level recorded all the same and re-applied from
+        the store when its CamillaDSP reconnects. The satellites are not
+        awaited — each converges on its own, and one that refuses is reported
+        by the sender.
+
         Args:
             zone_id: Zone identifier (UUID)
             request: `delta_db` or `volume_db`, exactly one
@@ -217,15 +223,25 @@ def create_volume_router(
 
             try:
                 if request.volume_db is not None:
-                    new_average, applied_delta = await volume_service.set_zone_volume(
+                    ok, new_average, applied_delta = await volume_service.set_zone_volume(
                         zone_id, request.volume_db
                     )
                 else:
-                    new_average, applied_delta = await volume_service.apply_zone_volume_delta(
+                    ok, new_average, applied_delta = await volume_service.apply_zone_volume_delta(
                         zone_id, request.delta_db
                     )
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
+
+            if not ok:
+                logger.error(f"Zone {zone_id}: the local speaker did not take the move")
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Volume recorded but not applied: the local speaker refused it, "
+                        "and applies it when its DSP is back"
+                    ),
+                )
 
             applied_to = []
             offline_clients = []

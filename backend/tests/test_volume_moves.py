@@ -642,6 +642,34 @@ async def test_a_move_the_local_speaker_refused_is_still_shown():
     assert event.state["clients"]["sat"]["volume_db"] == -50.0
 
 
+@pytest.mark.parametrize("move", [
+    lambda service: service.apply_zone_volume_delta("z", -6.0),
+    lambda service: service.set_zone_volume("z", -66.0),
+], ids=["delta", "level"])
+@pytest.mark.parametrize("refused", [True, False], ids=["refused", "taken"])
+async def test_a_zone_move_the_local_speaker_refused_reports_failure(move, refused):
+    """A zone move says whether the local speaker took it, and is shown either way.
+
+    Consumer: `PATCH /api/volume/zone/{id}` (Milo-Mac's zone slider, the web
+    one). The zone move dropped the verdict `_move` returns, so the route
+    answered success for a level the local speaker refused, where `/adjust` and
+    `/client/mac` answer an error for the same refusal. The levels are written
+    and the satellites sent theirs all the same, so the state still goes out.
+    """
+    router = Router()
+    if refused:
+        router.answer[LOCAL] = {"status": "error", "message": "refused"}
+    service = make_service({LOCAL: -60.0, "sat": -60.0}, online=[LOCAL, "sat"], router=router)
+    zone(service, [LOCAL, "sat"])
+
+    ok, _, _ = await move(service)
+
+    assert ok is not refused
+    assert level(service, "sat") == -66.0
+    event = service.state_machine.broadcast.await_args_list[-1].args[0]
+    assert event.state["clients"]["sat"]["volume_db"] == -66.0
+
+
 async def test_a_move_landing_during_the_boot_push_is_not_overwritten():
     """The boot push stores before it sends, like every move.
 
@@ -730,7 +758,7 @@ async def test_a_zone_level_is_reached_although_a_room_stops_on_the_way():
                            local=None)
     zone(service, ["a", "b", "c"])
 
-    average, applied = await service.set_zone_volume("z", -70.0)
+    _, average, applied = await service.set_zone_volume("z", -70.0)
 
     assert [level(service, m) for m in "abc"] == [-61.0, -71.0, -78.0]
     assert average == pytest.approx(-70.0)

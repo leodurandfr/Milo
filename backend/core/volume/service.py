@@ -646,20 +646,21 @@ class VolumeService:
         await self.broadcast_volume_state(show_bar=False)
         return refused
 
-    async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> Tuple[float, float]:
-        """Move a whole zone by `delta_db`. Returns (new zone average, delta applied).
+    async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> Tuple[bool, float, float]:
+        """Move a whole zone by `delta_db`. Returns (ok, new zone average, delta applied).
 
         Every member's stored level moves; only the reachable ones are pushed to
         hardware. A member that was away during the adjustment therefore comes
         back at the level its room moved to, not the one it left. An entirely
         offline zone therefore moves too: a delta needs no average. The delta
         applied is the largest move a room made — less than the one asked only
-        when every room met a limit first.
+        when every room met a limit first. `ok` is False only when the local
+        speaker refused, as for every move (`_move`).
         """
         return await self._move_zone(zone_id, lambda levels: delta_db)
 
-    async def set_zone_volume(self, zone_id: str, target_db: float) -> Tuple[float, float]:
-        """Move a zone so its average lands on `target_db`. Returns (average, delta).
+    async def set_zone_volume(self, zone_id: str, target_db: float) -> Tuple[bool, float, float]:
+        """Move a zone so its average lands on `target_db`. Returns (ok, average, delta).
 
         The delta is measured by `_move`, against the average the store holds at
         that moment, and never by the caller: the web slider used to subtract
@@ -677,27 +678,28 @@ class VolumeService:
                                if levels else None)
 
     async def _move_zone(self, zone_id: str,
-                         resolve: Callable[[List[float]], Optional[float]]) -> Tuple[float, float]:
+                         resolve: Callable[[List[float]], Optional[float]]) -> Tuple[bool, float, float]:
         """Move a zone's members by the delta `resolve` derives from their levels.
 
-        Returns (new average, delta applied).
+        Returns (ok, new average, delta applied) — ok is `_move`'s verdict on
+        the local speaker; the state is broadcast whatever it says.
 
         Raises:
             ValueError: unknown zone.
         """
         members = self._state_store.zone_members(zone_id)
         reachable = self._reachable(members)
-        _, delta_db = await self._move(members, reachable, resolve)
+        ok, delta_db = await self._move(members, reachable, resolve)
         new_avg = self._state_store.compute_zone_average(zone_id, self._is_multiroom_enabled())
         if delta_db is None:
-            return new_avg, 0.0
+            return True, new_avg, 0.0
 
         self.logger.debug(
             f"Zone {zone_id} moved {delta_db:+.1f}dB -> {new_avg:.1f}dB "
             f"({len(reachable)}/{len(members)} reachable)"
         )
         await self.broadcast_volume_state(show_bar=False)
-        return new_avg, delta_db
+        return ok, new_avg, delta_db
 
     # ============================================================================
     # SERVICE INITIALIZATION

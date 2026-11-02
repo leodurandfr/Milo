@@ -1002,7 +1002,7 @@ class TestVolumeService:
         self._zone(service, {"a": -40.0, "b": -50.0}, online=["a", "b"])
         self._multiroom(service, online=["a", "b"])
 
-        average, delta = await service.set_zone_volume("z", -30.0)
+        _, average, delta = await service.set_zone_volume("z", -30.0)
         await self._settle()
 
         assert (average, delta) == (-30.0, 15.0)
@@ -1022,7 +1022,7 @@ class TestVolumeService:
         self._multiroom(service, online=["a", "b"], latency=0.01)
 
         await asyncio.gather(service.set_zone_volume("z", -30.0), service.set_zone_volume("z", -30.0))
-        _, repeated = await service.set_zone_volume("z", -30.0)
+        _, _, repeated = await service.set_zone_volume("z", -30.0)
 
         assert repeated == 0.0
         assert service._state_store.get_client_volume("a") == -25.0
@@ -1038,7 +1038,7 @@ class TestVolumeService:
         self._zone(service, {"a": -40.0, "b": -50.0}, online=[])
         self._multiroom(service, online=[])
 
-        _, delta = await service.set_zone_volume("z", -30.0)
+        _, _, delta = await service.set_zone_volume("z", -30.0)
 
         await self._settle()
         assert delta == 0.0

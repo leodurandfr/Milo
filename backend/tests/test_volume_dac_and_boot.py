@@ -1146,7 +1146,7 @@ class TestZoneDelta:
         world(zoned._state_store).zone("zone-1", [], name="Empty")
         zoned._state_store.compute_zone_average = Mock(return_value=-40.0)
 
-        assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == (-40.0, 0.0)
+        assert await zoned.apply_zone_volume_delta("zone-1", +2.0) == (True, -40.0, 0.0)
 
         zoned._equalizer_controller.submit_volume.assert_not_called()
 
