@@ -1079,7 +1079,11 @@ cannot produce — don't build them. The two classes that are real:
 What the transport does *not* cover is a store fed by deltas alone: a
 reconnecting client is handed `initial_state`, not every store's domain. That
 is `App.vue::resyncStores()`, enforced by
-`tests/architecture/resyncStores.test.js`.
+`tests/architecture/resyncStores.test.js` per ref, not per store: every ref an
+App.vue WS handler writes is also written on its store's `resync()` path, or
+sits in the test's `DELTA_ONLY` with the reason it needs no refetch, and a
+handler held by a composable (`useNetwork`) is healed by a `createServerSync`
+entry calling into the same module.
 
 ## Systemd services
 
