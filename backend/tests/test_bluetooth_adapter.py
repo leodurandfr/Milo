@@ -157,7 +157,7 @@ class TestDroppingOnePeer:
 
     @pytest.mark.asyncio
     async def test_a_call_that_never_answers_is_bounded_and_refused(self, monkeypatch):
-        """dbus-next bounds `introspect` and nothing else. Unbounded, a
+        """dbus-next bounds only `introspect`, and at 30 s. Unbounded, a
         bluetoothd that stops answering parks the HTTP request the button made
         AND stops the BlueALSA connect/disconnect feed, which awaits this
         inline. Both `bluetoothctl` spawns this replaced carried a 10 s cap."""
@@ -271,3 +271,130 @@ class TestPropertyTargets:
             (ADAPTER_PATH, ADAPTER_IFACE, "Discoverable"),
             (ADAPTER_PATH, ADAPTER_IFACE, "Pairable"),
         ]
+
+
+class _SilentBluez:
+    """A system bus whose bluetoothd answers everything but one method.
+
+    Stands for the outside world only: the adapter's own `_interface`,
+    `_properties` and `_set_verified` run unchanged over it. `introspect` waits
+    out the `timeout` it is handed, the way dbus-next does, so an adapter that
+    passes none is the one left waiting.
+    """
+
+    PEER = "/org/bluez/hci0/dev_AA"
+
+    def __init__(self, silent=None, *, introspect_silent=False,
+                 managed_objects_error=None):
+        self.silent = silent
+        self.introspect_silent = introspect_silent
+        self.managed_objects_error = managed_objects_error
+        self.introspect_timeouts = []
+        self.stored = {}
+
+    async def _never(self, *args):
+        await asyncio.Event().wait()
+
+    async def introspect(self, service, path, timeout=30.0):
+        self.introspect_timeouts.append(timeout)
+        if self.introspect_silent:
+            await asyncio.wait_for(asyncio.Event().wait(), timeout)
+        return Mock()
+
+    def get_proxy_object(self, service, path, introspection):
+        bluez = self
+
+        async def call_set(iface, name, variant):
+            bluez.stored[(path, name)] = variant.value
+
+        async def call_get(iface, name):
+            return Variant("b", bluez.stored.get((path, name)))
+
+        async def call_get_managed_objects():
+            if bluez.managed_objects_error is not None:
+                raise bluez.managed_objects_error
+            return {bluez.PEER: {DEVICE_IFACE: {
+                "Address": Variant("s", "AA:AA:AA:AA:AA:AA"),
+                "UUIDs": Variant("as", [A2DP_SOURCE_UUID]),
+            }}}
+
+        interface = Mock()
+        interface.call_set = call_set
+        interface.call_get = call_get
+        interface.call_get_managed_objects = call_get_managed_objects
+        if self.silent:
+            setattr(interface, self.silent, self._never)
+        obj = Mock()
+        obj.get_interface = Mock(return_value=interface)
+        return obj
+
+    def adapter(self):
+        adapter = BluetoothAdapter()
+        adapter._connect = AsyncMock(return_value=self)
+        return adapter
+
+
+# What each write reaches: GetManagedObjects is only on the peer sweep's path.
+_EXPOSURE_WRITES = {
+    "set_exposure": lambda a: a.set_exposure(True, True),
+    "power_on": lambda a: a.power_on(),
+    "set_audio_peers_blocked": lambda a: a.set_audio_peers_blocked(True),
+}
+_REACHED_BY = {
+    "call_set": tuple(_EXPOSURE_WRITES),
+    "call_get": tuple(_EXPOSURE_WRITES),
+    "call_get_managed_objects": ("set_audio_peers_blocked",),
+}
+
+
+class TestEveryCallIsBounded:
+    """The module promises every call is bounded by DBUS_CALL_TIMEOUT.
+
+    Unbounded, a bluetoothd that answers Introspect and then stays silent parks
+    `_apply_exposure` inside the source's STOP: nothing preempts a STOP, so
+    BlueALSA is never stopped and the next Bluetooth selection waits behind it
+    until the backend restarts. The outer `wait_for` makes a regression fail
+    here instead of hanging the suite.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("silent", sorted(_REACHED_BY))
+    async def test_every_exposure_call_is_bounded(self, monkeypatch, silent):
+        monkeypatch.setattr(adapter_module, "DBUS_CALL_TIMEOUT", 0.01)
+
+        for write in _REACHED_BY[silent]:
+            adapter = _SilentBluez(silent).adapter()
+            assert await asyncio.wait_for(_EXPOSURE_WRITES[write](adapter), 1.0) is False, write
+
+    @pytest.mark.asyncio
+    async def test_the_same_bus_answering_is_a_success(self):
+        """The counter-case of the one above: the fake is not failing on its own."""
+        for write, call in _EXPOSURE_WRITES.items():
+            assert await asyncio.wait_for(call(_SilentBluez().adapter()), 1.0) is True, write
+
+    @pytest.mark.asyncio
+    async def test_an_introspect_that_never_answers_is_bounded_by_the_module(self, monkeypatch):
+        """dbus-next's own default is 30 s, twice TEARDOWN_GRACE."""
+        monkeypatch.setattr(adapter_module, "DBUS_CALL_TIMEOUT", 0.01)
+        bluez = _SilentBluez(introspect_silent=True)
+
+        for write, call in _EXPOSURE_WRITES.items():
+            assert await asyncio.wait_for(call(bluez.adapter()), 1.0) is False, write
+
+        assert bluez.introspect_timeouts
+        assert set(bluez.introspect_timeouts) == {adapter_module.DBUS_CALL_TIMEOUT}
+
+
+class TestPeerListFailure:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("error", [
+        DBusError("org.freedesktop.DBus.Error.ServiceUnknown", "bluetoothd went away"),
+        asyncio.TimeoutError(),
+    ], ids=["service-unknown", "timeout"])
+    async def test_a_peer_list_bluez_will_not_give_is_not_an_applied_exposure(self, error):
+        """A failed enumeration is not "no known sender": reported as applied,
+        the source logs "Bluetooth exposure: closed" with no Blocked written,
+        and a new bluetoothd raises no banner while paired phones can dial in."""
+        for blocked in (True, False):
+            adapter = _SilentBluez(managed_objects_error=error).adapter()
+            assert await adapter.set_audio_peers_blocked(blocked) is False, blocked

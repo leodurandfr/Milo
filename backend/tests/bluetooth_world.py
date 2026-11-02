@@ -568,7 +568,7 @@ class FakeSystemBus:
     def unexport(self, path: str) -> None:
         pass
 
-    async def introspect(self, service: str, path: str) -> str:
+    async def introspect(self, service: str, path: str, timeout: float = 30.0) -> str:
         if not self._world.bluez_up:
             raise RuntimeError("org.freedesktop.DBus.Error.ServiceUnknown")
         return path

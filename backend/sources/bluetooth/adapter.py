@@ -42,12 +42,14 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 # is what keeps it out of every block sweep below.
 A2DP_SOURCE_UUID = "0000110a-0000-1000-8000-00805f9b34fb"
 
-# Every call below is bounded by it. dbus-next bounds `introspect` and
-# nothing else, so an unanswering bluetoothd would park the HTTP request the
-# Disconnect button made *and*, because the BlueALSA monitor awaits its
-# connected-callback inline, stop the connect/disconnect feed for good. The
-# two `bluetoothctl` spawns this replaced each carried their own 10 s cap;
-# losing it was the one thing the move to D-Bus must not cost.
+# Every call below is bounded by it, Introspect included (dbus-next's own
+# default there is 30 s, and it bounds nothing else). Unbounded, a bluetoothd
+# that stops answering would park the HTTP request the Disconnect button made,
+# stop the BlueALSA connect/disconnect feed for good (the monitor awaits its
+# connected-callback inline), and hold the source's STOP inside the exposure
+# write, which nothing preempts. The two `bluetoothctl` spawns this replaced
+# each carried their own 10 s cap; losing it was the one thing the move to
+# D-Bus must not cost. Read at call time, never bound as a default argument.
 DBUS_CALL_TIMEOUT = 10.0
 
 
@@ -74,7 +76,7 @@ class BluetoothAdapter:
     async def _interface(self, path: str, name: str):
         """Get one interface of a BlueZ object."""
         bus = await self._connect()
-        introspection = await bus.introspect("org.bluez", path)
+        introspection = await bus.introspect("org.bluez", path, timeout=DBUS_CALL_TIMEOUT)
         obj = bus.get_proxy_object("org.bluez", path, introspection)
         return obj.get_interface(name)
 
@@ -91,9 +93,16 @@ class BluetoothAdapter:
         overriding the request) is exactly what the bluetoothctl script could
         not tell from success.
         """
-        props = await self._properties(path)
-        await props.call_set(iface, name, variant)
-        actual = await props.call_get(iface, name)
+        try:
+            props = await self._properties(path)
+            await asyncio.wait_for(props.call_set(iface, name, variant), DBUS_CALL_TIMEOUT)
+            actual = await asyncio.wait_for(props.call_get(iface, name), DBUS_CALL_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._logger.warning(
+                f"Bluetooth adapter did not answer {name}={expected} on {path} "
+                f"within {DBUS_CALL_TIMEOUT} s"
+            )
+            return False
         if actual.value != expected:
             self._logger.error(
                 f"Bluetooth adapter refused {name}={expected} on {path} "
@@ -174,18 +183,27 @@ class BluetoothAdapter:
             return False
         return True
 
-    @handle_errors(default={})
-    async def audio_peers(self) -> Dict[str, str]:
+    async def audio_peers(self) -> Optional[Dict[str, str]]:
         """Known devices that can send audio, as {object path: address}.
 
         Filtered on the A2DP Source UUID rather than on "is it paired": the
         blocking below must reach a sender and must never reach the HID remote.
+
+        None when BlueZ would not list them — never `{}`, which is the answer
+        "no sender is known" and would let a sweep that reached nobody report
+        itself applied.
         """
-        bus = await self._connect()
-        introspection = await bus.introspect("org.bluez", "/")
-        obj = bus.get_proxy_object("org.bluez", "/", introspection)
-        manager = obj.get_interface("org.freedesktop.DBus.ObjectManager")
-        objects = await manager.call_get_managed_objects()
+        try:
+            manager = await self._interface("/", "org.freedesktop.DBus.ObjectManager")
+            objects = await asyncio.wait_for(
+                manager.call_get_managed_objects(), DBUS_CALL_TIMEOUT
+            )
+        except Exception as e:
+            # Broad on purpose: a bus that cannot connect (a dev host) raises
+            # whatever dbus-next's transport raises, and every failure here
+            # means the same thing — nobody was listed.
+            self._logger.warning(f"Bluetooth peers could not be listed: {e!r}")
+            return None
 
         peers = {}
         for path, interfaces in objects.items():
@@ -215,6 +233,13 @@ class BluetoothAdapter:
             True if every peer reached the target state.
         """
         peers = await self.audio_peers()
+        if peers is None:
+            verb = "blocked" if blocked else "unblocked"
+            self._logger.error(
+                f"Bluetooth peers not {verb}: they could not be listed — "
+                f"none of them was reached"
+            )
+            return False
         if not peers:
             return True
 
@@ -227,7 +252,7 @@ class BluetoothAdapter:
                                                 Variant("b", blocked), blocked):
                     failed.append(address)
             except Exception as e:
-                self._logger.error(f"Failed to set Blocked={blocked} on {address}: {e}")
+                self._logger.error(f"Failed to set Blocked={blocked} on {address}: {e!r}")
                 failed.append(address)
 
         if failed:
