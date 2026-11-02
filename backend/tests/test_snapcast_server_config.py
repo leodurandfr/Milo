@@ -796,24 +796,59 @@ class TestReadingTheClientList:
 
         assert parsed == []
 
-    def test_a_disconnected_entry_is_dropped_before_it_can_cost_the_whole_list(
-        self, service
+    def test_an_entry_that_is_not_live_is_dropped_before_its_identity_is_read(
+        self, service, caplog
     ):
-        """The early `continue` is not redundant with the freshness rule below it.
-
-        `compute_mac_id` raises for an entry announcing no usable id, and this
-        parse has no catch of its own — the failure surfaces as `get_clients`'
-        fail-open [], i.e. as "every speaker vanished". Skipping a disconnected
-        entry before the identity is computed is what keeps one stale record in
-        snapserver from emptying the room list of the clients that are playing.
+        """An entry announcing no usable id is skipped with a warning — only once
+        it is known live. A disconnected entry is a record server.json keeps
+        forever, and a stale `connected` one is a client that vanished without a
+        TCP FIN, which snapserver never lets go of: reading their identity first
+        would write that warning on every 30 s sweep, for a client that is not
+        even there.
         """
-        parsed = service._parse_clients(self._status([
-            self._entry(client_id="", name="Ghost", ip="192.168.1.99", connected=False),
-            self._entry(client_id="aa:bb:cc:dd:ee:01", name="Canapé", ip="192.168.1.153",
-                        age=1.0),
-        ]))
+        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.snapcast"):
+            parsed = service._parse_clients(self._status([
+                self._entry(client_id="", name="Ghost", ip="192.168.1.99", connected=False),
+                self._entry(client_id="00:00:00:00:00:00", name="", ip="192.168.1.98",
+                            age=service.LAST_SEEN_FRESHNESS_S + 5),
+                self._entry(client_id="aa:bb:cc:dd:ee:01", name="Canapé", ip="192.168.1.153",
+                            age=1.0),
+            ]))
 
         assert [c["mac_id"] for c in parsed] == ["aa:bb:cc:dd:ee:01"]
+        assert not [r.getMessage() for r in caplog.records]
+
+    def test_a_connected_entry_with_no_usable_id_is_skipped_not_fatal(self, service, caplog):
+        """A snapclient started without Milō's `--hostID` announces the zero id,
+        which `compute_mac_id` refuses. Every caller reads this list as the whole
+        fleet, so a refusal that escaped the parse took every speaker offline at
+        once — the one entry is what has to go, and it is named."""
+        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.snapcast"):
+            parsed = service._parse_clients(self._status([
+                self._entry(client_id="00:00:00:00:00:00", name="", ip="192.168.1.99"),
+                self._entry(client_id="aa:bb:cc:dd:ee:01", name="Canapé", ip="192.168.1.153",
+                            age=1.0),
+            ]))
+
+        assert [c["mac_id"] for c in parsed] == ["aa:bb:cc:dd:ee:01"]
+        assert any("192.168.1.99" in r.getMessage() for r in caplog.records
+                   if r.levelno == logging.WARNING)
+
+    def test_a_local_entry_whose_mac_cannot_be_read_fails_the_whole_parse(
+        self, service, monkeypatch
+    ):
+        """The skip is for a remote entry only. Skipping the loopback client
+        would read as this appliance's own speaker leaving, and take it offline
+        on every pass for as long as /sys cannot be read; failing the parse
+        leaves every caller's pass undone instead, with nobody moved."""
+        monkeypatch.setattr("backend.core.multiroom.identity.get_local_mac", lambda: None)
+
+        with pytest.raises(RuntimeError):
+            service._parse_clients(self._status([
+                self._entry(client_id="aa:bb:cc:dd:ee:99", name="Milō", ip="127.0.0.1"),
+                self._entry(client_id="aa:bb:cc:dd:ee:01", name="Canapé", ip="192.168.1.153",
+                            age=1.0),
+            ]))
 
     def test_snapservers_own_web_client_is_not_a_speaker(self, service):
         """snapweb registers as a client whenever it is opened — from anywhere

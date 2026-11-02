@@ -22,12 +22,15 @@ on loopback only (`[http]` in `/etc/snapserver.conf`, rewritten at each start),
 so that client runs on the unit; until the bind moved there it was anyone on
 the LAN, through snapweb.
 """
+import asyncio
 import json
 import logging
+import aiohttp
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from backend.tests.conftest import drain_background_tasks
+from backend.tests.snapserver_world import BUREAU, CANAPE, CLIENT_IPS, FakeSnapserver
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -71,8 +74,8 @@ def snapcast():
     service = MagicMock(spec=SnapcastService)
     service.set_volume = AsyncMock(return_value=True)
     service.set_latency = AsyncMock(return_value=True)
-    service.get_clients = AsyncMock(return_value=[])
     service.get_server_status = AsyncMock(return_value={"server": {"groups": []}})
+    service.extract_clients = MagicMock(return_value=[])
     return service
 
 
@@ -91,8 +94,7 @@ def volume_service():
     return service
 
 
-@pytest.fixture
-def ws_service(registry, snapcast, volume_service, no_satellite_network):
+def _service_on(snapcast, registry, volume_service):
     state_machine = MagicMock()
     state_machine.broadcast = AsyncMock()
     service = SnapcastWebSocketService(
@@ -103,6 +105,38 @@ def ws_service(registry, snapcast, volume_service, no_satellite_network):
     service.set_registry(registry)
     service._volume_service = volume_service
     return service
+
+
+@pytest.fixture
+def ws_service(registry, snapcast, volume_service, no_satellite_network):
+    return _service_on(snapcast, registry, volume_service)
+
+
+@pytest.fixture
+def on_snapserver(registry, volume_service, no_satellite_network, monkeypatch):
+    """The service on the real SnapcastService, answered by a given fake snapserver.
+
+    Taken after `no_satellite_network`, which replaces `aiohttp.ClientSession`:
+    snapserver's URL is answered by the fake, every other request by that
+    stand-in — so a request that missed the fake would read as an empty status.
+    """
+    def wire(fake):
+        snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
+        monkeypatch.setattr(
+            aiohttp, "ClientSession",
+            fake.client_session(snapcast.base_url, aiohttp.ClientSession),
+        )
+        return _service_on(snapcast, registry, volume_service)
+
+    return wire
+
+
+def _offline_broadcasts(service):
+    return [
+        event.mac_id for call in service.state_machine.broadcast.await_args_list
+        for event in call.args
+        if getattr(event, "client", None) and event.client.get("online") is False
+    ]
 
 
 class TestNotificationDispatch:
@@ -165,15 +199,18 @@ class TestNotificationDispatch:
     async def test_a_server_update_frame_takes_a_vanished_client_offline(
         self, ws_service, registry, snapcast
     ):
-        """`Server.OnUpdate` is the sweep path: absence from the list is departure."""
+        """`Server.OnUpdate` is the sweep path: absence from a status that was
+        read is departure."""
         await registry.register_client(MAC, "Kitchen", IP, host=HOST)
         await registry.set_client_online(MAC, True)
-        snapcast.get_clients = AsyncMock(return_value=[])
 
         await ws_service._handle_message(_frame("Server.OnUpdate", {}))
         await drain_background_tasks()
 
-        snapcast.get_clients.assert_awaited_once()
+        snapcast.get_server_status.assert_awaited_once()
+        snapcast.extract_clients.assert_called_once_with(
+            snapcast.get_server_status.return_value
+        )
         assert registry.get_client(MAC).online is False
 
     async def test_a_volume_frame_is_left_to_the_volume_path(self, ws_service, registry, caplog):
@@ -264,6 +301,77 @@ class TestNotificationDispatch:
         await drain_background_tasks()
 
         assert registry.get_client(MAC) is not None
+
+
+class TestAServerUpdateOnAStatusItCouldNotRead:
+    """`Server.OnUpdate` against the real SnapcastService and a fake snapserver.
+
+    It fires on any change in snapserver (a client added, a group, a stream or a
+    name moved), and what it reconciles against is a Server.GetStatus of its own
+    — the one read that can fail while the speakers play on.
+    """
+
+    async def test_a_server_update_whose_status_rpc_fails_takes_nobody_offline(
+        self, on_snapserver, registry, caplog
+    ):
+        """A Server.GetStatus that times out says nothing about who is there.
+
+        Measured: 29 of them in errors.log between 2026-09-17 and 2026-10-09, on a
+        loaded Pi. Read as an empty client list, the first Server.OnUpdate after
+        one took Canapé, Bureau and the local speaker offline on every screen,
+        Milo-Mac and the iOS widget included, while they kept playing — and a
+        volume move made meanwhile was stored and never sent — until the next
+        sweep. And the request failure was logged at ERROR: a UI banner.
+        """
+        fake = FakeSnapserver(clients={CANAPE: CLIENT_IPS[CANAPE], BUREAU: CLIENT_IPS[BUREAU]})
+
+        def time_out(method, params):
+            if method == "Server.GetStatus":
+                raise asyncio.TimeoutError
+
+        fake.on_request = time_out
+        service = on_snapserver(fake)
+        for mac_id in (CANAPE, BUREAU):
+            await registry.register_client(mac_id, mac_id, CLIENT_IPS[mac_id], host="milo-client")
+            await registry.set_client_online(mac_id, True)
+        service.state_machine.broadcast.reset_mock()
+
+        with caplog.at_level(logging.WARNING):
+            await service._handle_message(_frame("Server.OnUpdate", {}))
+            await drain_background_tasks()
+
+        assert ("rpc", "Server.GetStatus", {}) in fake.journal, "the status was never asked for"
+        assert [registry.get_client(m).online for m in (CANAPE, BUREAU)] == [True, True]
+        assert _offline_broadcasts(service) == []
+        assert not [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+    async def test_one_unparseable_status_entry_does_not_take_the_fleet_offline(
+        self, on_snapserver, registry
+    ):
+        """One connected entry with no usable id costs that entry, not the list.
+
+        snapserver lists whatever connected to it, and a snapclient started
+        without Milō's `--hostID` announces 00:00:00:00:00:00. `compute_mac_id`
+        refuses that id, and the refusal used to empty the whole parse: every
+        speaker went offline, and a satellite arriving in the same update was
+        never admitted.
+        """
+        fake = FakeSnapserver(clients={
+            CANAPE: CLIENT_IPS[CANAPE],
+            "00:00:00:00:00:00": "192.168.1.99",
+            BUREAU: CLIENT_IPS[BUREAU],
+        })
+        service = on_snapserver(fake)
+        await registry.register_client(CANAPE, "Canapé", CLIENT_IPS[CANAPE], host="milo-client")
+        await registry.set_client_online(CANAPE, True)
+        service.state_machine.broadcast.reset_mock()
+
+        await service._handle_message(_frame("Server.OnUpdate", {}))
+        await drain_background_tasks()
+
+        assert registry.get_client(CANAPE).online is True
+        assert CANAPE not in _offline_broadcasts(service)
+        assert registry.get_client(BUREAU) is not None, "the satellite that arrived was not admitted"
 
 
 class TestOutboundRequests:

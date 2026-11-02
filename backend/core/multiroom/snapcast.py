@@ -231,10 +231,10 @@ class SnapcastService:
     async def get_clients(self) -> List[Dict[str, Any]]:
         """Get clients with MAC-based deduplication and availability detection.
 
-        Fail-open: flattens a request failure to []. Callers that would read an
-        empty list as "every client vanished" must fetch the status themselves
-        and use ``extract_clients`` instead — see the reconcile sweep in
-        SnapcastWebSocketService.
+        Fail-open: flattens a request failure to []. Its one caller is the
+        diagnostic, which only lists. Callers that would read an empty list as
+        "every client vanished" — every path in SnapcastWebSocketService — fetch
+        the status themselves and use ``extract_clients`` instead.
         """
         status = await self._request("Server.GetStatus")
         return self.extract_clients(status)
@@ -274,8 +274,6 @@ class SnapcastService:
                     self.logger.warning(f"Skipping stale local client id={client_id}")
                     continue
 
-                mac_id = compute_mac_id(host, ip, client_id)
-
                 # Calculate online status based on lastSeen timestamp
                 last_seen_data = client_data.get("lastSeen", {})
                 last_seen_sec = last_seen_data.get("sec", 0)
@@ -293,6 +291,17 @@ class SnapcastService:
                 if not is_online:
                     continue
 
+                # A remote entry with no usable id costs itself, not the list:
+                # every caller reads the list as the whole fleet. Read only once
+                # the entry is live, so a gone one is not named on every pass.
+                # The local client's unreadable MAC (RuntimeError) still fails
+                # the parse: skipping it would take this unit's own speaker offline.
+                try:
+                    mac_id = compute_mac_id(host, ip, client_id)
+                except ValueError as e:
+                    self.logger.warning(f"Skipping client id={client_id!r}: {e}")
+                    continue
+
                 raw_clients.append({
                     "id": client_data["id"],
                     "name": name,
@@ -308,9 +317,11 @@ class SnapcastService:
     def extract_clients(self, status: dict) -> List[Dict[str, Any]]:
         """Extract online clients from a server status already fetched by the caller.
 
-        Public because the reconcile sweep must be able to tell "the RPC failed"
-        from "no client is connected": it guards on an empty status of its own
-        and only then parses, which ``get_clients``' fail-open [] cannot express.
+        Public because SnapcastWebSocketService must be able to tell "the RPC
+        failed" from "no client is connected": the connect sweep, and the
+        reconcile the 30 s sweep and Server.OnUpdate share, guard on an empty
+        status first and only then parse, which ``get_clients``' fail-open []
+        cannot express.
         """
         return self._parse_clients(status)
 

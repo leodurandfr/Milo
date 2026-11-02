@@ -68,7 +68,6 @@ def snapcast():
     service = MagicMock(spec=SnapcastService)
     service.set_volume = AsyncMock(return_value=True)
     service.set_latency = AsyncMock(return_value=True)
-    service.get_clients = AsyncMock(return_value=[])
     service.get_server_status = AsyncMock(return_value={"server": {"groups": []}})
     service.extract_clients = MagicMock(return_value=[])
     service.group_of = MagicMock(return_value={
@@ -1125,17 +1124,26 @@ class TestTheRemainingAdmissionArms:
         assert any("not available for online status" in r.message for r in caplog.records)
 
     async def test_a_server_update_that_fails_does_not_escape_the_message_loop(
-        self, service, snapcast, caplog
+        self, service, snapcast, registry, caplog
     ):
         """It is awaited from `_handle_notification`, inside the frame loop. An
         exception here is caught two levels up by `_handle_message`, which logs
-        without naming the notification — this arm is what says which one."""
-        snapcast.get_clients = AsyncMock(side_effect=RuntimeError("rpc broke"))
+        without naming the notification — this arm is what says which one.
+
+        The parse raises for real when the local client's MAC cannot be read,
+        and a pass that could not parse moves nobody: the client list it would
+        have reconciled against does not exist."""
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        await registry.set_client_online(MAC, True)
+        snapcast.extract_clients = MagicMock(
+            side_effect=RuntimeError("Cannot determine local MAC address")
+        )
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.websocket"):
             await service._handle_server_update({})
 
         assert any("Error handling Server.OnUpdate" in r.message for r in caplog.records)
+        assert registry.get_client(MAC).online is True
 
     async def test_a_connection_that_fails_for_any_other_reason_is_an_error(
         self, service, monkeypatch, caplog

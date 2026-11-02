@@ -484,13 +484,26 @@ class SnapcastWebSocketService:
                 self.logger.warning("SnapcastService not available for online status detection")
                 return
 
-            self.logger.debug("SERVER_UPDATE: Fetching client list from Snapcast...")
-            all_clients = await self._snapcast_service.get_clients()
-            self.logger.debug(f"SERVER_UPDATE: Got {len(all_clients)} clients from Snapcast")
-            await self._reconcile_clients(all_clients)
+            await self._reconcile_with_server_status("SERVER_UPDATE")
 
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
+
+    async def _reconcile_with_server_status(self, label: str) -> None:
+        """Reconcile the registry against a Server.GetStatus read now, or not at all.
+
+        Never through get_clients(): that call flattens an RPC failure to [],
+        which ``_reconcile_clients`` would read as "every client disconnected"
+        and act on. A timeout on a loaded Pi took the whole fleet offline that way.
+        """
+        status = await self._snapcast_service.get_server_status()
+        if not status:
+            self.logger.debug(f"{label}: no server status — skipping this pass")
+            return
+
+        all_clients = self._snapcast_service.extract_clients(status)
+        self.logger.debug(f"{label}: Got {len(all_clients)} clients from Snapcast")
+        await self._reconcile_clients(all_clients)
 
     async def _reconcile_clients(self, all_clients: list) -> None:
         """Align the registry with a Snapcast client list (the authority on liveness)."""
@@ -520,15 +533,7 @@ class SnapcastWebSocketService:
                 if not self.connected or not self._snapcast_service or not self.registry:
                     continue
 
-                # Fetch the status here rather than via get_clients(): that call
-                # flattens an RPC failure to [], which this loop would read as
-                # "every client disconnected" and act on.
-                status = await self._snapcast_service.get_server_status()
-                if not status:
-                    self.logger.debug("RECONCILE: no server status — skipping this pass")
-                    continue
-
-                await self._reconcile_clients(self._snapcast_service.extract_clients(status))
+                await self._reconcile_with_server_status("RECONCILE")
             except asyncio.CancelledError:
                 raise
             except Exception as e:
