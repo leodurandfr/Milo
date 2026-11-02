@@ -346,6 +346,7 @@ makes this silent.
 |---|---|---|
 | Rotary knob | Turn changes volume; press acts as play/pause | smoke ⚠ |
 | IR remote ⚠ | Pairing detects the remote within the countdown; volume, play/pause, next/prev act on the current source; Menu switches source in dock order, double-press stops, hold turns the screen off | targeted |
+| IR remote during a load ⚠ | Every room at -62 dB or below. Start a podcast episode that is in no local cache (a load of 2 s or more), and during the load press VOL+ five times: CamillaDSP's volume, polled every 50 ms, climbs in five 2 dB steps spread over the presses, not one jump when the episode starts. During a second load, hold Menu for 1 s: the screen goes off and `GET /api/audio/state` reads `source: none`, not the next dock source. Before, the listener waited for the play/next/prev command and read no key until the source answered | targeted |
 | IR identity ⚠ | A *different* Apple Remote in the room does not control the unit | targeted |
 | BT remote ⚠ | Pairs, shows battery level, buttons act; unpair forgets it | targeted |
 | BT remote lost ⚠ | **Switch a paired, connected remote off.** Settings > BT remote returns to disconnected on its own, with no reload. The panel writes `connected` optimistically and has no other route back to the truth, so only the scan's own broadcast can correct it | targeted |

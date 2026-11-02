@@ -364,6 +364,23 @@ def _fake_input_device(events=(), name=GPIO_IR_DEVICE_NAME):
     return device
 
 
+def _fed_input_device(feed, name=GPIO_IR_DEVICE_NAME):
+    """An evdev.InputDevice stand-in the test feeds live through `feed`.
+
+    Its read loop never ends, as the kernel device's does not, so what the
+    test puts in arrives while earlier presses are still being acted on.
+    """
+    device = MagicMock()
+    device.name = name
+
+    async def _loop():
+        while True:
+            yield await feed.get()
+
+    device.async_read_loop = _loop
+    return device
+
+
 async def _drain_volume(controller):
     """Let VolumeAccumulator's processor task apply what it batched.
 
@@ -478,6 +495,25 @@ class TestRuntimeListenerLifecycle:
             await controller._stop_runtime_listener()
 
     @pytest.mark.asyncio
+    async def test_restarting_after_the_reader_ended_leaves_one_transport_worker(self):
+        """A reader that ends on its own (OSError) leaves its worker running;
+        a second worker beside it would play every transport key twice."""
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fake_input_device()):
+            await controller._start_runtime_listener()
+            assert await _until(controller._runtime_task.done)
+            first_worker = controller._transport_task
+
+            await controller._start_runtime_listener()
+            try:
+                assert first_worker.done()
+                assert controller._transport_task is not first_worker
+            finally:
+                await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
     async def test_stop_cancels_the_task_and_clears_it(self):
         controller = _runtime_controller()
         started = asyncio.Event()
@@ -501,7 +537,7 @@ class TestRuntimeListenerLifecycle:
         controller = _runtime_controller()
         controller._device_path = "/dev/input/event1"
         with patch("evdev.InputDevice", side_effect=OSError(16, "Device busy")):
-            await controller._runtime_loop()  # must not raise
+            await controller._runtime_loop(asyncio.Queue(maxsize=1))  # must not raise
 
 
 class TestRuntimeEventFilter:
@@ -512,31 +548,61 @@ class TestRuntimeEventFilter:
     or strands the MENU hold gesture.
     """
 
-    @pytest.mark.asyncio
-    async def _drive(self, controller, events):
-        controller._device_path = "/dev/input/event1"
-        with patch("evdev.InputDevice",
+    async def _drive(self, controller, events, until=None):
+        """Replay `events` through the listener, then stop it.
+
+        The transport keys run on the listener's worker, so `until` names
+        what to wait for before stopping.
+        """
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice",
                    return_value=_fake_input_device(events)):
-            await controller._runtime_loop()
+            await controller._start_runtime_listener()
+            reader = controller._runtime_task
+            try:
+                assert await _until(reader.done)
+                if until is not None:
+                    assert await _until(until)
+            finally:
+                await controller._stop_runtime_listener()
 
     @pytest.mark.asyncio
     async def test_a_key_down_on_play_pause_reaches_the_active_source(self):
         controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
+        command = controller.source_instance.command
         await self._drive(controller, [
             _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1),
-        ])
-        controller.source_instance.command.assert_awaited_once_with("playpause", {})
+        ], until=lambda: command.await_count == 1)
+        command.assert_awaited_once_with("playpause", {})
 
     @pytest.mark.asyncio
     async def test_autorepeat_on_play_pause_is_dropped(self):
-        """value=2 is the kernel autorepeat: holding Center must not re-fire."""
+        """value=2 is the kernel autorepeat: holding Center must not re-fire.
+
+        NEXT follows the autorepeat as a marker: the worker plays keys in
+        order through one slot, so an autorepeat let through runs before it,
+        or fills the slot and drops it — either way the list below differs.
+        """
         controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
-        await self._drive(controller, [
-            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1),
-            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 2),
-            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 2),
-        ])
-        controller.source_instance.command.assert_awaited_once_with("playpause", {})
+        command = controller.source_instance.command
+        feed = asyncio.Queue()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fed_input_device(feed)):
+            await controller._start_runtime_listener()
+            try:
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1))
+                assert await _until(lambda: command.await_count == 1)
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 2))
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_NEXTSONG, 1))
+                assert await _until(lambda: command.await_count >= 2)
+            finally:
+                await controller._stop_runtime_listener()
+
+        assert [call.args for call in command.await_args_list] == [
+            ("playpause", {}), ("next", {}),
+        ]
 
     @pytest.mark.asyncio
     async def test_autorepeat_on_volume_accumulates(self):
@@ -594,6 +660,84 @@ class TestRuntimeEventFilter:
         ])
         controller.source_instance.command.assert_not_awaited()
         assert controller._menu_click_count == 0
+
+    @staticmethod
+    def _with_a_command_that_hangs(controller):
+        """`source.command()` answers only once its handler ends — a podcast
+        resume, a START lease or a multiroom reroute can hold it for seconds.
+        Returns the event that lets it answer."""
+        released = asyncio.Event()
+
+        async def _until_released(*_args):
+            await released.wait()
+
+        controller.source_instance.command = AsyncMock(side_effect=_until_released)
+        return released
+
+    @pytest.mark.asyncio
+    async def test_volume_keys_apply_while_a_transport_command_is_pending(self):
+        """A listener that waits for the source stops reading the fd: VOL+
+        pressed during a load did nothing, then landed as one +10 dB jump."""
+        controller = _runtime_controller(
+            active_source=AudioSource.SPOTIFY, step_db=2.0
+        )
+        released = self._with_a_command_that_hangs(controller)
+        feed = asyncio.Queue()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fed_input_device(feed)):
+            await controller._start_runtime_listener()
+            try:
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1))
+                assert await _until(
+                    lambda: controller.source_instance.command.await_count == 1
+                )
+                for _ in range(5):
+                    feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_VOLUMEUP, 1))
+                    await _drain_volume(controller)
+
+                assert [
+                    call.args
+                    for call in controller.volume_service.adjust_volume_db.await_args_list
+                ] == [(2.0,)] * 5
+            finally:
+                released.set()
+                await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
+    async def test_menu_hold_during_a_pending_command_reads_as_hold(self):
+        """Read late, a press and its release land in the same loop turn, so
+        the resolver saw MENU already up and cycled the source instead of
+        putting the unit to sleep."""
+        controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
+        released = self._with_a_command_that_hangs(controller)
+        feed = asyncio.Queue()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fed_input_device(feed)), \
+             patch("backend.hardware.ir_remote.MENU_CLICK_WINDOW", 0.01):
+            await controller._start_runtime_listener()
+            try:
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1))
+                assert await _until(
+                    lambda: controller.source_instance.command.await_count == 1
+                )
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_HOMEPAGE, 1))
+                assert await _until(
+                    lambda: controller.screen_controller.force_sleep.await_count == 1
+                )
+                feed.put_nowait(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_HOMEPAGE, 0))
+                assert await _until(
+                    lambda: controller.state_machine.transition_to_source.await_count == 1
+                )
+
+                controller.screen_controller.force_sleep.assert_awaited_once()
+                controller.state_machine.transition_to_source.assert_awaited_once_with(
+                    AudioSource.NONE
+                )
+            finally:
+                released.set()
+                await controller._stop_runtime_listener()
 
 
 class TestHandleKeycode:
@@ -1030,12 +1174,16 @@ class TestLifecycle:
                    return_value=_pairing_device()):
             await controller._start_runtime_listener()
             task = controller._runtime_task
+            worker = controller._transport_task
             assert task is not None
+            assert worker is not None
 
             await controller.cleanup()
 
         assert controller._runtime_task is None
         assert task.done()
+        assert controller._transport_task is None
+        assert worker.done()
 
 
 class TestTheRuntimeLoopEndsQuietly:
@@ -1072,7 +1220,7 @@ class TestTheRuntimeLoopEndsQuietly:
 
         with caplog.at_level(logging.WARNING), \
                 patch("evdev.InputDevice", return_value=device):
-            await controller._runtime_loop()
+            await controller._runtime_loop(asyncio.Queue(maxsize=1))
 
         assert "IR device read failed" in caplog.text
         device.close.assert_called_once()
@@ -1083,7 +1231,7 @@ class TestTheRuntimeLoopEndsQuietly:
 
         with caplog.at_level(logging.ERROR), \
                 patch("evdev.InputDevice", return_value=device):
-            await controller._runtime_loop()
+            await controller._runtime_loop(asyncio.Queue(maxsize=1))
 
         assert "IR runtime loop error" in caplog.text
         device.close.assert_called_once()
@@ -1096,7 +1244,7 @@ class TestTheRuntimeLoopEndsQuietly:
 
         with patch("evdev.InputDevice", return_value=device), \
                 pytest.raises(asyncio.CancelledError):
-            await controller._runtime_loop()
+            await controller._runtime_loop(asyncio.Queue(maxsize=1))
 
         device.close.assert_called_once()
 

@@ -110,6 +110,7 @@ class IrRemoteController:
 
         self._device_path: Optional[str] = None
         self._runtime_task: Optional[asyncio.Task] = None
+        self._transport_task: Optional[asyncio.Task] = None
         self._pairing_in_progress: bool = False
         self._pairing_cancel_event: Optional[asyncio.Event] = None
 
@@ -230,6 +231,11 @@ class IrRemoteController:
         if not EVDEV_AVAILABLE:
             return
 
+        # A reader that ended on its own (OSError) left its worker behind.
+        await self._stop_runtime_listener()
+        if self._runtime_task:
+            return  # another start ran while this one was stopping
+
         self._device_path = _find_gpio_ir_device()
         if not self._device_path:
             logger.warning(
@@ -237,18 +243,31 @@ class IrRemoteController:
             )
             return
 
-        self._runtime_task = asyncio.create_task(self._runtime_loop())
+        # Transport keys wait for the source's actor, so they run off the
+        # reader, as PlaybackDispatcher.on_click does for the rotary and the
+        # BT remote. One slot: a press made while a command is in flight
+        # waits behind it, and any further one is dropped.
+        transport = asyncio.Queue(maxsize=1)
+        self._transport_task = asyncio.create_task(self._transport_worker(transport))
+        self._runtime_task = asyncio.create_task(self._runtime_loop(transport))
         logger.info("IR runtime listener started on %s", self._device_path)
 
     async def _stop_runtime_listener(self) -> None:
-        task = self._runtime_task
+        tasks = (self._runtime_task, self._transport_task)
         self._runtime_task = None
-        if task and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+        self._transport_task = None
+        for task in tasks:
+            if task and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
 
-    async def _runtime_loop(self) -> None:
+    async def _transport_worker(self, queue: asyncio.Queue) -> None:
+        while True:
+            code = await queue.get()
+            await self._handle_keycode(code)
+
+    async def _runtime_loop(self, transport: asyncio.Queue) -> None:
         """Consume EV_KEY events from the rc-core device and dispatch them.
 
         The kernel keymap is the strict filter — only scancodes whose
@@ -260,6 +279,11 @@ class IrRemoteController:
         steps through VolumeAccumulator (Dock.vue hold-to-repeat parity).
         The 4 non-volume buttons stay single-press — autorepeats on
         play/pause, next, prev, or menu would double-fire those actions.
+
+        Play/pause, next and prev are handed to the transport worker rather
+        than awaited here: the source answers only once its handler ends, and
+        a reader waiting for it leaves the fd unread — VOL presses then land
+        as one jump and a MENU hold is read as a tap.
         """
         try:
             device = evdev.InputDevice(self._device_path)
@@ -268,13 +292,26 @@ class IrRemoteController:
             return
 
         volume_keys = (evdev.ecodes.KEY_VOLUMEUP, evdev.ecodes.KEY_VOLUMEDOWN)
+        transport_keys = (
+            evdev.ecodes.KEY_PLAYPAUSE,
+            evdev.ecodes.KEY_NEXTSONG,
+            evdev.ecodes.KEY_PREVIOUSSONG,
+        )
 
         try:
             async with self._mode_lock:
                 async for event in device.async_read_loop():
                     if event.type != evdev.ecodes.EV_KEY:
                         continue
-                    if event.value == 1:
+                    if event.value == 1 and event.code in transport_keys:
+                        try:
+                            transport.put_nowait(event.code)
+                        except asyncio.QueueFull:
+                            logger.debug(
+                                "IR keycode %d dropped: a transport command is in flight",
+                                event.code,
+                            )
+                    elif event.value == 1:
                         await self._handle_keycode(event.code)
                     elif event.value == 2 and event.code in volume_keys:
                         await self._handle_keycode(event.code)
