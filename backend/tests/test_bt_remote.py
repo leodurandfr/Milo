@@ -140,9 +140,13 @@ def bt(monkeypatch):
     monkeypatch.setattr(bt_remote_module, "DBUS_AVAILABLE", False)
 
     bluez = FakeBluez()
+    # One ordered record of what reached systemd and bluetoothctl, so a test
+    # can tell whether the daemon was started before the first command needing it.
+    log = []
 
     async def create_subprocess_exec(*argv, **kwargs):
         bluez.calls.append((argv, controller.running))
+        log.append(("bluetoothctl", argv[1:]))
         return bluez.make(argv)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
@@ -163,12 +167,29 @@ def bt(monkeypatch):
     volume_service.volume_config = types.SimpleNamespace(step_bt_remote_db=2.0)
     volume_service.adjust_volume_db = AsyncMock()
 
-    controller = bt_remote_module.BtRemoteController(volume_service, state_machine, settings)
+    systemd = MagicMock()
+
+    async def start(unit):
+        log.append(("systemctl start", unit))
+        # Whether the scan tasks — the remote's every bluetoothctl caller —
+        # were already up when the daemon was asked for.
+        systemd.scanning_at_start.append(controller.running)
+        return True
+
+    systemd.scanning_at_start = []
+
+    systemd.start = AsyncMock(side_effect=start)
+
+    controller = bt_remote_module.BtRemoteController(
+        volume_service, state_machine, settings,
+        systemd_manager=systemd, bluetooth_service="bluetooth.service",
+    )
     bluez._controller = controller
 
     return types.SimpleNamespace(
         controller=controller, evdev=evdev, bluez=bluez, broadcasts=broadcasts,
-        volume_service=volume_service, settings=settings,
+        volume_service=volume_service, settings=settings, state_machine=state_machine,
+        systemd=systemd, log=log,
         status=lambda: [e for e in broadcasts if isinstance(e, BtRemoteStatusChanged)],
     )
 
@@ -215,6 +236,91 @@ async def test_enabling_announces_a_status_even_when_the_remote_stays_asleep(bt)
     assert bt.status(), "enabling broadcast no status — `discovering` stays true forever"
     assert bt.status()[-1].discovering is False
     await bt.controller._stop_scanning()
+
+
+def assert_bluetoothd_started_before_bluetoothctl(bt):
+    """bluetoothctl does not D-Bus-activate org.bluez: against a stopped
+    bluetoothd every call waits out its 10 s timeout and answers empty, so the
+    pairing ends in `not_found` with nothing naming the stopped daemon."""
+    bt.systemd.start.assert_awaited_once_with("bluetooth.service")
+    assert bt.systemd.scanning_at_start == [False], "the scan started before bluetoothd"
+    first_start = bt.log.index(("systemctl start", "bluetooth.service"))
+    assert all(kind != "bluetoothctl" for kind, _ in bt.log[:first_start]), (
+        f"bluetoothctl ran before bluetoothd was started: {bt.log}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_enabling_the_remote_starts_the_bluetoothd_the_source_stopped(bt):
+    """With the remote disabled, leaving the Bluetooth source stops
+    bluetooth.service. Enabling the remote afterwards must bring it back, or
+    every pairing attempt times out against a daemon nobody restarts."""
+    bt.controller.enabled = False
+    bt.controller.running = False
+
+    await bt.controller.update_config({"enabled": True})
+
+    assert any(kind == "bluetoothctl" for kind, _ in bt.log), (
+        "the enable ran no bluetoothctl at all, so the order below proves nothing"
+    )
+    assert_bluetoothd_started_before_bluetoothctl(bt)
+    assert bt.controller.running is True
+    await bt.controller.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_a_config_write_on_a_running_remote_starts_no_bluetoothd(bt):
+    """Only the transition to enabled needs the daemon; a key_map write on a
+    remote already running must not cost a systemctl round trip."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+
+    await bt.controller.update_config({"key_map": {"115": "volume_up"}})
+
+    bt.systemd.start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_bluetoothd_start_still_scans(bt, caplog):
+    """Fail open: a start systemd refused (already logged at error by the
+    manager) must not leave the remote off for good. Scanning goes on — the
+    daemon may come back on its own — and one warning names the cost."""
+    bt.systemd.start = AsyncMock(return_value=False)
+    bt.controller.enabled = False
+    bt.controller.running = False
+
+    with caplog.at_level(logging.WARNING, logger=bt_remote_module.logger.name):
+        await bt.controller.update_config({"enabled": True})
+
+    assert bt.controller.running is True
+    warnings = [r for r in caplog.records
+                if r.name == bt_remote_module.logger.name and r.levelno == logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    assert "bluetooth.service" in warnings[0].getMessage()
+    await bt.controller.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_the_remote_starts_the_unit_the_bluetooth_source_stops(bt, monkeypatch):
+    """The unit name is declared once, in the Bluetooth source's config: the
+    remote's wiring reads it from the source, so the unit one stops is the unit
+    the other starts."""
+    from backend import dependencies as deps
+
+    source = types.SimpleNamespace(bluetooth_service="bluetoothd-of-the-source.service")
+    monkeypatch.setattr(deps, "_services", {
+        "volume_service": bt.volume_service,
+        "audio_state_machine": bt.state_machine,
+        "settings_service": bt.settings,
+        "systemd_manager": bt.systemd,
+        "bluetooth_source": source,
+    })
+    controller = deps._create_service("bt_remote_controller")
+
+    assert await controller.initialize() is True
+
+    bt.systemd.start.assert_awaited_once_with("bluetoothd-of-the-source.service")
+    await controller.cleanup()
 
 
 @pytest.mark.asyncio
@@ -724,6 +830,25 @@ class TestWhatBootDecides:
         assert bt.controller._scan_task is not None
         assert bt.controller._discovery_task is not None
         await bt.controller.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_an_enabled_remote_starts_bluetoothd_before_its_discovery(self, bt):
+        """A boot that follows a stop of bluetooth.service (the Bluetooth
+        source left with the remote disabled, then the remote enabled offline)
+        must not count on the unit's own boot-time start."""
+        assert await bt.controller.initialize() is True
+
+        assert_bluetoothd_started_before_bluetoothctl(bt)
+        await bt.controller.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_a_disabled_remote_starts_no_bluetoothd(self, bt):
+        """Disabled, the remote has no reason to start bluetoothd."""
+        bt.settings.get_setting = AsyncMock(return_value={"enabled": False})
+
+        await bt.controller.initialize()
+
+        bt.systemd.start.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_disabled_remote_hangs_up_on_what_is_connected(self, bt):

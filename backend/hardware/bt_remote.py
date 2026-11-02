@@ -82,10 +82,15 @@ class BtRemoteController:
     allowing the remote to deep-sleep and preserve battery.
     """
 
-    def __init__(self, volume_service, state_machine, settings_service):
+    def __init__(self, volume_service, state_machine, settings_service, *,
+                 systemd_manager, bluetooth_service):
         self.volume_service = volume_service
         self.state_machine = state_machine
         self.settings_service = settings_service
+        # The Bluetooth source stops bluetoothd on its way out whenever the
+        # remote is disabled, so the remote starts it again on its way in.
+        self._systemd_manager = systemd_manager
+        self._bluetooth_service = bluetooth_service
 
         self.running = False
         self.enabled = False
@@ -124,9 +129,22 @@ class BtRemoteController:
             await self._disconnect_matching_devices()
             return True
 
+        await self._ensure_bluetoothd()
         self._start_scanning()
         logger.info("BT remote controller initialized (filter=%s)", self.device_name_filter)
         return True
+
+    async def _ensure_bluetoothd(self):
+        """Start bluetoothd, which bluetoothctl does not D-Bus-activate.
+
+        Fails open: the manager has already logged the refusal at error, and
+        scanning still starts in case the daemon comes back on its own.
+        """
+        if not await self._systemd_manager.start(self._bluetooth_service):
+            logger.warning(
+                "%s did not start: the BT remote cannot pair or reconnect until it runs",
+                self._bluetooth_service,
+            )
 
     def _start_scanning(self):
         """Start evdev scan, BT discovery, and D-Bus reconnect listener."""
@@ -210,6 +228,7 @@ class BtRemoteController:
             # Handle enable/disable transitions
             transitioned = False
             if self.enabled and not self.running:
+                await self._ensure_bluetoothd()
                 self._start_scanning()
                 transitioned = True
             elif not self.enabled and self.running:

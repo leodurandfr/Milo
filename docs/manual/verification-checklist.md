@@ -352,6 +352,7 @@ makes this silent.
 | BT remote ⚠ | Pairs, shows battery level, buttons act; unpair forgets it | targeted |
 | BT remote lost ⚠ | **Switch a paired, connected remote off.** Settings > BT remote returns to disconnected on its own, with no reload. The panel writes `connected` optimistically and has no other route back to the truth, so only the scan's own broadcast can correct it | targeted |
 | BT remote unpaired asleep ⚠ | **Unpair a remote that is asleep** (bonded, not connected, no evdev node). Every open surface — phone and kiosk at once — shows it unpaired, with no reload. Nothing else broadcasts on this path: the scan drops no node, so the explicit broadcast is the only event | targeted |
+| BT remote after the BT source ⚠ | Source none, nothing playing. Switch the BT remote off, select Bluetooth (no sender), return to none: `systemctl is-active bluetooth` reads `inactive`. Switch the remote on: the PATCH answers in under 2 s, `bluetooth` is active again, `GET /api/bt-remote/status` answers at once with `running: true`, and the journal shows `Start service bluetooth.service`. Before, nothing restarted bluetoothd: every bluetoothctl call waited out 10 s and Search answered "not found" after ~50 s | targeted |
 | Fan | Runs and is controlled by temperature (no permanent full speed, no permanent off under load) | targeted |
 
 ## Screen and kiosk
