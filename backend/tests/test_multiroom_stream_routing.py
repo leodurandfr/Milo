@@ -34,6 +34,13 @@ async def snapserver():
         yield fake
 
 
+@pytest.fixture
+async def snapcast(snapserver):
+    service = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
+    yield service
+    await service.cleanup()
+
+
 def _source(name, journal):
     """A source whose start and reacquire are written to the snapserver's journal."""
     source = Mock()
@@ -59,12 +66,11 @@ def _source(name, journal):
 
 
 @pytest.fixture
-def appliance(snapserver, mock_settings_service):
+def appliance(snapserver, snapcast, mock_settings_service):
     systemd = Mock()
     systemd.start = AsyncMock(return_value=True)
     systemd.stop = AsyncMock(return_value=True)
     systemd.is_active = AsyncMock(return_value=True)
-    snapcast = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
     routing = AudioRoutingService(
         settings_service=mock_settings_service, systemd_manager=systemd,
         snapcast_service=snapcast,
@@ -184,9 +190,7 @@ async def test_enabling_multiroom_points_the_groups_at_the_carried_source_before
     assert all(i < acquired for i in moves)
 
 
-async def test_a_stream_snapserver_does_not_know_is_a_refusal(snapserver):
+async def test_a_stream_snapserver_does_not_know_is_a_refusal(snapserver, snapcast):
     """snapserver answers a JSON-RPC error; the verdict carries it."""
-    snapcast = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
-
     assert await snapcast.point_groups_at("DLNA") is False
     assert [g["stream_id"] for g in snapserver.groups] == ["Multiroom"] * 3

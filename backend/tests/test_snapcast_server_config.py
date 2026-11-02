@@ -1076,18 +1076,16 @@ class TestTheTransport:
 
         class _Session:
             def __init__(self, *a, **k):
-                captured["timeout"] = k.get("timeout")
+                pass
 
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc):
-                return False
-
-            def post(self, url, json=None):
+            def post(self, url, json=None, timeout=None):
                 captured["url"] = url
                 captured["body"] = json
+                captured["timeout"] = timeout
                 return _Response()
+
+            async def close(self):
+                pass
 
         monkeypatch.setattr(aiohttp, "ClientSession", _Session)
         return captured
@@ -1163,15 +1161,22 @@ class TestTheTransport:
         `except SnapcastRequestError` in the module."""
         import aiohttp
 
-        class _Refusing:
-            def __init__(self, *a, **k):
-                pass
-
+        class _Refused:
             async def __aenter__(self):
                 raise OSError("connection refused")
 
             async def __aexit__(self, *exc):
                 return False
+
+        class _Refusing:
+            def __init__(self, *a, **k):
+                pass
+
+            def post(self, url, json=None, timeout=None):
+                return _Refused()
+
+            async def close(self):
+                pass
 
         monkeypatch.setattr(aiohttp, "ClientSession", _Refusing)
 

@@ -207,6 +207,9 @@ async def lifespan(app: FastAPI):
         # Each source's mailbox: its task is ended and a caller still waiting
         # is answered, so nothing is left pending on a closing loop.
         ("audio_sources", state_machine.shutdown_sources),
+        # After snapcast_websocket, volume and the sources, which call
+        # snapserver's JSON-RPC: a request that still comes later fails.
+        ("snapcast", snapcast_service.cleanup),
         ("websockets", ws_manager.cleanup),
     ]
     if rotary_controller:
