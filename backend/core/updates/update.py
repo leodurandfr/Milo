@@ -5,6 +5,7 @@ Update service - installs a new version of each program Milo ships.
 import asyncio
 import aiohttp
 import aiofiles
+import copy
 import hashlib
 import shutil
 import tempfile
@@ -14,7 +15,10 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 from backend.core.updates.version import VersionService
-from backend.core.updates.dependency_versions import apply_validated_versions
+from backend.core.updates.dependency_versions import (
+    apply_validated_versions,
+    load_dependency_versions,
+)
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
 # qobuz-proxy is a pip package installed from a git tag; the in-app update pins
@@ -190,36 +194,90 @@ class UpdateService(VersionService):
         relies on this never raising — it runs past the point where the app can
         still be rolled back.
 
+        A dependency whose target cannot be determined is that dependency's
+        failure, never a skip and never a raise: this code is one release behind
+        the manifest it reads, so a line the pulled set dropped is a `KeyError`
+        for the one program that names it, and an offer GitHub would not give
+        (quota, outage) leaves nothing to compare against. Skipping it rebooted
+        the unit on the old dependency with nothing to say so; raising rolled a
+        good app update back on every unit.
+
         Returns the keys that failed, for the journal and for the one caller path
         that survives to return an envelope.
         """
+        failed: list[str] = []
+        dependencies = [key for key in self.programs if key != "milo"]
+
         # The pulled tree carries a new dependencies.env that this process was
         # started before; without this the reconciliation compares against the
         # set the unit already had, and does nothing at all. The GitHub cache
         # holds the fetched release untouched by the pin, so it survives.
-        apply_validated_versions(self.programs)
-        await self._prune_forced_versions()
+        try:
+            versions = load_dependency_versions()
+        except (OSError, ValueError) as e:
+            self.update_logger.error(
+                f"The pulled dependencies.env cannot be read ({e}); no dependency "
+                "is reconciled and the unit keeps the versions it runs."
+            )
+            return dependencies
 
-        failed: list[str] = []
-        for program_key in self.programs:
-            if program_key == "milo":
+        for program_key in dependencies:
+            # Resolved on a copy: shairport-sync's own line is written before
+            # NQPTP's is looked up, and a half-resolved pair would be offered
+            # for as long as this process runs.
+            resolved = copy.deepcopy(self.programs[program_key])
+            try:
+                apply_validated_versions({program_key: resolved}, versions)
+            except KeyError as e:
+                failed.append(program_key)
+                self.update_logger.error(
+                    f"{program_key}: the pulled dependencies.env declares no "
+                    f"{e.args[0]}; the unit keeps the version it runs."
+                )
+                continue
+            self.programs[program_key] = resolved
+
+        # After the resolution: `get_forced_versions` compares against
+        # `validated_version`, so pruning first would read the old set.
+        try:
+            await self._prune_forced_versions()
+        except Exception as e:
+            self.update_logger.error(f"updates.forced_versions could not be pruned: {e}")
+
+        for program_key in dependencies:
+            if program_key in failed:
                 continue
             try:
                 status = await self.get_program_full_status(program_key)
+                if status.get("status") == "error":
+                    raise RuntimeError(status.get("message"))
+                installed = self.installed_version(status)
+                # Not installed is the catalog's "no update offered" (a venv or
+                # a binary this unit never had), whatever GitHub answers.
+                if installed is None:
+                    continue
                 # Not `update_available`: the manifest is authoritative in both
                 # directions, so a unit sitting *above* what it declares — a
                 # yanked release, a manifest deliberately rolled back — is
                 # brought down as readily as one sitting below. A version that
-                # is off-pin on purpose is not seen here at all: it is what
-                # `latest.version` names.
-                target = status.get("latest", {}).get("version")
-                installed = self.installed_version(status)
-                if not target or not installed or installed == target:
+                # is off-pin on purpose is the target itself, exactly as
+                # `_apply_pin` offers it. Known without GitHub, so a unit
+                # already on it is not reported for an offer it does not need.
+                forced = (await self.get_forced_versions()).get(program_key)
+                if installed == (forced or self.programs[program_key]["validated_version"]):
+                    continue
+                latest = status["latest"]
+                if latest.get("status") != "success":
+                    failed.append(program_key)
+                    self.update_logger.error(
+                        f"{program_key}: the validated version could not be read "
+                        f"({latest.get('message')}); not reconciled."
+                    )
                     continue
 
                 self.update_logger.info(
                     f"{program_key}: installing the validated "
-                    f"{status['latest']['version']} as part of the Milo update"
+                    f"{latest['version']} as part of the Milo update"
                 )
                 result = await self._dispatch_update(program_key, status)
                 if not result.get("success"):

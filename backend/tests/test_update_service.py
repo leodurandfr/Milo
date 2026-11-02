@@ -16,6 +16,7 @@ still. So this file is out of scope for any sweep that replaces
 sibling files where that migration *is* right say so in their own headers.
 """
 import asyncio
+import copy
 import hashlib
 import logging
 import tarfile
@@ -149,8 +150,9 @@ def github_unreachable():
     reads `releases/latest` for each dependency. A test about the app's own
     steps must stand in for that transport rather than reach it — this suite
     runs ON the appliance, and the conftest guard fails the run otherwise.
-    Refusing makes every dependency read as "no update available", so the
-    reconciliation is a no-op and the app steps are what is left under test.
+    Refusing leaves every dependency without an offer, so the reconciliation
+    dispatches nothing — each installed one is reported as failed, which these
+    tests do not read — and the app steps are what is left under test.
     """
     with patch("backend.core.updates.update.aiohttp.ClientSession",
                side_effect=Exception("no network in tests")):
@@ -1326,14 +1328,27 @@ class TestDependencyReconciliation:
         path.write_text("\n".join(out) + "\n")
         return path
 
+    @classmethod
+    def _manifest_dropping(cls, tmp_path, key, *, bump=()):
+        """The real manifest without `key`'s line, the `bump` lines at BUMPED."""
+        path = cls._manifest_bumping(tmp_path, *bump)
+        lines = path.read_text().splitlines()
+        kept = [ln for ln in lines if not ln.startswith(f"{key}=")]
+        assert len(kept) == len(lines) - 1, f"{key} is not declared"
+        path.write_text("\n".join(kept) + "\n")
+        return path
+
     @staticmethod
     @contextmanager
-    def _reconciling(service, manifest=None, *, installed=b"1.0.0", tag="v1.0.0", dispatch=None):
+    def _reconciling(service, manifest=None, *, installed=b"1.0.0", tag="v1.0.0", dispatch=None,
+                     unreadable=None):
         """Drive the real status chain, and record what was dispatched.
 
-        `installed` answers every version command and `tag` every GitHub fetch,
-        so each program's own regex decides which of them read as installed —
-        the same filter production applies.
+        `installed` answers every version command (or, callable, the one whose
+        argv it is given) and `tag` every GitHub fetch, so each program's own
+        regex decides which of them read as installed — the same filter
+        production applies. `unreadable` maps a repo to the HTTP status GitHub
+        answers its release with instead.
         """
         dispatched = []
         answer = dispatch or (lambda *_a: {"success": True})
@@ -1346,12 +1361,15 @@ class TestDependencyReconciliation:
             return result
 
         async def exec_(*args, **kwargs):
-            return _make_mock_proc(stdout=installed)
+            return _make_mock_proc(stdout=installed(args) if callable(installed) else installed)
 
         class _Response:
-            status = 200
+            def __init__(self, status=200):
+                self.status = status
 
             async def json(self):
+                if self.status == 403:
+                    return {"message": "API rate limit exceeded"}
                 return {"tag_name": tag, "published_at": None, "html_url": None}
 
             async def __aenter__(self):
@@ -1367,7 +1385,10 @@ class TestDependencyReconciliation:
             async def __aexit__(self, *exc):
                 return False
 
-            def get(self, *a, **kw):
+            def get(self, url, *a, **kw):
+                for repo, status in (unreadable or {}).items():
+                    if f"/repos/{repo}/" in url:
+                        return _Response(status)
                 return _Response()
 
         with ExitStack() as stack:
@@ -1541,6 +1562,115 @@ class TestDependencyReconciliation:
         # raised, and every one of them is reported rather than propagated.
         assert failed == [k for k, _ in dispatched]
         assert "navidrome" in failed
+
+    @pytest.mark.parametrize("key, program", [
+        ("NAVIDROME_VERSION", "navidrome"),
+        ("QOBUZ_PROXY_VERSION", "qobuz-proxy"),
+        ("NQPTP_VERSION", "shairport-sync"),
+    ])
+    @pytest.mark.asyncio
+    async def test_a_line_the_pulled_manifest_dropped_does_not_roll_the_app_back(
+            self, update_service, tmp_path, caplog, key, program):
+        """The code reconciling is one release behind the manifest it reads.
+
+        Release N's catalog is resolved against release N+1's `dependencies.env`,
+        and the guardrail on that file makes a line nobody reads go. Resolving
+        the whole catalog at once let that `KeyError` escape into
+        `_update_milo_app`, which rolled a good update back — on every unit, at
+        every press, until a release restored the line. It is that one
+        dependency's failure, and the rest of the pulled set still applies.
+
+        shairport-sync is resolved after its main line and before NQPTP's, so
+        the bumped shairport-sync pin must not survive a missing NQPTP line: the
+        two would be held out of step for as long as the process ran.
+        """
+        before = copy.deepcopy(update_service.programs[program])
+        manifest = self._manifest_dropping(
+            tmp_path, key, bump=("GO_LIBRESPOT_VERSION", "SHAIRPORT_SYNC_VERSION"),
+        )
+        with self._reconciling(update_service, manifest) as dispatched, \
+                caplog.at_level(logging.ERROR, logger="backend.core.updates.update.update"):
+            failed = await update_service._reconcile_dependencies()
+
+        assert program in failed
+        assert program not in [k for k, _ in dispatched]
+        assert ("go-librespot", self.BUMPED) in dispatched
+        assert update_service.programs[program] == before
+        assert key in caplog.text
+
+    @pytest.mark.parametrize("http_status", [403, 502])
+    @pytest.mark.asyncio
+    async def test_a_dependency_whose_offer_cannot_be_read_is_reported_not_skipped(
+            self, update_service, caplog, http_status):
+        """No offer is no target, and no target is not "nothing to do".
+
+        A unit without a GitHub token runs out of quota within the hour the
+        settings screen was opened, and GitHub has outages. Skipping silently
+        rebooted the unit into the new app with the old dependency and nothing
+        in the journal or the envelope to say the set was never reached.
+        """
+        with self._reconciling(
+            update_service, unreadable={"navidrome/navidrome": http_status},
+        ) as dispatched, caplog.at_level(logging.ERROR, logger="backend.core.updates.update.update"):
+            failed = await update_service._reconcile_dependencies()
+
+        assert "navidrome" in failed
+        assert "navidrome" not in [k for k, _ in dispatched]
+        assert "navidrome" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_pulled_manifest_that_cannot_be_read_fails_every_dependency(
+            self, update_service, tmp_path):
+        """No set to reach is not a set already reached.
+
+        Returning empty would report the update as complete while every
+        dependency stayed where it was; raising would roll the app back.
+        """
+        with self._reconciling(update_service, tmp_path / "missing.env") as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert dispatched == []
+        assert set(failed) == set(update_service.programs) - {"milo"}
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_not_installed_is_not_reported_for_its_offer(self, update_service):
+        """A missing binary is "not installed", which the catalog means as no update.
+
+        The qobuz-proxy venv and Navidrome are absent on many units by design;
+        reporting them whenever GitHub fails would turn every outage into a
+        list of failures that are not failures.
+        """
+        unreadable = {"navidrome/navidrome": 502, "devgianlu/go-librespot": 502}
+        with self._reconciling(
+            update_service, installed=lambda argv: b"" if "navidrome" in argv[0] else b"1.0.0",
+            unreadable=unreadable,
+        ) as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert "go-librespot" in failed, "the outage reached no installed dependency"
+        assert "navidrome" not in failed
+        assert "navidrome" not in [k for k, _ in dispatched]
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_on_its_pin_needs_no_offer(self, update_service):
+        """The target is the manifest's, so GitHub is needed only to install.
+
+        On a healthy unit every dependency sits on its pin; reporting each one
+        whenever the quota runs out would list the whole set as failed after an
+        update that had nothing to do.
+        """
+        validated = update_service.programs["navidrome"]["validated_version"]
+        with self._reconciling(
+            update_service,
+            installed=lambda argv: validated.encode() if "navidrome" in argv[0] else b"1.0.0",
+            unreadable={"navidrome/navidrome": 403},
+        ) as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert "navidrome" not in failed
+        assert "navidrome" not in [k for k, _ in dispatched]
+        assert ("go-librespot", update_service.programs["go-librespot"]["validated_version"]) \
+            in dispatched, "the loop dispatched nothing at all"
 
 
     @pytest.mark.asyncio
