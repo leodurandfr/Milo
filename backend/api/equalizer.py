@@ -283,7 +283,12 @@ def create_equalizer_router(
 
     @router.put("/target/{target}/enabled", response_model=EqualizerEnabledResponse, openapi_extra=CONTRACTED)
     async def set_target_enabled(target: str, request: Request):
-        """Enable/disable equalizer effects for any target (volume stays active)."""
+        """Enable/disable equalizer effects for any target (volume stays active).
+
+        "local" is the appliance's own toggle — Milo-Mac's Equalizer switch — and
+        moves the zone the local client shares its EQ with, as the dock does; an
+        explicit "<mac>" moves that client alone.
+        """
         async with api_error_handler(f"Error updating equalizer enabled for target {target}", logger):
             body = await request.json()
             enabled = body.get("enabled")
@@ -294,6 +299,10 @@ def create_equalizer_router(
                 if target_type == "zone":
                     success = await multiroom_equalizer_service.set_zone_equalizer_effects_enabled(
                         target_id, enabled
+                    )
+                elif target_id == "local":
+                    success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(
+                        enabled
                     )
                 else:
                     success = await multiroom_equalizer_service.set_client_equalizer_effects_enabled(

@@ -10,12 +10,18 @@ family and the /zone/{id}/* family. Every read/write now flows through one gramm
 that the route resolves to (target_type, target_id) and dispatches to the access
 layer (MultiroomEqualizerService).
 """
-import pytest
+from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock
+
+import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.equalizer import create_equalizer_router
+from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+from backend.core.models.ws_events import EqualizerZoneEnabledChanged
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -59,6 +65,7 @@ def mock_mre():
     mre.update_loudness = AsyncMock(return_value=True)
     mre.update_mono = AsyncMock(return_value=True)
     mre.set_client_equalizer_effects_enabled = AsyncMock(return_value=True)
+    mre.set_local_equalizer_effects_enabled = AsyncMock(return_value=True)
     mre.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
     mre.resolve_preset_gains = AsyncMock(return_value=[1.0] * 10)
     mre.load_preset = AsyncMock(return_value=(True, [1.0] * 10))
@@ -274,11 +281,6 @@ class TestTargetEnabledWrite:
         assert args[1] is False
         mock_mre.set_zone_equalizer_effects_enabled.assert_not_called()
 
-    def test_enabled_local_routes_to_client_primitive(self, client, mock_mre):
-        resp = client.put("/api/equalizer/target/local/enabled", json={"enabled": True})
-        assert resp.status_code == 200
-        assert mock_mre.set_client_equalizer_effects_enabled.call_args.args[0] == "local"
-
     def test_enabled_zone_routes_to_zone_primitive(self, client, mock_mre):
         resp = client.put("/api/equalizer/target/zone:z1/enabled", json={"enabled": False})
         assert resp.status_code == 200
@@ -288,6 +290,115 @@ class TestTargetEnabledWrite:
     def test_enabled_missing_returns_400(self, client, mock_mre):
         resp = client.put("/api/equalizer/target/local/enabled", json={})
         assert resp.status_code == 400
+
+
+class TestLocalMasterToggleMovesItsZone:
+    """`PUT /api/equalizer/target/local/enabled` is Milo-Mac's Equalizer switch
+    (`MiloAPIService.setEqualizer`), a device toggle like the dock's — and the
+    web's for a server outside a zone, detached from it, or in direct mode.
+
+    Routed to the local DSP alone, it bypassed the server while the satellite
+    sharing its zone kept compressor, loudness and bands: one room playing two
+    treatments, with nothing later to bring them back in step. The registry, the
+    access layer and the route are real here; only the satellite's HTTP, the
+    local DSP and the broadcast are mocked.
+    """
+
+    LOCAL_MAC = "2c:cf:67:a0:00:01"
+    REMOTE_IP = "192.168.1.153"
+
+    @pytest.fixture
+    async def world(self):
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        await registry.register_client(self.LOCAL_MAC, "Milō", "127.0.0.1")
+        await registry.register_client(REMOTE_MAC, "Canapé", self.REMOTE_IP)
+        await registry.set_client_online(REMOTE_MAC, True)
+        await registry.create_zone("salon", "Salon", [self.LOCAL_MAC, REMOTE_MAC])
+
+        camilladsp = Mock()
+        camilladsp.get_equalizer_settings = Mock(return_value=EqualizerSettings.default())
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            camilladsp_service=camilladsp,
+            proxy_service=proxy,
+            routing_service=routing,
+            state_machine=state_machine,
+        )
+        app = FastAPI()
+        app.include_router(create_equalizer_router(
+            camilladsp_service=camilladsp,
+            routing_service=routing,
+            client_registry_service=registry,
+            multiroom_equalizer_service=service,
+        ))
+        return SimpleNamespace(
+            app=app, registry=registry, proxy=proxy, routing=routing,
+            state_machine=state_machine,
+        )
+
+    @staticmethod
+    async def _put_local_enabled(world, enabled):
+        transport = httpx.ASGITransport(app=world.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            return await http.put(
+                "/api/equalizer/target/local/enabled", json={"enabled": enabled}
+            )
+
+    async def test_local_enabled_moves_the_whole_zone_when_the_local_client_is_zoned(
+        self, world
+    ):
+        response = await self._put_local_enabled(world, False)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        world.routing.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+        world.proxy.request.assert_awaited_once_with(
+            self.REMOTE_IP, "PUT", "/equalizer/enabled", {"enabled": False}
+        )
+        assert world.registry.get_client_equalizer(REMOTE_MAC).enabled is False
+        zone_events = [
+            c.args[0] for c in world.state_machine.broadcast.await_args_list
+            if isinstance(c.args[0], EqualizerZoneEnabledChanged)
+        ]
+        assert [(e.zone_id, e.enabled) for e in zone_events] == [("salon", False)], \
+            "the web's zone tab is never told the zone moved"
+
+    async def test_a_satellite_that_refuses_answers_an_error_milo_mac_reads(self, world):
+        """Milo-Mac's `sendCommand` reads `status`: answered "success", its switch
+        shows the room bypassed while Canapé kept its effects."""
+        world.proxy.request = AsyncMock(return_value={"status": "error"})
+
+        response = await self._put_local_enabled(world, False)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "error"
+        world.routing.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+
+    async def test_local_enabled_of_an_independent_local_member_stays_local(self, world):
+        """The web addresses 'local' for a server that detached its EQ from its
+        zone: that toggle is the server's own, and fanned out it would bypass a
+        satellite that never asked to follow."""
+        await world.registry.set_client_eq_independent(self.LOCAL_MAC, True)
+        before = world.registry.get_client_equalizer(REMOTE_MAC)
+        before = before.to_dict() if before else None
+
+        response = await self._put_local_enabled(world, False)
+
+        assert response.status_code == 200
+        world.routing.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+        world.proxy.request.assert_not_awaited()
+        after = world.registry.get_client_equalizer(REMOTE_MAC)
+        assert (after.to_dict() if after else None) == before
 
 
 class TestTargetPresetWrite:

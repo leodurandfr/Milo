@@ -884,8 +884,9 @@ class MultiroomEqualizerService:
         Local client → ``routing_service`` bypass/restore (its enabled flag lives
         in settings, not the registry). Remote client → push to the satellite (if
         online) and persist the flag on its per-client record so an offline /
-        reconnecting member recovers it. This is the single per-client primitive
-        the ``/client/{mac}/enabled`` route and the zone fan-out both build on.
+        reconnecting member recovers it. This is the per-client primitive behind
+        a ``<mac>`` target of ``PUT /api/equalizer/target/{target}/enabled`` and
+        the plain local write of :meth:`set_local_equalizer_effects_enabled`.
 
         Returns True when the change reached an online client OR was persisted for
         an offline one (it syncs on reconnect); False only on a failed online push
@@ -916,8 +917,10 @@ class MultiroomEqualizerService:
         plain local write.
 
         This is the entry point for any caller that means "the equalizer of this
-        appliance", as opposed to ``/equalizer/target/local/enabled``, which
-        addresses the local client explicitly.
+        appliance": the dock, and ``PUT /api/equalizer/target/local/enabled`` —
+        Milo-Mac's Equalizer switch, and the web's for a server outside a zone,
+        detached from it, or in direct mode. An explicit ``<mac>`` target goes to
+        :meth:`set_client_equalizer_effects_enabled` and moves that client alone.
         """
         local_mac = self._local_mac_id()
         zone = self._registry.get_zone_for_client(local_mac) if self._registry else None
