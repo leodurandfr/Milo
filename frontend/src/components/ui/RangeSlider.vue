@@ -4,7 +4,7 @@
      number, where the value sits from 0 to 1, which places the fill and the
      knob — so the two glide together from stop to stop. -->
 <template>
-  <div :class="['slider-container', orientation, { disabled, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel }]"
+  <div :class="['slider-container', orientation, { disabled, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel, glide }]"
     :style="{ '--fraction': fraction }">
     <span v-if="hasLabel" class="slider-label text-body-medium">{{ label }}</span>
 
@@ -87,7 +87,11 @@ const props = defineProps({
   steps: { type: Array, default: null },
   // A stop at every step from min to max, labeled like the continuous value:
   // for a setting chosen among a few levels rather than dialed in.
-  ticks: { type: Boolean, default: false }
+  ticks: { type: Boolean, default: false },
+  // A value set from outside glides to its place instead of jumping: for a
+  // value that moves in one go (an EQ preset), never one that streams in (a
+  // volume under the encoder).
+  glide: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
@@ -292,12 +296,19 @@ function handleChange(event) {
 /* The fill and the knob both read --fraction, so they move as one. While a
    continuous slider is dragged it follows the finger untransitioned; between
    stops it glides, quickly and without a spring, so a fast sweep does not
-   bounce at each stop. A value changed elsewhere (the encoder, another
-   device) is not eased: the invisible thumb that takes the pointer jumps at
-   once, and a knob still on its way would be pressed beside it. */
+   bounce at each stop. A value changed elsewhere is not eased unless the
+   caller asks (`glide`): the invisible thumb that takes the pointer jumps at
+   once, and a knob still on its way would be pressed beside it — a fair price
+   for a whole curve moving in one go, not for a level the encoder streams.
+   A press drops --fraction from the list, which cancels a glide in flight. */
 
 .slider-container.stepped.dragging {
   transition: --slider-accent var(--transition-fast), --fraction 120ms var(--easeOutCubic), --grow var(--transition-spring-light);
+}
+
+/* The base list restated: `transition` replaces it whole. */
+.slider-container.glide:not(.dragging) {
+  transition: --slider-accent var(--transition-fast), --fraction var(--transition-spring-soft), --grow var(--transition-spring-light), opacity var(--transition-fast);
 }
 
 .slider-rail {

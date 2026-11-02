@@ -17,6 +17,7 @@
         :orientation="sliderOrientation"
         :disabled="disabled"
         :hide-inline-value="true"
+        :glide="placed"
         @input="handleGainInput"
         @change="handleGainChange"
         @drag-start="isDragging = true"
@@ -31,7 +32,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import { useI18n } from '@/services/i18n';
 
@@ -50,6 +51,16 @@ const props = defineProps({
 const emit = defineEmits(['update:gain', 'change']);
 
 const isDragging = ref(false);
+
+// A preset glides; a record arriving is placed. The gains and `loaded` land in
+// one tick, and a transition reads the style it lands in, so the glide comes
+// back only once a frame has drawn the gains — else every open of the modal
+// would raise all ten bands from the zeroed placeholder.
+const placed = ref(false);
+watch(() => props.loaded, (loaded) => {
+  placed.value = false;
+  if (loaded) requestAnimationFrame(() => requestAnimationFrame(() => { placed.value = props.loaded; }));
+}, { immediate: true });
 
 const gainValue = computed(() => props.gain);
 
