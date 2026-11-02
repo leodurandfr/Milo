@@ -1163,8 +1163,7 @@ class TestSnapcastService:
     async def test_is_available_connection_error(self, snapcast_service):
         """Test is_available with connection error."""
         with patch("backend.core.multiroom.snapcast.aiohttp.ClientSession") as mock_session:
-            mock_session.return_value.post.return_value.__aenter__ = AsyncMock(
-                side_effect=Exception("Connection refused"))
+            mock_session.return_value.__aenter__ = AsyncMock(side_effect=Exception("Connection refused"))
             result = await snapcast_service.is_available()
             assert result is False
 
@@ -1179,14 +1178,16 @@ class TestSnapcastService:
         post_ctx.__aexit__ = AsyncMock(return_value=False)
         session = MagicMock()
         session.post = MagicMock(return_value=post_ctx)
-        return patch("backend.core.multiroom.snapcast.aiohttp.ClientSession", return_value=session)
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+        return patch("backend.core.multiroom.snapcast.aiohttp.ClientSession", return_value=session_ctx)
 
     @pytest.mark.asyncio
     async def test_request_raises_on_transport_error(self, snapcast_service):
         """A transport failure must raise, not be swallowed to {}."""
         with patch("backend.core.multiroom.snapcast.aiohttp.ClientSession") as mock_session:
-            mock_session.return_value.post.return_value.__aenter__ = AsyncMock(
-                side_effect=OSError("unreachable"))
+            mock_session.return_value.__aenter__ = AsyncMock(side_effect=OSError("unreachable"))
             with pytest.raises(SnapcastRequestError):
                 await snapcast_service._request("Server.GetStatus")
 

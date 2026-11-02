@@ -138,38 +138,12 @@ class SnapcastService:
     # this, in any case, is no speaker (is_speaker_entry).
     SNAPWEB_NAME = "snapweb"
 
-    # How long an idle connection to snapserver stays in the pool. snapserver
-    # logs every control session the client closes as an `[Error]` (`Failed to
-    # shudown socket`), so this must outlast the reconcile sweep's interval
-    # (SnapcastWebSocketService.RECONCILE_INTERVAL_S), its steady caller:
-    # aiohttp's 15 s default closed the connection between two sweeps.
-    KEEPALIVE_S = 75
-
     def __init__(self, systemd_manager, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
         self._systemd = systemd_manager
         self._request_id = 0
-        self._session: Optional[aiohttp.ClientSession] = None
         self.snapserver_conf = Path("/etc/snapserver.conf")
-
-    def _get_session(self) -> aiohttp.ClientSession:
-        """Return the shared HTTP session, created on first use.
-
-        Never recreated: after a snapserver restart the pool drops the dead
-        connection and dials the new daemon by itself, and after `cleanup()` a
-        request fails rather than opening a session nothing would close.
-        """
-        if self._session is None:
-            self._session = aiohttp.ClientSession(
-                connector=aiohttp.TCPConnector(keepalive_timeout=self.KEEPALIVE_S)
-            )
-        return self._session
-
-    async def cleanup(self) -> None:
-        """Close the shared HTTP session for good. Called from app shutdown."""
-        if self._session is not None:
-            await self._session.close()
 
     async def _request(self, method: str, params: dict = None) -> dict:
         """Execute a JSON-RPC request and return its ``result`` field.
@@ -188,14 +162,14 @@ class SnapcastService:
         timeout = aiohttp.ClientTimeout(total=3)
         start = time.time()
         try:
-            session = self._get_session()
-            async with session.post(self.base_url, json=request, timeout=timeout) as response:
-                elapsed = (time.time() - start) * 1000
-                if elapsed > 500:
-                    self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
-                if response.status != 200:
-                    raise SnapcastRequestError(f"{method}: HTTP {response.status}")
-                data = await response.json()
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(self.base_url, json=request) as response:
+                    elapsed = (time.time() - start) * 1000
+                    if elapsed > 500:
+                        self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
+                    if response.status != 200:
+                        raise SnapcastRequestError(f"{method}: HTTP {response.status}")
+                    data = await response.json()
         except SnapcastRequestError:
             raise
         except Exception as e:

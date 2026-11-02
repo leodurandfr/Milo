@@ -511,7 +511,13 @@ class TestClientDelayEndpoint:
             def __init__(self, *a, **k):
                 pass
 
-            def post(self, url, json=None, timeout=None):
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def post(self, url, json=None):
                 sent.append(json)
                 return _Response()
 
