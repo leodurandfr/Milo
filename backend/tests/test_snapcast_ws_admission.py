@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import aiohttp
 import pytest
 
+from backend.core.models.audio_state import AudioSource
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import EqFilter, EqualizerSettings
 from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -386,6 +387,87 @@ class TestTheDuplicateSyncGuard:
         snapcast.set_volume.assert_awaited_once_with(SNAPCAST_ID, 100)
         assert ok is False
         assert registry.get_client(MAC).online is False
+
+    async def test_an_admission_points_the_clients_group_at_the_active_stream(
+        self, service, registry, snapcast
+    ):
+        """A satellite that connects lands in a group snapserver kept on whatever
+        stream it last had (or on its default, the meta stream). The source
+        playing is the one its room must hear, before the room is shown online."""
+        await registry.register_client(MAC, "Canapé", IP)
+        await registry.set_client_online(MAC, False)
+        service.state_machine.system_state.active_source = AudioSource.RADIO
+        online_when_pointed = []
+
+        async def point(stream, client_id=None):
+            online_when_pointed.append(registry.get_client(MAC).online)
+            return True
+
+        snapcast.point_groups_at = AsyncMock(side_effect=point)
+
+        ok = await service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        assert ok is True
+        assert snapcast.point_groups_at.await_args_list == [call("Radio", client_id=SNAPCAST_ID)]
+        assert online_when_pointed == [False]
+
+    async def test_a_refused_stream_is_a_failed_attempt_and_retried(
+        self, service, registry, snapcast
+    ):
+        """A room left on another stream plays the wrong source, or silence,
+        under a screen that shows it in the house: the client is not shown
+        online over a refusal."""
+        await registry.register_client(MAC, "Canapé", IP)
+        await registry.set_client_online(MAC, False)
+        service.state_machine.system_state.active_source = AudioSource.RADIO
+        snapcast.point_groups_at = AsyncMock(side_effect=[False, True])
+
+        ok = await service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=1, retry_delay=0.0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        assert snapcast.point_groups_at.await_count == 2
+        assert ok is True
+        assert registry.get_client(MAC).online is True
+
+    async def test_a_switch_during_the_pointing_is_followed(self, service, registry, snapcast):
+        """The admission reads the active source, then waits on snapserver; a
+        transition meanwhile points every group at its own stream, and the
+        admission's answer can land after it. Read again, the new stream wins."""
+        await registry.register_client(MAC, "Canapé", IP)
+        service.state_machine.system_state.active_source = AudioSource.RADIO
+
+        async def point(stream, client_id=None):
+            service.state_machine.system_state.active_source = AudioSource.PODCAST
+            return True
+
+        snapcast.point_groups_at = AsyncMock(side_effect=point)
+
+        await service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        assert [c.args[0] for c in snapcast.point_groups_at.await_args_list] == ["Radio", "Podcast"]
+
+    async def test_no_source_leaves_the_clients_group_alone(self, service, registry, snapcast):
+        """Nothing plays, so there is no stream to choose: the room keeps the
+        last one, which the next selection moves."""
+        await registry.register_client(MAC, "Canapé", IP)
+        service.state_machine.system_state.active_source = AudioSource.NONE
+        snapcast.point_groups_at = AsyncMock(return_value=True)
+
+        ok = await service._sync_reconnecting_client_volume(
+            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
+            snapcast_id=SNAPCAST_ID,
+        )
+
+        assert ok is True
+        snapcast.point_groups_at.assert_not_called()
 
     async def test_a_sync_that_is_not_an_admission_does_not_change_what_is_shown(
         self, service, registry

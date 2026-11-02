@@ -4,7 +4,7 @@ Centralized constants for the Milo backend.
 All hardcoded values should be defined here to avoid duplication.
 """
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Dict, Literal, NamedTuple, get_args
 
 from backend.core.models.audio_state import AudioSource
 
@@ -176,6 +176,32 @@ UTILITY_DOCK_APPS = frozenset({'equalizer', 'multiroom', 'lyrics', 'settings'})
 
 # All valid dock apps
 VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
+
+
+class MultiroomStream(NamedTuple):
+    """The snapserver stream a source plays on in multiroom."""
+    name: str    # snapserver's stream id, what Group.SetStream names
+    device: str  # the Loopback capture snapserver reads it from
+
+
+# In multiroom each source writes its own Loopback substream and snapserver
+# captures each as a named stream; the backend points every group at the stream
+# of the source it starts, because the meta stream left alone switches in its
+# own order, after `idle_threshold` of silence. In the order of the captures
+# `provisioning/snapcast.sh` writes into snapserver.conf, which cannot import
+# this: tests/architecture/test_multiroom_capture_map.py holds the two equal.
+MULTIROOM_STREAMS: Dict[AudioSource, MultiroomStream] = {
+    AudioSource.BLUETOOTH: MultiroomStream("Bluetooth", "hw:1,1,1"),
+    AudioSource.MAC: MultiroomStream("ROC", "hw:1,1,2"),
+    AudioSource.SPOTIFY: MultiroomStream("Spotify", "hw:1,1,3"),
+    AudioSource.RADIO: MultiroomStream("Radio", "hw:1,1,4"),
+    AudioSource.PODCAST: MultiroomStream("Podcast", "hw:1,1,5"),
+    AudioSource.AIRPLAY: MultiroomStream("AirPlay", "hw:1,1,6"),
+    AudioSource.CD: MultiroomStream("CD", "hw:1,1,7"),
+    AudioSource.QOBUZ: MultiroomStream("Qobuz", "hw:2,1,1"),
+    AudioSource.MUSIC_LIBRARY: MultiroomStream("MusicLibrary", "hw:2,1,2"),
+    AudioSource.TIDAL: MultiroomStream("Tidal", "hw:2,1,3"),
+}
 
 # Default dock apps (ordered for UI)
 DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "airplay", "music_library", "radio", "cd", "qobuz", "tidal", "podcast", "mac", "equalizer", "multiroom", "lyrics", "settings"]

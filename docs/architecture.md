@@ -723,6 +723,14 @@ Audio source → ALSA Loopback → Snapserver → Network
         Speakers                Speakers                Speakers
 ```
 
+**Which stream each room plays:** every source writes its own Loopback substream
+and snapserver captures each as a named stream (`MULTIROOM_STREAMS` in
+`config/constants.py`, held equal to `provisioning/snapcast.sh`). The backend
+points every group at the stream of the source it starts (`Group.SetStream`,
+before the start, on a multiroom enable, and for a client at its admission) —
+the `Multiroom` meta stream left alone kept the previous source until it had
+been silent for `idle_threshold` (5 s), so a switch lost up to 5 s in every room.
+
 **Synchronization:**
 - Snapserver sends precise timestamps with each audio packet
 - Snapclients adjust their playback to stay synchronized (±1ms)

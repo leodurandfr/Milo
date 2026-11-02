@@ -420,8 +420,9 @@ async def initialize_services() -> None:
     # Cycle: routing_service ↔ state_machine
     #   routing carries the active source through state_machine.reroute_active_source()
     #   and broadcasts through it; state_machine reads back
-    #   routing.multiroom_enabled — for composing the state only, never for a
-    #   transition decision.
+    #   routing.multiroom_enabled for composing the state, and has routing point
+    #   the rooms at a source's stream before starting it (point_multiroom_at) —
+    #   never for a transition decision.
     routing_service.set_state_machine(state_machine)
     state_machine.routing_service = routing_service
 

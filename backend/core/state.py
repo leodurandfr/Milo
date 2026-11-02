@@ -142,7 +142,8 @@ class AudioStateMachine:
 
         # Set after creation in dependencies.py (circular dependency resolution).
         # Ownership map of the back-references composed into the state:
-        #   routing_service      → multiroom_enabled
+        #   routing_service      → multiroom_enabled; also points the rooms at
+        #                          a source's stream before its start
         #   camilladsp_service   → effects_enabled (DSP plane; named for what it
         #                          holds — EQ is just one of its effects)
         #   connectivity_service → availability, crossed with each source's
@@ -523,8 +524,12 @@ class AudioStateMachine:
                         teardown.set_name(old_source.value)
                         await asyncio.shield(teardown)
 
-                    # Start new source
+                    # Start new source — in multiroom, once every room is on its
+                    # stream, so its first samples are heard: the meta stream
+                    # left alone held the old one for its idle_threshold.
                     if target_source != AudioSource.NONE:
+                        if self.routing_service:
+                            await self.routing_service.point_multiroom_at(target_source)
                         success = await self._start_source(target_source)
                         if not success:
                             raise ValueError(f"Failed to start {target_source.value}")

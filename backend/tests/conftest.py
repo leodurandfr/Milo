@@ -770,6 +770,7 @@ def mock_routing_service() -> Mock:
     })
     service.set_multiroom_enabled = AsyncMock(return_value=True)
     service.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+    service.point_multiroom_at = AsyncMock(return_value=True)
     return service
 
 

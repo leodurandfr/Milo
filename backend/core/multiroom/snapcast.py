@@ -8,7 +8,7 @@ notifications are handled separately by SnapcastWebSocketService.
 import asyncio
 import logging
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 import aiohttp
@@ -158,6 +158,42 @@ class SnapcastService:
             "latency": max(0, ms),
         })
         return True
+
+    # === GROUP COMMANDS ===
+
+    @handle_errors(default=False, level='warning')
+    async def set_group_stream(self, group_id: str, stream_id: str) -> bool:
+        """Point one snapserver group at a stream (JSON-RPC `Group.SetStream`)."""
+        await self._request("Group.SetStream", {"id": group_id, "stream_id": stream_id})
+        return True
+
+    @handle_errors(default=False, level='warning')
+    async def point_groups_at(self, stream_id: str, client_id: Optional[str] = None) -> bool:
+        """Point every group — or only `client_id`'s — at `stream_id`.
+
+        Groups already on it are left alone, so snapserver re-sends nothing to a
+        room that is right. True only when every group that had to move did; a
+        `client_id` snapserver does not list is False, since nothing was pointed.
+        """
+        status = await self._request("Server.GetStatus")
+        groups = status.get("server", {}).get("groups", [])
+        if client_id is not None:
+            groups = [
+                g for g in groups
+                if any(c.get("id") == client_id for c in g.get("clients", []))
+            ]
+            if not groups:
+                self.logger.warning(f"SNAPCAST_SET_STREAM: no group holds client {client_id}")
+                return False
+
+        moves = []
+        for group in groups:
+            old = group.get("stream_id")
+            if old == stream_id:
+                continue
+            self.logger.info(f"SNAPCAST_SET_STREAM: group={group['id']} {old} -> {stream_id}")
+            moves.append(self.set_group_stream(group["id"], stream_id))
+        return all(await asyncio.gather(*moves))
 
     # === CLIENT QUERIES ===
 

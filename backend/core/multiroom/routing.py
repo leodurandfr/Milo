@@ -12,8 +12,10 @@ from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
     ALLOWED_LATENCY_PROFILES,
     DEFAULT_ROC_CONFIG,
+    MULTIROOM_STREAMS,
     ROC_TARGET_LATENCY_RANGE,
 )
+from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import (
     EqualizerEnabledChanged,
     RoutingMultiroomDisabling,
@@ -273,6 +275,12 @@ class AudioRoutingService:
     CamillaDSPService and read through a property. The state machine reads
     both via these accessors when composing the audio state.
     """
+
+    # One Server.GetStatus, then one Group.SetStream per room in parallel: a few
+    # milliseconds on a live snapserver. Each call carries 3 s of its own, and
+    # the transition this runs in has 15 s for both sources' stop and start, so
+    # a wedged snapserver costs it this much and no more.
+    STREAM_POINT_BUDGET_S = 3.0
 
     def __init__(self, settings_service: Optional["SettingsService"] = None,
                  systemd_manager: Optional[SystemdServiceManager] = None,
@@ -586,6 +594,11 @@ class AudioRoutingService:
                 self.logger.info("Starting snapcast services")
                 if not await self._start_snapcast():
                     raise RuntimeError("Failed to start snapcast services")
+                # The groups come back on whatever stream snapserver kept; the
+                # source carried across is what they must play once reacquired.
+                # Not through point_multiroom_at: the mode is persisted only
+                # after this switch, so its direct-mode gate would still hold.
+                await self._point_groups_at(self.state_machine.system_state.active_source)
             else:
                 self.logger.info("Stopping snapcast services")
                 if not await self._stop_snapcast():
@@ -593,6 +606,34 @@ class AudioRoutingService:
             await RoutingEnv.regenerate(enabled)
 
         await self.state_machine.reroute_active_source(switch_output)
+
+    async def point_multiroom_at(self, source: AudioSource) -> bool:
+        """Point every room at `source`'s snapserver stream, before it starts.
+
+        The state machine's transition calls it and never fails on the verdict:
+        a refusal leaves a room on the previous stream until its next admission
+        or the next switch, which the warning says. A no-op in direct mode,
+        where snapserver is not the output.
+        """
+        if not self.multiroom_enabled:
+            return True
+        return await self._point_groups_at(source)
+
+    async def _point_groups_at(self, source: AudioSource) -> bool:
+        stream = MULTIROOM_STREAMS.get(source)
+        if stream is None or self.snapcast_service is None:
+            return True
+        try:
+            async with asyncio.timeout(self.STREAM_POINT_BUDGET_S):
+                pointed = await self.snapcast_service.point_groups_at(stream.name)
+        except TimeoutError:
+            pointed = False
+        if not pointed:
+            self.logger.warning(
+                f"Could not point every room at the {stream.name} stream; one left "
+                "behind plays it from its next admission or source switch"
+            )
+        return pointed
 
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
         """Post-transition: WebSocket lifecycle, volume mode, and ready broadcast.

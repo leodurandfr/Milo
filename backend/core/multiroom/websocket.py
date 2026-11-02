@@ -21,7 +21,12 @@ from backend.core.multiroom.client_registry import (
     ClientRegistryService,
     REGISTRY_EVENT_CLASSES,
 )
-from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB, get_client_display_name
+from backend.config.constants import (
+    CLIENT_API_PORT,
+    DEFAULT_VOLUME_DB,
+    MULTIROOM_STREAMS,
+    get_client_display_name,
+)
 from backend.shared.background import BackgroundTaskSet
 
 if TYPE_CHECKING:
@@ -984,7 +989,8 @@ class SnapcastWebSocketService:
     async def _pin_snapserver(
         self, mac_id: str, snapcast_id: Optional[str], delay_ms: int
     ) -> bool:
-        """Lift snapserver's mute and push the client's delay; True once both are acknowledged.
+        """Lift snapserver's mute, push the client's delay and point its group at
+        the active source's stream; True once all three are acknowledged.
 
         Snapserver stays a passthrough — attenuation is CamillaDSP's job on the
         client. Every snapclient runs `--mixer none`, which ignores snapserver's
@@ -992,9 +998,12 @@ class SnapcastWebSocketService:
         a mute across its restarts: one set from snapweb or a home-automation
         client would silence the room for good, with Milō showing it unmuted.
         The per-client delay is native Snapcast latency Milō owns, and a delay
-        set while the client was away never reached snapserver.
+        set while the client was away never reached snapserver. The group comes
+        back on whatever stream snapserver kept for it, and a switch made while
+        the client was away moved only the groups snapserver then listed; with
+        no source playing there is no stream to choose, and it is left alone.
 
-        Both calls answer a refusal (HTTP error, timeout, JSON-RPC error) with
+        Every call answers a refusal (HTTP error, timeout, JSON-RPC error) with
         False rather than raising. A caller without a snapcast id has nothing to
         pin: snapserver keys its clients by its own id.
         """
@@ -1006,7 +1015,25 @@ class SnapcastWebSocketService:
         if not await self._snapcast_service.set_latency(snapcast_id, delay_ms):
             self.logger.warning(f"SYNC_RECONNECT: snapserver refused the {delay_ms} ms delay of {mac_id}")
             return False
+        # Read again past each answer: a transition meanwhile points every group
+        # at its own stream, and this answer can land after it.
+        stream = self._active_stream()
+        while stream is not None:
+            if not await self._snapcast_service.point_groups_at(stream, client_id=snapcast_id):
+                self.logger.warning(
+                    f"SYNC_RECONNECT: snapserver refused to point {mac_id} at the {stream} stream"
+                )
+                return False
+            moved = self._active_stream()
+            if moved == stream:
+                break
+            stream = moved
         return True
+
+    def _active_stream(self) -> Optional[str]:
+        """The snapserver stream of the active source; None while none plays."""
+        stream = MULTIROOM_STREAMS.get(self.state_machine.system_state.active_source)
+        return stream.name if stream else None
 
     def _note_sent(self, mac_id: str, setting: str, value: Any) -> None:
         """Record what the admission in flight for mac_id pushed (no-op outside one)."""
@@ -1080,7 +1107,8 @@ class SnapcastWebSocketService:
 
         The one admission recipe, shared by all four notifications that can see
         a client arrive: restore the snapserver passthrough and the client's
-        delay, resolve the level the client itself last held, apply it, re-push
+        delay, point its group at the active stream, resolve the level the
+        client itself last held, apply it, re-push
         its EQ record and its snapclient buffer config, then show it online and
         send it whatever was changed while this ran — a write meanwhile was only
         stored, since the client was not online yet
@@ -1099,7 +1127,7 @@ class SnapcastWebSocketService:
                 successful sync (keeps client offline/muted in frontend until
                 volume is confirmed on hardware).
             snapcast_id: Snapcast client id, when the caller has it. Used to
-                restore the snapserver passthrough and the delay
+                restore the snapserver passthrough, the delay and the stream
                 (see _pin_snapserver).
         """
         if not self.registry or not self._volume_service:
