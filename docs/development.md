@@ -1235,14 +1235,16 @@ sudo journalctl -u milo-backend -b | grep "GitHub token"
 Milō is a **fixed-purpose Pi appliance**. End users:
 
 - Run the **pre-built** frontend served by nginx from `frontend/dist/`.
-- Do **not** rebuild, hot-reload, or keep stale tabs open across deploys.
+- Do **not** rebuild or hot-reload. They *do* keep tabs open across an in-app Milō update,
+  which swaps `dist/` under them (class B below).
 - Do **not** interact with the Vite dev server (`npm run dev`), HMR, source-map URLs, or `localhost:5173`.
 
 A bug met *while developing* is first classified, because some cannot happen on a unit:
 
 **A. Dev-only artifact** — not a bug; no code change. Telltale signs:
 
-- Caused by a rebuild while a browser tab was already open (stale JS bundle, renamed chunks → 404 on dynamic imports → blank page).
+- Caused by a dev rebuild (`npm run build` by hand) while a browser tab was already open (stale JS
+  bundle, renamed chunks → 404 on dynamic imports → blank page).
 - Errors referencing `localhost:5173`, `192.168.x.x:5173`, `?t=<timestamp>` query strings, or `Vite HMR` / `[vite]` log lines.
 - Stale `sessionStorage` / `localStorage` from a prior dev iteration of the schema.
 - Service worker / PWA cache pollution from experimentation (the prod build has no SW).
@@ -1250,7 +1252,12 @@ A bug met *while developing* is first classified, because some cannot happen on 
 
 Reload guards, version-check loops or error-handler fallbacks whose only purpose is to mask a
 mid-session inconsistency are not accepted: they would ship in the production bundle for a
-scenario no end user can create.
+scenario no end user can create. The one exception is the in-app update, which an end user does
+create: when a restarted backend serves another entry script, `App.vue` reloads the tab
+(`utils/serverInstance.js::isStaleBuild`), and `main.js` reloads once per session on
+`vite:preloadError` for a chunk that went missing before the restart. A dev rebuild under an open
+tab restarts no backend, so only the `vite:preloadError` reload can meet it, once — and nothing is
+added for it.
 
 **B. Real bug that would also hit production** — fix in code. Telltale signs:
 

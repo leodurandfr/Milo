@@ -124,7 +124,7 @@ import { useTimer } from '@/composables/useTimer';
 import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/useNetwork';
 import { adoptBrowserTimezone } from '@/composables/useTimezone';
 import { createServerSync } from '@/services/serverSync';
-import { isBackendRestart } from '@/utils/serverInstance';
+import { isBackendRestart, isStaleBuild } from '@/utils/serverInstance';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -191,6 +191,19 @@ let bootFailedTimeoutId = null;
 // The backend process the last initial_state came from (see isBackendRestart).
 let serverInstance = null;
 
+// A restart may be an in-app Milō update, which swapped dist/: a tab that keeps
+// the old bundle finds every lazy chunk it never loaded gone (404, blank view).
+async function reloadIfBuildChanged() {
+  const { ok, data } = await apiCall.get('/', {
+    category: 'boot',
+    message: 'Could not read the served index after a backend restart',
+    responseType: 'text',
+    logLevel: 'warn',
+  });
+  const runningEntrySrc = document.querySelector('script[type="module"][src]')?.getAttribute('src');
+  if (ok && isStaleBuild(runningEntrySrc, data)) window.location.reload();
+}
+
 // Shared handler for initial state (WebSocket event or HTTP fallback)
 function processInitialState(event) {
   clearBootTimeout();
@@ -211,6 +224,7 @@ function processInitialState(event) {
   // from the background must not get it thrown up); a restarted one reveals
   // it as the boot does.
   if (backendRestarted && isBootComplete.value) revealDockFn?.();
+  if (backendRestarted && import.meta.env.PROD) reloadIfBuildChanged();
 }
 
 // Stores whose WS-fed state is delta-based: events missed while disconnected or

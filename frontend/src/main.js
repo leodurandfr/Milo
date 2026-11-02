@@ -40,6 +40,27 @@ window.addEventListener('unhandledrejection', (event) => {
   reportError('unhandledrejection', reason)
 })
 
+// A lazy chunk this bundle never loaded is gone once an in-app update swapped
+// dist/ under an open tab: reload onto the served build, once per session so a
+// chunk that is genuinely missing still reaches the reporter instead of looping.
+// One import can fail several times (its CSS, then its JS) before the page
+// unloads; those are swallowed too, or each would be reported.
+const STALE_CHUNK_RELOAD_KEY = 'milo_stale_chunk_reload'
+let reloadingForStaleChunk = false
+window.addEventListener('vite:preloadError', (event) => {
+  if (!reloadingForStaleChunk) {
+    try {
+      if (sessionStorage.getItem(STALE_CHUNK_RELOAD_KEY)) return
+      sessionStorage.setItem(STALE_CHUNK_RELOAD_KEY, '1')
+    } catch {
+      return
+    }
+    reloadingForStaleChunk = true
+    window.location.reload()
+  }
+  event.preventDefault()
+})
+
 async function initApp() {
   const app = createApp(App)
 

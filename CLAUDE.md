@@ -213,10 +213,10 @@ Milō is a fixed-purpose appliance — there is no legacy fleet to protect. Keep
 
 ## Dev-only artifacts vs production bugs
 
-End users run the **pre-built** frontend served by nginx from `dist/` — no Vite dev server, no HMR, no stale tabs, no `localhost:5173`. Classify a bug reported *while developing* before writing code:
+End users run the **pre-built** frontend served by nginx from `dist/` — no Vite dev server, no HMR, no `localhost:5173`. Classify a bug reported *while developing* before writing code:
 
-- **Dev-only artifact** (stale JS chunk after a rebuild with a tab open → blank page; references to `localhost:5173`/`?t=…`/`[vite]`; stale `localStorage`/SW cache; anything that disappears on hard refresh) → **diagnose and explain, do NOT add code.** Reload guards or version checks would bloat the prod bundle for a scenario no end user hits.
-- **Real bug** (reproduces from a clean prod boot or on the Pi kiosk; triggered by appliance actions; server-side trace in `journalctl`/`errors.log`; anything hardware — ALSA/CamillaDSP/ROC/Snapcast/encoder/screen/IR) → **fix it.**
+- **Dev-only artifact** (stale JS chunk after a **dev** rebuild with a tab open → blank page; references to `localhost:5173`/`?t=…`/`[vite]`; stale `localStorage`/SW cache; anything that disappears on hard refresh) → **diagnose and explain, do NOT add code.** Reload guards or version checks would bloat the prod bundle for a scenario no end user hits — with one exception, below.
+- **Real bug** (reproduces from a clean prod boot or on the Pi kiosk; triggered by appliance actions; server-side trace in `journalctl`/`errors.log`; anything hardware — ALSA/CamillaDSP/ROC/Snapcast/encoder/screen/IR) → **fix it.** That includes **a tab left open across an in-app Milō update**: the update swaps `dist/` under it, exactly as a dev rebuild does, but the user pressed a button the appliance offers. It is the bundle's one reload guard, with two triggers — `App.vue` reloads when a restarted backend serves another entry script (`utils/serverInstance.js::isStaleBuild`), and `main.js` reloads once per session on `vite:preloadError` — and none is added for a dev-only cause.
 
 When unsure, ask: *"reproducible from a clean prod boot, or only from dev-session state?"* Full telltale lists: [docs/development.md](docs/development.md).
 
