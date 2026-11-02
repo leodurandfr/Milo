@@ -39,6 +39,7 @@ from backend.api.responses import (
     ZoneOrMessageResponse,
 )
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.multiroom.models import EqualizerSettings
 
 if TYPE_CHECKING:
@@ -258,6 +259,39 @@ def create_multiroom_router(
         data["online"] = client.online
         return data
 
+    async def _drop_trim_before_dac(mac_id: str, client) -> None:
+        """Clear a client's level trim, in its DSP and then in its record, before it turns DAC.
+
+        A trim is attenuation too, so leaving it would break the one promise a
+        DAC client gets — that Milō attenuates nothing on that path — and once
+        the flag says DAC nothing reaches it again: the router skips a DAC
+        client's trim, PATCH /gain refuses one, and a satellite reloads it from
+        its own config at every boot. A DSP that did not take the 0 dB therefore
+        keeps the flag where it is. `force`: a client the registry holds offline
+        can still answer, and a skip here is a trim left in the DSP. An
+        unreachable satellite stays the 503 every satellite route answers; any
+        other failure is the speaker refusing, a 502.
+        """
+        if not client.volume_control or client.gain_db == 0.0:
+            return
+        logger.info(f"Clearing the level trim of {mac_id}: its amp now owns the level")
+        if equalizer_router:
+            try:
+                result = await equalizer_router.set_gain(mac_id, 0.0, force=True)
+            except SatelliteUnreachable as e:
+                if e.status_code == 503:
+                    raise
+                result = {"status": "error", "message": e.detail}
+            # A skip for an external amp is this unit's own DSP already in DAC
+            # mode, whose trim went with its flag (VolumeService._clear_local_gain).
+            if result.get("status") != "success" and result.get("reason") != "external_volume_control":
+                logger.error(f"Client {mac_id} kept its level trim, so it stays volume-managed: {result}")
+                raise HTTPException(
+                    status_code=502,
+                    detail="The speaker did not drop its level trim; its volume management was not changed",
+                )
+        await registry_service.set_client_gain(mac_id, 0.0)
+
     # === STATE ENDPOINT ===
 
     @router.get("/state", response_model=MultiroomStateResponse, openapi_extra=CONTRACTED)
@@ -310,7 +344,9 @@ def create_multiroom_router(
             404: Client not found
             400: Invalid speaker_type (validation handled by Pydantic),
                  or volume_control on a client with no audio card
-            502: Satellite unreachable or refused the volume_control change
+            502: Satellite unreachable or refused the volume_control change,
+                 or kept the level trim a DAC flip drops first
+            503: Satellite unreachable when its level trim was to be dropped
         """
         async with api_error_handler(f"Error updating client {mac_id}", logger):
             client = registry_service.get_client(mac_id)
@@ -319,6 +355,9 @@ def create_multiroom_router(
                     status_code=404,
                     detail=f"Client with mac_id '{mac_id}' not found"
                 )
+
+            if request.volume_control is False:
+                await _drop_trim_before_dac(mac_id, client)
 
             # A remote client's volume_control lives on the satellite; push it
             # there first, or its heartbeat reverts the registry (see
@@ -333,23 +372,6 @@ def create_multiroom_router(
                     mac_id, client.ip, request.volume_control,
                     registry_service=registry_service,
                 )
-
-            # Handing the level over to an external amp drops the trim, in the
-            # DSP and in the record. A trim is attenuation too, so leaving it
-            # would break the one promise a DAC client gets — that Milō
-            # attenuates nothing on that path — and a stored one would be a
-            # value nothing ever applies again, waiting to come back the day the
-            # flag flips. Done here, before the flag moves: the router skips a
-            # client that is already declared DAC.
-            if (
-                request.volume_control is False
-                and client.volume_control
-                and client.gain_db != 0.0
-            ):
-                logger.info(f"Clearing the level trim of {mac_id}: its amp now owns the level")
-                if equalizer_router:
-                    await equalizer_router.set_gain(mac_id, 0.0)
-                await registry_service.set_client_gain(mac_id, 0.0)
 
             updated_client = await registry_service.update_client(
                 mac_id,
@@ -587,6 +609,9 @@ def create_multiroom_router(
             overlay = card_info.get("overlay", "")
             # Use explicit value from request, or auto-detect from card category
             volume_control = request.volume_control if request.volume_control is not None else not is_dac_card(request.audio_id)
+
+            if not volume_control:
+                await _drop_trim_before_dac(mac_id, client)
 
             await _send_audio_config_and_reboot(
                 mac_id, client.ip, request.audio_id, overlay, volume_control,
@@ -960,8 +985,19 @@ def create_multiroom_router(
                 existing = registry_service.get_client(request.mac_id)
                 if existing:
                     if existing.volume_control != request.volume_control:
-                        await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
-                        logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
+                        try:
+                            if not request.volume_control:
+                                await _drop_trim_before_dac(request.mac_id, existing)
+                        except (HTTPException, SatelliteUnreachable) as e:
+                            # The satellite reads nothing from this answer: the
+                            # flag waits, and its next heartbeat retries the clear.
+                            logger.warning(
+                                f"Client {request.mac_id} reports an external amp, kept volume-managed "
+                                f"until its level trim is cleared: {e.detail}"
+                            )
+                        else:
+                            await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
+                            logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
                     logger.debug(f"Client {request.mac_id} heartbeat, hardware configured, skipping pending")
                     return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
 

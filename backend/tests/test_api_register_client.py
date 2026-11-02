@@ -28,6 +28,8 @@ from unittest.mock import AsyncMock, Mock
 
 from backend.api.models import RegisterClientRequest
 from backend.api.multiroom import create_multiroom_router
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client
 
 
@@ -56,8 +58,17 @@ def registry():
     service = Mock()
     service.get_client = Mock(return_value=None)
     service.update_client = AsyncMock()
+    service.set_client_gain = AsyncMock()
     service.unregister_client = AsyncMock(return_value=True)
     return service
+
+
+@pytest.fixture
+def satellite_dsp():
+    """The satellite's EQ API as the proxy reaches it: what it was sent, in order."""
+    proxy = Mock()
+    proxy.request = AsyncMock(return_value={"status": "success", "gain_db": 0.0})
+    return proxy
 
 
 @pytest.fixture
@@ -72,15 +83,19 @@ def pending():
 
 
 @pytest.fixture
-def client(registry, pending):
+def client(registry, pending, satellite_dsp):
     """A test client whose transport reports the satellite's own address.
 
     Starlette defaults `request.client.host` to "testclient", which is exactly
     the mismatch the route is built to refuse — every request would 403 and
     nothing below the gate would ever run.
     """
+    eq_router = EqualizerRouter(registry, None, satellite_dsp)
+    eq_router.set_local_mac_source(lambda: "aa:bb:cc:dd:ee:ff")
     app = FastAPI()
-    app.include_router(create_multiroom_router(registry, pending_clients_service=pending))
+    app.include_router(create_multiroom_router(
+        registry, pending_clients_service=pending, equalizer_router=eq_router,
+    ))
     return TestClient(app, client=(SAT_IP, 41000))
 
 
@@ -161,6 +176,63 @@ class TestConfiguredClient:
         })
 
         registry.update_client.assert_awaited_once_with(SAT_MAC, volume_control=False)
+
+    def test_a_heartbeat_dac_flip_clears_the_trim_first(
+        self, client, registry, satellite_dsp
+    ):
+        """A satellite reports its own DAC card (hardware.json is its copy), and
+        the registry flag is what the router reads before it sends a trim. Moved
+        first, it would skip the clear for good — and the satellite reloads the
+        trim from its config at every boot: +8 dB over a level held at unity.
+        """
+        order = []
+        registry.get_client.return_value = Client(
+            mac_id=SAT_MAC, name="Bureau", ip=SAT_IP, online=True,
+            volume_control=True, gain_db=8.0,
+        )
+        satellite_dsp.request.side_effect = (
+            lambda ip, method, path, body=None:
+                order.append((ip, method, path, body)) or {"status": "success"}
+        )
+        registry.update_client.side_effect = (
+            lambda mac, **fields: order.append(("registry", mac, fields))
+        )
+
+        response = client.post("/api/multiroom/register-client", json={
+            **BODY, "hardware_configured": True, "volume_control": False,
+        })
+
+        assert response.status_code == 200
+        assert order == [
+            (SAT_IP, "PUT", "/equalizer/gain", {"gain_db": 0.0}),
+            ("registry", SAT_MAC, {"volume_control": False}),
+        ]
+        registry.set_client_gain.assert_awaited_once_with(SAT_MAC, 0.0)
+
+    @pytest.mark.parametrize("status_code", [400, 503])
+    def test_a_heartbeat_dac_flip_the_dsp_refused_keeps_the_flag(
+        self, client, registry, satellite_dsp, status_code
+    ):
+        """The flag waits for its trim, and the heartbeat still answers: the
+        satellite reads nothing from a refusal, and the next heartbeat, 15 s
+        later, carries the same flip and tries the clear again.
+        """
+        registry.get_client.return_value = Client(
+            mac_id=SAT_MAC, name="Bureau", ip=SAT_IP, online=True,
+            volume_control=True, gain_db=8.0,
+        )
+        satellite_dsp.request.side_effect = SatelliteUnreachable(
+            SAT_IP, f"Client error: {status_code}", status_code=status_code
+        )
+
+        response = client.post("/api/multiroom/register-client", json={
+            **BODY, "hardware_configured": True, "volume_control": False,
+        })
+
+        assert response.status_code == 200
+        satellite_dsp.request.assert_awaited_once()
+        registry.update_client.assert_not_awaited()
+        registry.set_client_gain.assert_not_awaited()
 
     def test_a_wifi_adopted_client_arrives_configured_and_unknown(
         self, client, registry, pending

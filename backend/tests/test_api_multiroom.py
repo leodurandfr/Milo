@@ -13,6 +13,7 @@ import logging
 import pytest
 import aiohttp
 from unittest.mock import Mock, AsyncMock, patch
+from urllib.parse import urlsplit
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -20,6 +21,7 @@ from pydantic import ValidationError
 from backend.api.multiroom import create_multiroom_router
 from backend.api.models import ZoneCreate, ZoneUpdate, MAX_ZONE_NAME_LENGTH
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client, Zone, EqualizerSettings
 from backend.core.multiroom.snapcast import SnapcastService
 
@@ -410,21 +412,6 @@ class TestClientGainEndpoint:
         eq_router.set_gain.assert_not_awaited()
         registry.set_client_gain.assert_not_awaited()
 
-    def test_handing_the_level_to_an_amp_drops_the_trim(self, gain_client):
-        """A trim is attenuation, and a DAC client's one promise is that Milō
-        attenuates nothing on its path. Cleared in the DSP *and* in the record:
-        a stored trim nothing applies again would come back the day the flag
-        flips. Order matters — the router skips a client already declared DAC."""
-        client, registry, eq_router = gain_client
-
-        with patch("backend.api.multiroom._push_volume_control", new=AsyncMock()):
-            resp = client.patch("/api/multiroom/clients/mac-trimmed",
-                                json={"volume_control": False})
-
-        assert resp.status_code == 200
-        eq_router.set_gain.assert_awaited_once_with("mac-trimmed", 0.0)
-        registry.set_client_gain.assert_awaited_once_with("mac-trimmed", 0.0)
-
     def test_handing_the_level_to_an_amp_with_no_trim_pushes_nothing(self, gain_client):
         """The common case: a flip must not reload the DSP pipeline for a filter
         that was never there."""
@@ -449,6 +436,206 @@ class TestClientGainEndpoint:
         client, _, _ = gain_client
         resp = client.patch("/api/multiroom/clients/nope/gain", json={"gain_db": 0})
         assert resp.status_code == 404
+
+
+class _WireSatellite:
+    """A satellite's own HTTP surface, seen as one wire.
+
+    Two transports reach it — the EQ proxy (the trim) and the routes' own aiohttp
+    sessions (hardware.json, the reboot) — so both write `(ip, method, path, body)`
+    to the same list, and the order across them is what a test can read.
+    """
+
+    def __init__(self, audio=None):
+        self.wire = []
+        self.audio = audio or {"id": "hifiberry_amp2", "overlay": "hifiberry-amp"}
+        self.refusal = None
+
+    async def proxy_request(self, ip, method, path, body=None):
+        self.wire.append((ip, method, path, body))
+        if self.refusal is not None:
+            raise self.refusal
+        return {"status": "success", **(body or {})}
+
+    def _record(self, method, url, body):
+        parts = urlsplit(url)
+        self.wire.append((parts.hostname, method, parts.path, body))
+        payload = {"audio": self.audio} if method == "GET" else {}
+        return TestVolumeControlPush._FakeResponse(200, payload)
+
+    # aiohttp.ClientSession
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def get(self, url, **kwargs):
+        return self._record("GET", url, None)
+
+    def put(self, url, json=None, **kwargs):
+        return self._record("PUT", url, json)
+
+    def post(self, url, json=None, **kwargs):
+        return self._record("POST", url, json)
+
+
+@pytest.fixture
+def dac_flip():
+    """The three routes that can turn a satellite DAC, over the real EqualizerRouter.
+
+    Only the outside world is faked: the satellite (both transports, one wire)
+    and the registry's storage. Each trimmed client carries +8 dB, the trim
+    measured on Bureau — the value that clips once the level is unity.
+    """
+    clients = {
+        "mac-trimmed": Client(mac_id="mac-trimmed", name="Hall", ip="192.168.1.54",
+                              online=True, gain_db=8.0),
+        "mac-asleep": Client(mac_id="mac-asleep", name="Desk", ip="192.168.1.55",
+                             online=False, gain_db=8.0),
+        # The main unit, whose own flag (VolumeService's) already says DAC while
+        # its registry copy, written after the flag, still says managed.
+        "mac-local": Client(mac_id="mac-local", name="Main", ip="127.0.0.1",
+                            online=True, gain_db=3.0),
+    }
+    registry = Mock()
+    registry.get_client = Mock(side_effect=clients.get)
+
+    def _set_gain(mac_id, gain_db):
+        clients[mac_id] = dataclasses.replace(clients[mac_id], gain_db=gain_db)
+        return clients[mac_id]
+
+    def _update(mac_id, **fields):
+        clients[mac_id] = dataclasses.replace(
+            clients[mac_id], **{k: v for k, v in fields.items() if v is not None}
+        )
+        return clients[mac_id]
+
+    registry.set_client_gain = AsyncMock(side_effect=_set_gain)
+    registry.update_client = AsyncMock(side_effect=_update)
+    registry.set_client_online = AsyncMock()
+
+    satellite = _WireSatellite()
+    proxy = Mock()
+    proxy.request = AsyncMock(side_effect=satellite.proxy_request)
+    eq_router = EqualizerRouter(registry, None, proxy)
+    eq_router.set_local_mac_source(lambda: "aa:bb:cc:dd:ee:ff")
+    eq_router.set_local_volume_control_source(lambda: False)
+
+    app = FastAPI()
+    app.include_router(create_multiroom_router(registry, None, None, None, None, eq_router))
+    with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite):
+        yield TestClient(app), registry, satellite, clients
+
+
+class TestTrimDroppedBeforeADacFlip:
+    """A trim is cleared in the satellite's DSP before anything declares it DAC.
+
+    Once the flag says DAC nothing reaches the trim again: the router skips a DAC
+    client's trim, the admission counts that skip as applied, PATCH /gain answers
+    400 — and the satellite reloads the trim from its own config at every boot.
+    A trim left behind is +8 dB over a level pinned at unity: clipping, on a
+    speaker whose screen no longer shows a trim to remove.
+    """
+
+    @staticmethod
+    def _gain_clear(ip):
+        return (ip, "PUT", "/equalizer/gain", {"gain_db": 0.0})
+
+    @staticmethod
+    def _flip(client, route, mac_id="mac-trimmed"):
+        if route == "patch":
+            return client.patch(f"/api/multiroom/clients/{mac_id}",
+                                json={"volume_control": False})
+        return client.put(f"/api/multiroom/clients/{mac_id}/audio",
+                          json={"audio_id": "hifiberry_dacplus_pro"})
+
+    def test_a_dac_card_drops_the_trim_before_the_reboot(self, dac_flip):
+        """The card change used to flip the flag with the trim still in the DSP,
+        and the reboot that follows reloads it from the satellite's config."""
+        client, _, satellite, clients = dac_flip
+
+        resp = self._flip(client, "put")
+
+        assert resp.status_code == 200
+        calls = [(method, path) for _, method, path, _ in satellite.wire]
+        assert calls == [
+            ("PUT", "/equalizer/gain"),
+            ("PUT", "/api/hardware/audio"),
+            ("POST", "/api/hardware/reboot"),
+        ]
+        assert satellite.wire[0] == self._gain_clear("192.168.1.54")
+        assert satellite.wire[1][3]["volume_control"] is False
+        assert clients["mac-trimmed"].gain_db == 0.0
+        assert clients["mac-trimmed"].volume_control is False
+
+    def test_handing_the_level_to_an_amp_drops_the_trim(self, dac_flip):
+        """The trim goes before the satellite's hardware.json says DAC, and it
+        goes in the record too: a stored trim nothing applies again would come
+        back the day the flag flips back."""
+        client, _, satellite, clients = dac_flip
+
+        resp = self._flip(client, "patch")
+
+        assert resp.status_code == 200
+        assert satellite.wire[0] == self._gain_clear("192.168.1.54")
+        assert [(m, p) for _, m, p, _ in satellite.wire[1:]] == [
+            ("GET", "/api/hardware"),
+            ("PUT", "/api/hardware/audio"),
+        ]
+        assert clients["mac-trimmed"].gain_db == 0.0
+        assert clients["mac-trimmed"].volume_control is False
+
+    @pytest.mark.parametrize("route", ["patch", "put"])
+    @pytest.mark.parametrize("refused_with, answered", [(400, 502), (503, 503)])
+    def test_a_dac_flip_whose_trim_was_not_cleared_is_refused(
+        self, dac_flip, caplog, route, refused_with, answered
+    ):
+        """The flag waits for its trim. Flipped anyway, the speaker is DAC with
+        the trim in its DSP, and nothing Milō sends reaches the trim again. A
+        refusal answers 502 at error, never the satellite's own 400 (which reads
+        as the browser's mistake); an unreachable satellite stays the 503 every
+        satellite route answers, at warning — an unplugged speaker is no banner."""
+        client, registry, satellite, clients = dac_flip
+        satellite.refusal = SatelliteUnreachable(
+            "192.168.1.54", f"Client error: {refused_with}", status_code=refused_with
+        )
+
+        with caplog.at_level(logging.WARNING, logger="backend.api.multiroom"):
+            resp = self._flip(client, route)
+
+        assert resp.status_code == answered
+        assert satellite.wire == [self._gain_clear("192.168.1.54")], \
+            "no hardware.json write and no reboot once the trim stayed"
+        registry.update_client.assert_not_awaited()
+        registry.set_client_gain.assert_not_awaited()
+        assert clients["mac-trimmed"].volume_control is True
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert bool(errors) is (answered == 502)
+
+    def test_a_dac_flip_reaches_a_satellite_the_registry_holds_offline(self, dac_flip):
+        """The registry's `online` lags the satellite (it is up while snapclient
+        reconnects), and hardware.json is written to it all the same — a trim
+        clear skipped as "offline" was the one call that did not arrive."""
+        client, _, satellite, clients = dac_flip
+
+        resp = self._flip(client, "patch", mac_id="mac-asleep")
+
+        assert resp.status_code == 200
+        assert satellite.wire[0] == self._gain_clear("192.168.1.55")
+        assert clients["mac-asleep"].gain_db == 0.0
+
+    def test_the_main_unit_already_in_dac_mode_has_nothing_left_to_clear(self, dac_flip):
+        """Its trim went with its own flag (VolumeService._clear_local_gain), so
+        the router skips it for an external amp: not a refusal to answer 502."""
+        client, _, satellite, clients = dac_flip
+
+        resp = self._flip(client, "patch", mac_id="mac-local")
+
+        assert resp.status_code == 200
+        assert satellite.wire == []
+        assert clients["mac-local"].gain_db == 0.0
+        assert clients["mac-local"].volume_control is False
 
 
 class TestClientDelayEndpoint:

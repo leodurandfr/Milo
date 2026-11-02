@@ -208,7 +208,8 @@ class EqualizerRouter:
         attenuates nothing on that path. (`set_volume` does not skip a DAC — it
         sends unity instead, since a fader left where the unit started it would
         be opened by the unmute that follows.) So a trim is cleared before the
-        DAC flag is set, never after (`VolumeService._clear_local_gain`). The
+        DAC flag is set, never after (`VolumeService._clear_local_gain` for this
+        unit, `api/multiroom.py::_drop_trim_before_dac` for a satellite). The
         flag is read where `set_volume` reads it: the local one for this unit,
         the registry's for a satellite.
         """
