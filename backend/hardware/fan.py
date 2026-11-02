@@ -248,9 +248,14 @@ class FanController:
         }
 
     async def read_status(self) -> dict:
-        """Sample the hardware once, then return the fresh status (for GET /status)."""
+        """Read the sensors once, then return the fresh status (for GET /status).
+
+        Raw telemetry only: the control law's smoothed temperature belongs to
+        the monitor loop, so a page polling this route leaves its time
+        constant alone.
+        """
         if self.available:
-            await self._sample()
+            await self._read_sensors()
         return self.get_status()
 
     async def _broadcast_status(self, event_cls: Type[FanStatusEvent]) -> None:
@@ -347,21 +352,32 @@ class FanController:
             return 100
         return round((temp_c - off_below) / (full_above - off_below) * 100)
 
-    async def _sample(self) -> None:
+    async def _read_sensors(self) -> Optional[float]:
+        """Refresh the raw temperature and RPM; return the temperature just
+        read, or None when the sensor did not answer (the last one stands)."""
         # Both sysfs reads in a single executor hop.
         raw_temp, rpm = await asyncio.to_thread(
             lambda: (_read_int(f"{THERMAL_ZONE}/temp"), _read_int(self._rpm_path))
         )
-        if raw_temp is not None:
-            self._temp_c = round(raw_temp / 1000.0, 1)
-            if self._temp_ema is None:
-                self._temp_ema = self._temp_c
-            else:
-                self._temp_ema = round(
-                    TEMP_EMA_ALPHA * self._temp_c + (1 - TEMP_EMA_ALPHA) * self._temp_ema, 2
-                )
         if rpm is not None:
             self._rpm = rpm
+        if raw_temp is None:
+            return None
+        self._temp_c = round(raw_temp / 1000.0, 1)
+        return self._temp_c
+
+    async def _sample(self) -> None:
+        """One control-loop sample: the sensors, then the EMA. Only the monitor
+        loop calls it, so the EMA advances once per tick."""
+        temp_c = await self._read_sensors()
+        if temp_c is None:
+            return
+        if self._temp_ema is None:
+            self._temp_ema = temp_c
+        else:
+            self._temp_ema = round(
+                TEMP_EMA_ALPHA * temp_c + (1 - TEMP_EMA_ALPHA) * self._temp_ema, 2
+            )
 
     async def _write_sysfs(self, path: str, value) -> bool:
         try:

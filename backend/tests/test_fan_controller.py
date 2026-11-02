@@ -488,14 +488,14 @@ class TestTakeoverReadsTheDutyInPlace:
 
 
 class TestReadStatus:
-    """`GET /api/settings/fan/status` samples the hardware before answering.
+    """`GET /api/fan/status` reads the sensors before answering.
 
     What breaks when this fails: the fan page reports the temperature and RPM
     of whenever the monitor loop last ticked — up to LOOP_INTERVAL stale, and
     arbitrarily stale when the fan is disabled and no loop runs at all.
 
     The sysfs files ARE the outside world here, so they are the only thing
-    stood in for: `_sample` and `_read_int` run for real.
+    stood in for: `_read_sensors`, `_sample` and `_read_int` run for real.
     """
 
     async def test_the_answer_carries_what_the_sample_just_read(self, tmp_path, monkeypatch):
@@ -516,16 +516,72 @@ class TestReadStatus:
         assert status["temp_c"] == 61.4
         assert status["rpm"] == 2900
 
-    async def test_a_box_with_no_fan_is_not_sampled(self):
+    async def test_a_status_read_does_not_advance_the_control_average(
+        self, tmp_path, monkeypatch
+    ):
+        """The fan page (`FanSection.vue`) polls this route every 3 s, the
+        loop's own period. What breaks when this fails: each read blends one
+        more sample into the EMA the control law reads, so an open page halves
+        the ~6 s time constant, and two pages shorten it again — the duty
+        steps grow with the number of pages open.
+
+        Two twin controllers on the same sensor; only one is read between the
+        ticks, and the duty each tick writes must not tell them apart."""
+        zone = tmp_path / "thermal_zone0"
+        zone.mkdir()
+        temp = zone / "temp"
+        temp.write_text("60000")
+        monkeypatch.setattr(fan, "THERMAL_ZONE", str(zone))
+
+        def twin(name):
+            hwmon = tmp_path / name
+            hwmon.mkdir()
+            (hwmon / "fan1_input").write_text("2400")
+            c = make_controller()
+            c.available = True
+            c._hwmon_dir = str(hwmon)
+            c.target_temp_c = 70
+            return c, hwmon
+
+        read, read_hwmon = twin("hwmon3")
+        unread, unread_hwmon = twin("hwmon4")
+        await read._sample()
+        await unread._sample()
+
+        for millidegrees in ("70000", "75000", "80000"):
+            temp.write_text(millidegrees)
+            status = await read.read_status()
+
+        assert status["temp_c"] == 80.0, "telemetry still reports the raw reading"
+        assert read._temp_ema == unread._temp_ema
+
+        async def one_tick(c):
+            c._start_monitor()
+
+            async def written():
+                while not c.state_machine.broadcast.await_count:
+                    await asyncio.sleep(0)
+
+            await asyncio.wait_for(written(), 2)
+            await c._stop_monitor()
+
+        await one_tick(read)
+        await one_tick(unread)
+
+        assert (read_hwmon / "pwm1").read_text() == (unread_hwmon / "pwm1").read_text()
+
+    async def test_a_box_with_no_fan_is_not_sampled(self, tmp_path, monkeypatch, caplog):
         """Off-Pi the sysfs nodes do not exist; reading them would log a warning
         pair on every poll of a page that has nothing to show anyway."""
+        monkeypatch.setattr(fan, "THERMAL_ZONE", str(tmp_path / "thermal_zone0"))
         controller = make_controller()
         controller.available = False
-        controller._sample = AsyncMock()
+        controller._hwmon_dir = str(tmp_path / "hwmon3")
 
-        status = await controller.read_status()
+        with caplog.at_level(logging.WARNING):
+            status = await controller.read_status()
 
-        controller._sample.assert_not_awaited()
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert status["available"] is False
 
 
