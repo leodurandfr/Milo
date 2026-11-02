@@ -393,6 +393,89 @@ describe('equalizerStore', () => {
       expect(equalizerStore.filters[1].gain).toBe(0);
     });
 
+    /**
+     * The backend broadcasts `target_id` as it was written, and the local unit
+     * outside a zone is written as the 'local' sentinel. A second screen showing
+     * the local unit compared that to its MAC and dropped the echo — then a
+     * slider touched there re-posted the stale compressor it still showed.
+     */
+    it('applies the echo of a local edit (target_id local) while the local unit is shown', () => {
+      setMultiroom(false);
+      equalizerStore.selectedTarget = LOCAL_MAC;
+      equalizerStore.compressor.enabled = true;
+
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: 'local',
+        equalizer_settings: {
+          compressor: { enabled: false },
+          filters: [{ id: 'eq_band_00', gain: 4 }],
+        },
+      });
+
+      expect(equalizerStore.compressor.enabled).toBe(false);
+      expect(equalizerStore.filters[0].gain).toBe(4);
+    });
+
+    /**
+     * A member that detached its EQ is excluded from every zone write, so a
+     * zone record is not what it plays — adopting it (preset included) shows a
+     * curve the satellite does not have, which a later discard re-posts to it.
+     */
+    it('ignores a zone change while the selected member is eq-independent', () => {
+      registerClient(REMOTE_MAC, { name: 'Kitchen', eq_independent: true });
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'zone',
+        target_id: 'z1',
+        equalizer_settings: {
+          filters: [{ id: 'eq_band_00', gain: 6 }],
+          active_preset: 'rock',
+          mono: true,
+        },
+      });
+
+      expect(equalizerStore.filters[0].gain).toBe(0);
+      expect(equalizerStore.activePreset).toBe('flat');
+      expect(equalizerStore.mono).toBe(false);
+    });
+
+    /**
+     * A member's record is the zone's except for its own master flag, and the
+     * registry announces it under the member's MAC. With the zone on screen the
+     * zone's own events are the ones that describe it, so a member's echo is not
+     * adopted in its place.
+     */
+    it("ignores a member's own record while its zone is displayed", () => {
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: REMOTE_MAC,
+        equalizer_settings: { filters: [{ id: 'eq_band_00', gain: 2 }] },
+      });
+
+      expect(equalizerStore.filters[0].gain).toBe(0);
+    });
+
+    it('ignores a zone change while multiroom is off', () => {
+      // Zones route nothing in direct mode: the selected client is addressed
+      // on its own, so the zone's record is not the one on screen.
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(false);
+
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'zone',
+        target_id: 'z1',
+        equalizer_settings: { filters: [{ id: 'eq_band_00', gain: -7 }] },
+      });
+
+      expect(equalizerStore.filters[0].gain).toBe(0);
+    });
+
     it('ignores an event with no settings', () => {
       expect(() => equalizerStore.handleEqualizerChanged({
         target_type: 'client',
@@ -465,6 +548,29 @@ describe('equalizerStore', () => {
       equalizerStore.selectedTarget = LOCAL_MAC;
 
       equalizerStore.handleEnabledChanged({ data: { enabled: false } });
+
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
+    });
+
+    it('zone_enabled_changed flips the effects flag while its zone is displayed', () => {
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      equalizerStore.handleZoneEnabledChanged({ data: { zone_id: 'z1', enabled: false } });
+
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);
+    });
+
+    it('ignores zone_enabled_changed while the selected member is eq-independent', () => {
+      // The zone's master toggle leaves a detached member's flag alone, so the
+      // zone's value says nothing about the one on screen.
+      registerClient(REMOTE_MAC, { name: 'Kitchen', eq_independent: true });
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      equalizerStore.handleZoneEnabledChanged({ data: { zone_id: 'z1', enabled: false } });
 
       expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
     });

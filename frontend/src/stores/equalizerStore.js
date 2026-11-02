@@ -163,6 +163,19 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return zone ? zone.id : null;
   }
 
+  /**
+   * Whether a WS payload describes the target on screen, compared in the
+   * address the store writes to: the backend echoes `target_id` as written, so
+   * the local unit arrives as the 'local' sentinel (or its MAC), and a zone
+   * reaches neither a detached member nor anything while multiroom is off.
+   */
+  function isAddressedToSelection(targetType, targetId) {
+    const address = targetType === 'zone'
+      ? `${ZONE_PREFIX}${targetId}`
+      : (registryStore.isClientLocal(targetId) ? LOCAL_TARGET : targetId);
+    return address === targetRef();
+  }
+
   // === API CALLS ===
   /**
    * Fetch the complete EQ record for the current target (one GET, one record).
@@ -633,7 +646,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   /**
    * Handle equalizer changed events from multiroom category.
-   * Updates local equalizer state when the target matches selectedTarget.
+   * Updates local equalizer state when the event is addressed to the target on
+   * screen (isAddressedToSelection).
    * Consumes the validated payload from parsedOn (schema: multiroom.equalizer_changed).
    * @param {{ target_type: "zone"|"client", target_id: string,
    *   equalizer_settings: { filters?, compressor?, loudness?, mono?, active_preset?,
@@ -642,32 +656,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   function handleEqualizerChanged(payload) {
     const { target_type, target_id, equalizer_settings } = payload;
     if (!equalizer_settings) return;
-
-    // ALWAYS update activePreset for zone events if we have a client in that zone
-    // This must happen BEFORE the relevance check for filter updates, because
-    // the relevance check may fail while the preset change is still valid
-    if (target_type === 'zone' && equalizer_settings.active_preset !== undefined) {
-      const zone = registryStore.getZoneForClient(selectedTarget.value);
-      if (zone && zone.id === target_id && equalizer_settings.active_preset !== activePreset.value) {
-        activePreset.value = equalizer_settings.active_preset;
-        isPresetEdited.value = false;
-        _snapshotPresetGains(equalizer_settings.active_preset);
-      }
-    }
-
-    // Check if this equalizer change applies to the currently selected target
-    let isRelevant = false;
-
-    if (target_type === 'client') {
-      // Direct client match
-      isRelevant = target_id === selectedTarget.value;
-    } else if (target_type === 'zone') {
-      // Zone match: check if selectedTarget is in this zone
-      const zone = registryStore.getZoneForClient(selectedTarget.value);
-      isRelevant = zone && zone.id === target_id;
-    }
-
-    if (!isRelevant) return;
+    if (!isAddressedToSelection(target_type, target_id)) return;
 
     // Update local equalizer state from received settings
     if (equalizer_settings.filters && Array.isArray(equalizer_settings.filters)) {
@@ -804,9 +793,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const { zone_id, enabled } = event.data;
     if (enabled === undefined) return;
 
-    // Only update if our selected target is in the affected zone
-    const zone = registryStore.getZoneForClient(selectedTarget.value);
-    if (zone && zone.id === zone_id) {
+    // The zone's toggle leaves its detached members alone (eq_independent).
+    if (isAddressedToSelection('zone', zone_id)) {
       isEqualizerEffectsEnabled.value = enabled;
     }
   }

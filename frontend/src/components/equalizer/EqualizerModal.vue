@@ -239,7 +239,7 @@ async function handleLoudnessToggle(enabled) {
 }
 
 async function handleLoudnessChange(field, value) {
-  await equalizerStore.updateLoudness({ [field]: value, enabled: equalizerStore.loudness.enabled });
+  await equalizerStore.updateLoudness({ [field]: value });
 }
 
 // === COMPRESSOR ===
@@ -248,7 +248,7 @@ async function handleCompressorToggle(enabled) {
 }
 
 async function handleCompressorChange(field, value) {
-  await equalizerStore.updateCompressor({ [field]: value, enabled: equalizerStore.compressor.enabled });
+  await equalizerStore.updateCompressor({ [field]: value });
 }
 
 // === MONO ===

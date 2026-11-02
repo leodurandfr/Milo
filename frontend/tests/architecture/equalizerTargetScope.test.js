@@ -6,8 +6,8 @@
  * client", "flash of flat EQ", "skip zone routing", "zone_enabled_changed").
  *
  * The page shows exactly one target at a time — the local DAC, a satellite, or a
- * zone — and every piece of state it renders belongs to that target. Two ways to
- * get that wrong recurred:
+ * zone — and every piece of state it renders belongs to that target. Four ways
+ * to get that wrong recurred:
  *
  *   1. A WS handler adopts a payload without asking which target it describes.
  *      `handleEnabledChanged` did, and equalizer/enabled_changed is the *local*
@@ -19,7 +19,16 @@
  *      take one field loadStatus() had just set from the same response.
  *   3. A second representation of "which target is selected" appears. The tab
  *      strip held one, in its own `zone:<mac1>,<mac2>` grammar against the API's
- *      `zone:<zoneId>`, and the two could never compare equal.
+ *      `zone:<zoneId>`, and the two could never compare equal. The WS handlers
+ *      held another, `selectedTarget` + `getZoneForClient`, blind to the three
+ *      axes `targetRef()` resolves — the 'local' sentinel the backend echoes, a
+ *      member that detached its EQ (eq_independent), multiroom off — so the echo
+ *      of a local edit was dropped and a zone's record shown where it never
+ *      landed. A payload's address is now compared to `targetRef()` itself
+ *      (`isAddressedToSelection`).
+ *   4. A field write re-posts state the screen holds beside the field it
+ *      changed. The compressor and loudness sliders sent `enabled` from the
+ *      store with every drag, so a screen that missed a toggle turned it back.
  *
  * These rules are STRUCTURAL on purpose. A behavioural test only covers the
  * handler someone thought to write one for; these fail on the *next* handler
@@ -28,11 +37,12 @@
  *
  * Known limit, stated rather than papered over: rule 2 asks whether a handler has
  * *any* notion of its target, not whether an existing check actually gates. Delete
- * `handleEqualizerChanged`'s `if (!isRelevant) return;` and it still passes, since
- * `target_id` remains in the destructure. Proving that would need dataflow; the
- * gating is covered behaviourally instead (equalizerStore.test.js applies/ignores
- * a change × client/zone, both red on that mutation). Structure catches the
- * missing concept, behaviour catches the wrong comparison.
+ * `handleEqualizerChanged`'s `isAddressedToSelection` return and it still passes,
+ * since `target_id` remains in the destructure. Proving that would need dataflow;
+ * the gating is covered behaviourally instead (equalizerStore.test.js applies/
+ * ignores a change × client/zone/'local'/eq_independent/multiroom off, red on that
+ * mutation). Structure catches the missing concept and a comparison against the
+ * raw `selectedTarget`; behaviour catches any other wrong comparison.
  *
  * Every extraction asserts it found a plausible surface first — a broken parse
  * must fail loudly, not pass on an empty set.
@@ -48,6 +58,7 @@ const SRC_DIR = resolve(HERE, '../../src');
 const EQ_STORE = join(SRC_DIR, 'stores/equalizerStore.js');
 const PARAMETRIC_EQ = join(SRC_DIR, 'components/equalizer/ParametricEQ.vue');
 const EQ_BAND = join(SRC_DIR, 'components/equalizer/EQBand.vue');
+const EQ_MODAL = join(SRC_DIR, 'components/equalizer/EqualizerModal.vue');
 
 /** Anything that builds, tests or takes apart the `zone:<id>` API token. */
 const ZONE_TOKEN = /(?:`zone:\$\{|['"]zone:)/;
@@ -73,10 +84,14 @@ const TARGET_SCOPED_REFS = [
   'isEqualizerEffectsEnabled',
 ];
 
-/** Anything that establishes which target a payload or a read is about. */
+/**
+ * Anything that establishes which target a payload or a read is about, in the
+ * address the store writes to. `getZoneForClient(selectedTarget…)` is not one:
+ * it misses the 'local' sentinel, an eq_independent member and multiroom off.
+ */
 const SCOPE_CHECKS = [
-  'targetRef(', 'getSelectedZoneId(', 'getZoneForClient(',
-  'target_id', 'zone_id', 'selectedTarget',
+  'targetRef(', 'getSelectedZoneId(', 'isAddressedToSelection(',
+  'target_id', 'zone_id',
 ];
 
 const source = readFileSync(EQ_STORE, 'utf8');
@@ -144,6 +159,18 @@ describe('equalizerStore target scoping', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('no WS handler compares a payload to the raw selection', () => {
+    // `selectedTarget` is a MAC or null, while the backend echoes the address
+    // it was written to — 'local', a MAC, a zone id — which only targetRef()
+    // resolves the selection to. Comparing the two dropped every local echo
+    // and adopted zone records on members the zone never reaches.
+    const offenders = WS_HANDLERS
+      .filter(handler => /\bselectedTarget\b/.test(stripComments(handler.body)))
+      .map(handler => handler.name);
+
+    expect(offenders).toEqual([]);
+  });
+
   it('only loadStatus reads the per-target record', () => {
     // A second reader is how the master toggle and the sliders came to disagree.
     const readers = FUNCTIONS
@@ -203,6 +230,26 @@ describe('equalizerStore target scoping', () => {
     expect(gainSlider, ANCHOR_LOST(GAIN_SLIDER_CLASS, '')).not.toBeNull();
     expect(printed[1]).toMatch(/\bloaded\b/);
     expect(gainSlider[0]).toMatch(/\bloaded\b/);
+  });
+
+  it('a field write sends only the field it changed', () => {
+    // The compressor and loudness sliders sent `enabled` read from the store
+    // with every value, so a screen that had missed a toggle made on another
+    // one turned the effect back with its first drag. The backend merges a
+    // partial write: the field alone is the whole intent.
+    const modal = stripComments(readFileSync(EQ_MODAL, 'utf8'));
+    const writers = [...modal.matchAll(
+      /function (handle\w+Change)\s*\(\s*field\s*,\s*value\s*\)\s*\{([\s\S]*?)\n\}/g,
+    )];
+    expect(writers.map(m => m[1]), 'no field handler parsed out of EqualizerModal — the extractor is broken')
+      .toEqual(expect.arrayContaining(['handleLoudnessChange', 'handleCompressorChange']));
+
+    for (const [, name, body] of writers) {
+      const sent = body.match(/equalizerStore\.update\w+\(\s*(\{[\s\S]*?\})\s*\)/);
+      expect(sent, `${name} writes nothing through equalizerStore — the extractor is broken`).not.toBeNull();
+      expect(sent[1].replace(/\s+/g, ''), `${name} sends more than the field it changed`)
+        .toMatch(/^\{\[field\]:[^,]+\}$/);
+    }
   });
 
   it('the EQ store addresses no volume endpoint', () => {
