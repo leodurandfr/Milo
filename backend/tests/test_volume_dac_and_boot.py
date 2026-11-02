@@ -259,8 +259,8 @@ class TestDacMode:
     async def test_setting_a_level_in_direct_dac_mode_is_accepted_and_ignored(self, service, camilladsp):
         """Direct + DAC has no client to control, and the API must not 500.
 
-        The rotary encoder is disabled in this mode but the mobile UI slider is
-        not, and Milo-Mac can still PATCH a volume.
+        The rotary encoder, the IR and BT remotes and the mobile UI slider still
+        send moves in this mode, and Milo-Mac can still PATCH a volume.
         """
         service._volume_control = False
         service._routing_service = Mock()

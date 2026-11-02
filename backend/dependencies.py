@@ -53,9 +53,6 @@ def _create_rotary_controller():
     if not hardware_service.get_rotary_enabled():
         logging.getLogger(__name__).info("Rotary encoder disabled in hardware config")
         return None
-    if not hardware_service.get_volume_control():
-        logging.getLogger(__name__).info("DAC mode: rotary encoder disabled (volume managed externally)")
-        return None
     clk, dt, sw = hardware_service.get_rotary_pins()
     return _import("backend.hardware.rotary", "RotaryVolumeController")(
         volume_service=get_service("volume_service"),

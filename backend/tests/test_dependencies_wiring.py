@@ -580,17 +580,21 @@ class TestRotaryCreator:
 
         assert "Rotary encoder disabled in hardware config" in caplog.text
 
-    def test_dac_mode_disables_the_encoder_whatever_the_hardware_flag_says(
-        self, hardware, caplog
-    ):
-        """The knob turns a volume Milō does not own. Kept alive it would move
-        the state store and broadcast a level the amplifier ignores, so the UI
-        slider and the room would disagree permanently.
+    def test_the_encoder_exists_whatever_volume_control_says(self, hardware):
+        """The controller is built once at boot and never again, while
+        `volume_control` flips at runtime (PATCH /api/volume/volume-control).
+        Refused in DAC mode, the knob and its multi-click button stayed dead after
+        a DAC -> managed switch until the next backend restart. What a turn does
+        to the level is `VolumeService.adjust_volume_db`'s to decide, exactly as
+        for the IR and BT remotes; the button does not touch the volume at all.
         """
+        from backend.hardware.rotary import RotaryVolumeController
+
         hardware.get_rotary_enabled.return_value = True
         hardware.get_volume_control.return_value = False
+        hardware.get_rotary_pins.return_value = (22, 27, 23)
 
-        with caplog.at_level(logging.INFO):
-            assert deps._create_rotary_controller() is None
+        ctrl = deps._create_rotary_controller()
 
-        assert "DAC mode: rotary encoder disabled" in caplog.text
+        assert isinstance(ctrl, RotaryVolumeController)
+        assert ctrl.volume_service is deps._services["volume_service"]
