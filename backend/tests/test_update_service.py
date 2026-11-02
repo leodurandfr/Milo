@@ -4590,9 +4590,13 @@ class TestTheReleaseInstall:
         be the one served after the failure.
 
         The swap is the last step before the reboot, past the reconciliation
-        and the fleet push, so it rolls nothing back — the dependencies and the
-        satellites have moved — and does not reboot onto a frontend it could
-        not install: it reports.
+        and the fleet push, and it still rolls the tree back. Left on the new
+        tag under the previous frontend, the unit restarted into a backend its
+        frontend did not match, and was offered nothing ever again — the tree
+        sat exactly on the published tag — so only SSH could get it out. Back
+        on the previous commit it is coherent and offered the release again;
+        the dependencies and the satellites that moved ahead show on their own
+        rows.
         """
         marker = b"<!doctype html>release build"
 
@@ -4613,21 +4617,25 @@ class TestTheReleaseInstall:
                 raise OSError(errno.ENOSPC, "No space left on device", str(dst))
             return real_copyfile(src, dst, *args, **kwargs)
 
-        with self._observed_update(update_service, tmp_path) as (dist, observed), \
+        spawned = []
+        with self._observed_update(update_service, tmp_path, spawned=spawned) as (dist, observed), \
                 patch("os.rename", new=rename), patch("shutil.copyfile", new=copyfile):
             result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "No space left on device" in result["error"]
-        assert "Rolled back" not in result["error"], result
-        assert [o["step"] for o in observed] == ["pip", "sync", "reconcile", "push"], observed
+        assert "Rolled back" in result["error"], result
+        assert [o["step"] for o in observed] == [
+            "pip", "sync", "reconcile", "push", "pip", "sync"], observed
+        checkouts = [argv[-1] for argv in spawned if argv[0] == "git" and "checkout" in argv]
+        assert checkouts == ["v0.2.0", "abc123def456"], spawned
         assert (dist / "index.html").read_bytes() == b"the previous release"
         assert sorted(p.relative_to(dist).as_posix() for p in dist.rglob("*")) == [
             "assets", "assets/index-OLD.js", "index.html"]
         assert not list(dist.parent.glob(".dist-staging-*"))
 
     @contextmanager
-    def _observed_update(self, service, tmp_path, *, pip_fails_first=False):
+    def _observed_update(self, service, tmp_path, *, pip_fails_first=False, spawned=None):
         """A whole Milo update over a real tarball, with what nginx would serve
         read at every step past the frontend download.
 
@@ -4635,7 +4643,8 @@ class TestTheReleaseInstall:
         `assets/index-NEW.js` — chunk names are content hashes, so an open UI
         asking for the first one after it is gone gets a 404. pip, the sync and
         the reboot are read where they are spawned; the reconciliation and the
-        fleet push where the flow hands over to them.
+        fleet push where the flow hands over to them. Every argv lands in
+        `spawned` when one is given.
         """
         body, digest = _frontend_tarball(tmp_path, extra=["assets/index-NEW.js"])
         url = service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
@@ -4661,6 +4670,8 @@ class TestTheReleaseInstall:
         pips = []
 
         def observe(argv):
+            if spawned is not None:
+                spawned.append(argv)
             if str(argv[0]).endswith("pip3"):
                 read("pip")
                 pips.append(argv)

@@ -521,9 +521,9 @@ class UpdateService(VersionService):
         """Put the unit back on the commit it was running.
 
         The frontend is not touched, and need not be: the built frontend is not
-        in git, but the forward path swaps the release's in only past the last
-        step that can roll back, so a rollback always finds the previous one
-        still in `dist`.
+        in git, but the forward path swaps the release's in only as its last
+        step, and a swap that fails puts the previous one back before this
+        runs, so a rollback finds it still in `dist`.
         """
         try:
             self.update_logger.info(f"Rolling back Milo to commit {commit_hash[:8]}...")
@@ -619,8 +619,8 @@ class UpdateService(VersionService):
             # Deliberately *after* the app is installed and synced: everything
             # above this line can still roll the app back, and rolling back with
             # the dependencies already moved would leave the two out of step.
-            # Below it, nothing rolls back — the frontend swap and the reboot
-            # report their failure instead — which is why
+            # Below it, only a frontend swap that fails rolls back; the reboot
+            # reports its failure instead — which is why
             # _reconcile_dependencies never raises.
             dependency_failures = await self._reconcile_dependencies()
 
@@ -635,17 +635,27 @@ class UpdateService(VersionService):
             # a satellite is discovered through it. Never raises, same rule.
             satellite_failures = await self._satellites.push_client_app_to_fleet()
 
-            # No rollback past the reconciliation, as for the reboot below: the
-            # dependencies and the fleet have moved. The swap puts the previous
-            # frontend back if it cannot complete.
+            # The swap puts the previous frontend back if it cannot complete,
+            # and the tree goes back with it although the dependencies and the
+            # fleet have moved. Left on the new tag under the previous frontend,
+            # the unit restarts into a backend its frontend does not match, and
+            # is offered nothing again — the tree sits exactly on the published
+            # tag — so only SSH gets it out. Back on the previous commit it is
+            # coherent and offered the release again, and what moved ahead shows
+            # on its own rows: installed above validated, a stale payload.
             try:
                 await self._swap_release_frontend(staging, tag)
             except Exception as e:
-                self.update_logger.error(f"Frontend swap failed after a successful update: {e}")
+                self.update_logger.error(f"Frontend swap failed after the dependencies and the fleet moved: {e}")
+                rollback_success = (
+                    await self._rollback_milo_to_commit(original_commit) if original_commit else False
+                )
                 return {
-                    "success": False,
-                    "error": (f"Update applied but the new frontend could not be put in place ({e}); "
-                              "the unit was not rebooted."),
+                    **self._failure_after_rollback(
+                        f"Update failed: the new frontend could not be put in place ({e}); "
+                        "the dependencies and the satellites stay on the new release.",
+                        rollback_success,
+                    ),
                     "dependency_failures": dependency_failures,
                     "satellite_failures": satellite_failures,
                 }
