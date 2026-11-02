@@ -3,9 +3,10 @@
 
 Every test here is a way the appliance is legitimately reached, or a way it is
 attacked. The two halves pull against each other: a gate that only admits the four
-CORS origins locks out the Pi kiosk, an address-typed URL and an Avahi-renamed unit,
-while one that admits anything named is a `POST /api/programs/milo/update` away from
-rebooting the unit from a page on the open web.
+CORS origins locks out the Pi kiosk, an address-typed URL, an Avahi-renamed unit and
+the name the router's DNS gives the unit, while one that admits anything named is a
+`POST /api/programs/milo/update` away from rebooting the unit from a page on the open
+web.
 
 Consumers: the Vue frontend (served by nginx, by the kiosk over loopback, and by the
 Vite dev server), Milo-Mac (no `Origin` at all), and curl on the unit itself. The
@@ -86,6 +87,24 @@ def test_a_real_way_of_reaching_the_unit_can_open_the_socket(client, host, origi
         assert ws.receive_text() == "state"
 
 
+@pytest.mark.parametrize("host", [
+    pytest.param("milo.lan", id="openwrt"),
+    pytest.param("milo.home", id="isp-router"),
+    pytest.param("milo.home.arpa", id="pfsense-rfc-8375"),
+    pytest.param("milo.internal", id="icann-private-tld"),
+    pytest.param("milo.localdomain", id="dnsmasq-default"),
+])
+def test_the_router_dns_name_of_the_unit_is_served(client, host):
+    """Often the only name that resolves on a device without mDNS (Windows, Android,
+    a VLAN that filters multicast): nginx serves the page under it, so a 403 here is
+    an interface that loads and then never shows a state nor takes a command."""
+    origin = f"http://{host}"
+    assert client.get("/api/thing", headers=headers(host)).status_code == 200
+    assert client.post("/api/thing", headers=headers(host, origin)).status_code == 200
+    with client.websocket_connect("/ws", headers=headers(host, origin)) as ws:
+        assert ws.receive_text() == "state"
+
+
 # --------------------------------------------------------------------------- #
 # The attacks.
 # --------------------------------------------------------------------------- #
@@ -126,6 +145,26 @@ def test_an_opaque_origin_cannot_write(client):
 ])
 def test_a_foreign_page_cannot_read_the_socket(client, host, origin):
     """CORS does not cover a WebSocket: an upgrade let through is the whole state read."""
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ws", headers=headers(host, origin)):
+            pass
+    assert refused.value.code == 1008
+
+
+@pytest.mark.parametrize("host", [
+    pytest.param("milo.example.com", id="public-domain"),
+    pytest.param("milo.fritz.box", id="delegated-box-tld"),
+    pytest.param("milo.attacker.box", id="attacker-under-box"),
+    pytest.param("milo.home.evil.example", id="reserved-suffix-as-a-label"),
+    pytest.param("milo.home.arpa.evil.example", id="compound-suffix-as-labels"),
+])
+def test_the_unit_name_under_a_foreign_domain_is_still_refused(client, host):
+    """Under a delegated domain whoever holds it decides what the name resolves to,
+    so `milo.<theirs>` is a rebinding open again: the router-name suffixes must stay
+    a closed list of names nobody outside the LAN can make resolve."""
+    origin = f"http://{host}"
+    assert client.get("/api/thing", headers=headers(host)).status_code == 403
+    assert client.post("/api/thing", headers=headers(host, origin)).status_code == 403
     with pytest.raises(WebSocketDisconnect) as refused:
         with client.websocket_connect("/ws", headers=headers(host, origin)):
             pass

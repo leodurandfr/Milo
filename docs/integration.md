@@ -25,8 +25,9 @@ unit to the internet, and do not put it behind a public reverse proxy.
 What the unit does check is where a request comes from, so that a web page cannot drive it
 through a browser that happens to be on your network:
 
-- the **`Host`** header must be one of the unit's own names (`milo`, `milo.local`,
-  `milo-<n>.local`, `localhost`) or a private IP address. A reverse proxy must forward
+- the **`Host`** header must be one of the unit's own names (`localhost`, `milo` or `milo-<n>`,
+  bare or under `.local`, `.lan`, `.home`, `.home.arpa`, `.internal` or `.localdomain` — the names a
+  router's DNS may give the unit) or a private IP address. A reverse proxy must forward
   `Host: milo.local`;
 - an **`Origin`** header, when there is one, must be one of those same names or a private IP
   address. It is checked on `POST`, `PUT`, `PATCH` and `DELETE`, and on the WebSocket upgrade.

@@ -25,8 +25,9 @@ Both accept the same set of names and addresses, `_is_appliance_host`, which is 
 than the CORS allowlist on purpose: CORS only ever describes *cross*-origin readers,
 while these checks also see every same-origin request — and those arrive under
 whatever name the user reached the unit by. `http://localhost` for the Pi kiosk,
-`http://192.168.1.x` when mDNS is down, `http://milo-2.local` after an Avahi rename.
-An allowlist of four literal origins would have locked all three out.
+`http://192.168.1.x` when mDNS is down, `http://milo-2.local` after an Avahi rename,
+`http://milo.home` from the router's DNS. An allowlist of four literal origins would
+have locked all four out.
 
 The `/ws` upgrade passes the same Host check, and the Origin check whatever it asks
 for. The socket changes nothing — `ws/manager.py` discards every inbound frame after
@@ -64,9 +65,15 @@ ALLOWED_ORIGINS = [
 
 _STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-# `milo`, `milo.local`, and the `milo-2.local` Avahi falls back to when a second
-# server claims the name (core/system/hostname_conflict.py).
-_APPLIANCE_NAME = re.compile(rf"^(localhost|{EXPECTED_SERVER_HOSTNAME}(-\d+)?(\.local)?)$")
+# `milo`, `milo.local`, the `milo-2.local` Avahi falls back to when a second server
+# claims the name (core/system/hostname_conflict.py), and the name a router's DNS
+# gives the unit's DHCP lease. Every suffix is one no outside party can make resolve:
+# `.local` is reserved by RFC 6762, `.home.arpa` by RFC 8375 and `.internal` by ICANN,
+# while `.lan`, `.home` and `.localdomain` are not delegated. `.box` (fritz.box) is a
+# delegated public TLD, so `milo.fritz.box` is refused.
+_APPLIANCE_NAME = re.compile(
+    rf"^(localhost|{EXPECTED_SERVER_HOSTNAME}(-\d+)?(\.(local|lan|home|home\.arpa|internal|localdomain))?)$"
+)
 
 
 def _hostname(url: str) -> str | None:

@@ -89,7 +89,8 @@ both answer `403 {"status": "error", "message": "Untrusted request origin"}`:
 
 - **`Host`, on every HTTP request.** It must be a name or address the unit is reached by: `localhost`,
   `milo`, `milo.local`, `milo-2.local` (the name Avahi falls back to when a second server claims
-  `milo`), or any private IP address. A reverse proxy that forwards another host name is refused —
+  `milo`), the same names under `.lan`, `.home`, `.home.arpa`, `.internal` or `.localdomain` (the
+  name a router's DNS gives the unit, such as `milo.home`), or any private IP address. A reverse proxy that forwards another host name is refused —
   have it forward `Host: milo.local`.
 - **`Origin`, on `POST`/`PUT`/`PATCH`/`DELETE`.** A request that carries one must come from one of
   those same names, from **any private IP address**, or from the CORS allowlist

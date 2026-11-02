@@ -1145,8 +1145,11 @@ the local network. Do not expose a Milō to the internet.
 CORS only decides which pages may *read* a response; it does not stop a foreign page from making a
 browser on the LAN *send* a request (a bodyless `POST` needs no preflight). `RequestOriginGate`
 (`backend/api/middleware.py`) answers 403 to two kinds of request:
-- a `Host` header that is neither one of the unit's names (`localhost`, `milo`, `milo.local`,
-  `milo-<n>.local`) nor a private IP address — which defeats DNS rebinding;
+- a `Host` header that is neither one of the unit's names (`localhost`, `milo`, `milo-<n>`, either
+  bare or under `.local`, `.lan`, `.home`, `.home.arpa`, `.internal` or `.localdomain` — the names a
+  router's DNS gives the unit's DHCP lease) nor a private IP address — which defeats DNS rebinding,
+  since no outside party can make a reserved or undelegated suffix resolve (`milo.fritz.box`, under
+  a delegated public TLD, is refused);
 - on `POST`/`PUT`/`PATCH`/`DELETE`, an `Origin` header that is neither one of those names, nor a
   private IP address, nor a CORS origin. A request with no `Origin` (curl, a native app) passes.
 
