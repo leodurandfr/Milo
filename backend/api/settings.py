@@ -5,6 +5,7 @@ Settings Routes – Version with app deactivation and process stopping
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING, get_args
 from backend.core.models.audio_state import AudioSource
+from backend.api.middleware import client_address
 from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.api.responses import BulkSettingsResponse
 from backend.config.constants import (
@@ -123,14 +124,15 @@ def create_settings_router(
         """Whether a request comes from the Pi's own kiosk.
 
         The same frontend runs on the Pi's touchscreen and on remote browsers
-        (milo.local from a Mac/iPhone). The kiosk loads http://localhost and
-        thus reaches the backend over loopback; nginx sets X-Real-IP to the real
-        client address authoritatively (remote clients cannot spoof it).
+        (milo.local from a Mac/iPhone). The kiosk loads http://localhost, so
+        nginx names it as a loopback client. The address is
+        `middleware.client_address`: uvicorn, trusting loopback alone
+        (`backend/main.py`), has already resolved nginx's X-Forwarded-For into
+        the peer, and X-Real-IP is believed from loopback only. uvicorn listens
+        on 0.0.0.0, so a LAN device reaching :8000 directly is judged on its own
+        address, whatever header it sends.
         """
-        client_ip = request.headers.get("x-real-ip") or (
-            request.client.host if request.client else ""
-        )
-        return client_ip in ("127.0.0.1", "::1")
+        return client_address(request.scope) in ("127.0.0.1", "::1")
 
     async def _handle_setting_update(
         setter: Callable,

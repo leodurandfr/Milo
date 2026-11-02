@@ -155,6 +155,10 @@ class TestSettingsRoutes:
         app.include_router(router, prefix="/api/settings")
 
         client = TestClient(app)
+        # The network peer is the outside world `_from_kiosk` judges: the address
+        # uvicorn hands the app once it has resolved nginx's X-Forwarded-For, or
+        # the LAN device's own when it reaches :8000 directly.
+        client._peer = lambda host: TestClient(app, client=(host, 50000))
         client._mock_settings = mock_settings
         client._mock_state_machine = mock_state_machine
         client._mock_multiroom_equalizer_service = mock_multiroom_equalizer_service
@@ -647,7 +651,9 @@ class TestSettingsRoutes:
     def test_screen_activity_from_the_kiosk_wakes_the_panel(self, client, mock_screen_controller):
         """The Pi's own kiosk loads http://localhost, so nginx forwards
         X-Real-IP: 127.0.0.1. That is the only case that may touch the screen."""
-        response = client.post("/api/settings/screen-activity", headers={"X-Real-IP": "127.0.0.1"})
+        response = client._peer("127.0.0.1").post(
+            "/api/settings/screen-activity", headers={"X-Real-IP": "127.0.0.1"}
+        )
 
         assert response.json() == {"status": "success", "activity_time_reset": True}
         mock_screen_controller.on_touch_detected.assert_awaited_once()
@@ -655,7 +661,9 @@ class TestSettingsRoutes:
     def test_screen_activity_from_ipv6_loopback_wakes_the_panel(self, client, mock_screen_controller):
         """`::1` is the same kiosk reached over IPv6; leaving it out would make
         waking the panel depend on which family the loopback resolved to."""
-        response = client.post("/api/settings/screen-activity", headers={"X-Real-IP": "::1"})
+        response = client._peer("::1").post(
+            "/api/settings/screen-activity", headers={"X-Real-IP": "::1"}
+        )
 
         assert response.json()["activity_time_reset"] is True
         mock_screen_controller.on_touch_detected.assert_awaited_once()
@@ -666,19 +674,45 @@ class TestSettingsRoutes:
         """The same frontend runs on milo.local from a phone. Without this guard
         every remote tap lights the panel in the room — at night, with nobody
         there, and with no trace anywhere that a remote client caused it."""
-        response = client.post("/api/settings/screen-activity", headers={"X-Real-IP": "192.168.1.42"})
+        response = client._peer("192.168.1.42").post(
+            "/api/settings/screen-activity", headers={"X-Real-IP": "192.168.1.42"}
+        )
 
         assert response.json() == {"status": "success", "activity_time_reset": False}
         mock_screen_controller.on_touch_detected.assert_not_awaited()
 
-    def test_screen_activity_trusts_the_header_over_the_socket(self, client, mock_screen_controller):
-        """nginx sets X-Real-IP authoritatively and every request reaches the
-        backend over loopback, so the socket address says nothing. Reading the
-        peer instead of the header would wake the panel for every remote tap."""
-        response = client.post("/api/settings/screen-activity", headers={"X-Real-IP": "10.0.0.7"})
+    def test_screen_activity_from_nginx_trusts_the_header_over_the_socket(
+        self, client, mock_screen_controller
+    ):
+        """A request still carrying nginx's own loopback address as its peer (its
+        X-Forwarded-For not resolved) is named by X-Real-IP. Reading that peer
+        instead would wake the panel for every remote tap."""
+        response = client._peer("127.0.0.1").post(
+            "/api/settings/screen-activity", headers={"X-Real-IP": "10.0.0.7"}
+        )
 
         assert response.json()["activity_time_reset"] is False
         mock_screen_controller.on_touch_detected.assert_not_awaited()
+
+    def test_screen_activity_ignores_a_real_ip_header_from_a_lan_peer(
+        self, client, mock_screen_controller
+    ):
+        """uvicorn listens on 0.0.0.0:8000, so a LAN device can skip nginx and
+        send its own X-Real-IP. Believed, it lights the panel at will and
+        consumes the kiosk's one-shot resume answer."""
+        lan = client._peer("192.168.1.50")
+
+        activity = lan.post("/api/settings/screen-activity", headers={"X-Real-IP": "127.0.0.1"})
+        resume = lan.post("/api/settings/kiosk-resume", headers={"X-Real-IP": "127.0.0.1"})
+        scale = lan.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.2},
+                        headers={"X-Real-IP": "127.0.0.1"})
+
+        assert activity.json()["activity_time_reset"] is False
+        mock_screen_controller.on_touch_detected.assert_not_awaited()
+        assert resume.json()["reopen_screen_settings"] is False
+        mock_screen_controller.take_reopen_screen_settings.assert_not_called()
+        assert scale.status_code == 200
+        assert mock_screen_controller.restart_kiosk.await_args.kwargs["reopen_screen_settings"] is False
 
     # ===================
     # THE SHARED SETTINGS SPINE (_handle_setting_update)
@@ -803,10 +837,10 @@ class TestSettingsRoutes:
     ):
         """Changed from a phone, the kiosk restarts too — but nobody there was
         in the Screen settings, so it must not come back on them."""
-        client.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.2},
-                   headers={"X-Real-IP": "127.0.0.1"})
-        client.put("/api/settings/screen-ui-scale", json={"ui_scale": 1.25},
-                   headers={"X-Real-IP": "192.168.1.20"})
+        client._peer("127.0.0.1").put("/api/settings/screen-ui-scale", json={"ui_scale": 1.2},
+                                      headers={"X-Real-IP": "127.0.0.1"})
+        client._peer("192.168.1.20").put("/api/settings/screen-ui-scale", json={"ui_scale": 1.25},
+                                         headers={"X-Real-IP": "192.168.1.20"})
 
         asked = [c.kwargs["reopen_screen_settings"]
                  for c in mock_screen_controller.restart_kiosk.await_args_list]
@@ -815,8 +849,12 @@ class TestSettingsRoutes:
     def test_a_remote_browser_cannot_take_the_kiosks_resume(self, client, mock_screen_controller):
         """The answer is given once; a phone opening the app while the kiosk
         restarts would otherwise consume it."""
-        remote = client.post("/api/settings/kiosk-resume", headers={"X-Real-IP": "192.168.1.20"})
-        kiosk = client.post("/api/settings/kiosk-resume", headers={"X-Real-IP": "127.0.0.1"})
+        remote = client._peer("192.168.1.20").post(
+            "/api/settings/kiosk-resume", headers={"X-Real-IP": "192.168.1.20"}
+        )
+        kiosk = client._peer("127.0.0.1").post(
+            "/api/settings/kiosk-resume", headers={"X-Real-IP": "127.0.0.1"}
+        )
 
         assert remote.json()["reopen_screen_settings"] is False
         mock_screen_controller.take_reopen_screen_settings.assert_called_once()

@@ -11,7 +11,8 @@
  *
  * Dev note: the dev server at localhost:5173 also counts as kiosk. The backend
  * enforces the same distinction server-side on /screen-activity via nginx's
- * X-Real-IP (loopback == kiosk), which remote clients cannot spoof.
+ * X-Real-IP (loopback == kiosk), believed only when nginx itself is the peer,
+ * so a device reaching the backend port directly cannot claim to be the kiosk.
  */
 export function isKiosk() {
   return window.location.hostname === 'localhost';
