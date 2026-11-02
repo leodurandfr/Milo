@@ -15,7 +15,9 @@ import time
 import httpx
 import pytest
 
-from backend.core.push.apns_client import ApnsClient, DEAD_TOKEN_REASONS, JWT_LIFETIME_S
+from backend.core.push.apns_client import (
+    ApnsClient, DEAD_TOKEN_REASONS, JWT_LIFETIME_S, MISREGISTERED_TOKEN_REASONS,
+)
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
 
 
@@ -172,6 +174,34 @@ class TestVerdicts:
         result = await client.send(token(), {}, "nowplaying")
 
         assert result.dead is True and result.ok is False
+
+    @pytest.mark.parametrize("reason", sorted(MISREGISTERED_TOKEN_REASONS))
+    async def test_a_misregistered_token_is_logged_at_warning(self, client, caplog, reason):
+        """Measured 2026-11-02: Milo-iOS declared its Now Playing tokens
+        `production` after iOS 27.2 had made them sandbox. Each was purged on
+        its first push, at info, for three days — and the card never got an
+        update. The warning names what the registration claimed."""
+        stub_transport(client, lambda r: httpx.Response(400, json={"reason": reason}))
+
+        with caplog.at_level("INFO", logger="core.push.apns"):
+            result = await client.send(token(ApnsEnvironment.PRODUCTION), {}, "nowplaying")
+
+        assert result.dead is True
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert "production" in warnings[0].message and reason in warnings[0].message
+
+    @pytest.mark.parametrize("reason", sorted(DEAD_TOKEN_REASONS - MISREGISTERED_TOKEN_REASONS))
+    async def test_a_token_that_simply_died_stays_below_warning(self, client, caplog, reason):
+        """An uninstall or an ended session is routine: errors.log must not
+        fill with it."""
+        stub_transport(client, lambda r: httpx.Response(410, json={"reason": reason}))
+
+        with caplog.at_level("INFO", logger="core.push.apns"):
+            result = await client.send(token(), {}, "nowplaying")
+
+        assert result.dead is True
+        assert not [r for r in caplog.records if r.levelno >= 30]
 
     async def test_an_expired_session_token_is_dead(self, client):
         """Measured 2026-09-25: a Now Playing session's token, its session

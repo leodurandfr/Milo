@@ -60,6 +60,15 @@ KEEPALIVE_S = 30 * 60
 # is transient or a bug on this side, and must NOT cost the caller its token.
 DEAD_TOKEN_REASONS = {"Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic", "ExpiredToken"}
 
+# The dead reasons that mean the token was registered wrong rather than that it
+# expired: sent to the host or the app its registration named, Apple does not
+# know it. A token that dies this way was never reachable, so every push to it
+# was lost — logged at warning, with what the registration claimed, so the
+# lying field shows up in errors.log. Measured 2026-11-02: Milo-iOS declared
+# its Now Playing tokens `production` after iOS 27.2 had made them sandbox, and
+# each was purged on its first push for three days, at info, unseen.
+MISREGISTERED_TOKEN_REASONS = {"BadDeviceToken", "DeviceTokenNotForTopic"}
+
 _KEY_FILENAME = re.compile(r"AuthKey_([A-Z0-9]{10})\.p8")
 
 
@@ -177,7 +186,15 @@ class ApnsClient:
             logger.warning(f"APNs unreachable ({type(e).__name__}): {e}")
             return ApnsResult(ok=False, status=0, reason="Unreachable")
 
-        return self._interpret(response)
+        result = self._interpret(response)
+        if result.reason in MISREGISTERED_TOKEN_REASONS:
+            logger.warning(
+                f"APNs refused a {target.kind.value} token as registered "
+                f"({target.environment.value}, device {target.device_id}, "
+                f"{target.token[:8]}…): {result.reason} — check the environment "
+                f"the app declares; it will be purged"
+            )
+        return result
 
     def _interpret(self, response: httpx.Response) -> ApnsResult:
         """Turn an APNs response into a verdict, and log what an operator needs.
@@ -204,7 +221,7 @@ class ApnsClient:
             invalidated_at = body["timestamp"] / 1000
 
         dead = reason in DEAD_TOKEN_REASONS
-        if dead:
+        if dead and reason not in MISREGISTERED_TOKEN_REASONS:
             logger.info(f"APNs reports a token unusable ({reason}) — it will be purged")
         elif reason == "InvalidProviderToken":
             logger.error(
