@@ -44,7 +44,7 @@
         <SettingItem label="CLK">
           <Dropdown
             :model-value="config.clk_pin"
-            :options="gpioPinOptions"
+            :options="freePinOptions"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onPinChange('clk_pin', v)"
@@ -53,7 +53,7 @@
         <SettingItem label="DT">
           <Dropdown
             :model-value="config.dt_pin"
-            :options="gpioPinOptions"
+            :options="freePinOptions"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onPinChange('dt_pin', v)"
@@ -62,7 +62,7 @@
         <SettingItem label="SW">
           <Dropdown
             :model-value="config.sw_pin"
-            :options="gpioPinOptions"
+            :options="freePinOptions"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onPinChange('sw_pin', v)"
@@ -77,7 +77,7 @@
         <SettingItem label="OUT">
           <Dropdown
             :model-value="config.ir_gpio_pin"
-            :options="gpioPinOptions"
+            :options="freePinOptions"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onIrPinChange(v)"
@@ -112,7 +112,7 @@
         <SettingItem label="LED −">
           <Dropdown
             :model-value="config.power_led_gpio_pin"
-            :options="gpioPinOptions"
+            :options="freePinOptions"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="onPowerLedPinChange"
@@ -167,7 +167,7 @@ const timer = useTimer();
 
 // GPIO pin dropdown options — sourced from the backend (GET /hardware-config)
 // so the selectable range stays the single source of truth shared with the
-// rotary/IR pin validators and can never offer a pin the backend rejects (422).
+// rotary/IR pin validators; offered through freePinOptions, per card.
 // Populated in syncFromData(), like audioCardOptions / screenOptions.
 const gpioPinOptions = ref([]);
 
@@ -212,6 +212,14 @@ const isDirty = computed(() => {
     config.value.power_button_enabled !== savedConfig.value.power_button_enabled ||
     config.value.power_led_gpio_pin !== savedConfig.value.power_led_gpio_pin
   );
+});
+
+// The pins the selected card's overlay leaves free: the PUT validator refuses
+// the rest. A saved pin the new card holds shows as unset until one is picked.
+const freePinOptions = computed(() => {
+  const card = audioCardOptions.value.find(c => c.value === config.value.audio_id);
+  const held = new Set(card?.reserved_pins ?? []);
+  return gpioPinOptions.value.filter(pin => !held.has(pin.value));
 });
 
 // Check if the selected audio card is a DAC

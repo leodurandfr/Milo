@@ -129,9 +129,11 @@ CLIENT_API_PORT = 8001          # Milo-client API port (equalizer, health, etc.)
 # =============================================================================
 # General-purpose BCM GPIO pins exposed on the Raspberry Pi 40-pin header
 # (GPIO 0/1 are reserved for the HAT EEPROM ID line). Single source of truth
-# for the rotary-encoder / IR-remote pin validators (api/models.py) AND the pin
-# dropdown options served to the frontend (GET /api/settings/hardware-config),
-# so the selectable range can never drift between backend and frontend.
+# for the bounds of the rotary-encoder / IR-remote / LED pin validators
+# (api/models.py) AND the pin list served to the frontend (GET
+# /api/settings/hardware-config). It is the range, not what a unit can use:
+# the chosen audio card holds some of these pins (registry.reserved_pins),
+# which the validator refuses and the Hardware page drops per card.
 GPIO_MIN_PIN = 2
 GPIO_MAX_PIN = 27
 SELECTABLE_GPIO_PINS = list(range(GPIO_MIN_PIN, GPIO_MAX_PIN + 1))

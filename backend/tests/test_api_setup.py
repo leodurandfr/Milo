@@ -35,8 +35,9 @@ from fastapi.testclient import TestClient
 
 from backend.api import setup as api_setup
 from backend.api.setup import create_setup_router
+from backend.config.constants import SELECTABLE_GPIO_PINS
 from backend.core.settings import VALID_LANGUAGES
-from backend.hardware.registry import AUDIO_CARDS, SCREENS, is_dac_card
+from backend.hardware.registry import AUDIO_CARDS, SCREENS, is_dac_card, reserved_pins
 
 
 FIRST_BOOT = Path(__file__).resolve().parents[2] / "rootfs/usr/local/bin/milo-first-boot"
@@ -378,6 +379,58 @@ class TestCompleteSetup:
         current = services.hardware.get_full_config.return_value
         assert saved["ir_remote"] == current["ir_remote"]
         assert saved["rotary_encoder"] == current["rotary_encoder"]
+
+    def test_the_wizard_never_keeps_the_ir_on_a_pin_the_card_reserves(self, client, services):
+        """The factory IR line is GPIO 17, which the Amp100's overlay takes as
+        its codec reset: kept enabled there, one of the two drivers loses the
+        line at the next boot, and it may be the sound card. The receiver is
+        wired to its pin, so the wizard turns it off rather than moving it.
+        """
+        assert 17 in reserved_pins("hifiberry_amp100")
+
+        client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp100"))
+
+        saved = services.hardware.save_config.await_args.args[0]
+        assert saved["ir_remote"] == {"enabled": False, "gpio_pin": 17}
+
+    def test_the_wizard_keeps_the_ir_on_a_card_that_leaves_its_pin_free(self, client, services):
+        assert 17 not in reserved_pins("hifiberry_amp4pro")
+
+        client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp4pro"))
+
+        saved = services.hardware.save_config.await_args.args[0]
+        assert saved["ir_remote"] == {"enabled": True, "gpio_pin": 17}
+
+    @pytest.mark.parametrize("block, pin_key", [
+        (block, pin_keys[-1]) for block, pin_keys in api_setup.WIZARD_KEPT_PERIPHERALS.items()
+    ])
+    def test_every_kept_peripheral_on_a_held_pin_is_turned_off(self, client, services, block, pin_key):
+        """The same line, for the encoder and the power LED: a unit whose saved
+        pins were free on its old card can name a line the new one holds. Every
+        card, every held pin; the other blocks, on pins no card holds, are left
+        exactly as they were."""
+        held_anywhere = set().union(*(reserved_pins(a) for a in AUDIO_CARDS))
+        free = [p for p in SELECTABLE_GPIO_PINS if p not in held_anywhere]
+        current = {
+            **services.hardware.get_full_config.return_value,
+            "rotary_encoder": {"enabled": True, "clk_pin": free[0], "dt_pin": free[1], "sw_pin": free[2]},
+            "ir_remote": {"enabled": True, "gpio_pin": free[3]},
+            "power_button": {"enabled": True, "led_gpio_pin": free[4]},
+        }
+        checked = 0
+        for audio_id in AUDIO_CARDS:
+            for pin in reserved_pins(audio_id):
+                services.hardware.get_full_config.return_value = {
+                    **current, block: {**current[block], "enabled": True, pin_key: pin},
+                }
+                client.post("/api/setup/complete", json=self._payload(audio_id=audio_id))
+
+                saved = services.hardware.save_config.await_args.args[0]
+                assert saved[block] == {**current[block], "enabled": False, pin_key: pin}
+                for other in api_setup.WIZARD_KEPT_PERIPHERALS.keys() - {block}:
+                    assert saved[other] == current[other]
+                checked += 1
+        assert checked >= 40, f"only {checked} held pins found — the registry declares none"
 
     def test_the_power_button_survives_the_wizard(self, client, services):
         """The apply writes the bootloader EEPROM from this block. Dropped, a

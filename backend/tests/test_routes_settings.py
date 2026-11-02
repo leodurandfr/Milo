@@ -909,9 +909,10 @@ class TestSettingsRoutes:
         assert body["current"]["audio"]["volume_control"] is False
 
     def test_hardware_config_offers_no_pin_its_own_validator_rejects(self, client):
-        """The dropdown's pins and the request model's bounds are two spellings
-        of one list. When they drift the page offers a pin that comes back 422
-        with no field to blame — the reason SELECTABLE_GPIO_PINS exists."""
+        """The dropdown's pins and the request model's checks are two spellings
+        of one list per card. When they drift the page offers a pin that comes
+        back 422 with no field to blame — or one the card's overlay holds, which
+        the validator refuses and the page would have let the user pick."""
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
 
         options = client.get("/api/settings/hardware-config").json()["options"]
@@ -920,19 +921,31 @@ class TestSettingsRoutes:
         assert len(pins) >= 10, f"only {len(pins)} pins offered — the route is not building them"
         assert {entry["value"] for entry in options["audio_cards"]} == set(AUDIO_CARDS)
         assert {entry["value"] for entry in options["screens"]} == set(SCREENS)
+        held = {entry["value"]: set(entry["reserved_pins"]) for entry in options["audio_cards"]}
+        # The Amp100's overlay resets its codec on GPIO 17 (read with dtc).
+        assert 17 in held["hifiberry_amp100"], "the route is not serving the cards' reserved pins"
 
-        for pin in pins:
-            spares = [p for p in pins if p != pin][:3]
-            HardwareConfigRequest(**{
-                "audio": {"id": "hifiberry_amp2"},
+        def payload(audio_id, ir_pin, free):
+            spares = [p for p in free if p != ir_pin][:3]
+            return {
+                "audio": {"id": audio_id},
                 "screen": {"type": "waveshare_7_usb"},
                 "rotary_encoder": {
                     "enabled": True,
                     "clk_pin": spares[0], "dt_pin": spares[1], "sw_pin": spares[2],
                 },
-                "ir_remote": {"enabled": True, "gpio_pin": pin},
+                "ir_remote": {"enabled": True, "gpio_pin": ir_pin},
                 "power_button": {"enabled": False},
-            })
+            }
+
+        for audio_id, reserved in held.items():
+            offered = [p for p in pins if p not in reserved]
+            for pin in offered:
+                HardwareConfigRequest(**payload(audio_id, pin, offered))
+            for pin in reserved:
+                assert pin in pins, f"{audio_id} holds GPIO {pin}, outside the selectable range"
+                with pytest.raises(ValidationError):
+                    HardwareConfigRequest(**payload(audio_id, pin, offered))
 
 class TestHardwareConfigRequest:
     """PUT /hardware-config's request model — checked without the route, which

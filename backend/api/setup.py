@@ -47,6 +47,14 @@ FIRST_BOOT_HELPER = Path("/usr/local/bin/milo-first-boot")
 # the marker write + wifi profile + setup_completed sequence.
 _become_client_lock = asyncio.Lock()
 
+# The hardware.json blocks the wizard carries over from the current config, with
+# the GPIO keys each one drives while enabled.
+WIZARD_KEPT_PERIPHERALS = {
+    "rotary_encoder": ("clk_pin", "dt_pin", "sw_pin"),
+    "ir_remote": ("gpio_pin",),
+    "power_button": ("led_gpio_pin",),
+}
+
 
 class SetupCompleteRequest(BaseModel):
     """Wizard completion payload — all settings applied atomically."""
@@ -100,7 +108,7 @@ def create_setup_router(
         "rebooting" and applies nothing.
         """
         nonlocal completing
-        from backend.hardware.registry import AUDIO_CARDS, SCREENS
+        from backend.hardware.registry import AUDIO_CARDS, SCREENS, reserved_pins
         from backend.core.settings import VALID_LANGUAGES
 
         # Idempotency guard — a second device pressing Finish (the kiosk and a
@@ -145,22 +153,37 @@ def create_setup_router(
                 audio_config["volume_control"] = payload.volume_control
 
             current = hardware_service.get_full_config()
+            # A peripheral kept on a pin the new card's overlay holds would
+            # fight it for the line at the next boot. It is wired to that pin,
+            # so moving the pin would not move it: it is turned off instead.
+            held = reserved_pins(payload.audio_id)
+            kept = {}
+            for key, pin_keys in WIZARD_KEPT_PERIPHERALS.items():
+                block = current[key]
+                clash = held & {block[pin_key] for pin_key in pin_keys}
+                if block["enabled"] and clash:
+                    block = {**block, "enabled": False}
+                    logger.warning(
+                        f"Setup wizard: {key} disabled, GPIO {sorted(clash)} "
+                        f"held by {card['label']}"
+                    )
+                kept[key] = block
             config = {
                 "audio": audio_config,
                 "screen": {
                     "type": payload.screen_type,
                     "resolution": screen["resolution"],
                 },
-                "rotary_encoder": current["rotary_encoder"],
+                "rotary_encoder": kept["rotary_encoder"],
                 # Preserve the install-time gpio-ir overlay: milo-apply-hardware
                 # strips the IR block from config.txt unless ir_remote.enabled is
                 # True here, so dropping the key would disable the receiver.
-                "ir_remote": current["ir_remote"],
+                "ir_remote": kept["ir_remote"],
                 # Carried for the same reason: the apply writes the EEPROM from
                 # it, and a reflash leaves the EEPROM as the last unit set it,
                 # so the wizard's apply is what brings a reflashed board back
                 # to starting on power.
-                "power_button": current["power_button"],
+                "power_button": kept["power_button"],
             }
 
             await hardware_service.save_config(config)

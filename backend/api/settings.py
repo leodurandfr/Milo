@@ -714,7 +714,7 @@ def create_settings_router(
     @router.get("/hardware-config")
     async def get_hardware_config():
         """Retrieve full hardware config and available options for the Hardware settings page."""
-        from backend.hardware.registry import AUDIO_CARDS, SCREENS
+        from backend.hardware.registry import AUDIO_CARDS, SCREENS, reserved_pins
         from backend.config.constants import SELECTABLE_GPIO_PINS
         async with api_error_handler("Error getting hardware config", logger):
             current = hardware_service.get_full_config()
@@ -723,9 +723,16 @@ def create_settings_router(
             if "audio" in current and "volume_control" not in current["audio"]:
                 current["audio"]["volume_control"] = hardware_service.get_volume_control()
 
-            # Build dropdown options from registry
+            # Build dropdown options from registry. Each card carries the GPIOs
+            # its overlay holds, which the page drops from gpio_pins for that
+            # card and the PUT validator refuses.
             audio_options = [
-                {"value": card_id, "label": card["label"], "category": card.get("category")}
+                {
+                    "value": card_id,
+                    "label": card["label"],
+                    "category": card.get("category"),
+                    "reserved_pins": sorted(reserved_pins(card_id)),
+                }
                 for card_id, card in AUDIO_CARDS.items()
             ]
             screen_options = [
@@ -733,8 +740,7 @@ def create_settings_router(
                 for screen_id, screen in SCREENS.items()
             ]
             # Selectable BCM GPIO pins — single source of truth shared with the
-            # rotary/IR validators so the frontend dropdown can never offer a pin
-            # the backend would reject with HTTP 422.
+            # rotary/IR validators' bounds; the page filters it per card.
             gpio_pin_options = [
                 {"value": pin, "label": f"GPIO {pin}"}
                 for pin in SELECTABLE_GPIO_PINS

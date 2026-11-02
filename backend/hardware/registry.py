@@ -17,6 +17,15 @@ file — a bash-seeded file cannot track the schema and shipped a stale one that
 # - overlay: dtoverlay value for /boot/firmware/config.txt
 # - card_name: ALSA card name (all HiFiBerry HATs share "sndrpihifiberry")
 # - brand: Manufacturer (for future grouping in the UI)
+# - reserved_pins: BCM GPIOs the card's overlay claims, read from its .dtbo
+#   (`dtc -I dtb -O dts`). No rotary, IR or LED pin may sit on one: two drivers
+#   claiming the same line leave one of them unprobed, and a dead codec reads as
+#   a HAT that is not seated.
+
+# Every overlay drives the HAT over I2S (pinctrl `rp1_i2s1_18_21` on the Pi 5).
+_I2S_PINS = (18, 19, 20, 21)
+# The codec's control bus, i2c1 (SDA1/SCL1): every overlay but `hifiberry-dac`.
+_I2C1_PINS = (2, 3)
 
 AUDIO_CARDS = {
     "none": {
@@ -25,6 +34,7 @@ AUDIO_CARDS = {
         "card_name": None,
         "brand": None,
         "category": None,
+        "reserved_pins": (),
     },
     "hifiberry_amp2": {
         "label": "HiFiBerry Amp2",
@@ -32,6 +42,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS,
     },
     "hifiberry_amp4": {
         "label": "HiFiBerry Amp4",
@@ -39,6 +50,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS,
     },
     "hifiberry_amp4pro": {
         "label": "HiFiBerry Amp4 Pro",
@@ -46,6 +58,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS + (4,),  # mute-gpio
     },
     "hifiberry_amp100": {
         "label": "HiFiBerry Amp100",
@@ -53,6 +66,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS + (4, 17),  # mute-gpio, reset-gpio
     },
     "hifiberry_beocreate": {
         "label": "HiFiBerry Beocreate 4CA",
@@ -60,6 +74,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
+        "reserved_pins": _I2S_PINS,  # hifiberry-dac has no i2c1 fragment
     },
     "hifiberry_dac2hd": {
         "label": "HiFiBerry DAC2 HD",
@@ -67,6 +82,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "dac",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS + (16,),  # reset-gpio
     },
     "hifiberry_dacplus_pro": {
         "label": "HiFiBerry DAC2 Pro / DAC+ Pro",
@@ -77,6 +93,7 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "dac",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS,
     },
     "hifiberry_dac2adcpro": {
         "label": "HiFiBerry DAC2 ADC Pro",
@@ -84,8 +101,15 @@ AUDIO_CARDS = {
         "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "dac",
+        "reserved_pins": _I2C1_PINS + _I2S_PINS,
     },
 }
+
+
+def reserved_pins(audio_id: str) -> frozenset[int]:
+    """The GPIOs the card's overlay holds — the one list the request validator,
+    the Hardware page's pin options and the setup wizard all read."""
+    return frozenset(AUDIO_CARDS[audio_id]["reserved_pins"])
 
 
 def is_dac_card(audio_id: str) -> bool:

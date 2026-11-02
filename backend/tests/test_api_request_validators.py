@@ -22,6 +22,7 @@ from backend.api.models import (
     ClientVolumeRequest,
     ConfigurePendingClientRequest,
     HardwareAudioRequest,
+    HardwareConfigRequest,
     HardwareRotaryEncoderRequest,
     HardwareScreenRequest,
     ScreenTimeoutRequest,
@@ -29,8 +30,8 @@ from backend.api.models import (
     ZoneCreate,
     ZoneUpdate,
 )
-from backend.config.constants import BT_REMOTE_ACTIONS
-from backend.hardware.registry import AUDIO_CARDS, SCREENS
+from backend.config.constants import BT_REMOTE_ACTIONS, SELECTABLE_GPIO_PINS
+from backend.hardware.registry import AUDIO_CARDS, SCREENS, reserved_pins
 
 
 class TestAutoStopDelayFloor:
@@ -211,6 +212,83 @@ class TestRotaryPinsAreDistinct:
         assert HardwareRotaryEncoderRequest(
             enabled=True, clk_pin=5, dt_pin=6, sw_pin=13
         ).clk_pin == 5
+
+
+class TestPinsTheCardHolds:
+    """`HardwareConfigRequest.validate_pins_the_card_holds`.
+
+    The audio overlay and a `gpio-ir` / `rotary-encoder` / LED line go into the
+    same config.txt. Two drivers claiming one GPIO leave one unprobed after the
+    reboot: a dead remote, or no sound card at all, which the boot check then
+    blames on a HAT that is not seated.
+    """
+
+    @staticmethod
+    def _payload(audio_id, *, ir=None, rotary=None, led=None, enabled=True):
+        """A config for `audio_id` with every peripheral on a pin the card
+        leaves free, except the one a test moves."""
+        free = [p for p in SELECTABLE_GPIO_PINS
+                if p not in reserved_pins(audio_id) and p not in (ir, rotary, led)]
+        return {
+            "audio": {"id": audio_id},
+            "screen": {"type": "none"},
+            "rotary_encoder": {
+                "enabled": enabled if rotary is not None else True,
+                "clk_pin": rotary if rotary is not None else free[0],
+                "dt_pin": free[1], "sw_pin": free[2],
+            },
+            "ir_remote": {
+                "enabled": enabled if ir is not None else True,
+                "gpio_pin": ir if ir is not None else free[3],
+            },
+            "power_button": {
+                "enabled": enabled if led is not None else True,
+                "led_gpio_pin": led if led is not None else free[4],
+            },
+        }
+
+    # Read on the overlays themselves (`dtc -I dtb -O dts`, 2026-11-02), not
+    # out of the registry: I2S1 on 18-21, i2c1 on 2-3, the Amp4 Pro's
+    # mute-gpio on 4, the Amp100's reset-gpio on 17, the DAC2 HD's on 16.
+    @pytest.mark.parametrize("audio_id, pin", [
+        ("hifiberry_amp4pro", 18),
+        ("hifiberry_amp4pro", 2),
+        ("hifiberry_amp4pro", 4),
+        ("hifiberry_amp100", 17),
+        ("hifiberry_dac2hd", 16),
+    ])
+    def test_a_pin_the_card_reserves_is_refused(self, audio_id, pin):
+        with pytest.raises(ValidationError, match=f"GPIO {pin} is held by"):
+            HardwareConfigRequest(**self._payload(audio_id, ir=pin))
+
+    def test_the_factory_ir_pin_is_free_on_a_card_that_does_not_reset_on_it(self):
+        """The negative case above must fail for the card, not the payload."""
+        assert HardwareConfigRequest(**self._payload("hifiberry_amp4pro", ir=17))
+
+    def test_a_card_with_no_i2c_leaves_the_i2c_pins_free(self):
+        """`hifiberry-dac` (Beocreate) declares no i2c1 fragment: refusing 2-3
+        there would take two pins off a board that does not use them."""
+        assert HardwareConfigRequest(**self._payload("hifiberry_beocreate", ir=2))
+
+    @pytest.mark.parametrize("peripheral", ["ir", "rotary", "led"])
+    def test_every_reserved_pin_is_refused_to_every_peripheral(self, peripheral):
+        checked = 0
+        for audio_id in AUDIO_CARDS:
+            for pin in reserved_pins(audio_id):
+                with pytest.raises(ValidationError, match=f"GPIO {pin} is held by"):
+                    HardwareConfigRequest(**self._payload(audio_id, **{peripheral: pin}))
+                checked += 1
+        assert checked >= 40, f"only {checked} reserved pins found — the registry declares none"
+
+    @pytest.mark.parametrize("peripheral", ["ir", "rotary", "led"])
+    def test_a_disabled_peripheral_may_keep_a_reserved_pin(self, peripheral):
+        """Nothing is written for a disabled peripheral; refusing its stale pin
+        would make the disable itself unsendable."""
+        for audio_id in AUDIO_CARDS:
+            for pin in reserved_pins(audio_id):
+                assert HardwareConfigRequest(
+                    **self._payload(audio_id, enabled=False, **{peripheral: pin})
+                )
 
 
 class TestConfigurableAudioIdExcludesNone:

@@ -669,6 +669,26 @@ class HardwareConfigRequest(BaseModel):
             )
         return self
 
+    @model_validator(mode='after')
+    def validate_pins_the_card_holds(self):
+        """The audio overlay is written to the same config.txt as these lines:
+        a peripheral on a GPIO it claims (I2S, its I2C bus, a mute or reset
+        line) leaves one of the two drivers unprobed after the reboot, and it
+        may be the sound card."""
+        from backend.hardware.registry import AUDIO_CARDS, reserved_pins
+        held = reserved_pins(self.audio.id)
+        pins = []
+        if self.rotary_encoder.enabled:
+            pins += [self.rotary_encoder.clk_pin, self.rotary_encoder.dt_pin, self.rotary_encoder.sw_pin]
+        if self.ir_remote.enabled:
+            pins.append(self.ir_remote.gpio_pin)
+        if self.power_button.enabled:
+            pins.append(self.power_button.led_gpio_pin)
+        for pin in pins:
+            if pin in held:
+                raise ValueError(f'GPIO {pin} is held by {AUDIO_CARDS[self.audio.id]["label"]}')
+        return self
+
 
 class MacRocConfigRequest(BaseModel):
     """Both halves of the Mac ROC link: roc-recv's three, then roc-vad's four.
