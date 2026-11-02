@@ -23,7 +23,7 @@ from backend.core.multiroom.identity import compute_mac_id, is_stale_local_clien
 from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG
 from backend.shared.decorators import handle_errors
 
-# Codec whitelist — single source for _validate_config and the /server-config
+# Codec whitelist — single source for validate_config and the /server-config
 # capabilities payload the frontend builds its codec options from.
 SUPPORTED_CODECS = ["flac", "pcm", "opus", "ogg"]
 
@@ -59,7 +59,7 @@ SNAPSERVER_CONTROL_SECTIONS = {
 }
 
 # Accepted ranges for the two numeric stream parameters, declared here because
-# _validate_config is what enforces them. `core/multiroom/calibration.py` clamps
+# validate_config is what enforces them. `core/multiroom/calibration.py` clamps
 # its computed values against these same tuples rather than restating the
 # bounds: a proposal outside them would be a payload this very method rejects.
 BUFFER_MS_RANGE = (150, 3000)
@@ -521,7 +521,7 @@ class SnapcastService:
     @handle_errors(default=False)
     async def update_server_config(self, config: Dict[str, Any]) -> bool:
         """Update server configuration and restart."""
-        if not self._validate_config(config):
+        if not self.validate_config(config):
             return False
 
         # Force sampleformat to 32-bit for high-quality audio pipeline
@@ -533,8 +533,12 @@ class SnapcastService:
 
         return await self._restart_snapserver()
 
-    def _validate_config(self, config: Dict[str, Any]) -> bool:
+    def validate_config(self, config: Dict[str, Any]) -> bool:
         """Validate configuration parameters.
+
+        Public because the route runs it before its first write: settings.json,
+        snapclient.env and the push to every satellite all come before
+        `update_server_config`, which keeps this call as its own guard.
 
         An unknown key is rejected, not ignored: validating only the keys it
         recognised meant a body in the wrong shape passed, wrote nothing,

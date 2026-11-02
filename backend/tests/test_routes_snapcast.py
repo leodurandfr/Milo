@@ -9,17 +9,23 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import MagicMock, Mock, AsyncMock, patch
 from backend.api.routing import create_routing_router
 from backend.core.multiroom.routing import (
     DEFAULT_SNAPCLIENT_CONFIG,
     SNAPCLIENT_LIMITS,
     AudioRoutingService,
 )
-from backend.core.multiroom.snapcast import NETWORK_PRESETS
+from backend.core.multiroom.snapcast import (
+    BUFFER_MS_RANGE,
+    NETWORK_PRESETS,
+    SUPPORTED_CODECS,
+    SnapcastService,
+)
 from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
 from backend.core.state import AudioStateMachine, SystemAudioState
+from backend.tests.test_snapcast_server_config import SpawnedPastTheGuards
 
 
 def _routing_service(settings_service):
@@ -32,6 +38,36 @@ def _routing_service(settings_service):
     systemd = Mock()
     systemd.restart = AsyncMock(return_value=True)
     return AudioRoutingService(settings_service=settings_service, systemd_manager=systemd)
+
+
+class _RecordingSatellite:
+    """An aiohttp session stand-in recording what the push sent."""
+
+    def __init__(self):
+        self.puts = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def put(self, url, json=None, **kwargs):
+        self.puts.append((url, json))
+        return _Response()
+
+
+class _Response:
+    status = 200
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def text(self):
+        return ""
 
 
 class TestSnapcastRoutes:
@@ -177,7 +213,7 @@ class TestSnapclientBufferSetting:
 
     The route pops both out of `config` before SnapcastService sees it — they
     belong to snapclient.env, not snapserver.conf — so the validators that used
-    to sit in `SnapcastService._validate_config` were never reached: an
+    to sit in `SnapcastService.validate_config` were never reached: an
     out-of-range value was persisted, written to the local env and pushed to
     every satellite, each end clamping it its own way. This route is the only
     gate the pair passes through.
@@ -279,7 +315,7 @@ class TestSnapclientBufferSetting:
         """Both keys belong to snapclient.env, not snapserver.conf.
 
         They leave `config` before SnapcastService sees the body — which is why
-        the validators that used to sit in `_validate_config` for them covered
+        the validators that used to sit in `validate_config` for them covered
         nothing at all, and why this route has to gate them itself.
         """
         monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", AsyncMock())
@@ -324,34 +360,6 @@ class TestStoredFragmentsReachBothSidesClamped:
     OUT_OF_RANGE = SNAPCLIENT_LIMITS["fragments"][1] + 4
     CLAMPED = SNAPCLIENT_LIMITS["fragments"][1]
 
-    class _RecordingSatellite:
-        """An aiohttp session stand-in recording what the push sent."""
-
-        def __init__(self):
-            self.puts = []
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-        def put(self, url, json=None, **kwargs):
-            self.puts.append((url, json))
-            return TestStoredFragmentsReachBothSidesClamped._Response()
-
-    class _Response:
-        status = 200
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-        async def text(self):
-            return ""
-
     @pytest.fixture
     def settings_service(self):
         store = {
@@ -395,7 +403,7 @@ class TestStoredFragmentsReachBothSidesClamped:
     def test_both_consumers_receive_the_same_clamped_value(self, client, monkeypatch):
         regenerate = AsyncMock()
         monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
-        satellite = self._RecordingSatellite()
+        satellite = _RecordingSatellite()
         monkeypatch.setattr(
             "backend.api.routing.aiohttp.ClientSession", lambda **kw: satellite
         )
@@ -413,6 +421,100 @@ class TestStoredFragmentsReachBothSidesClamped:
         assert len(satellite.puts) == 1
         _, pushed = satellite.puts[0]
         assert pushed["fragments"] == self.CLAMPED
+
+
+class TestAnInvalidServerBodyChangesNothing:
+    """A snapserver half the service refuses must stop the write before its
+    first effect.
+
+    Steps 1-3 persist the snapclient pair, rewrite snapclient.env and push it to
+    every satellite, each of which restarts its snapclient; the snapserver half
+    used to be validated only at step 4. A body with a bad codec, an
+    out-of-range buffer or an unknown key then answered 502 with settings.json
+    and the whole fleet already on the new buffer_time and the local speaker on
+    the old one. The verdict here is the real SnapcastService's, so the test
+    follows the validator rather than restating it.
+    """
+
+    UNSUPPORTED_CODEC = "mp3"
+
+    @pytest.fixture
+    def settings_service(self):
+        store = {"routing.multiroom_enabled": True}
+        svc = Mock()
+        svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
+        svc.get_setting_sync = Mock(side_effect=lambda key: store.get(key))
+        svc.set_settings_strict = AsyncMock(side_effect=lambda updates: store.update(updates))
+        return svc
+
+    @pytest.fixture
+    def snapserver_systemd(self):
+        manager = MagicMock()
+        manager.restart = AsyncMock(return_value=True)
+        return manager
+
+    @pytest.fixture
+    def snapcast_service(self, snapserver_systemd, tmp_path, monkeypatch):
+        """The real service, its conf in the tmpdir and every spawn wired to
+        explode: this checkout is the appliance and its helper writes /etc."""
+
+        def _never(*args, **kwargs):
+            raise SpawnedPastTheGuards(f"a subprocess was spawned past the doubles: {args}")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _never)
+        svc = SnapcastService(systemd_manager=snapserver_systemd)
+        svc.snapserver_conf = tmp_path / "snapserver.conf"
+        return svc
+
+    @pytest.fixture
+    def routing_service(self, settings_service):
+        return _routing_service(settings_service)
+
+    @pytest.fixture
+    def client(self, settings_service, routing_service, snapcast_service):
+        registry = Mock()
+        registry.get_online_clients = Mock(return_value=[
+            SimpleNamespace(ip="192.168.1.153", name="Canape"),
+        ])
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+
+        app = FastAPI()
+        app.include_router(create_routing_router(
+            routing_service, state_machine, snapcast_service,
+            settings_service=settings_service,
+            client_registry_service=registry,
+        ))
+        return TestClient(app)
+
+    @pytest.mark.parametrize("server_half", [
+        {"codec": UNSUPPORTED_CODEC},
+        {"buffer_ms": BUFFER_MS_RANGE[0] - 1},
+        {"bogus": 1},
+    ], ids=["unsupported-codec", "buffer-below-range", "unknown-key"])
+    def test_an_invalid_server_key_writes_and_pushes_nothing(
+        self, client, settings_service, routing_service, snapserver_systemd,
+        server_half, monkeypatch,
+    ):
+        assert self.UNSUPPORTED_CODEC not in SUPPORTED_CODECS
+        regenerate = AsyncMock()
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
+        satellite = _RecordingSatellite()
+        monkeypatch.setattr(
+            "backend.api.routing.aiohttp.ClientSession", lambda **kw: satellite
+        )
+
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"snapclient_buffer_time": 120, **server_half}},
+        )
+
+        assert response.status_code == 400
+        settings_service.set_settings_strict.assert_not_called()
+        regenerate.assert_not_called()
+        assert satellite.puts == []
+        snapserver_systemd.restart.assert_not_called()
+        routing_service.service_manager.restart.assert_not_called()
 
 
 class TestMultiroomToggle:

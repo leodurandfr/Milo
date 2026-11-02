@@ -66,7 +66,7 @@ RPC_PATH = "/jsonrpc"                                     # Server.GetStatus
 LOCAL_SNAPCLIENT_UNIT = "milo-snapclient-multiroom.service"
 REMOTE_SNAPCLIENT_UNIT = "milo-client-snapclient.service"
 
-# Config validation mirrors snapcast.py::_validate_config so we fail fast client-side.
+# Config validation mirrors snapcast.py::validate_config so we fail fast client-side.
 VALIDATORS = {
     "buffer_ms": lambda x: isinstance(x, int) and 80 <= x <= 3000,
     "codec": lambda x: x in ("flac", "pcm", "opus", "ogg"),

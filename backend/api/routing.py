@@ -209,6 +209,11 @@ def create_routing_router(
         snapclient_fragments = config.pop("snapclient_fragments", None)
         _validate_snapclient_value("buffer_time", snapclient_buffer_time)
         _validate_snapclient_value("fragments", snapclient_fragments)
+        # The snapserver half too, before step 1: steps 1-3 reach settings.json
+        # and every satellite, so a body step 4 refused left the fleet on a
+        # buffer_time the caller was told had failed. The validator logs why.
+        if not snapcast_service.validate_config(config):
+            raise HTTPException(status_code=400, detail="Invalid snapserver config")
 
         # Snapclient buffer settings must be propagated to remotes BEFORE
         # the snapserver restart: the restart disconnects every client, and

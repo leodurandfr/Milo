@@ -24,7 +24,7 @@ Two rules are what make a *computed* value safe to offer, where the alternative
 was to hand the user a canned guess and hope:
 
 1. Every output is clamped to the range its own validator enforces
-   (``SnapcastService._validate_config``, ``SNAPCLIENT_LIMITS``), so the result
+   (``SnapcastService.validate_config``, ``SNAPCLIENT_LIMITS``), so the result
    can never be a payload the write path would reject.
 2. ``buffer_ms`` can never fall below the structural terms plus
    ``FLOOR_MARGIN_MS``. The measured network term is tiny on a healthy LAN --

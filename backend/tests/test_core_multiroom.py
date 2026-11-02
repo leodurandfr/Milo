@@ -1048,17 +1048,17 @@ class TestSnapcastService:
             "codec": "flac",
             "chunk_ms": 20
         }
-        assert snapcast_service._validate_config(config) is True
+        assert snapcast_service.validate_config(config) is True
 
     def test_validate_config_invalid_buffer(self, snapcast_service):
         """Test config validation with invalid buffer."""
         config = {"buffer_ms": 50}  # Too small
-        assert snapcast_service._validate_config(config) is False
+        assert snapcast_service.validate_config(config) is False
 
     def test_validate_config_invalid_codec(self, snapcast_service):
         """Test config validation with invalid codec."""
         config = {"codec": "mp3"}  # Not supported
-        assert snapcast_service._validate_config(config) is False
+        assert snapcast_service.validate_config(config) is False
 
     def test_validate_config_rejects_an_unknown_key(self, snapcast_service):
         """A body in the wrong shape must be refused, not silently ignored.
@@ -1068,7 +1068,7 @@ class TestSnapcastService:
         this endpoint can lie about having applied a change.
         """
         nested = {"stream_config": {"buffer_ms": 500, "codec": "flac", "chunk_ms": 20}}
-        assert snapcast_service._validate_config(nested) is False
+        assert snapcast_service.validate_config(nested) is False
 
     def test_validate_config_accepts_the_shape_the_read_returns(self, snapcast_service):
         """The other half: what GET /server-config serves must be a legal write
@@ -1079,7 +1079,7 @@ class TestSnapcastService:
             "codec": "flac",
             "sampleformat": "48000:32:2",
         }
-        assert snapcast_service._validate_config(config) is True
+        assert snapcast_service.validate_config(config) is True
 
     def test_every_preset_is_a_config_the_api_would_accept(self, snapcast_service):
         """A preset the UI offers must survive the route it is sent back through.
@@ -1087,7 +1087,7 @@ class TestSnapcastService:
         The presets are served as capabilities and re-sent verbatim as a write
         body, split the way the route splits it: the snapclient key leaves
         `config` and is gated by SNAPCLIENT_LIMITS, the rest is gated by
-        `_validate_config`. A preset outside either bound is silently altered on
+        `validate_config`. A preset outside either bound is silently altered on
         the way in, and the settings page then never shows it as the active one.
         """
         from backend.core.multiroom.snapcast import NETWORK_PRESETS
@@ -1098,7 +1098,7 @@ class TestSnapcastService:
             config = dict(preset["config"])
             buffer_time = config.pop("snapclient_buffer_time")
             assert low <= buffer_time <= high, f"{preset['id']}: {buffer_time} ms is outside the accepted range"
-            assert snapcast_service._validate_config(config) is True, f"{preset['id']} is not a legal write body"
+            assert snapcast_service.validate_config(config) is True, f"{preset['id']} is not a legal write body"
 
     @pytest.mark.asyncio
     async def test_read_and_write_of_server_config_agree_on_one_body(self, snapcast_service):
@@ -1117,7 +1117,7 @@ class TestSnapcastService:
         config = await snapcast_service.get_server_config()
 
         assert config["buffer_ms"] == 700  # non-vacuous: the read really produced values
-        assert snapcast_service._validate_config(config) is True
+        assert snapcast_service.validate_config(config) is True
 
     @pytest.mark.asyncio
     async def test_the_running_daemon_wins_over_the_file(self, snapcast_service):

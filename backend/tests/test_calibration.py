@@ -95,7 +95,7 @@ def test_a_fleet_with_no_remote_client_is_refused():
     "fleet_name", ["wired", "weak_wifi", "perfect", "hostile"]
 )
 def test_every_computed_value_is_one_the_write_path_accepts(fleet_name, quality):
-    """No reading may produce a payload `_validate_config` would reject.
+    """No reading may produce a payload `validate_config` would reject.
 
     This is the rail that replaces preset selection. A computed configuration
     outside these ranges reaches the user as a proposal and then fails on apply,
