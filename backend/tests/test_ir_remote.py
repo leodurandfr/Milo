@@ -7,6 +7,7 @@ by Pi-only smoke tests in Phase 6; here we exercise the pure-Python decoder
 and the controller's config lifecycle without touching real devices.
 """
 import asyncio
+import errno
 import logging
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import IrRemoteStatusChanged
+from backend.core.settings import SettingsWriteError
 from backend.hardware.ir_remote import (
     GPIO_IR_DEVICE_NAME,
     MENU_CLICK_WINDOW,
@@ -68,7 +70,7 @@ class TestControllerConfig:
         state_machine.broadcast = AsyncMock()
         settings_service = MagicMock()
         settings_service.get_setting = AsyncMock(return_value=None)
-        settings_service.set_setting = AsyncMock()
+        settings_service.set_setting_strict = AsyncMock()
         screen_controller = MagicMock()
         screen_controller.force_sleep = AsyncMock()
         return IrRemoteController(
@@ -132,7 +134,7 @@ class TestControllerConfig:
         assert controller.enabled is False
         controller._stop_runtime_listener.assert_awaited()
         controller._start_runtime_listener.assert_not_called()
-        controller.settings_service.set_setting.assert_awaited()
+        controller.settings_service.set_setting_strict.assert_awaited()
 
 
 def _menu_controller(dock_apps, active_source):
@@ -146,7 +148,7 @@ def _menu_controller(dock_apps, active_source):
     settings_service.get_setting = AsyncMock(
         return_value={"enabled_apps": dock_apps}
     )
-    settings_service.set_setting = AsyncMock()
+    settings_service.set_setting_strict = AsyncMock()
     screen_controller = MagicMock()
     screen_controller.force_sleep = AsyncMock()
     return IrRemoteController(
@@ -416,7 +418,7 @@ def _runtime_controller(active_source=AudioSource.SPOTIFY, step_db=2.0):
 
     settings_service = MagicMock()
     settings_service.get_setting = AsyncMock(return_value=None)
-    settings_service.set_setting = AsyncMock()
+    settings_service.set_setting_strict = AsyncMock()
     screen_controller = MagicMock()
     screen_controller.force_sleep = AsyncMock()
 
@@ -885,7 +887,7 @@ class TestStartPairing:
             # Auto-enable: the remote must work the moment the wizard closes,
             # without a second trip through the header toggle.
             assert controller.enabled is True
-            controller.settings_service.set_setting.assert_awaited_once_with(
+            controller.settings_service.set_setting_strict.assert_awaited_once_with(
                 'hardware.ir_remote',
                 {'enabled': True, 'device_id': 0x8D,
                  'paired_at': controller.paired_at},
@@ -911,7 +913,7 @@ class TestStartPairing:
         assert "exit 1: no such file" in result["message"]
         assert controller.paired is False
         assert controller.device_id is None
-        controller.settings_service.set_setting.assert_not_awaited()
+        controller.settings_service.set_setting_strict.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_remote_that_is_not_an_apple_remote_is_reported_at_once(self):
@@ -1037,7 +1039,7 @@ class TestUpdateConfigEnable:
             assert controller.enabled is True
             assert controller._runtime_task is not None
             await controller._stop_runtime_listener()
-        controller.settings_service.set_setting.assert_awaited_once()
+        controller.settings_service.set_setting_strict.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_enabling_an_unpaired_remote_starts_nothing(self):
@@ -1072,7 +1074,7 @@ class TestUnpair:
         assert controller.paired is False
         assert controller.device_id is None
         assert controller.paired_at is None
-        controller.settings_service.set_setting.assert_awaited_once_with(
+        controller.settings_service.set_setting_strict.assert_awaited_once_with(
             'hardware.ir_remote',
             {'enabled': True, 'device_id': None, 'paired_at': None},
         )
@@ -1100,7 +1102,96 @@ class TestUnpair:
             await controller.unpair()
 
         assert controller.paired is False
-        controller.settings_service.set_setting.assert_awaited_once()
+        controller.settings_service.set_setting_strict.assert_awaited_once()
+
+
+class TestAWriteThatDidNotLand:
+    """`settings.json` refused the write (a full card, a read-only remount).
+
+    The controller is real and so is the SettingsService; only the disk under
+    it fails. The panel keeps its previous state when the request is refused
+    (`Object.assign(prev)`), so a broadcast or a mutated controller would show
+    a switch or a pairing the next boot does not find.
+    """
+
+    @pytest.fixture
+    def disk(self, tmp_path):
+        from backend.core.settings import SettingsService
+
+        settings = SettingsService()
+        settings.settings_file = str(tmp_path / "settings.json")
+        return settings
+
+    def _controller(self, settings):
+        controller = _runtime_controller()
+        controller.settings_service = settings
+        return controller
+
+    @staticmethod
+    def _full_disk():
+        return patch(
+            "backend.core.settings.save_versioned_json",
+            side_effect=OSError(errno.ENOSPC, "No space left on device"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_failed_settings_write_fails_the_config_update(self, disk):
+        controller = self._controller(disk)
+        await controller._load_config_from_settings()
+
+        with self._full_disk(), pytest.raises(SettingsWriteError):
+            await controller.update_config({"enabled": True})
+
+        controller.state_machine.broadcast.assert_not_awaited()
+        assert controller.get_status()["enabled"] is False
+        reloaded = self._controller(disk)
+        await reloaded._load_config_from_settings()
+        assert reloaded.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_a_failed_settings_write_fails_the_pairing(self, disk):
+        await disk.set_setting_strict(
+            "hardware.ir_remote",
+            {"enabled": True, "device_id": 0x10, "paired_at": 1700000000.0},
+        )
+        controller = self._controller(disk)
+        await controller._load_config_from_settings()
+        device = _pairing_device([_scan(APPLE_SCANCODE_8D)])
+
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device), \
+             patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
+                   new=AsyncMock()), \
+             self._full_disk(), pytest.raises(SettingsWriteError):
+            await controller.start_pairing(timeout_seconds=5)
+
+        assert controller.device_id == 0x10
+        assert controller.paired_at == 1700000000.0
+        assert controller._runtime_task is None
+        reloaded = self._controller(disk)
+        await reloaded._load_config_from_settings()
+        assert reloaded.device_id == 0x10
+
+    @pytest.mark.asyncio
+    async def test_a_failed_settings_write_keeps_the_pairing_it_was_to_forget(self, disk):
+        """The kernel keymap is cleared after the write, so a refused unpair
+        leaves the remote working exactly as the next boot will find it."""
+        await disk.set_setting_strict(
+            "hardware.ir_remote",
+            {"enabled": True, "device_id": 0x8D, "paired_at": 1700000000.0},
+        )
+        controller = self._controller(disk)
+        await controller._load_config_from_settings()
+
+        with patch("backend.hardware.ir_remote.keymap_writer.clear_kernel_keymap",
+                   new=AsyncMock()) as clear, \
+             self._full_disk(), pytest.raises(SettingsWriteError):
+            await controller.unpair()
+
+        clear.assert_not_awaited()
+        assert controller.paired is True
+        controller.state_machine.broadcast.assert_not_awaited()
 
 
 class TestLifecycle:

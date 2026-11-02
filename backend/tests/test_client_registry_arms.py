@@ -339,8 +339,8 @@ class TestThePersistenceArms:
     ):
         """The registry is constructible without one — `test_crossover_service`
         and the API tests do it — and every mutation calls this. Falling through
-        instead would reach the `except` below and log an ERROR per mutation,
-        which is what raises the UI's fault banner."""
+        instead would read a write that never ran as a failed one and log an
+        ERROR per mutation, which is what raises the UI's fault banner."""
         registry._settings_service = None
 
         with caplog.at_level(logging.DEBUG, logger="backend.core.multiroom.client_registry"):
@@ -354,14 +354,36 @@ class TestThePersistenceArms:
     ):
         """The in-memory registry is what the UI and every push read; a failed
         write must cost the reboot, not the change that just happened. The error
-        line is the only thing that says the two have diverged."""
-        settings.set_settings = AsyncMock(side_effect=OSError("read-only filesystem"))
+        line is the only thing that says the two have diverged, and the False is
+        what tells the admission to keep the pending identity.
+
+        `set_settings` reports a failed write by returning False, never by
+        raising (`@handle_errors(default=False)`), so that is the shape here."""
+        settings.set_settings = AsyncMock(return_value=False)
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.client_registry"):
-            await registry.register_client(MAC, "Canapé", IP)
+            persisted = await registry.register_client(MAC, "Canapé", IP)
 
+        assert persisted is False
         assert registry.get_client(MAC) is not None
         assert any("Failed to persist multiroom state" in r.message for r in caplog.records)
+
+    async def test_a_shutdown_flush_that_did_not_land_is_not_reported_as_done(
+        self, registry, settings, caplog
+    ):
+        """The shutdown flush is the last chance for an EQ drag's final value.
+        Logging "Flushed" over a write that failed tells whoever reads the
+        journal after a lost setting that it reached the disk."""
+        await registry.register_client(MAC, "Canapé", IP)
+        await registry.set_clients_equalizer({MAC: _eq()}, defer_persist=True)
+        settings.set_settings = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.INFO, logger="backend.core.multiroom.client_registry"):
+            await registry.cleanup()
+
+        settings.set_settings.assert_awaited_once()
+        assert not any("Flushed" in r.message for r in caplog.records)
+        assert [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_a_boot_without_a_settings_service_loads_nothing_and_succeeds(
         self, settings

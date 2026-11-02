@@ -347,48 +347,49 @@ class TestClientRegistryService:
         """Test registering a new client."""
         await registry.initialize()
 
-        client = await registry.register_client(
+        await registry.register_client(
             mac_id="local",
             name="Main",
             ip="127.0.0.1"
         )
 
-        assert client.mac_id == "local"
-        assert registry.get_client("local") is not None
+        assert registry.get_client("local").mac_id == "local"
 
     @pytest.mark.asyncio
     async def test_register_client_with_speaker_type(self, registry):
         """Test registering a client with speaker type."""
         await registry.initialize()
 
-        client = await registry.register_client(
+        await registry.register_client(
             mac_id="aa:bb:cc:dd:ee:ff",
             name="Kitchen",
             ip="192.168.1.100",
             speaker_type="satellite"
         )
 
-        assert client.speaker_type == "satellite"
+        assert registry.get_client("aa:bb:cc:dd:ee:ff").speaker_type == "satellite"
 
     @pytest.mark.asyncio
     async def test_update_existing_client(self, registry):
-        """Test that registering same mac_id returns existing client."""
+        """Test that registering same mac_id updates the existing client."""
         await registry.initialize()
 
-        client1 = await registry.register_client(
+        await registry.register_client(
+            mac_id="local",
+            name="Main",
+            ip="127.0.0.1"
+        )
+        client1 = registry.get_client("local")
+
+        # Register same mac_id - should update the existing client
+        await registry.register_client(
             mac_id="local",
             name="Main",
             ip="127.0.0.1"
         )
 
-        # Register same mac_id - should return existing client
-        client2 = await registry.register_client(
-            mac_id="local",
-            name="Main",
-            ip="127.0.0.1"
-        )
-
-        assert client1.mac_id == client2.mac_id
+        assert registry.get_client("local") is client1
+        assert len(registry.get_all_clients()) == 1
 
     @pytest.mark.asyncio
     async def test_unregister_client(self, registry):

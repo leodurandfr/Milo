@@ -109,8 +109,10 @@ class ClientRegistryService:
         """Flush a pending debounced persist, then drain the task set."""
         if self._persist_debounce_task and not self._persist_debounce_task.done():
             self._persist_debounce_task.cancel()
-            await self._persist_state()
-            self.logger.info("Flushed pending multiroom state on shutdown")
+            if await self._persist_state():
+                self.logger.info("Flushed pending multiroom state on shutdown")
+            else:
+                self.logger.error("Pending multiroom state was not flushed on shutdown")
         await self._bg.cancel_all()
 
     async def initialize(self) -> bool:
@@ -138,7 +140,7 @@ class ClientRegistryService:
         host: str = "",
         speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE,
         volume_control: Optional[bool] = None
-    ) -> Client:
+    ) -> bool:
         """
         Register a new client or update existing one.
 
@@ -152,7 +154,9 @@ class ClientRegistryService:
                 None preserves existing value for known clients, defaults to True for new ones.
 
         Returns:
-            The registered or updated client
+            Whether the registration reached settings.json. The client is held
+            in memory either way; False says it will not survive a restart, so
+            the caller must keep any other copy of its identity.
         """
         async with self._lock:
             existing = self._clients.get(mac_id)
@@ -185,13 +189,13 @@ class ClientRegistryService:
             self.logger.info(f"Client {event_type}: {mac_id} ({name})")
 
         # Persist and emit event outside lock
-        await self._persist_state()
+        persisted = await self._persist_state()
         await self._emit_event(event_type, {
             "mac_id": mac_id,
             "client": client.to_dict()
         })
 
-        return client
+        return persisted
 
     async def unregister_client(self, mac_id: str) -> bool:
         """
@@ -1183,7 +1187,7 @@ class ClientRegistryService:
 
         self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 
-    async def _persist_state(self) -> None:
+    async def _persist_state(self) -> bool:
         """Persist all multiroom state to settings in one atomic write.
 
         The only persist path, deliberately: clients, zones and equalizer are
@@ -1194,6 +1198,10 @@ class ClientRegistryService:
         a zone and an EQ record with it. ``set_setting`` is itself
         ``set_settings({k: v})``, one read-modify-write of the whole file, so
         writing three keys instead of one costs nothing.
+
+        Returns whether the write landed. A failure is logged and does not
+        raise: every mutator emits its event after this, and the in-memory
+        state stays what the UI and every push read.
         """
         # This write already carries everything a pending debounced one would.
         # `is not current_task` is load-bearing, not defensive: the debounced
@@ -1206,14 +1214,17 @@ class ClientRegistryService:
             pending.cancel()
 
         if not self._settings_service:
-            return
+            return True
 
-        try:
-            await self._settings_service.set_settings({
-                "multiroom.clients": self._clients_data(),
-                "multiroom.zones": self._zones_data(),
-                "multiroom.client_equalizer": self._client_equalizer_data(),
-            })
-        except Exception as e:
-            self.logger.error(f"Failed to persist multiroom state: {e}")
+        persisted = await self._settings_service.set_settings({
+            "multiroom.clients": self._clients_data(),
+            "multiroom.zones": self._zones_data(),
+            "multiroom.client_equalizer": self._client_equalizer_data(),
+        })
+        if not persisted:
+            self.logger.error(
+                "Failed to persist multiroom state: settings.json was not written, "
+                "the change is lost at the next restart"
+            )
+        return bool(persisted)
 

@@ -185,26 +185,33 @@ class IrRemoteController:
         paired_at = config.get('paired_at')
         self.paired_at = float(paired_at) if isinstance(paired_at, (int, float)) else None
 
-    async def _persist_config(self) -> None:
+    async def _persist_config(
+        self, enabled: bool, device_id: Optional[int], paired_at: Optional[float]
+    ) -> None:
+        """Write a candidate config; raises SettingsWriteError if it did not land.
+
+        Callers write before they take the values, so the controller never
+        holds a pairing or a switch that the next boot would not find.
+        """
         config = {
-            'enabled': self.enabled,
-            'device_id': self.device_id,
-            'paired_at': self.paired_at,
+            'enabled': enabled,
+            'device_id': device_id,
+            'paired_at': paired_at,
         }
-        await self.settings_service.set_setting('hardware.ir_remote', config)
+        await self.settings_service.set_setting_strict('hardware.ir_remote', config)
 
     async def update_config(self, partial: dict) -> None:
         """Apply a partial config update (currently only the `enabled` flag)."""
-        if 'enabled' in partial:
-            new_enabled = bool(partial['enabled'])
-            if new_enabled != self.enabled:
-                self.enabled = new_enabled
-                if self.enabled and self.paired:
-                    await self._start_runtime_listener()
-                else:
-                    await self._stop_runtime_listener()
+        new_enabled = bool(partial['enabled']) if 'enabled' in partial else self.enabled
+        await self._persist_config(new_enabled, self.device_id, self.paired_at)
 
-        await self._persist_config()
+        if new_enabled != self.enabled:
+            self.enabled = new_enabled
+            if self.enabled and self.paired:
+                await self._start_runtime_listener()
+            else:
+                await self._stop_runtime_listener()
+
         await self._broadcast_status()
 
     def get_status(self) -> dict:
@@ -494,12 +501,13 @@ class IrRemoteController:
                 logger.error("Failed to apply keymap for device_id=0x%02X: %s", device_id, e)
                 return {"status": "error", "message": f"Failed to apply keymap: {e}"}
 
+            paired_at = time.time()
+            # Auto-enable on first pairing so the remote works immediately.
+            await self._persist_config(True, device_id, paired_at)
             self.device_id = device_id
             self.paired = True
-            self.paired_at = time.time()
-            # Auto-enable on first pairing so the remote works immediately.
+            self.paired_at = paired_at
             self.enabled = True
-            await self._persist_config()
             await self._start_runtime_listener()
             await self._broadcast_status()
 
@@ -582,6 +590,9 @@ class IrRemoteController:
 
     async def unpair(self) -> None:
         """Forget the paired remote and clear the kernel keymap."""
+        # Leave `enabled` untouched: it's the header master switch, orthogonal to
+        # pairing, so an unpaired-but-enabled remote returns to the pairing wizard.
+        await self._persist_config(self.enabled, None, None)
         await self._stop_runtime_listener()
 
         try:
@@ -593,7 +604,4 @@ class IrRemoteController:
         self.paired = False
         self.device_id = None
         self.paired_at = None
-        # Leave `enabled` untouched: it's the header master switch, orthogonal to
-        # pairing, so an unpaired-but-enabled remote returns to the pairing wizard.
-        await self._persist_config()
         await self._broadcast_status()

@@ -1084,6 +1084,36 @@ class TestTheRemainingAdmissionArms:
 
         assert registry.get_client(MAC).volume_control is True
 
+    async def test_a_failed_registry_write_keeps_the_pending_identity(
+        self, service, monkeypatch, tmp_path
+    ):
+        """The pending entry is the only copy of the name the wizard took until
+        the registry has written it. Dropping it after a registry write that did
+        not land brought the satellite back after a restart named after its
+        Snapcast host — and `register_client` keeps a non-empty name, so no
+        later notification can repair it."""
+        from backend.core.multiroom import pending_clients as pending_clients_module
+        from backend.core.multiroom.pending_clients import PendingClientsService
+
+        monkeypatch.setattr(
+            pending_clients_module, "PENDING_CLIENTS_FILE", tmp_path / "pending_clients.json"
+        )
+        pending = PendingClientsService(state_machine=MagicMock(broadcast=AsyncMock()))
+        await pending.register_client(MAC, IP, hardware_configured=True, audio_id="hifiberry")
+        await pending.update_client(MAC, name="Cuisine", speaker_type="tower")
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_settings = AsyncMock(return_value=False)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        service._registry = registry
+        service._pending_clients_service = pending
+
+        await service._register_snapclient(MAC, HOST, IP, HOST)
+
+        assert registry.get_client(MAC).name == "Cuisine"
+        assert pending.get_client(MAC)["name"] == "Cuisine"
+
     async def test_starting_a_connection_that_is_already_starting_spawns_nothing(
         self, service
     ):

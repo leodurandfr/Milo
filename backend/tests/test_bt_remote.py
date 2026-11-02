@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.core.models.ws_events import BtRemoteConfigChanged, BtRemoteStatusChanged
+from backend.core.settings import SettingsWriteError
 from backend.hardware import bt_remote as bt_remote_module
 
 REMOTE_MAC = "AA:BB:CC:DD:EE:FF"
@@ -161,7 +162,7 @@ def bt(monkeypatch):
         "device_name_filter": "ANTICATER",
         "key_map": dict(bt_remote_module.DEFAULT_KEY_MAP),
     })
-    settings.set_setting = AsyncMock(return_value=True)
+    settings.set_setting_strict = AsyncMock()
 
     volume_service = MagicMock()
     volume_service.volume_config = types.SimpleNamespace(step_bt_remote_db=2.0)
@@ -248,6 +249,33 @@ def assert_bluetoothd_started_before_bluetoothctl(bt):
     assert all(kind != "bluetoothctl" for kind, _ in bt.log[:first_start]), (
         f"bluetoothctl ran before bluetoothd was started: {bt.log}"
     )
+
+
+@pytest.mark.parametrize("partial", [
+    {"device_name_filter": "OTHER"},
+    {"enabled": False},
+])
+@pytest.mark.asyncio
+async def test_a_failed_settings_write_is_not_broadcast(bt, partial):
+    """A full card or a read-only remount refuses the write. Broadcasting the
+    new config, or acting on it, shows every screen a state the next boot will
+    not load — and the panel already restores its previous state when the
+    request fails."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.settings.set_setting_strict = AsyncMock(
+        side_effect=SettingsWriteError("Failed to persist settings ['hardware.bt_remote']")
+    )
+
+    with pytest.raises(SettingsWriteError):
+        await bt.controller.update_config(partial)
+
+    assert not any(isinstance(e, BtRemoteConfigChanged) for e in bt.broadcasts)
+    assert bt.controller.enabled is True
+    assert bt.controller.running is True
+    assert bt.controller.device_name_filter == "ANTICATER"
+    assert bt.bluez.calls == []
+    bt.systemd.start.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2003,7 +2031,7 @@ class TestTheRemainingEntryGuards:
         await bt.controller.update_config({"key_map": {"200": "click"}})
 
         assert bt.controller.key_map == {"200": "click"}
-        stored = bt.settings.set_setting.await_args.args[1]
+        stored = bt.settings.set_setting_strict.await_args.args[1]
         assert stored["key_map"] == {"200": "click"}
 
     @pytest.mark.parametrize("bad", ["115:volume_up", None, 7])

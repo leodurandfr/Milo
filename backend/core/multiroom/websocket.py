@@ -591,10 +591,13 @@ class SnapcastWebSocketService:
                 kwargs["volume_control"] = self._volume_service.volume_control
             # When no pending entry and not local, volume_control is not passed —
             # register_client preserves existing value for known clients
-            await self.registry.register_client(mac_id, name, ip, **kwargs)
+            persisted = await self.registry.register_client(mac_id, name, ip, **kwargs)
 
             # Transfer complete — the registry now owns this client's identity.
-            if pending and self._pending_clients_service:
+            # Only once it is on disk: the pending entry is the one copy of the
+            # name the wizard took, and a registry that failed its write forgets
+            # it at the next restart.
+            if pending and persisted and self._pending_clients_service:
                 await self._pending_clients_service.remove_client(mac_id)
 
         return pending

@@ -220,19 +220,25 @@ class BtRemoteController:
     async def update_config(self, partial_config: dict):
         """Update configuration partially and persist."""
         async with self._config_lock:
-            if 'enabled' in partial_config:
-                self.enabled = bool(partial_config['enabled'])
-            if 'device_name_filter' in partial_config:
-                self.device_name_filter = str(partial_config['device_name_filter'])
-            if 'key_map' in partial_config and isinstance(partial_config['key_map'], dict):
-                self.key_map = partial_config['key_map']
-
             config = {
                 'enabled': self.enabled,
                 'device_name_filter': self.device_name_filter,
                 'key_map': self.key_map
             }
-            await self.settings_service.set_setting('hardware.bt_remote', config)
+            if 'enabled' in partial_config:
+                config['enabled'] = bool(partial_config['enabled'])
+            if 'device_name_filter' in partial_config:
+                config['device_name_filter'] = str(partial_config['device_name_filter'])
+            if 'key_map' in partial_config and isinstance(partial_config['key_map'], dict):
+                config['key_map'] = partial_config['key_map']
+
+            # Written before the controller takes it: a refused write raises
+            # here, leaving memory, the scanner and every screen on the config
+            # the next boot will load.
+            await self.settings_service.set_setting_strict('hardware.bt_remote', config)
+            self.enabled = config['enabled']
+            self.device_name_filter = config['device_name_filter']
+            self.key_map = config['key_map']
 
             # Handle enable/disable transitions
             transitioned = False
