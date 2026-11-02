@@ -146,8 +146,14 @@ watch(() => (store.signingIn ? null : store.account), (signedIn) => {
 }
 
 .shortcut-skeleton {
-  height: 48px;
+  height: 64px;
   border-radius: var(--radius-02);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .shortcut-skeleton {
+    height: 48px;
+  }
 }
 
 .section-skeleton-line {

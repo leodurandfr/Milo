@@ -4,7 +4,7 @@
       <LikedCover v-if="liked" />
       <LazyImage v-else :src="image || ''" :fallback="musicPlaceholder" :alt="title" lazy class="tile-image" />
     </div>
-    <p class="tile-name heading-4">{{ title }}</p>
+    <p class="tile-name" :class="isMobile ? 'heading-5' : 'heading-4'">{{ title }}</p>
   </div>
 </template>
 
@@ -12,6 +12,7 @@
 import LikedCover from '@/components/audio/LikedCover.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { useIsMobile } from '@/composables/useIsMobile';
 
 defineProps({
   title: {
@@ -30,6 +31,8 @@ defineProps({
 });
 
 defineEmits(['click']);
+
+const { isMobile } = useIsMobile();
 </script>
 
 <style scoped>
@@ -46,10 +49,17 @@ defineEmits(['click']);
 }
 
 .tile-cover {
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
   background: var(--color-surface-glass);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .tile-cover {
+    width: 48px;
+    height: 48px;
+  }
 }
 
 .tile-image {
@@ -61,8 +71,9 @@ defineEmits(['click']);
   margin: 0;
   min-width: 0;
   color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>
