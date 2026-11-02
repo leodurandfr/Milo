@@ -127,12 +127,13 @@ async def volume_state_store_with_registry(mock_settings_service, registry_with_
 
 
 async def _move_zone(store, registry, zone_id, delta_db):
-    """Move a zone through VolumeService over this store and registry; answer
-    what each speaker was sent."""
+    """Move a zone through VolumeService over this store and registry, with the
+    local CamillaDSP up; answer what each speaker was sent."""
     from backend.core.volume import VolumeService
 
     service = VolumeService(state_machine=Mock(broadcast=AsyncMock()), snapcast_service=Mock(),
-                            settings_service=Mock(get_setting=AsyncMock(return_value=None)))
+                            settings_service=Mock(get_setting=AsyncMock(return_value=None)),
+                            camilladsp_service=Mock(is_volume_control_available=Mock(return_value=True)))
     service._volume_config = store._volume_config
     service._state_store = store
     service._client_registry = registry

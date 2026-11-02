@@ -29,6 +29,14 @@ The rule below is derived, never typed: each scenario diffs the registry's own
 events to name exactly the ids that moved. A sixth membership path added later is
 covered without anyone thinking to write a test for it.
 
+The same moves rewrite client records too — leaving a zone clears `zone_id` and the
+`eq_independent` override — and zone events carry no client field, so the only
+thing that tells the frontend is CLIENT_UPDATED. Its client map is kept by those
+deltas alone, and the EQ store reads the flag from it to decide whether a zone
+member addresses its zone or its own MAC: a kiosk that missed the event kept
+sending band changes to one speaker of the zone that speaker had just joined. The
+second rule diffs every client record across the same scenarios.
+
 Doctrine note (as in the other architecture guardrails): the extractor asserts its
 own output is non-trivial first, so a scenario that mutates nothing fails loudly
 instead of passing on an empty diff.
@@ -59,6 +67,25 @@ async def _registry() -> ClientRegistryService:
     return registry
 
 
+async def _zoned_registry() -> ClientRegistryService:
+    """z1 = {c0, c1, c2}, z2 = {c3, c4}, c5 free — with the EQ of c0, c2, c3 and c4
+    detached from their zone, so a move that clears the flag shows in the records."""
+    registry = await _registry()
+    await registry.create_zone("z1", "Salon", ["c0", "c1", "c2"])
+    await registry.create_zone("z2", "Bureau", ["c3", "c4"])
+    for mac_id in ("c0", "c2", "c3", "c4"):
+        await registry.set_client_eq_independent(mac_id, True)
+    return registry
+
+
+def _records(registry) -> dict:
+    """Every client record, in the shape CLIENT_UPDATED carries it."""
+    return {
+        mac_id: registry.get_client(mac_id).to_dict()
+        for mac_id in registry.get_client_ids()
+    }
+
+
 def _membership(registry) -> dict:
     """The registry's own view of who is in which zone."""
     return {
@@ -69,9 +96,7 @@ def _membership(registry) -> dict:
 
 async def _run(mutation):
     """Apply one membership mutation, returning (changed zone ids, announced ids)."""
-    registry = await _registry()
-    await registry.create_zone("z1", "Salon", ["c0", "c1", "c2"])
-    await registry.create_zone("z2", "Bureau", ["c3", "c4"])
+    registry = await _zoned_registry()
 
     announced = set()
 
@@ -93,8 +118,8 @@ async def _run(mutation):
     return changed, announced
 
 
-# Every way a zone's member list can move. Both tests below run the whole set,
-# and they catch different halves: the announcement rule is what
+# Every way a zone's member list can move. The tests below all run the whole set,
+# and the two zone rules catch different halves: the announcement rule is what
 # `move_between_surviving_zones` broke, while `create_from_a_client_already_in_a_zone`
 # passes it vacuously — a zone that should have lost a member and did not shows no
 # diff to announce — and is caught by the one-zone-per-client rule instead. The
@@ -112,6 +137,8 @@ SCENARIOS = {
         lambda r: r.remove_client_from_zone("z2", "c4"),
     "unregister_a_member":
         lambda r: r.unregister_client("c2"),
+    "unregister_that_dissolves_the_zone":
+        lambda r: r.unregister_client("c4"),
     "delete_a_zone":
         lambda r: r.delete_zone("z1"),
     "create_from_free_clients":
@@ -136,6 +163,56 @@ async def test_every_zone_whose_membership_moved_is_announced(name):
     )
 
 
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+@pytest.mark.asyncio
+async def test_every_client_whose_record_moved_is_announced(name):
+    """Each client a membership change rewrote gets one CLIENT_UPDATED, and only those.
+
+    The payload is the record as it stands after the change: the frontend
+    replaces its copy with it whole. A client the change removed from the
+    registry is announced by CLIENT_DISCONNECTED instead.
+    """
+    registry = await _zoned_registry()
+    updated = {}
+    disconnected = set()
+
+    async def spy(event_type, data):
+        if event_type == RegistryEventType.CLIENT_UPDATED:
+            updated.setdefault(data["mac_id"], []).append(data["client"])
+        elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
+            disconnected.add(data["mac_id"])
+
+    registry.subscribe(spy)
+
+    before = _records(registry)
+    await SCENARIOS[name](registry)
+    after = _records(registry)
+
+    moved = {
+        mac_id
+        for mac_id in before.keys() | after.keys()
+        if before.get(mac_id) != after.get(mac_id)
+    }
+    assert moved, f"scenario {name!r} changed no client record — the guardrail is testing nothing"
+
+    removed = before.keys() - after.keys()
+    assert removed <= disconnected, (
+        f"{name}: {sorted(removed - disconnected)} left the registry unannounced"
+    )
+
+    rewritten = moved - removed
+    assert set(updated) == rewritten, (
+        f"{name}: CLIENT_UPDATED named {sorted(updated)}, the records that changed are "
+        f"{sorted(rewritten)}. The frontend keeps a stale zone_id and eq_independent "
+        f"for the missing ones until its next resync, and its EQ store addresses a "
+        f"zone member by its own MAC."
+    )
+    for mac_id, payloads in updated.items():
+        assert all(payload == after[mac_id] for payload in payloads), (
+            f"{name}: the CLIENT_UPDATED for {mac_id} does not carry its record as it now is"
+        )
+
+
 @pytest.mark.asyncio
 async def test_no_client_is_ever_listed_by_two_zones():
     """`client.zone_id` names one zone; `Zone.client_ids` must agree with it.
@@ -145,9 +222,7 @@ async def test_no_client_is_ever_listed_by_two_zones():
     zones act on it and `get_zone_for_client` can only ever answer one of them.
     """
     for name, mutation in sorted(SCENARIOS.items()):
-        registry = await _registry()
-        await registry.create_zone("z1", "Salon", ["c0", "c1", "c2"])
-        await registry.create_zone("z2", "Bureau", ["c3", "c4"])
+        registry = await _zoned_registry()
         await mutation(registry)
 
         zones = registry.get_all_zones().values()

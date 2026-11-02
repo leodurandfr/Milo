@@ -212,6 +212,7 @@ class ClientRegistryService:
             if mac_id not in self._clients:
                 return False
 
+            marks = self._client_marks()
             client = self._clients[mac_id]
             del self._clients[mac_id]
 
@@ -233,12 +234,14 @@ class ClientRegistryService:
             if mac_id in self._client_equalizer:
                 del self._client_equalizer[mac_id]
 
+            moved = self._clients_moved_since(marks)
             self.logger.info(f"Client unregistered: {mac_id}")
 
         # Persist changes
         await self._persist_state()
 
-        # Emit zone events before client event
+        # Zone events, then the member a dissolved zone left standalone, then
+        # the removal itself
         for zone_id, zone_dict in zones_modified:
             await self._emit_event(RegistryEventType.ZONE_UPDATED, {
                 "action": "updated",
@@ -251,6 +254,7 @@ class ClientRegistryService:
                 "zone_id": zone_id,
                 "zone": zone_dict
             })
+        await self._emit_client_updates(moved)
 
         await self._emit_event(RegistryEventType.CLIENT_DISCONNECTED, {
             "mac_id": mac_id
@@ -536,6 +540,7 @@ class ClientRegistryService:
         detachments: List[Optional[tuple]] = []
 
         async with self._lock:
+            marks = self._client_marks()
             if zone_id in self._zones:
                 raise ValueError(f"Zone {zone_id} already exists")
 
@@ -564,9 +569,11 @@ class ClientRegistryService:
             # the access layer applies the neutral zone EQ to each member)
             for cid in client_ids:
                 self._clients[cid].zone_id = zone_id
+            moved = self._clients_moved_since(marks)
 
         await self._persist_state()
         await self._emit_detachments(detachments)
+        await self._emit_client_updates(moved)
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
             "action": "created",
             "zone_id": zone_id,
@@ -582,12 +589,46 @@ class ClientRegistryService:
         EQ is a no-op here: each client already owns its EQ record, which it
         keeps when the zone goes away. The eq_independent override is cleared,
         though — it only means anything relative to a zone the client is in.
+        The caller announces each record this changes (see _client_marks).
         Must be called inside self._lock.
         """
         for mac_id in mac_ids:
             if mac_id in self._clients:
                 self._clients[mac_id].zone_id = None
                 self._clients[mac_id].eq_independent = False
+
+    def _client_marks(self) -> Dict[str, tuple]:
+        """Each client's (zone_id, eq_independent), read before a membership change.
+
+        Zone events carry no client field, so a record the change rewrites
+        reaches the frontend only as a CLIENT_UPDATED — and the EQ store reads
+        eq_independent from it to address a zone member's zone or its own MAC.
+        Must be called inside self._lock.
+        """
+        return {
+            mac_id: (client.zone_id, client.eq_independent)
+            for mac_id, client in self._clients.items()
+        }
+
+    def _clients_moved_since(self, marks: Dict[str, tuple]) -> List[tuple]:
+        """[(mac_id, client dict)] for each client still registered whose marks moved.
+
+        Must be called inside self._lock, once the change is complete, so each
+        payload is the record as it now stands.
+        """
+        return [
+            (mac_id, client.to_dict())
+            for mac_id, mark in marks.items()
+            if (client := self._clients.get(mac_id))
+            and (client.zone_id, client.eq_independent) != mark
+        ]
+
+    async def _emit_client_updates(self, moved: List[tuple]) -> None:
+        for mac_id, client_dict in moved:
+            await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+                "mac_id": mac_id,
+                "client": client_dict
+            })
 
     def _detach_from_zone(self, mac_id: str) -> Optional[tuple]:
         """Take a client out of the zone it is in, if any.
@@ -671,11 +712,13 @@ class ClientRegistryService:
             if zone_id not in self._zones:
                 return False
 
+            marks = self._client_marks()
             zone = self._zones[zone_id]
             zone_dict = self.zone_to_enriched_dict(zone)
 
             self._make_clients_standalone(zone.client_ids)
             del self._zones[zone_id]
+            moved = self._clients_moved_since(marks)
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_DELETED, {
@@ -683,6 +726,7 @@ class ClientRegistryService:
             "zone_id": zone_id,
             "zone": zone_dict
         })
+        await self._emit_client_updates(moved)
 
         self.logger.info(f"Zone deleted: {zone_id}")
         return True
@@ -733,6 +777,10 @@ class ClientRegistryService:
         If the client's previous zone becomes invalid (< 2 members), that zone is
         deleted and its remaining clients become standalone with the zone's EQ.
 
+        Announced in three steps: the zone left, then a CLIENT_UPDATED for each
+        client whose zone_id or eq_independent moved (the newcomer's override is
+        cleared), then the zone joined.
+
         Args:
             zone_id: The zone's ID
             mac_id: The client's mac_id
@@ -756,6 +804,7 @@ class ClientRegistryService:
             if mac_id in zone.client_ids:
                 return False
 
+            marks = self._client_marks()
             # Leave the previous zone, if any — announced by _emit_detachments
             # below whether that zone survived the departure or not.
             detached = self._detach_from_zone(mac_id)
@@ -767,12 +816,16 @@ class ClientRegistryService:
             client.eq_independent = False
             # EQ record is left as-is here; the caller adopts the zone's current
             # EQ onto the new member via MultiroomEqualizerService.set_client_eq().
+            moved = self._clients_moved_since(marks)
 
         await self._persist_state()
 
         # The departure is announced before the arrival, so a subscriber that
         # keys clients by zone never sees the same mac in two zones at once.
+        # The client updates go between: CrossoverService answers one by
+        # broadcasting the client's zone, which is already the new one.
         await self._emit_detachments([detached])
+        await self._emit_client_updates(moved)
 
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "action": "updated",
@@ -806,6 +859,7 @@ class ClientRegistryService:
             if mac_id not in zone.client_ids:
                 return False
 
+            marks = self._client_marks()
             # Client keeps its own EQ record when leaving the zone
             self._make_clients_standalone([mac_id])
             zone.client_ids.remove(mac_id)
@@ -816,6 +870,7 @@ class ClientRegistryService:
                 zone_dict = self.zone_to_enriched_dict(zone)
                 self._make_clients_standalone(zone.client_ids)
                 del self._zones[zone_id]
+            moved = self._clients_moved_since(marks)
 
         await self._persist_state()
 
@@ -839,6 +894,7 @@ class ClientRegistryService:
                 "zone_id": zone_id,
                 "zone": self.zone_to_enriched_dict(zone)
             })
+        await self._emit_client_updates(moved)
 
         self.logger.info(f"Client {mac_id} removed from zone {zone_id}")
         return True

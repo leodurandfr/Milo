@@ -3335,13 +3335,18 @@ class TestRegistryPersistenceRoundTrip:
 class TestEqIndependentFlag:
     """A zone member that detaches its EQ must stay detached across a restart.
 
-    `PUT /api/multiroom/clients/{mac}/eq-independent` is the only writer, and
-    `api/multiroom.py` delegates the whole effect here — its own test replaces
-    this method with a mock, so nothing ever ran it. Two things hang on it: the
-    flag is persisted (or the detach is undone by the next boot, and
-    MultiroomEqualizerService silently folds the client back into the zone
-    fan-out), and CLIENT_UPDATED is emitted (or the EQ tab strip in
-    `frontend/src/components/multiroom/` keeps showing it as a zone member).
+    `PUT /api/multiroom/clients/{mac}/eq-independent` is the only writer that
+    sets the flag, and `api/multiroom.py` delegates the whole effect here — its
+    own test replaces this method with a mock, so nothing ever ran it. Two
+    things hang on it: the flag is persisted (or the detach is undone by the
+    next boot, and MultiroomEqualizerService silently folds the client back
+    into the zone fan-out), and CLIENT_UPDATED is emitted (or the EQ tab strip
+    in `frontend/src/components/multiroom/` keeps showing it as a zone member).
+
+    Leaving a zone clears the flag, and that is announced the same way: the
+    frontend's EQ store reads it to address a zone member's zone or its own
+    MAC. Which clients a membership change must announce is the guardrail's in
+    tests/architecture/test_zone_membership_events.py; the order is here.
     """
 
     MAC = "aa:bb:cc:dd:ee:01"
@@ -3385,6 +3390,47 @@ class TestEqIndependentFlag:
 
         assert await registry.set_client_eq_independent("no:such:client", True) is None
         assert settings.writes == writes_before
+
+    @pytest.mark.parametrize("move", ["add_client_to_zone", "create_zone"])
+    async def test_moving_to_another_zone_announces_the_cleared_flag(self, move):
+        """The update lands after the departure and before the arrival.
+
+        CrossoverService answers a CLIENT_UPDATED by broadcasting the client's
+        zone itself, and the registry already holds the new one: announced
+        before the departure, the frontend and Milo-Mac would draw the mac in
+        two zones at once.
+        """
+        registry = await self._registry(_StoringSettings())
+        for i in range(5):
+            await registry.register_client(f"c{i}", f"Client {i}", f"192.168.1.2{i}")
+        await registry.create_zone("z1", "Salon", [self.MAC, "c0", "c1"])
+        await registry.create_zone("z2", "Bureau", ["c2", "c3"])
+        await registry.set_client_eq_independent(self.MAC, True)
+        seen = []
+
+        async def record(event_type, data):
+            seen.append((event_type, data))
+
+        registry.subscribe(record)
+        if move == "add_client_to_zone":
+            await registry.add_client_to_zone("z2", self.MAC)
+            arrival = (RegistryEventType.ZONE_UPDATED, "z2")
+        else:
+            await registry.create_zone("z3", "Cuisine", [self.MAC, "c4"])
+            arrival = (RegistryEventType.ZONE_CREATED, "z3")
+
+        updates = [
+            d["client"] for t, d in seen
+            if t == RegistryEventType.CLIENT_UPDATED and d["mac_id"] == self.MAC
+        ]
+        assert updates, "no CLIENT_UPDATED — the kiosk keeps the member detached in its new zone"
+        assert updates[-1]["eq_independent"] is False
+        assert updates[-1]["zone_id"] == registry.get_client(self.MAC).zone_id
+
+        order = [(t, d["zone_id"] if "zone_id" in d else d["mac_id"]) for t, d in seen]
+        departure = order.index((RegistryEventType.ZONE_UPDATED, "z1"))
+        update = order.index((RegistryEventType.CLIENT_UPDATED, self.MAC))
+        assert departure < update < order.index(arrival)
 
 
 @pytest.mark.asyncio
