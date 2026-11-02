@@ -1503,7 +1503,8 @@ class _Satellite:
     `hold(path)` keeps the first call to that path — or to "record", the whole
     EQ record — waiting until `release()`, which is how a write lands while an
     admission is still pushing. A held call lands when it is released, so
-    `last` is in arrival order.
+    `last` is in arrival order. While `refuses_records` is set, a record is
+    answered False and never lands, as a satellite whose CamillaDSP is down.
     """
 
     def __init__(self):
@@ -1511,6 +1512,7 @@ class _Satellite:
         self.records = []
         self.calls = Counter()
         self.reached = asyncio.Event()
+        self.refuses_records = False
         self._held = None
         self._released = asyncio.Event()
 
@@ -1534,6 +1536,8 @@ class _Satellite:
     async def apply_record(self, hostname, settings):
         self.calls[(hostname, "record")] += 1
         await self._gate("record")
+        if self.refuses_records:
+            return False
         self.records.append((hostname, settings.to_dict()))
         return True
 
@@ -1720,6 +1724,89 @@ class TestWhatChangesWhileAClientIsAdmitted:
         assert snapcast.set_latency.await_count == 1
         for setting in ("/equalizer/volume", "/equalizer/mute", "/equalizer/gain", "record"):
             assert world.satellite.calls[(IP, setting)] == 1, setting
+
+
+class RetriedPastItsBound(BaseException):
+    """The crossover's pending retries slept more often than they declare.
+
+    BaseException-derived so `_delayed_retry_pending`'s `@handle_errors` cannot
+    swallow it: the unbounded loop ends instead of hanging the drain.
+    """
+
+
+class TestAPendingRecordAcrossAdmissions:
+    """The EQ record a refused admission push queued, replayed at a later one.
+
+    CLIENT_CONNECTED replays the pending queue right after the admission pushed
+    the record the registry holds, so the replay is the last record to land.
+    Driven through the real registry, the crossover service that owns the queue
+    and the EQ service, over a simulated satellite: what breaks is a speaker
+    playing the EQ from before an edit while the kiosk, Milo-Mac and the
+    registry all show the edit, with nothing logged.
+    """
+
+    async def test_an_admission_push_is_not_undone_by_an_older_pending_record(
+        self, registry, snapcast, volume_service, monkeypatch, no_satellite_network
+    ):
+        from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+        from backend.core.multiroom.crossover import CrossoverService
+
+        satellite = _Satellite()
+        crossover = CrossoverService(proxy_service=satellite)
+        crossover.set_registry(registry)
+        state_machine = MagicMock()
+        state_machine.broadcast = AsyncMock()
+        service = SnapcastWebSocketService(
+            state_machine=state_machine,
+            routing_service=MagicMock(),
+            snapcast_service=snapcast,
+            crossover_service=crossover,
+            equalizer_client_proxy_service=satellite,
+        )
+        volume_service.equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
+        service.set_registry(registry)
+        service.set_volume_service(volume_service)
+        equalizer = MultiroomEqualizerService(client_registry_service=registry, proxy_service=satellite)
+
+        waits = []
+
+        async def _sleep(delay, *args, **kwargs):
+            waits.append(delay)
+            if len(waits) > 10:
+                raise RetriedPastItsBound
+            await _REAL_SLEEP(0)
+
+        monkeypatch.setattr(asyncio, "sleep", _sleep)
+
+        async def admit():
+            assert await service._sync_reconnecting_client_volume(
+                MAC, set_online_after=True, retry_delay=0.0, snapcast_id=SNAPCAST_ID,
+            ) is True
+            await drain_background_tasks()
+
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        await registry.set_client_equalizer(MAC, EqualizerSettings(
+            filters=[EqFilter(id="eq_band_00", frequency=1000, gain=-6.0)]
+        ))
+        queued = registry.get_client_equalizer(MAC).to_dict()
+
+        # Its DSP down: the admission push, the replay on CLIENT_CONNECTED and
+        # the delayed retries all fail, and the record stays queued.
+        satellite.refuses_records = True
+        await admit()
+        assert crossover.has_pending_settings(MAC), "the refused record was not queued"
+
+        satellite.refuses_records = False
+        record = await equalizer.get_client_eq(MAC)
+        record.filters[0].gain = 4.0
+        assert await equalizer.set_client_eq(MAC, record) is True
+
+        await registry.set_client_online(MAC, False)
+        await admit()
+
+        assert len(waits) <= 10, "the pending retries never ended"
+        assert registry.get_client_equalizer(MAC).to_dict() != queued, "the edit was not stored"
+        assert satellite.records[-1] == (IP, registry.get_client_equalizer(MAC).to_dict())
 
 
 class TestAClientSeenAgainAfterTheSocketDropped:

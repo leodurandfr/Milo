@@ -38,8 +38,10 @@ if TYPE_CHECKING:
 # not dispatched is silently discarded, since apply_pending_settings pops the
 # whole per-client dict. Pinned by tests/architecture/test_service_wiring.py.
 #
-# "record" holds a whole EqualizerSettings; crossover/lowpass stay separate
-# because they are derived from the zone's speaker layout, not from the record.
+# "record" says the client's whole EqualizerSettings is still to be pushed: the
+# replay pushes the record the registry holds then, never the queued value.
+# crossover/lowpass stay separate because they are derived from the zone's
+# speaker layout, not from the record.
 PENDING_SETTING_TYPES = frozenset({"crossover", "lowpass", "record"})
 
 
@@ -523,17 +525,25 @@ class CrossoverService:
 
         if "record" in pending:
             # Only ever queued for a remote client — the local client's record is
-            # equalizer.json, restored by CamillaDSPService itself.
+            # equalizer.json, restored by CamillaDSPService itself. The record
+            # pushed is the registry's, read now: the queued one is what the
+            # registry held when the push failed, and CLIENT_CONNECTED runs this
+            # right after the admission pushed the current one, so replaying the
+            # queued record would put the satellite back on an older EQ.
+            record = self._registry.get_client_equalizer(client_id) if self._registry else None
             client = self._registry.get_client(client_id) if self._registry else None
             applied = False
-            if client and client.ip and self._proxy_service:
-                applied = await self._proxy_service.apply_record(client.ip, pending["record"])
+            if record is None:
+                # Deleted with its client since: nothing is left to push.
+                self.logger.info(f"Dropped pending EQ record for {client_id}: the registry holds none")
+            elif client and client.ip and self._proxy_service:
+                applied = await self._proxy_service.apply_record(client.ip, record)
                 if not applied:
                     self.logger.warning(f"Failed to apply pending EQ record to {client_id}")
             else:
                 self.logger.warning(f"Cannot apply pending EQ record: client {client_id} unreachable")
 
-            if not applied:
+            if record is not None and not applied:
                 success = False
                 # Unlike crossover/lowpass above, nothing else re-applies a
                 # record: the zone recalculation that covers those filters does
@@ -542,7 +552,7 @@ class CrossoverService:
                 # booted with until someone edits the EQ by hand — and the
                 # unreachable branch is the *likely* one, since a client that
                 # just failed admission is exactly a client without an ip yet.
-                self._pending_settings.setdefault(client_id, {})["record"] = pending["record"]
+                self._pending_settings.setdefault(client_id, {})["record"] = record
 
         return success
 

@@ -1483,8 +1483,8 @@ class TestPendingEqualizerSettings:
         return proxy
 
     @pytest.fixture
-    def crossover_service(self, mock_proxy):
-        """CrossoverService whose registry knows one remote satellite.
+    def mock_registry(self):
+        """A registry that knows one remote satellite and holds no record yet.
 
         Remote on purpose: an EQ record is only ever queued for a satellite —
         the local client's record is equalizer.json, restored by CamillaDSPService
@@ -1498,7 +1498,12 @@ class TestPendingEqualizerSettings:
         mock_registry.get_client = MagicMock(
             side_effect=lambda x: satellite if x == "aa:bb:cc:dd:ee:ff" else None
         )
+        mock_registry.get_client_equalizer = MagicMock(return_value=None)
+        return mock_registry
 
+    @pytest.fixture
+    def crossover_service(self, mock_proxy, mock_registry):
+        """CrossoverService over that registry."""
         service = CrossoverService(
             settings_service=AsyncMock(),
             camilladsp_service=AsyncMock(),
@@ -1518,9 +1523,12 @@ class TestPendingEqualizerSettings:
         assert crossover_service._pending_settings["aa:bb:cc:dd:ee:ff"]["record"] is record
 
     @pytest.mark.asyncio
-    async def test_apply_pending_record_pushes_it_whole(self, crossover_service, mock_proxy):
+    async def test_apply_pending_record_pushes_it_whole(
+        self, crossover_service, mock_proxy, mock_registry
+    ):
         from backend.core.multiroom.models import EqualizerSettings
         record = EqualizerSettings.default()
+        mock_registry.get_client_equalizer.return_value = record
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "record", record)
 
         result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
@@ -1530,10 +1538,11 @@ class TestPendingEqualizerSettings:
         assert not crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
     @pytest.mark.asyncio
-    async def test_failed_replay_is_reported(self, crossover_service, mock_proxy):
+    async def test_failed_replay_is_reported(self, crossover_service, mock_proxy, mock_registry):
         """A replay that fails reports it, so the caller's retry loop keeps going."""
         from backend.core.multiroom.models import EqualizerSettings
         mock_proxy.apply_record.return_value = False
+        mock_registry.get_client_equalizer.return_value = EqualizerSettings.default()
         await crossover_service.queue_pending_settings(
             "aa:bb:cc:dd:ee:ff", "record", EqualizerSettings.default()
         )
@@ -1541,8 +1550,9 @@ class TestPendingEqualizerSettings:
         assert await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff") is False
 
     @pytest.mark.asyncio
-    async def test_clear_pending_after_apply(self, crossover_service):
+    async def test_clear_pending_after_apply(self, crossover_service, mock_registry):
         from backend.core.multiroom.models import EqualizerSettings
+        mock_registry.get_client_equalizer.return_value = EqualizerSettings.default()
         await crossover_service.queue_pending_settings(
             "aa:bb:cc:dd:ee:ff", "record", EqualizerSettings.default()
         )

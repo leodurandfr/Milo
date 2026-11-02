@@ -54,6 +54,7 @@ def mock_registry():
     registry = MagicMock()
     registry._clients = {}
     registry._zones = {}
+    registry._client_equalizer = {}
 
     def get_client(mac_id):
         return registry._clients.get(mac_id)
@@ -88,6 +89,7 @@ def mock_registry():
         return result
 
     registry.get_client = MagicMock(side_effect=get_client)
+    registry.get_client_equalizer = MagicMock(side_effect=registry._client_equalizer.get)
     registry.get_zone = MagicMock(side_effect=get_zone)
     registry.get_zone_for_client = MagicMock(side_effect=get_zone_for_client)
     registry.is_client_online = MagicMock(side_effect=is_client_online)
@@ -466,6 +468,7 @@ class TestPendingSettingsQueue:
             mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
         )
         record = EqualizerSettings.default()
+        registry._client_equalizer["sat-1"] = record
 
         await service.queue_pending_settings("sat-1", "crossover", {"enabled": True, "frequency": 80})
         await service.queue_pending_settings("sat-1", "lowpass", {"enabled": False, "frequency": 80})
@@ -499,6 +502,7 @@ class TestPendingSettingsQueue:
             mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
         )
         record = EqualizerSettings.default()
+        registry._client_equalizer["sat-1"] = record
         mock_proxy_service.apply_record = AsyncMock(return_value=False)
 
         await service.queue_pending_settings("sat-1", "crossover", {"enabled": True, "frequency": 80})
@@ -520,13 +524,67 @@ class TestPendingSettingsQueue:
         """
         from backend.core.multiroom.models import EqualizerSettings
 
-        service, _registry = crossover_service_with_registry
+        service, registry = crossover_service_with_registry
         record = EqualizerSettings.default()
+        registry._client_equalizer["sat-1"] = record
 
         await service.queue_pending_settings("sat-1", "record", record)
 
         assert await service.apply_pending_settings("sat-1") is False
         assert service._pending_settings["sat-1"]["record"] is record
+
+    @pytest.mark.asyncio
+    async def test_a_pending_record_replays_the_current_record_not_the_queued_one(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """The replay pushes the record the registry holds now.
+
+        What is queued is the record read when the push failed, and every write
+        since replaced the registry's copy. CLIENT_CONNECTED replays the queue
+        right after the admission pushed the current record, so replaying the
+        queued one put the satellite back on the older EQ while the kiosk,
+        Milo-Mac and the registry all showed the newer one.
+        """
+        from backend.core.multiroom.models import EqFilter, EqualizerSettings
+
+        service, registry = crossover_service_with_registry
+        registry._clients["sat-1"] = Client(
+            mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
+        )
+        queued = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=-6.0)])
+        registry._client_equalizer["sat-1"] = EqualizerSettings(
+            filters=[EqFilter(id="eq_band_00", frequency=1000, gain=4.0)]
+        )
+
+        await service.queue_pending_settings("sat-1", "record", queued)
+
+        assert await service.apply_pending_settings("sat-1") is True
+        mock_proxy_service.apply_record.assert_awaited_once_with(
+            "192.168.1.20", registry.get_client_equalizer("sat-1")
+        )
+        assert not service.has_pending_settings("sat-1")
+
+    @pytest.mark.asyncio
+    async def test_a_pending_record_the_registry_no_longer_holds_is_dropped(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """A client deleted and added again since the failed push has no record.
+
+        Deleting a client deletes its record, so replaying the queued one would
+        hand the re-added speaker an EQ nobody can see or edit, and requeueing it
+        would keep the retries alive for a record that no longer exists.
+        """
+        from backend.core.multiroom.models import EqualizerSettings
+
+        service, registry = crossover_service_with_registry
+        registry._clients["sat-1"] = Client(
+            mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
+        )
+        await service.queue_pending_settings("sat-1", "record", EqualizerSettings.default())
+
+        assert await service.apply_pending_settings("sat-1") is True
+        mock_proxy_service.apply_record.assert_not_awaited()
+        assert not service.has_pending_settings("sat-1")
 
     @pytest.mark.asyncio
     async def test_unknown_setting_type_fails_loud(self, crossover_service):
