@@ -545,6 +545,7 @@ async def initialize_services() -> None:
     music_library_source = get_service("music_library_source")
     qobuz_source = get_service("qobuz_source")
     spotify_source = get_service("spotify_source")
+    bluetooth_source = get_service("bluetooth_source")
 
     async def init_async():
         """Async initialization with error handling."""
@@ -590,6 +591,9 @@ async def initialize_services() -> None:
             ("qobuz_source", qobuz_source.initialize()),
             # The kept Spotify profiles (fail-loud on schema_version drift)
             ("spotify_source", spotify_source.initialize()),
+            # The exposure a backend killed outright left open (fail-open
+            # without bluetoothd)
+            ("bluetooth_source", bluetooth_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
             ("hostname_conflict_service", first_hostname_check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)

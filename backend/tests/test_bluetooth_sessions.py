@@ -13,16 +13,21 @@ import logging
 import pytest
 
 from backend.core.models.ws_events import SourceErrorReason
+from backend.sources.bluetooth import source as source_module
 from backend.tests.bluetooth_world import (
-    APLAY_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, SAYS, Bluetooth,
+    APLAY_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, SAYS, Bluetooth,
 )
+from backend.tests.golden.harness import settle
+
+EVERY_SENDER = sorted(p.alias for p in (IPHONE, MAC_MINI, PIXEL))
 
 
 @pytest.fixture
 async def bt(monkeypatch):
     world = Bluetooth(monkeypatch)
     yield world
-    await world.source.shutdown()
+    for source in (*world.dead_sources, world.source):
+        await source.shutdown()
 
 
 async def playing_iphone(bt, track=SAYS):
@@ -316,6 +321,95 @@ async def test_the_appliance_reopens_when_bluealsa_is_back(bt):
     assert not bt.exposed()
     await bt.bluealsa_restarted_by_systemd()
     assert bt.exposed()
+
+
+async def test_a_backend_restart_with_no_phone_closes_the_appliance(bt, caplog):
+    """A restart's first half, BlueALSA stopped while the backend still runs.
+    With nothing linked no session ends, and the end of a session was the
+    only thing that closed the exposure: the backend came back on no source
+    with bluetooth.service still up, Milō discoverable and pairable with no
+    sink behind it, every paired phone unblocked, until Bluetooth was picked
+    again."""
+    await bt.select()
+    assert bt.exposed()
+    await bt.bluealsa_stopped_by_systemd()
+    assert not bt.exposed()
+    assert bt.blocked() == EVERY_SENDER
+    assert [r.getMessage() for r in caplog.records if r.levelname == "ERROR"] == []
+
+
+async def test_a_backend_teardown_closes_the_appliance(bt):
+    """The teardown is the last thing the source runs: whatever BlueALSA did
+    before it, nothing after it writes the exposure."""
+    await bt.select()
+    await bt.source.shutdown()
+    assert not bt.exposed()
+    assert bt.blocked() == EVERY_SENDER
+
+
+async def test_a_teardown_under_a_phone_blocks_it_too(bt):
+    """The phone holding the link is spared only while the source runs: past
+    the teardown no sink is left for it, and it would dial back into an
+    appliance with no source while the backend is down."""
+    await playing_iphone(bt)
+    await bt.source.shutdown()
+    assert bt.blocked() == EVERY_SENDER
+
+
+async def test_a_teardown_of_a_source_never_started_writes_nothing(bt, caplog):
+    """The HID remote alone keeps bluetooth.service running, or nothing does:
+    a teardown that wrote the exposure regardless would log an error on every
+    restart with bluetoothd stopped (smoke check: no new ERROR after a
+    restart)."""
+    bt.units[BLUEZ_UNIT] = False
+    bt.bluez.bluez_up = False
+    await bt.source.shutdown()
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+async def test_a_silent_bluetoothd_cannot_hold_the_teardown(bt, monkeypatch, caplog):
+    """Every source shares one teardown entry (main.py's CLEANUP_TIMEOUT_S):
+    an exposure write left to its per-call D-Bus bounds would deny the sources
+    after Bluetooth their own shutdown."""
+    monkeypatch.setattr(source_module, "SHUTDOWN_EXPOSURE_TIMEOUT_S", 0.05)
+    await bt.select()
+    bt.bluez.adapter_gate = asyncio.Event()
+    await asyncio.wait_for(bt.source.shutdown(), 5)
+    assert [r.name for r in caplog.records if r.levelno == logging.WARNING] == ["source.bluetooth"]
+
+
+async def test_a_backend_that_died_open_is_closed_at_its_next_start(bt):
+    """Killed outright, the backend runs no teardown, and BlueZ keeps what it
+    was told — Blocked is durable. The next backend never selects Bluetooth
+    on its own, so its boot is the only moment left to close it."""
+    await bt.select()
+    await bt.backend_killed_and_restarted()
+    assert bt.exposed() and bt.blocked() == []
+    await bt.source.initialize()
+    await settle()
+    assert not bt.exposed()
+    assert bt.blocked() == EVERY_SENDER
+
+
+async def test_a_boot_with_bluetoothd_stopped_touches_nothing(bt, caplog):
+    """bluetooth.service runs only for the source or the HID remote: with
+    neither, every write would fail and log an error at each boot."""
+    await bt.select()
+    await bt.backend_killed_and_restarted()
+    bt.units[BLUEZ_UNIT] = False
+    bt.bluez.bluez_up = False
+    assert await bt.source.initialize()
+    await settle()
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+async def test_a_boot_that_finds_the_source_already_selected_leaves_it_open(bt):
+    """A MENU press can select Bluetooth while the boot initializes: its start
+    opened the appliance, and the boot's closing must not undo it."""
+    await bt.select()
+    await bt.source.initialize()
+    await settle()
+    assert bt.exposed() and bt.blocked() == []
 
 
 async def test_a_monitor_terminated_while_bluealsa_runs_is_still_a_lost_feed(bt):

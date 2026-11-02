@@ -62,7 +62,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from backend.core.audio_source import BaseAudioSource
+from backend.core.audio_source import BaseAudioSource, Result
 from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy,
     ReroutePolicy, Session,
@@ -80,6 +80,14 @@ from backend.shared.decorators import handle_errors
 # is tried again, a few times, before the failure is reported.
 ADAPTER_CONFIGURE_ATTEMPTS = 5
 ADAPTER_CONFIGURE_RETRY_S = 0.5
+
+# Closing the exposure from outside a start or a stop. At teardown every source
+# shares main.py's one CLEANUP_TIMEOUT_S (3 s) entry and Bluetooth is not last,
+# so the per-call D-Bus bounds (10 s each) would deny the sources after it their
+# shutdown. At boot the close holds the mailbox, so a Bluetooth selection waits
+# behind it inside its own 15 s transition budget.
+SHUTDOWN_EXPOSURE_TIMEOUT_S = 1.5
+BOOT_EXPOSURE_TIMEOUT_S = 5.0
 
 
 @dataclass(eq=False)
@@ -284,9 +292,47 @@ class BluetoothSource(BaseAudioSource):
         self._publish()
         return True
 
+    async def initialize(self) -> bool:
+        """Close what a backend killed outright left open.
+
+        No teardown ran then, and BlueZ keeps what it was told — Blocked is
+        durable, and bluetooth.service outlives the backend — while a new
+        backend never selects Bluetooth on its own. With bluetoothd stopped
+        there is nothing to close, and every write would fail. Beside the boot:
+        the API answers nothing until init_async returns, and a silent
+        bluetoothd would hold it for the whole bound.
+        """
+        if not await self._is_service_active(self.bluetooth_service):
+            self._logger.debug(f"{self.bluetooth_service} is not running — no exposure to close")
+        else:
+            self._bg.spawn(self._submit(Result(self._close_at_boot)), label="close_at_boot")
+        return await super().initialize()
+
+    async def _close_at_boot(self) -> None:
+        # A MENU press can select the source while the boot initializes.
+        if not self._running:
+            await self._close_exposure(BOOT_EXPOSURE_TIMEOUT_S, "the appliance may stay visible")
+
     async def shutdown(self) -> None:
         await super().shutdown()
+        was_running, self._running = self._running, False
         await self._cleanup()
+        # Only a running source opened anything; closing regardless would fail
+        # on every teardown with bluetoothd stopped.
+        if was_running:
+            await self._close_exposure(SHUTDOWN_EXPOSURE_TIMEOUT_S, "the next boot closes it")
+        else:
+            await self.adapter.close()
+
+    async def _close_exposure(self, timeout: float, consequence: str) -> None:
+        """Close the exposure with no source running, bounded, then release the bus."""
+        try:
+            await asyncio.wait_for(self._apply_exposure(), timeout)
+        except asyncio.TimeoutError:
+            self._logger.warning(
+                f"Bluetooth exposure not closed within {timeout} s — {consequence}"
+            )
+        await self.adapter.close()
 
     COMMANDS = {
         "disconnect": None,
@@ -492,6 +538,9 @@ class BluetoothSource(BaseAudioSource):
             session = self._session
             if session is not None:
                 await self._daemon_gone(session)
+            else:
+                # No sink: no session ends to close the exposure, so close it here.
+                await self._apply_exposure()
             return []
         self._bluealsa_up = True
         banners = []
@@ -509,7 +558,8 @@ class BluetoothSource(BaseAudioSource):
         """BlueALSA's process ended under the session (its watch, or the
         monitor's `ServiceStopped`, whichever is heard first): no sink until it
         is back, so nothing is offered meanwhile — not even after a backend
-        restart, which stops BlueALSA and leaves bluetooth.service running."""
+        restart, which stops BlueALSA and leaves bluetooth.service running.
+        Without a session `_bluealsa_moved` closes the exposure itself."""
         self._bluealsa_up = False
         await super()._daemon_gone(session)
 
@@ -683,12 +733,14 @@ class BluetoothSource(BaseAudioSource):
             currently connected is exempt: blocking it would drop the audio it
             is playing.
 
-        Blocking writes durable per-device state, so a backend that dies leaves
-        senders blocked; the unblock half runs on every source start, which is
-        the reconciliation that recovers it.
+        Blocking writes durable per-device state, and bluetooth.service
+        outlives the backend, so both halves are reconciled: the unblock half
+        on every source start, the block half at teardown (`shutdown`) and at
+        boot (`initialize`, for a backend killed before its teardown ran).
         """
         may_accept = self._may_accept_sender()
-        holder = self._session.sender if self._session is not None else None
+        # Past the teardown no sink is left to keep a holder's link for.
+        holder = self._session.sender if self._session is not None and self._running else None
 
         exposed = await self.adapter.set_exposure(discoverable=may_accept, pairable=may_accept)
         unblocked = await self.adapter.set_audio_peers_blocked(

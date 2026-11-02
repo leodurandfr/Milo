@@ -719,7 +719,14 @@ class Bluetooth(WireReader):
         systemd.unit_state = AsyncMock(side_effect=lambda unit, *a: (
             self.bluez_state if unit == BLUEZ_UNIT else self.bluealsa_state))
         self.systemd = systemd
+        self._settings = settings
+        # Sources of backends that died before this one: the fixture shuts
+        # them down only after the scenario's assertions.
+        self.dead_sources: List[BluetoothSource] = []
+        self._boot()
 
+    def _boot(self) -> None:
+        """One backend process: a state machine and its Bluetooth source."""
         self.machine, recorder = make_state_machine()
         self.recorder = recorder
         # Whether the adapter was open when each envelope went out: what a
@@ -735,8 +742,8 @@ class Bluetooth(WireReader):
         self.source = BluetoothSource(
             {},
             state_machine=self.machine,
-            settings_service=make_settings(settings),
-            systemd_manager=systemd,
+            settings_service=make_settings(self._settings),
+            systemd_manager=self.systemd,
         )
         self.machine.register_source(AudioSource.BLUETOOTH, self.source)
 
@@ -913,6 +920,23 @@ class Bluetooth(WireReader):
         self._bluealsa_spawn()
         self.units[BLUEALSA_UNIT] = True
         self.bluez.bluealsa_returns()
+        await settle()
+
+    async def backend_killed_and_restarted(self) -> None:
+        """SIGKILL of the backend: no teardown runs, systemd stops what
+        `BindsTo=` it (BlueALSA, then aplay), bluetooth.service is not bound
+        and keeps running, and a new backend boots with nothing selected. BlueZ
+        keeps every Blocked and adapter property the dead process wrote."""
+        self.dead_sources.append(self.source)
+        # A dead process holds no bus connection: its listeners hear nothing.
+        self.bluez.handlers.clear()
+        self.units[APLAY_UNIT] = False
+        self.units[BLUEALSA_UNIT] = False
+        self.bluealsa_state = ("inactive", "success")
+        self.bluez.bluealsa_up = False
+        self.bluealsa_pid = None
+        self.watches.clear()
+        self._boot()
         await settle()
 
     async def monitor_dies(self) -> None:
